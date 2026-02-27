@@ -1,0 +1,62 @@
+<section class="chat">
+  <header class="chat-header">
+    <h1>Head Agent Chat</h1>
+    <span [class.online]="isConnected" [class.offline]="!isConnected">
+      {{ isConnected ? 'connected' : 'disconnected' }}
+    </span>
+  </header>
+
+  <div class="workspace">
+    <div class="chat-log">
+      <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
+        {{ line.text }}
+      </div>
+    </div>
+
+    <aside class="lifecycle-log">
+      <h2>Lifecycle</h2>
+      <div class="event" *ngFor="let item of lifecycleLines">
+        <div class="meta">{{ item.time }} · {{ item.type }}</div>
+        <div class="text">{{ item.text }}</div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="composer">
+    <div class="first-run" *ngIf="firstRunChoicePending">
+      <p>First run: choose your runtime mode.</p>
+      <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
+      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (qwen2.5:7b-instruct)</button>
+    </div>
+
+    <div class="controls">
+      <label>
+        Agent
+        <select [(ngModel)]="selectedAgentId" [disabled]="firstRunChoicePending">
+          <option *ngFor="let agent of agents" [value]="agent.id">{{ agent.name }}</option>
+        </select>
+      </label>
+      <label>
+        Runtime
+        <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
+          <option value="local">local-70b</option>
+          <option value="api">api-qwen2.5:7b-instruct</option>
+        </select>
+      </label>
+      <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
+      <button class="secondary" (click)="resetRuntimePreference()">Reset Runtime Choice</button>
+      <label>
+        Model
+        <input [(ngModel)]="model" placeholder="llama70b model name" [disabled]="firstRunChoicePending" />
+      </label>
+    </div>
+    <div class="auth-block" *ngIf="authUrl">
+      <p>Authentication required for API runtime.</p>
+      <a [href]="authUrl" target="_blank" rel="noreferrer">Open auth URL</a>
+      <input [(ngModel)]="apiKeyInput" placeholder="Optional API key" />
+      <button (click)="confirmAuthComplete()" [disabled]="!isConnected || firstRunChoicePending">I completed login</button>
+    </div>
+    <textarea [(ngModel)]="input" rows="3" placeholder="Describe what the head agent should build..."></textarea>
+    <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>
+  </div>
+</section>

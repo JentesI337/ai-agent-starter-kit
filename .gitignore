@@ -1,0 +1,38 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Python virtual environments
+.venv/
+backend/.venv/
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local environment files
+.env
+backend/.env
+frontend/.env
+
+# Runtime state/logs
+backend/memory_store/
+backend/runtime_state.json
+*.log
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Frontend build outputs
+frontend/dist/
+dist/
+
+# IDE
+.vscode/
+.idea/

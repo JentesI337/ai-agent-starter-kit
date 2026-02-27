@@ -1,0 +1,43 @@
+:host {
+	display: block;
+	height: 100vh;
+	background: #f3f4f6;
+	color: #111827;
+}
+
+.layout {
+	display: grid;
+	grid-template-columns: 220px 1fr;
+	height: 100%;
+}
+
+.nav {
+	display: grid;
+	align-content: start;
+	gap: 8px;
+	border-right: 1px solid #d9d9d9;
+	background: #ffffff;
+	padding: 16px;
+}
+
+.nav h1 {
+	margin: 0 0 8px;
+	font-size: 1.1rem;
+}
+
+.nav a {
+	text-decoration: none;
+	color: inherit;
+	border-radius: 8px;
+	padding: 8px;
+}
+
+.nav a.active {
+	background: #eaf3ff;
+	font-weight: 600;
+}
+
+.content {
+	padding: 16px;
+	min-height: 0;
+}
