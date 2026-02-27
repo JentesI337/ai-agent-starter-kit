@@ -52,6 +52,7 @@
     </div>
     <div class="auth-block" *ngIf="authUrl">
       <p>Authentication required for API runtime.</p>
+      <p>1) Open the auth URL and approve access. 2) Return here and click “I completed login”.</p>
       <a [href]="authUrl" target="_blank" rel="noreferrer">Open auth URL</a>
       <input [(ngModel)]="apiKeyInput" placeholder="Optional API key" />
       <button (click)="confirmAuthComplete()" [disabled]="!isConnected || firstRunChoicePending">I completed login</button>

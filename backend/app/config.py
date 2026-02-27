@@ -24,6 +24,7 @@ class Settings(BaseModel):
     api_base_url: str = os.getenv("API_BASE_URL", os.getenv("LLM_BASE_URL", "http://localhost:11434/v1"))
     api_auth_key: str = os.getenv("LLAMA_API_KEY", os.getenv("LLM_API_KEY", ""))
     llama_auth_url: str = os.getenv("LLAMA_AUTH_URL", "https://ollama.com/signin")
+    ollama_bin: str = os.getenv("OLLAMA_BIN", "")
     runtime_state_file: str = os.getenv("RUNTIME_STATE_FILE", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runtime_state.json")))
 
 

@@ -35,10 +35,10 @@ function Warn-RootVenvConflict {
     }
 }
 
-function Test-TcpPort([string]$Host, [int]$Port) {
+function Test-TcpPort([string]$HostName, [int]$Port) {
     try {
         $client = New-Object System.Net.Sockets.TcpClient
-        $iar = $client.BeginConnect($Host, $Port, $null, $null)
+        $iar = $client.BeginConnect($HostName, $Port, $null, $null)
         $ok = $iar.AsyncWaitHandle.WaitOne(700)
         if (-not $ok) {
             $client.Close()
@@ -54,7 +54,7 @@ function Test-TcpPort([string]$Host, [int]$Port) {
 }
 
 function Ensure-Port-Free([int]$Port, [string]$ServiceName) {
-    if (Test-TcpPort -Host '127.0.0.1' -Port $Port) {
+    if (Test-TcpPort -HostName '127.0.0.1' -Port $Port) {
         throw "Port conflict: $ServiceName cannot start because port $Port is already in use. Please choose another port."
     }
 }
@@ -72,6 +72,26 @@ function Ensure-Command([string]$Name, [string]$InstallHint) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         throw "$Name not found. $InstallHint"
     }
+}
+
+function Get-OllamaBinaryPath {
+    $cmd = Get-Command ollama -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) {
+        return $cmd.Source
+    }
+
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
+        'C:\Program Files\Ollama\ollama.exe'
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
 }
 
 function Ensure-Python {
@@ -105,35 +125,41 @@ function Ensure-Node {
 }
 
 function Ensure-Ollama {
-    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    $ollamaPath = Get-OllamaBinaryPath
+    if (-not $ollamaPath) {
         Write-Step "Ollama not found, trying install via winget"
         if (Get-Command winget -ErrorAction SilentlyContinue) {
             winget install --id Ollama.Ollama -e --accept-package-agreements --accept-source-agreements
         }
+        Start-Sleep -Seconds 2
+        $ollamaPath = Get-OllamaBinaryPath
     }
 
-    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    if (-not $ollamaPath) {
         throw "Ollama install failed. Install from https://ollama.com and rerun script."
     }
+
+    return $ollamaPath
 }
 
 function Ensure-Ollama-Running([int]$Port) {
-    if (Test-TcpPort -Host '127.0.0.1' -Port $Port) {
+    $ollamaPath = Ensure-Ollama
+    if (Test-TcpPort -HostName '127.0.0.1' -Port $Port) {
         Ensure-Ollama-Endpoint -Port $Port
         Write-Host "Ollama already running on port $Port"
-        return
+        return $ollamaPath
     }
 
     Write-Step "Starting Ollama on port $Port"
     $env:OLLAMA_HOST = "127.0.0.1:$Port"
-    Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Minimized | Out-Null
+    Start-Process -FilePath $ollamaPath -ArgumentList "serve" -WindowStyle Minimized | Out-Null
 
     for ($i = 0; $i -lt 15; $i++) {
         Start-Sleep -Seconds 1
-        if (Test-TcpPort -Host '127.0.0.1' -Port $Port) {
+        if (Test-TcpPort -HostName '127.0.0.1' -Port $Port) {
             Ensure-Ollama-Endpoint -Port $Port
             Write-Host "Ollama started on port $Port"
-            return
+            return $ollamaPath
         }
     }
 
@@ -168,6 +194,31 @@ function Ensure-BackendEnv([int]$Port) {
     }
 
     Set-Content -Path $envFile -Value $updated -Encoding UTF8
+}
+
+function Upsert-EnvVar([string]$FilePath, [string]$Name, [string]$Value) {
+    $lines = @()
+    if (Test-Path $FilePath) {
+        $lines = Get-Content $FilePath
+    }
+
+    $updated = @()
+    $found = $false
+    foreach ($line in $lines) {
+        if ($line -match "^$Name=") {
+            $updated += "$Name=$Value"
+            $found = $true
+        }
+        else {
+            $updated += $line
+        }
+    }
+
+    if (-not $found) {
+        $updated += "$Name=$Value"
+    }
+
+    Set-Content -Path $FilePath -Value $updated -Encoding UTF8
 }
 
 function Set-RuntimeState([string]$Mode, [int]$Port) {
@@ -215,22 +266,22 @@ function Set-RuntimeState([string]$Mode, [int]$Port) {
 Write-Step "Selecting runtime"
 $selectedRuntime = Resolve-RuntimeMode
 Write-Host "Selected runtime: $selectedRuntime"
+Write-Step "Checking Ollama"
+Warn-RootVenvConflict
+$ollamaBinary = Ensure-Ollama
 
 if ($selectedRuntime -eq 'local') {
-    Write-Step "Checking Ollama"
-    Warn-RootVenvConflict
-    Ensure-Ollama
-    Ensure-Ollama-Running -Port $LlmPort
+    $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 else {
-    Write-Step "API runtime selected - skipping local Ollama startup check"
-    Warn-RootVenvConflict
+    Write-Step "API runtime selected - using local Ollama gateway with API model"
 }
 
 Write-Step "Installing backend (python + deps)"
 Ensure-Python
 $backendDir = Join-Path $PSScriptRoot 'backend'
 Ensure-BackendEnv -Port $LlmPort
+Upsert-EnvVar -FilePath (Join-Path $backendDir '.env') -Name 'OLLAMA_BIN' -Value $ollamaBinary
 Set-RuntimeState -Mode $selectedRuntime -Port $LlmPort
 Set-Location $backendDir
 

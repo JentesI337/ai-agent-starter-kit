@@ -57,7 +57,7 @@ Runtime switch messages:
 }
 ```
 
-If API auth is missing, backend emits `runtime_auth_required` with `auth_url`.
+If API auth is missing, backend runs `ollama login`, extracts the auth URL from CLI output, and emits `runtime_auth_required` with `auth_url`.
 After login, send:
 
 ```json
@@ -70,6 +70,7 @@ After login, send:
 Runtime targets/models:
 - local: `LOCAL_MODEL` (default biggest local 70B)
 - api: `API_MODEL` fixed to `qwen2.5:7b-instruct` (configurable via env)
+- optional: `OLLAMA_BIN` can be set if `ollama` is not on PATH.
 
 Lifecycle `stage` examples:
 - `request_received`

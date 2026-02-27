@@ -32,15 +32,22 @@ Runtime mode selection:
 - Linux/macOS non-interactive: `RUNTIME_MODE=local ./start-dev.sh` or `RUNTIME_MODE=api ./start-dev.sh`
 
 What the scripts do:
-- check/install Ollama, ensure local Ollama server is running (and adjust `LLM_BASE_URL`)
+- check/install Ollama for all runtime modes and persist CLI path to backend `.env` (`OLLAMA_BIN`)
+- ensure local Ollama server is running for `local` runtime (and adjust `LLM_BASE_URL`)
 - install Python + backend deps, then run backend
 - install Node.js/npm, install frontend deps, build frontend, run frontend
+
+Ollama install/login flow (used by runtime switching):
+- Windows install command: `irm https://ollama.com/install.ps1 | iex`
+- Linux install command: `curl -fsSL https://ollama.com/install.sh | sh`
+- API runtime auth is triggered via `ollama login`; backend extracts the auth URL and sends it to frontend as `runtime_auth_required.auth_url`.
 
 Startup safeguards:
 - Linux package-manager fallback supports `apt`, `dnf`, `pacman`, `zypper`.
 - Script fails fast on port conflicts for backend/frontend ports.
 - If LLM port is already open, script verifies that Ollama API is actually on that port.
 - Startup scripts always use `backend/.venv` as the canonical Python environment (root `.venv` is ignored with warning).
+- Runtime switch backend also supports explicit Ollama binary override via `backend/.env` -> `OLLAMA_BIN`.
 
 ## 1) Start backend (Windows)
 

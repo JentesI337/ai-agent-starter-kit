@@ -81,17 +81,32 @@ install_packages() {
 }
 
 ensure_ollama() {
+  local ollama_path=""
+  ollama_path="$(command -v ollama || true)"
+  if [[ -n "$ollama_path" ]]; then
+    echo "$ollama_path"
+    return
+  fi
+
   if has_cmd ollama; then
+    command -v ollama
     return
   fi
 
   step "Ollama not found, trying install script"
   curl -fsSL https://ollama.com/install.sh | sh
 
-  if ! has_cmd ollama; then
+  ollama_path="$(command -v ollama || true)"
+  if [[ -z "$ollama_path" && -x "/usr/local/bin/ollama" ]]; then
+    ollama_path="/usr/local/bin/ollama"
+  fi
+
+  if [[ -z "$ollama_path" ]]; then
     echo "Ollama install failed. Install from https://ollama.com and rerun." >&2
     exit 1
   fi
+
+  echo "$ollama_path"
 }
 
 port_open() {
@@ -151,6 +166,7 @@ ensure_ollama_endpoint_on_port() {
 
 ensure_ollama_running() {
   local port="$1"
+  local ollama_bin="$2"
   if [[ "$(port_open "$port")" == "1" ]]; then
     ensure_ollama_endpoint_on_port "$port"
     echo "Ollama already running on port $port"
@@ -158,7 +174,7 @@ ensure_ollama_running() {
   fi
 
   step "Starting Ollama on port $port"
-  OLLAMA_HOST="127.0.0.1:$port" nohup ollama serve >/tmp/ollama.log 2>&1 &
+  OLLAMA_HOST="127.0.0.1:$port" nohup "$ollama_bin" serve >/tmp/ollama.log 2>&1 &
 
   for _ in {1..15}; do
     sleep 1
@@ -230,6 +246,18 @@ ensure_backend_env() {
   rm -f "$env_file.bak"
 }
 
+upsert_env_var() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  if grep -q "^${name}=" "$file"; then
+    sed -i.bak "s|^${name}=.*|${name}=${value}|" "$file"
+  else
+    echo "${name}=${value}" >> "$file"
+  fi
+  rm -f "$file.bak"
+}
+
 set_runtime_state() {
   local mode="$1"
   local env_file="$ROOT_DIR/backend/.env"
@@ -274,18 +302,19 @@ step "Selecting runtime"
 selected_runtime="$(resolve_runtime_mode)"
 echo "Selected runtime: $selected_runtime"
 warn_root_venv_conflict
+step "Checking Ollama"
+OLLAMA_BIN_PATH="$(ensure_ollama)"
 
 if [[ "$selected_runtime" == "local" ]]; then
-  step "Checking Ollama"
-  ensure_ollama
-  ensure_ollama_running "$LLM_PORT"
+  ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 else
-  step "API runtime selected - skipping local Ollama startup check"
+  step "API runtime selected - using local Ollama gateway with API model"
 fi
 
 step "Installing backend (python + deps)"
 ensure_python
 ensure_backend_env
+upsert_env_var "$ROOT_DIR/backend/.env" "OLLAMA_BIN" "$OLLAMA_BIN_PATH"
 set_runtime_state "$selected_runtime"
 cd "$ROOT_DIR/backend"
 

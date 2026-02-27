@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import socket
@@ -37,6 +39,7 @@ class RuntimeManager:
             model=settings.local_model,
             api_key=settings.llm_api_key,
         )
+        self._ollama_cmd = self._resolve_ollama_command()
         self._persist_state()
 
     def get_state(self) -> RuntimeState:
@@ -91,15 +94,17 @@ class RuntimeManager:
             await self._log(send_event, session_id, "auth_ok", attempt, "API auth available")
             return
 
+        auth_url = await self._discover_auth_url(send_event, session_id, attempt)
+
         await send_event(
             {
                 "type": "runtime_auth_required",
-                "auth_url": settings.llama_auth_url,
+                "auth_url": auth_url,
                 "session_id": session_id,
                 "message": "Login required for API runtime.",
             }
         )
-        raise RuntimeAuthRequiredError(settings.llama_auth_url)
+        raise RuntimeAuthRequiredError(auth_url)
 
     async def _stop_ollama_if_running(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
         await self._log(send_event, session_id, "stop_local_process", attempt, "Stopping local ollama process if running")
@@ -124,9 +129,18 @@ class RuntimeManager:
             env = os.environ.copy()
             env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
             if os.name == "nt":
-                subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP, env=env)
+                subprocess.Popen(
+                    [self._ollama_cmd, "serve"],
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                    env=env,
+                )
             else:
-                subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+                subprocess.Popen(
+                    [self._ollama_cmd, "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=env,
+                )
 
         for _ in range(10):
             if self._is_port_open(port):
@@ -137,15 +151,51 @@ class RuntimeManager:
 
     async def _ensure_model_available(self, send_event: SendEvent, session_id: str, attempt: int, model_name: str) -> None:
         await self._log(send_event, session_id, "ensure_model", attempt, f"Ensuring model {model_name}")
-        listed = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+        listed = subprocess.run([self._ollama_cmd, "list"], capture_output=True, text=True)
         if model_name in (listed.stdout or ""):
             await self._log(send_event, session_id, "model_available", attempt, model_name)
             return
 
-        pull = subprocess.run(["ollama", "pull", model_name], capture_output=True, text=True)
+        pull = subprocess.run([self._ollama_cmd, "pull", model_name], capture_output=True, text=True)
         if pull.returncode != 0:
             raise RuntimeSwitchError(f"Model pull failed: {pull.stderr or pull.stdout}")
         await self._log(send_event, session_id, "model_downloaded", attempt, model_name)
+
+    async def _discover_auth_url(self, send_event: SendEvent, session_id: str, attempt: int) -> str:
+        await self._log(send_event, session_id, "auth_discovery", attempt, "Requesting login URL from Ollama CLI")
+        default_url = settings.llama_auth_url
+
+        try:
+            login = subprocess.run(
+                [self._ollama_cmd, "login"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            output = "\n".join([login.stdout or "", login.stderr or ""]).strip()
+            auth_url = self._extract_auth_url(output) or default_url
+            await self._log(send_event, session_id, "auth_url_ready", attempt, auth_url)
+            return auth_url
+        except subprocess.TimeoutExpired:
+            await self._log(
+                send_event,
+                session_id,
+                "auth_discovery_timeout",
+                attempt,
+                "Login URL discovery timed out, using fallback URL",
+                level="warning",
+            )
+            return default_url
+        except Exception as exc:
+            await self._log(
+                send_event,
+                session_id,
+                "auth_discovery_failed",
+                attempt,
+                f"Auth URL discovery failed: {exc}",
+                level="warning",
+            )
+            return default_url
 
     def _build_target_state(self, target: str) -> RuntimeState:
         if target == "local":
@@ -195,7 +245,7 @@ class RuntimeManager:
         if not self.state_file.exists():
             return None
         try:
-            data = json.loads(self.state_file.read_text(encoding="utf-8"))
+            data = json.loads(self.state_file.read_text(encoding="utf-8-sig"))
             return RuntimeState(
                 runtime=data.get("runtime", "local"),
                 base_url=data.get("base_url", settings.llm_base_url),
@@ -210,3 +260,30 @@ class RuntimeManager:
 
     def _is_valid_api_key(self, value: str) -> bool:
         return bool(value and value.lower() not in {"not-needed", "none", "null"})
+
+    def _resolve_ollama_command(self) -> str:
+        configured = (settings.ollama_bin or "").strip()
+        if configured:
+            if Path(configured).exists() or shutil.which(configured):
+                return configured
+
+        discovered = shutil.which("ollama")
+        if discovered:
+            return discovered
+
+        if os.name == "nt":
+            candidates = [
+                Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe",
+                Path("C:/Program Files/Ollama/ollama.exe"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    return str(candidate)
+
+        raise RuntimeSwitchError(
+            "Ollama CLI not found. Install Ollama (https://ollama.com/download) or set OLLAMA_BIN in backend/.env."
+        )
+
+    def _extract_auth_url(self, text: str) -> str | None:
+        match = re.search(r"https?://[^\s\]\)\"']+", text or "")
+        return match.group(0) if match else None
