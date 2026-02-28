@@ -12,9 +12,3 @@ class LlmClientError(Exception):
 
 class RuntimeSwitchError(Exception):
     pass
-
-
-class RuntimeAuthRequiredError(Exception):
-    def __init__(self, auth_url: str):
-        super().__init__("Authentication required")
-        self.auth_url = auth_url

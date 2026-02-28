@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
@@ -31,9 +31,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   firstRunChoicePending = false;
   selectedAgentId = 'head-coder';
   sessionId = '';
-  authUrl = '';
-  apiKeyInput = '';
   runtimeSwitching = false;
+  apiModelsAvailable: boolean | null = null;
+  apiModelsHint = '';
   agents: AgentDescriptor[] = [];
   isConnected = false;
   lines: ChatLine[] = [];
@@ -44,7 +44,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly socketService: AgentSocketService,
-    private readonly agentsService: AgentsService
+    private readonly agentsService: AgentsService,
+    private readonly cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -77,6 +78,16 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           this.runtimeTarget = status.runtime;
         }
         this.model = status.model || this.model;
+        this.apiModelsAvailable = status.apiModelsAvailable ?? null;
+        const modelsCount = status.apiModelsCount ?? null;
+        const modelsError = status.apiModelsError ?? null;
+        if (modelsError) {
+          this.apiModelsHint = modelsError;
+        } else if (modelsCount !== null) {
+          this.apiModelsHint = `${modelsCount} model(s) visible`;
+        } else {
+          this.apiModelsHint = '';
+        }
         if (!this.firstRunChoicePending) {
           localStorage.setItem('preferredRuntime', status.runtime);
         }
@@ -94,14 +105,30 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         if (!event) {
           return;
         }
-        this.applyEvent(event);
+        console.info('[ws:event]', event.type, {
+          stage: event.stage,
+          requestId: event.request_id,
+          sessionId: event.session_id,
+          message: event.message,
+          model: event.model,
+          runtime: event.runtime,
+        });
+        try {
+          this.applyEvent(event);
+        } catch (error) {
+          this.pushLifecycle('frontend_apply_error', 'applyEvent failed', {
+            eventType: event.type,
+            error: (error as Error).message,
+          });
+          this.lines.push({ role: 'system', text: `Frontend event handling failed: ${(error as Error).message}` });
+        }
+        this.cdr.detectChanges();
       })
     );
   }
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
-    this.socketService.disconnect();
   }
 
   send(): void {
@@ -116,14 +143,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     this.lines.push({ role: 'user', text: content });
-    this.lines.push({ role: 'system', text: 'Agent is working...' });
-    this.pushLifecycle('frontend_send', 'Message sent to websocket', {
-      chars: content.length,
-      agent: this.selectedAgentId,
-      model: this.model.trim() || '(default)',
-      sessionId: this.sessionId || '(new)',
-    });
-    this.activeAssistantIndex = null;
 
     try {
       this.socketService.sendUserMessage(content, {
@@ -131,9 +150,20 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         model: this.model.trim() || undefined,
         sessionId: this.sessionId || undefined,
       });
+      this.lines.push({ role: 'system', text: 'Agent is working...' });
+      this.pushLifecycle('frontend_send', 'Message sent to websocket', {
+        chars: content.length,
+        agent: this.selectedAgentId,
+        model: this.model.trim() || '(default)',
+        sessionId: this.sessionId || '(new)',
+      });
+      this.activeAssistantIndex = null;
       this.input = '';
     } catch (error) {
       this.lines.push({ role: 'system', text: `Send failed: ${(error as Error).message}` });
+      this.pushLifecycle('frontend_send_failed', 'Message send failed', {
+        error: (error as Error).message,
+      });
     }
   }
 
@@ -163,21 +193,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     localStorage.removeItem('preferredRuntime');
     this.firstRunChoicePending = true;
     this.runtimeSwitching = false;
-    this.authUrl = '';
     this.lines.push({ role: 'system', text: 'Runtime preference reset. Please choose local or api.' });
     this.pushLifecycle('frontend_runtime_reset', 'Runtime preference reset by user');
-  }
-
-  confirmAuthComplete(): void {
-    try {
-      this.socketService.sendRuntimeAuthComplete({
-        sessionId: this.sessionId || undefined,
-        apiKey: this.apiKeyInput.trim() || undefined,
-      });
-      this.pushLifecycle('frontend_auth', 'Auth completion sent to backend');
-    } catch (error) {
-      this.lines.push({ role: 'system', text: `Auth completion failed: ${(error as Error).message}` });
-    }
   }
 
   private applyEvent(event: AgentSocketEvent): void {
@@ -192,18 +209,19 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       if (event.session_id) {
         this.sessionId = event.session_id;
       }
+      if (event.runtime === 'local' || event.runtime === 'api') {
+        this.runtimeTarget = event.runtime;
+        localStorage.setItem('preferredRuntime', event.runtime);
+        this.firstRunChoicePending = false;
+      }
+      if (event.model) {
+        this.model = event.model;
+      }
       this.lines.push({ role: 'system', text: event.message });
       return;
     }
 
     if (event.type === 'runtime_switch_progress') {
-      return;
-    }
-
-    if (event.type === 'runtime_auth_required') {
-      this.authUrl = event.auth_url ?? '';
-      this.runtimeSwitching = false;
-      this.lines.push({ role: 'system', text: event.message ?? 'Authentication required for API runtime.' });
       return;
     }
 
@@ -215,9 +233,22 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       if (event.model) {
         this.model = event.model;
       }
-      this.authUrl = '';
       this.runtimeSwitching = false;
       this.lines.push({ role: 'system', text: `Runtime active: ${event.runtime} (${event.model ?? 'model'})` });
+      this.agentsService.getRuntimeStatus().subscribe({
+        next: (status) => {
+          this.apiModelsAvailable = status.apiModelsAvailable ?? null;
+          const modelsCount = status.apiModelsCount ?? null;
+          const modelsError = status.apiModelsError ?? null;
+          if (modelsError) {
+            this.apiModelsHint = modelsError;
+          } else if (modelsCount !== null) {
+            this.apiModelsHint = `${modelsCount} model(s) visible`;
+          } else {
+            this.apiModelsHint = '';
+          }
+        },
+      });
       return;
     }
 
@@ -227,7 +258,17 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (event.type === 'socket_raw') {
+      this.pushLifecycle('socket_raw', event.message ?? 'socket_raw');
+      return;
+    }
+
     if (event.type === 'error' && event.message) {
+      this.pushLifecycle('frontend_error_event', 'Error event received', {
+        message: event.message,
+        requestId: event.request_id,
+        sessionId: event.session_id,
+      }, event.ts);
       this.lines.push({ role: 'system', text: `Error: ${event.message}` });
       this.activeAssistantIndex = null;
       return;
@@ -270,9 +311,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
     if (event.type === 'runtime_switch_progress') {
       return `${event.step ?? 'runtime_step'} (attempt ${event.attempt ?? 1}): ${event.message ?? ''}`.trim();
-    }
-    if (event.type === 'runtime_auth_required') {
-      return event.message ?? 'runtime_auth_required';
     }
     if (event.type === 'runtime_switch_done') {
       return `runtime_switch_done -> ${event.runtime ?? 'unknown'}`;

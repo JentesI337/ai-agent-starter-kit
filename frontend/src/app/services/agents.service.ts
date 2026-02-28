@@ -14,6 +14,27 @@ export interface RuntimeStatus {
   baseUrl: string;
   model: string;
   authenticated: boolean;
+  apiModelsAvailable?: boolean | null;
+  apiModelsCount?: number | null;
+  apiModelsError?: string | null;
+}
+
+export interface BackendPingResult {
+  ok: boolean;
+  service: string;
+  runtime: 'local' | 'api';
+  model: string;
+  ts: string;
+}
+
+export interface AgentTestResult {
+  ok: boolean;
+  runtime: 'local' | 'api';
+  model: string;
+  sessionId: string;
+  requestId: string;
+  eventCount: number;
+  final: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -28,5 +49,16 @@ export class AgentsService {
 
   getRuntimeStatus() {
     return this.http.get<RuntimeStatus>(`${this.apiBase}/api/runtime/status`);
+  }
+
+  testBackendPing() {
+    return this.http.get<BackendPingResult>(`${this.apiBase}/api/test/ping`);
+  }
+
+  testAgentCall(message = 'hi', model?: string) {
+    return this.http.post<AgentTestResult>(`${this.apiBase}/api/test/agent`, {
+      message,
+      model,
+    });
   }
 }

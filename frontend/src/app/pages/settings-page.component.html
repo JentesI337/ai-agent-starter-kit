@@ -1,0 +1,19 @@
+<section class="settings">
+  <header>
+    <h1>Settings</h1>
+    <p>Current backend runtime configuration.</p>
+  </header>
+
+  <div *ngIf="loading" class="card">Loading settings...</div>
+  <div *ngIf="!loading && loadError" class="card error">{{ loadError }}</div>
+
+  <div *ngIf="!loading && status" class="card">
+    <div class="row"><span>Runtime</span><strong>{{ status.runtime }}</strong></div>
+    <div class="row"><span>Base URL</span><strong>{{ status.baseUrl }}</strong></div>
+    <div class="row"><span>Model</span><strong>{{ status.model }}</strong></div>
+    <div class="row"><span>Authenticated</span><strong>{{ status.authenticated ? 'yes' : 'no' }}</strong></div>
+    <div class="row"><span>API models available</span><strong>{{ status.apiModelsAvailable === null ? 'n/a' : (status.apiModelsAvailable ? 'yes' : 'no') }}</strong></div>
+    <div class="row"><span>API models count</span><strong>{{ status.apiModelsCount ?? 'n/a' }}</strong></div>
+    <div class="row" *ngIf="status.apiModelsError"><span>API models error</span><strong>{{ status.apiModelsError }}</strong></div>
+  </div>
+</section>

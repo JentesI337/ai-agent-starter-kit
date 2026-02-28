@@ -8,7 +8,6 @@ class WsInboundMessage(BaseModel):
     model: str | None = None
     session_id: str | None = None
     runtime_target: str | None = None
-    api_key: str | None = None
 
 
 class AgentDescriptor(BaseModel):

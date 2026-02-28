@@ -22,7 +22,6 @@ class HeadCodingAgent:
         self.role = "coding-head-agent"
         self.client = LlmClient(
             base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
             model=settings.llm_model,
         )
         persist_dir = Path(settings.memory_persist_dir)
@@ -37,10 +36,9 @@ class HeadCodingAgent:
             command_timeout_seconds=settings.command_timeout_seconds,
         )
 
-    def configure_runtime(self, base_url: str, api_key: str, model: str) -> None:
+    def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(
             base_url=base_url,
-            api_key=api_key,
             model=model,
         )
 

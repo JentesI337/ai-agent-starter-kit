@@ -1,0 +1,22 @@
+<section class="tests">
+  <header>
+    <h1>Tests</h1>
+    <p>Run backend checks with and without the agent.</p>
+  </header>
+
+  <div class="card">
+    <h2>Without agent</h2>
+    <p>Calls <code>/api/test/ping</code>.</p>
+    <button (click)="runPingTest()" [disabled]="pingLoading">{{ pingLoading ? 'Running...' : 'Run backend ping test' }}</button>
+    <p *ngIf="pingError" class="error">{{ pingError }}</p>
+    <pre *ngIf="pingResult">{{ pingResult | json }}</pre>
+  </div>
+
+  <div class="card">
+    <h2>With agent</h2>
+    <p>Calls <code>/api/test/agent</code> with message <strong>hi</strong>.</p>
+    <button (click)="runAgentTest()" [disabled]="agentLoading">{{ agentLoading ? 'Running...' : 'Run backend agent test' }}</button>
+    <p *ngIf="agentError" class="error">{{ agentError }}</p>
+    <pre *ngIf="agentResult">{{ agentResult | json }}</pre>
+  </div>
+</section>

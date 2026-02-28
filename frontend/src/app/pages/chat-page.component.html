@@ -1,9 +1,15 @@
 <section class="chat">
   <header class="chat-header">
     <h1>Head Agent Chat</h1>
-    <span [class.online]="isConnected" [class.offline]="!isConnected">
-      {{ isConnected ? 'connected' : 'disconnected' }}
-    </span>
+    <div class="header-badges">
+      <span [class.online]="isConnected" [class.offline]="!isConnected">
+        {{ isConnected ? 'connected' : 'disconnected' }}
+      </span>
+      <span class="api-models-badge" [class.available]="apiModelsAvailable === true" [class.unavailable]="apiModelsAvailable === false">
+        API models: {{ apiModelsAvailable === null ? 'n/a' : (apiModelsAvailable ? 'available' : 'unavailable') }}
+      </span>
+      <span class="api-models-hint" *ngIf="apiModelsHint">{{ apiModelsHint }}</span>
+    </div>
   </header>
 
   <div class="workspace">
@@ -26,7 +32,7 @@
     <div class="first-run" *ngIf="firstRunChoicePending">
       <p>First run: choose your runtime mode.</p>
       <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
-      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (qwen2.5:7b-instruct)</button>
+      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (minimax-m2:cloud)</button>
     </div>
 
     <div class="controls">
@@ -40,7 +46,7 @@
         Runtime
         <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
           <option value="local">local-70b</option>
-          <option value="api">api-qwen2.5:7b-instruct</option>
+          <option value="api">api-minimax-m2:cloud</option>
         </select>
       </label>
       <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
@@ -49,13 +55,6 @@
         Model
         <input [(ngModel)]="model" placeholder="llama70b model name" [disabled]="firstRunChoicePending" />
       </label>
-    </div>
-    <div class="auth-block" *ngIf="authUrl">
-      <p>Authentication required for API runtime.</p>
-      <p>1) Open the auth URL and approve access. 2) Return here and click “I completed login”.</p>
-      <a [href]="authUrl" target="_blank" rel="noreferrer">Open auth URL</a>
-      <input [(ngModel)]="apiKeyInput" placeholder="Optional API key" />
-      <button (click)="confirmAuthComplete()" [disabled]="!isConnected || firstRunChoicePending">I completed login</button>
     </div>
     <textarea [(ngModel)]="input" rows="3" placeholder="Describe what the head agent should build..."></textarea>
     <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>

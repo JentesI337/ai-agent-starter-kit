@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import re
 import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import socket
 import subprocess
-import time
 from typing import Callable, Awaitable
 from urllib.parse import urlparse
+import httpx
 
 from app.config import settings
-from app.errors import RuntimeAuthRequiredError, RuntimeSwitchError
+from app.errors import RuntimeSwitchError
 
 SendEvent = Callable[[dict], Awaitable[None]]
 
@@ -23,7 +23,6 @@ class RuntimeState:
     runtime: str
     base_url: str
     model: str
-    api_key: str
 
 
 class RuntimeManager:
@@ -37,7 +36,6 @@ class RuntimeManager:
             runtime="local",
             base_url=settings.llm_base_url,
             model=settings.local_model,
-            api_key=settings.llm_api_key,
         )
         self._ollama_cmd = self._resolve_ollama_command()
         self._persist_state()
@@ -45,9 +43,15 @@ class RuntimeManager:
     def get_state(self) -> RuntimeState:
         return self._state
 
-    def set_api_key(self, api_key: str) -> None:
-        self._state.api_key = api_key.strip()
+    def set_active_model(self, model: str) -> None:
+        self._state.model = model.strip()
         self._persist_state()
+
+    def is_runtime_authenticated(self) -> bool:
+        return True
+
+    async def ensure_api_runtime_authenticated(self) -> None:
+        return
 
     async def switch_runtime(self, target: str, send_event: SendEvent, session_id: str) -> RuntimeState:
         if target not in ("local", "api"):
@@ -62,21 +66,17 @@ class RuntimeManager:
                 next_state = self._build_target_state(target)
 
                 if target == "api":
-                    await self._stop_ollama_if_running(send_event, session_id, attempt)
-                    await self._verify_ollama_stopped(send_event, session_id, attempt)
                     await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                    await self._check_auth(send_event, session_id, attempt)
-                    await self._ensure_model_available(send_event, session_id, attempt, settings.api_model)
+                    await self._log(send_event, session_id, "api_model_selected", attempt, f"Using API model {settings.api_model}")
+                    next_state.model = settings.api_model
                 else:
                     await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                    await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
+                    next_state.model = await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
 
                 self._state = next_state
                 self._persist_state()
                 await self._log(send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}")
                 return self._state
-            except RuntimeAuthRequiredError:
-                raise
             except Exception as exc:
                 last_error = exc
                 await self._log(send_event, session_id, "switch_attempt_failed", attempt, str(exc), level="error")
@@ -86,33 +86,67 @@ class RuntimeManager:
         await self._log(send_event, session_id, "switch_rollback", 2, f"Rollback to {previous.runtime}", level="error")
         raise RuntimeSwitchError(str(last_error) if last_error else "Runtime switch failed")
 
-    async def _check_auth(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
-        auth_key = (self._state.api_key or settings.api_auth_key or "").strip()
-        if self._is_valid_api_key(auth_key):
-            self._state.api_key = auth_key
-            self._persist_state()
-            await self._log(send_event, session_id, "auth_ok", attempt, "API auth available")
-            return
+    async def ensure_model_ready(self, send_event: SendEvent, session_id: str, model_name: str) -> str:
+        return await self._ensure_model_available(send_event, session_id, 1, model_name)
 
-        auth_url = await self._discover_auth_url(send_event, session_id, attempt)
+    async def resolve_api_request_model(self, model_name: str) -> str:
+        requested = (model_name or self._state.model or settings.api_model).strip()
+        return requested or settings.api_model
 
-        await send_event(
-            {
-                "type": "runtime_auth_required",
-                "auth_url": auth_url,
-                "session_id": session_id,
-                "message": "Login required for API runtime.",
+    async def get_api_models_summary(self) -> dict:
+        if self._state.runtime != "api":
+            return {
+                "available": None,
+                "count": None,
+                "error": None,
             }
-        )
-        raise RuntimeAuthRequiredError(auth_url)
+
+        try:
+            models = await self._fetch_available_api_models()
+            if models:
+                return {
+                    "available": True,
+                    "count": len(models),
+                    "error": None,
+                }
+
+            base_url = (self._state.base_url or settings.api_base_url).rstrip("/")
+            if self._is_ollama_native_api(base_url):
+                return {
+                    "available": None,
+                    "count": None,
+                    "error": None,
+                }
+
+            return {
+                "available": False,
+                "count": 0,
+                "error": "API endpoint returned no models.",
+            }
+        except RuntimeSwitchError as exc:
+            return {
+                "available": False,
+                "count": 0,
+                "error": str(exc),
+            }
 
     async def _stop_ollama_if_running(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
         await self._log(send_event, session_id, "stop_local_process", attempt, "Stopping local ollama process if running")
         try:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/F", "/IM", "ollama.exe"], capture_output=True, text=True)
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["taskkill", "/F", "/IM", "ollama.exe"],
+                    capture_output=True,
+                    text=True,
+                )
             else:
-                subprocess.run(["pkill", "-f", "ollama"], capture_output=True, text=True)
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["pkill", "-f", "ollama"],
+                    capture_output=True,
+                    text=True,
+                )
         except Exception:
             pass
 
@@ -146,56 +180,60 @@ class RuntimeManager:
             if self._is_port_open(port):
                 await self._log(send_event, session_id, "gateway_ready", attempt, f"Gateway ready on port {port}")
                 return
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
         raise RuntimeSwitchError(f"Gateway not reachable on port {port}")
 
-    async def _ensure_model_available(self, send_event: SendEvent, session_id: str, attempt: int, model_name: str) -> None:
+    async def _ensure_model_available(self, send_event: SendEvent, session_id: str, attempt: int, model_name: str) -> str:
+        candidates = self._candidate_models(model_name)
         await self._log(send_event, session_id, "ensure_model", attempt, f"Ensuring model {model_name}")
-        listed = subprocess.run([self._ollama_cmd, "list"], capture_output=True, text=True)
-        if model_name in (listed.stdout or ""):
-            await self._log(send_event, session_id, "model_available", attempt, model_name)
-            return
+        listed = await asyncio.to_thread(
+            subprocess.run,
+            [self._ollama_cmd, "list"],
+            capture_output=True,
+            text=True,
+        )
+        listed_output = listed.stdout or ""
 
-        pull = subprocess.run([self._ollama_cmd, "pull", model_name], capture_output=True, text=True)
-        if pull.returncode != 0:
-            raise RuntimeSwitchError(f"Model pull failed: {pull.stderr or pull.stdout}")
-        await self._log(send_event, session_id, "model_downloaded", attempt, model_name)
+        for candidate in candidates:
+            if candidate in listed_output:
+                await self._log(send_event, session_id, "model_available", attempt, candidate)
+                return candidate
 
-    async def _discover_auth_url(self, send_event: SendEvent, session_id: str, attempt: int) -> str:
-        await self._log(send_event, session_id, "auth_discovery", attempt, "Requesting login URL from Ollama CLI")
-        default_url = settings.llama_auth_url
-
-        try:
-            login = subprocess.run(
-                [self._ollama_cmd, "login"],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            output = "\n".join([login.stdout or "", login.stderr or ""]).strip()
-            auth_url = self._extract_auth_url(output) or default_url
-            await self._log(send_event, session_id, "auth_url_ready", attempt, auth_url)
-            return auth_url
-        except subprocess.TimeoutExpired:
+        last_error = ""
+        for candidate in candidates:
+            await self._log(send_event, session_id, "model_pull_started", attempt, f"Pulling model {candidate}")
+            try:
+                pull = await asyncio.to_thread(
+                    subprocess.run,
+                    [self._ollama_cmd, "pull", candidate],
+                    capture_output=True,
+                    text=True,
+                    timeout=900,
+                )
+            except subprocess.TimeoutExpired:
+                await self._log(
+                    send_event,
+                    session_id,
+                    "model_pull_timeout",
+                    attempt,
+                    f"Model pull timed out for {candidate}",
+                    level="error",
+                )
+                raise RuntimeSwitchError(f"Model pull timed out for {candidate}. Check network or try pulling manually.")
+            if pull.returncode == 0:
+                await self._log(send_event, session_id, "model_downloaded", attempt, candidate)
+                return candidate
+            last_error = (pull.stderr or pull.stdout or "").strip()
             await self._log(
                 send_event,
                 session_id,
-                "auth_discovery_timeout",
+                "model_pull_failed",
                 attempt,
-                "Login URL discovery timed out, using fallback URL",
+                f"Pull failed for {candidate}: {last_error[:300]}",
                 level="warning",
             )
-            return default_url
-        except Exception as exc:
-            await self._log(
-                send_event,
-                session_id,
-                "auth_discovery_failed",
-                attempt,
-                f"Auth URL discovery failed: {exc}",
-                level="warning",
-            )
-            return default_url
+
+        raise RuntimeSwitchError(f"Model pull failed for {candidates}: {last_error}")
 
     def _build_target_state(self, target: str) -> RuntimeState:
         if target == "local":
@@ -203,13 +241,11 @@ class RuntimeManager:
                 runtime="local",
                 base_url=settings.llm_base_url,
                 model=settings.local_model,
-                api_key=settings.llm_api_key,
             )
         return RuntimeState(
             runtime="api",
             base_url=settings.api_base_url,
             model=settings.api_model,
-            api_key=self._state.api_key or settings.api_auth_key,
         )
 
     async def _log(self, send_event: SendEvent, session_id: str, step: str, attempt: int, message: str, level: str = "info") -> None:
@@ -250,16 +286,12 @@ class RuntimeManager:
                 runtime=data.get("runtime", "local"),
                 base_url=data.get("base_url", settings.llm_base_url),
                 model=data.get("model", settings.local_model),
-                api_key=data.get("api_key", settings.llm_api_key),
             )
         except Exception:
             return None
 
     def _persist_state(self) -> None:
         self.state_file.write_text(json.dumps(asdict(self._state), indent=2), encoding="utf-8")
-
-    def _is_valid_api_key(self, value: str) -> bool:
-        return bool(value and value.lower() not in {"not-needed", "none", "null"})
 
     def _resolve_ollama_command(self) -> str:
         configured = (settings.ollama_bin or "").strip()
@@ -284,6 +316,63 @@ class RuntimeManager:
             "Ollama CLI not found. Install Ollama (https://ollama.com/download) or set OLLAMA_BIN in backend/.env."
         )
 
-    def _extract_auth_url(self, text: str) -> str | None:
-        match = re.search(r"https?://[^\s\]\)\"']+", text or "")
-        return match.group(0) if match else None
+    def _candidate_models(self, model_name: str) -> list[str]:
+        model = (model_name or "").strip()
+        if not model:
+            return []
+
+        aliases: dict[str, list[str]] = {
+            "qwen2.5:7b-instruct": ["qwen2.5:7b"],
+        }
+
+        candidates = [model]
+        candidates.extend(aliases.get(model, []))
+        deduped: list[str] = []
+        for candidate in candidates:
+            if candidate and candidate not in deduped:
+                deduped.append(candidate)
+        return deduped
+
+    async def _fetch_available_api_models(self) -> list[str]:
+        base_url = (self._state.base_url or settings.api_base_url).rstrip("/")
+        native_api = self._is_ollama_native_api(base_url)
+        url = f"{base_url}/tags" if native_api else f"{base_url}/models"
+
+        headers: dict[str, str] = {}
+
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                response = await client.get(url, headers=headers)
+            if response.status_code >= 400:
+                raise RuntimeSwitchError(
+                    f"API model listing failed ({response.status_code}): {response.text[:300]}"
+                )
+            payload = response.json()
+            models: list[str] = []
+            if native_api:
+                data = payload.get("models") if isinstance(payload, dict) else None
+                if not isinstance(data, list):
+                    return []
+                for item in data:
+                    if isinstance(item, dict):
+                        model_id = item.get("name")
+                        if isinstance(model_id, str) and model_id.strip():
+                            models.append(model_id.strip())
+            else:
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, list):
+                    return []
+                for item in data:
+                    if isinstance(item, dict):
+                        model_id = item.get("id")
+                        if isinstance(model_id, str) and model_id.strip():
+                            models.append(model_id.strip())
+            return models
+        except httpx.TimeoutException as exc:
+            raise RuntimeSwitchError(f"API model listing timed out: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeSwitchError(f"API model listing failed: {exc}") from exc
+
+    def _is_ollama_native_api(self, base_url: str) -> bool:
+        return base_url.lower().rstrip("/").endswith("/api")
+

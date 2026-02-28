@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 
 export interface AgentSocketEvent {
@@ -15,7 +15,6 @@ export interface AgentSocketEvent {
   runtime?: 'local' | 'api';
   model?: string;
   base_url?: string;
-  auth_url?: string;
   attempt?: number;
   level?: string;
 }
@@ -32,6 +31,8 @@ export class AgentSocketService {
   events$ = this.eventsSubject.asObservable();
   connected$ = this.connectedSubject.asObservable();
 
+  constructor(private readonly ngZone: NgZone) {}
+
   connect(url: string): void {
     this.socketUrl = url;
     this.manualDisconnect = false;
@@ -45,25 +46,59 @@ export class AgentSocketService {
       this.reconnectTimer = null;
     }
 
-    this.socket = new WebSocket(url);
+    const ws = new WebSocket(url);
+    this.socket = ws;
 
-    this.socket.onopen = () => this.connectedSubject.next(true);
-    this.socket.onclose = () => {
-      this.connectedSubject.next(false);
-      if (!this.manualDisconnect) {
-        this.reconnectTimer = window.setTimeout(() => {
-          this.connect(this.socketUrl);
-        }, 1500);
+    ws.onopen = () => {
+      if (this.socket !== ws) {
+        return;
       }
+      this.ngZone.run(() => {
+        this.connectedSubject.next(true);
+        this.eventsSubject.next({ type: 'socket_open', message: `Socket connected: ${url}` });
+      });
     };
-    this.socket.onerror = () => this.connectedSubject.next(false);
-    this.socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as AgentSocketEvent;
-        this.eventsSubject.next(data);
-      } catch {
-        this.eventsSubject.next({ type: 'status', message: 'Invalid message from socket.' });
+    ws.onclose = () => {
+      if (this.socket !== ws) {
+        return;
       }
+      this.ngZone.run(() => {
+        this.connectedSubject.next(false);
+        this.eventsSubject.next({ type: 'socket_close', message: 'Socket closed.' });
+        if (!this.manualDisconnect) {
+          this.reconnectTimer = window.setTimeout(() => {
+            this.connect(this.socketUrl);
+          }, 1500);
+        }
+      });
+    };
+    ws.onerror = () => {
+      if (this.socket !== ws) {
+        return;
+      }
+      this.ngZone.run(() => {
+        this.connectedSubject.next(false);
+        this.eventsSubject.next({ type: 'socket_error', message: 'Socket error occurred.' });
+      });
+    };
+    ws.onmessage = (event) => {
+      if (this.socket !== ws) {
+        return;
+      }
+      this.ngZone.run(() => {
+        const rawText = typeof event.data === 'string' ? event.data : '[non-string]';
+        this.eventsSubject.next({
+          type: 'socket_raw',
+          message: rawText.length > 240 ? `${rawText.slice(0, 240)}…` : rawText,
+        });
+        try {
+          const data = JSON.parse(event.data) as AgentSocketEvent;
+          this.eventsSubject.next(data);
+        } catch {
+          const preview = typeof event.data === 'string' ? event.data.slice(0, 200) : '[non-string]';
+          this.eventsSubject.next({ type: 'status', message: `Invalid message from socket: ${preview}` });
+        }
+      });
     };
   }
 
@@ -93,20 +128,6 @@ export class AgentSocketService {
         type: 'runtime_switch_request',
         runtime_target: runtimeTarget,
         session_id: sessionId,
-      })
-    );
-  }
-
-  sendRuntimeAuthComplete(options?: { sessionId?: string; apiKey?: string }): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error('Socket is not connected.');
-    }
-
-    this.socket.send(
-      JSON.stringify({
-        type: 'runtime_auth_complete',
-        session_id: options?.sessionId,
-        api_key: options?.apiKey,
       })
     );
   }

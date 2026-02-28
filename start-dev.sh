@@ -7,6 +7,13 @@ FRONTEND_PORT="${FRONTEND_PORT:-4200}"
 RUNTIME_MODE="${RUNTIME_MODE:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+CLEANUP_SCRIPT="$ROOT_DIR/clean-dev.sh"
+if [[ -f "$CLEANUP_SCRIPT" ]]; then
+  echo
+  echo "==> Cleaning stale dev processes"
+  LLM_PORT="$LLM_PORT" BACKEND_PORT="$BACKEND_PORT" FRONTEND_PORT="$FRONTEND_PORT" INCLUDE_LLM=0 bash "$CLEANUP_SCRIPT"
+fi
+
 step() {
   echo
   echo "==> $1"
@@ -24,7 +31,7 @@ resolve_runtime_mode() {
 
   echo "Select runtime mode:"
   echo "1) local (70B)"
-  echo "2) api (qwen2.5:7b-instruct)"
+  echo "2) api (minimax-m2:cloud)"
   read -r -p "Enter 1 or 2: " choice
   if [[ "$choice" == "2" ]]; then
     echo "api"
@@ -189,6 +196,37 @@ ensure_ollama_running() {
   exit 1
 }
 
+ensure_cloud_login() {
+  local ollama_bin="$1"
+  local model="$2"
+
+  if [[ "${model,,}" != *":cloud" ]]; then
+    return
+  fi
+
+  step "Checking Ollama Cloud login"
+  local out rc
+  out="$("$ollama_bin" whoami 2>&1)"
+  rc=$?
+
+  if [[ "$rc" -ne 0 ]]; then
+    if [[ "$out" == *"unknown command"* ]]; then
+      echo "Ollama version has no 'whoami'; running 'ollama signin' to ensure cloud login." >&2
+      if ! "$ollama_bin" signin; then
+        echo "Cloud login failed. Complete 'ollama signin' successfully and rerun start-dev." >&2
+        exit 1
+      fi
+      return
+    fi
+
+    echo "Cloud login missing. Running 'ollama signin'..." >&2
+    if ! "$ollama_bin" signin; then
+      echo "Cloud login failed. Complete 'ollama signin' successfully and rerun start-dev." >&2
+      exit 1
+    fi
+  fi
+}
+
 ensure_python() {
   if has_cmd python3; then
     return
@@ -230,6 +268,28 @@ ensure_node() {
   fi
 }
 
+run_pip_step() {
+  local python_bin="$1"
+  local step_name="$2"
+  shift 2
+
+  local attempt
+  for attempt in 1 2 3; do
+    echo "Pip step '$step_name' (attempt $attempt/3)"
+    if "$python_bin" -m pip --disable-pip-version-check --no-input "$@"; then
+      return 0
+    fi
+
+    if [[ "$attempt" != "3" ]]; then
+      sleep 2
+    fi
+  done
+
+  echo "Backend dependency install failed during '$step_name'." >&2
+  echo "If you see 'Operation cancelled by user', rerun after checking network/proxy and Python permissions." >&2
+  exit 1
+}
+
 ensure_backend_env() {
   local env_file="$ROOT_DIR/backend/.env"
   local env_example="$ROOT_DIR/backend/.env.example"
@@ -258,22 +318,104 @@ upsert_env_var() {
   rm -f "$file.bak"
 }
 
+get_env_or_default() {
+  local file="$1"
+  local name="$2"
+  local default_value="$3"
+  local value
+
+  value="$(grep -E "^${name}=" "$file" 2>/dev/null | cut -d= -f2- || true)"
+  if [[ -z "$value" ]]; then
+    echo "$default_value"
+    return
+  fi
+  echo "$value"
+}
+
+model_installed() {
+  local ollama_bin="$1"
+  local model="$2"
+  "$ollama_bin" list 2>/dev/null | grep -Fq "$model"
+}
+
+ensure_selected_model_installed() {
+  local ollama_bin="$1"
+  local model="$2"
+  local runtime_mode="$3"
+
+  step "Ensuring model is installed: $model"
+  if model_installed "$ollama_bin" "$model"; then
+    echo "Model already installed: $model"
+    return
+  fi
+
+  echo "Model not found locally. Pulling: $model"
+  local pull_output
+  pull_output="$($ollama_bin pull "$model" 2>&1)"
+  local pull_rc=$?
+  if [[ -n "$pull_output" ]]; then
+    echo "$pull_output"
+  fi
+
+  if [[ "$pull_rc" -ne 0 ]]; then
+    local lower
+    lower="${pull_output,,}"
+    if [[ "$lower" == *"file does not exist"* || "$lower" == *"not found"* ]]; then
+      if [[ "$runtime_mode" == "api" ]]; then
+        echo "API model '$model' is currently not available from this Ollama registry/version. You are logged in, but the model ID is not resolvable. Verify the exact cloud model name for your account and update API_MODEL." >&2
+      else
+        echo "Local model '$model' is not available in the configured Ollama registry. Verify model name and rerun start-dev." >&2
+      fi
+      exit 1
+    fi
+
+    if [[ "$runtime_mode" == "api" ]]; then
+      echo "Could not install API model '$model'. Cloud login may be missing or the model may be unavailable. Check ollama signin status and model identifier, then rerun start-dev." >&2
+    else
+      echo "Could not install local model '$model'. Check model name/network and rerun start-dev." >&2
+    fi
+    exit 1
+  fi
+}
+
+ensure_selected_model_runnable() {
+  local port="$1"
+  local model="$2"
+  local runtime_mode="$3"
+
+  step "Validating model execution: $model"
+  local payload
+  payload="$(printf '{"model":"%s","prompt":"ping","stream":false}' "$model")"
+  if ! curl -fsS "http://127.0.0.1:$port/api/generate" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    --max-time 240 \
+    -d "$payload" >/dev/null; then
+    if [[ "$runtime_mode" == "api" ]]; then
+      echo "API model '$model' is not runnable. Ensure you're logged in via 'ollama signin' and have an active Pro plan." >&2
+    else
+      echo "Local model '$model' is not runnable. Verify model availability and Ollama status." >&2
+    fi
+    exit 1
+  fi
+
+  echo "Model is runnable: $model"
+}
+
 set_runtime_state() {
   local mode="$1"
   local env_file="$ROOT_DIR/backend/.env"
   local state_file="$ROOT_DIR/backend/runtime_state.json"
 
-  local local_model api_model api_base_url llm_base_url api_key llm_key
+  local local_model api_model api_base_url llm_base_url
   local_model="$(grep -E '^LOCAL_MODEL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
   api_model="$(grep -E '^API_MODEL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
   api_base_url="$(grep -E '^API_BASE_URL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
   llm_base_url="$(grep -E '^LLM_BASE_URL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
-  api_key="$(grep -E '^LLAMA_API_KEY=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
-  llm_key="$(grep -E '^LLM_API_KEY=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
 
   [[ -z "$local_model" ]] && local_model="llama3.3:70b-instruct-q4_K_M"
-  [[ -z "$api_model" ]] && api_model="qwen2.5:7b-instruct"
-  [[ -z "$api_base_url" ]] && api_base_url="http://localhost:$LLM_PORT/v1"
+  [[ -z "$api_model" ]] && api_model="minimax-m2:cloud"
+  [[ -z "$api_base_url" ]] && api_base_url="http://localhost:$LLM_PORT/api"
   [[ -z "$llm_base_url" ]] && llm_base_url="http://localhost:$LLM_PORT/v1"
 
   if [[ "$mode" == "api" ]]; then
@@ -281,18 +423,15 @@ set_runtime_state() {
 {
   "runtime": "api",
   "base_url": "$api_base_url",
-  "model": "$api_model",
-  "api_key": "$api_key"
+  "model": "$api_model"
 }
 JSON
   else
-    [[ -z "$llm_key" ]] && llm_key="not-needed"
     cat > "$state_file" <<JSON
 {
   "runtime": "local",
   "base_url": "$llm_base_url",
-  "model": "$local_model",
-  "api_key": "$llm_key"
+  "model": "$local_model"
 }
 JSON
   fi
@@ -308,13 +447,33 @@ OLLAMA_BIN_PATH="$(ensure_ollama)"
 if [[ "$selected_runtime" == "local" ]]; then
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 else
-  step "API runtime selected - using local Ollama gateway with API model"
+  step "API runtime selected - using local Ollama API with cloud model"
+  ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 fi
 
 step "Installing backend (python + deps)"
 ensure_python
 ensure_backend_env
 upsert_env_var "$ROOT_DIR/backend/.env" "OLLAMA_BIN" "$OLLAMA_BIN_PATH"
+if [[ "$selected_runtime" == "api" ]]; then
+  upsert_env_var "$ROOT_DIR/backend/.env" "API_BASE_URL" "http://localhost:$LLM_PORT/api"
+  upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud"
+fi
+
+local_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "llama3.3:70b-instruct-q4_K_M")"
+api_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
+if [[ "$selected_runtime" == "api" ]]; then
+  selected_model="$api_model"
+else
+  selected_model="$local_model"
+fi
+
+if [[ "$selected_runtime" == "api" ]]; then
+  ensure_cloud_login "$OLLAMA_BIN_PATH" "$selected_model"
+fi
+ensure_selected_model_installed "$OLLAMA_BIN_PATH" "$selected_model" "$selected_runtime"
+ensure_selected_model_runnable "$LLM_PORT" "$selected_model" "$selected_runtime"
+
 set_runtime_state "$selected_runtime"
 cd "$ROOT_DIR/backend"
 
@@ -322,8 +481,8 @@ if [[ ! -d ".venv" ]]; then
   python3 -m venv .venv
 fi
 
-./.venv/bin/python -m pip install --upgrade pip
-./.venv/bin/python -m pip install -r requirements.txt
+run_pip_step "./.venv/bin/python" "upgrade-pip" install --upgrade pip
+run_pip_step "./.venv/bin/python" "install-requirements" install -r requirements.txt
 
 step "Running backend"
 require_port_free "$BACKEND_PORT" "backend"

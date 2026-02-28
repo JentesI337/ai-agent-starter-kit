@@ -8,6 +8,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$cleanupScript = Join-Path $PSScriptRoot 'clean-dev.ps1'
+if (Test-Path $cleanupScript) {
+    Write-Host "`n==> Cleaning stale dev processes" -ForegroundColor Cyan
+    & $cleanupScript -LlmPort $LlmPort -BackendPort $BackendPort -FrontendPort $FrontendPort
+}
+
 function Write-Step([string]$Text) {
     Write-Host "`n==> $Text" -ForegroundColor Cyan
 }
@@ -19,7 +25,7 @@ function Resolve-RuntimeMode {
 
     Write-Host "Select runtime mode:" -ForegroundColor Cyan
     Write-Host "1) local (70B)"
-    Write-Host "2) api (qwen2.5:7b-instruct)"
+    Write-Host "2) api (minimax-m2:cloud)"
     $choice = Read-Host "Enter 1 or 2"
     if ($choice -eq '2') {
         return 'api'
@@ -166,6 +172,63 @@ function Ensure-Ollama-Running([int]$Port) {
     throw "Ollama did not start on port $Port"
 }
 
+function Ensure-CloudLogin([string]$OllamaBin, [string]$ModelName) {
+    if (-not $ModelName.ToLower().EndsWith(':cloud')) {
+        return
+    }
+
+    Write-Step "Checking Ollama Cloud login"
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $proc = Start-Process -FilePath $OllamaBin -ArgumentList 'whoami' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        $raw = ""
+        if (Test-Path $stdoutFile) {
+            $raw += (Get-Content $stdoutFile -Raw)
+        }
+        if (Test-Path $stderrFile) {
+            $raw += (Get-Content $stderrFile -Raw)
+        }
+
+        if ($proc.ExitCode -ne 0) {
+            if ($raw -match 'unknown command') {
+                Write-Host "Ollama version has no 'whoami'; running 'ollama signin' to ensure cloud login." -ForegroundColor Yellow
+                & $OllamaBin signin
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Cloud login failed. Complete 'ollama signin' successfully and rerun start-dev."
+                }
+                return
+            }
+
+            Write-Host "Cloud login missing. Running 'ollama signin'..." -ForegroundColor Yellow
+            & $OllamaBin signin
+            if ($LASTEXITCODE -ne 0) {
+                throw "Cloud login failed. Complete 'ollama signin' successfully and rerun start-dev."
+            }
+        }
+    }
+    finally {
+        Remove-Item $stdoutFile -ErrorAction SilentlyContinue
+        Remove-Item $stderrFile -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-PipInstall([string]$PythonExe, [string[]]$Arguments, [string]$StepName) {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Write-Host "Pip step '$StepName' (attempt $attempt/3)"
+        & $PythonExe -m pip --disable-pip-version-check --no-input @Arguments
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    throw "Backend dependency install failed during '$StepName'. If you see 'Operation cancelled by user', rerun after checking network/proxy and Python permissions."
+}
+
 function Ensure-BackendEnv([int]$Port) {
     $backendDir = Join-Path $PSScriptRoot 'backend'
     $envFile = Join-Path $backendDir '.env'
@@ -221,6 +284,98 @@ function Upsert-EnvVar([string]$FilePath, [string]$Name, [string]$Value) {
     Set-Content -Path $FilePath -Value $updated -Encoding UTF8
 }
 
+function Get-EnvOrDefault([string]$FilePath, [string]$Name, [string]$DefaultValue) {
+    if (-not (Test-Path $FilePath)) {
+        return $DefaultValue
+    }
+
+    foreach ($line in Get-Content $FilePath) {
+        if ($line -match "^$Name=(.*)$") {
+            $value = $Matches[1].Trim()
+            if ($value) {
+                return $value
+            }
+        }
+    }
+
+    return $DefaultValue
+}
+
+function Test-ModelInstalled([string]$OllamaBin, [string]$ModelName) {
+    $listOutput = & $OllamaBin list 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    return ($listOutput -match [regex]::Escape($ModelName))
+}
+
+function Ensure-SelectedModelInstalled([string]$OllamaBin, [string]$ModelName, [string]$RuntimeMode) {
+    Write-Step "Ensuring model is installed: $ModelName"
+
+    if (Test-ModelInstalled -OllamaBin $OllamaBin -ModelName $ModelName) {
+        Write-Host "Model already installed: $ModelName"
+        return
+    }
+
+    Write-Host "Model not found locally. Pulling: $ModelName"
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $proc = Start-Process -FilePath $OllamaBin -ArgumentList @('pull', $ModelName) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        $raw = ""
+        if (Test-Path $stdoutFile) {
+            $raw += (Get-Content $stdoutFile -Raw)
+        }
+        if (Test-Path $stderrFile) {
+            $raw += (Get-Content $stderrFile -Raw)
+        }
+
+        if ($raw) {
+            Write-Host $raw.Trim()
+        }
+
+        if ($proc.ExitCode -ne 0) {
+            $low = $raw.ToLowerInvariant()
+            if ($low -match 'file does not exist' -or $low -match 'not found') {
+                if ($RuntimeMode -eq 'api') {
+                    throw "API model '$ModelName' is currently not available from this Ollama registry/version. You are logged in, but the model ID is not resolvable. Verify the exact cloud model name for your account and update API_MODEL."
+                }
+                throw "Local model '$ModelName' is not available in the configured Ollama registry. Verify model name and rerun start-dev."
+            }
+
+            if ($RuntimeMode -eq 'api') {
+                throw "Could not install API model '$ModelName'. Cloud login may be missing or the model may be unavailable. Check ollama signin status and model identifier, then rerun start-dev."
+            }
+            throw "Could not install local model '$ModelName'. Check model name/network and rerun start-dev."
+        }
+    }
+    finally {
+        Remove-Item $stdoutFile -ErrorAction SilentlyContinue
+        Remove-Item $stderrFile -ErrorAction SilentlyContinue
+    }
+
+}
+
+function Ensure-SelectedModelRunnable([string]$Port, [string]$ModelName, [string]$RuntimeMode) {
+    Write-Step "Validating model execution: $ModelName"
+    try {
+        $payload = @{
+            model = $ModelName
+            prompt = "ping"
+            stream = $false
+        } | ConvertTo-Json
+
+        $null = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/generate" -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 240
+        Write-Host "Model is runnable: $ModelName"
+    }
+    catch {
+        if ($RuntimeMode -eq 'api') {
+            throw "API model '$ModelName' is not runnable. Ensure you're logged in via 'ollama signin' and have an active Pro plan. Details: $($_.Exception.Message)"
+        }
+        throw "Local model '$ModelName' is not runnable. Details: $($_.Exception.Message)"
+    }
+}
+
 function Set-RuntimeState([string]$Mode, [int]$Port) {
     $backendDir = Join-Path $PSScriptRoot 'backend'
     $envFile = Join-Path $backendDir '.env'
@@ -238,17 +393,15 @@ function Set-RuntimeState([string]$Mode, [int]$Port) {
     }
 
     $localModel = if ($envVars.ContainsKey('LOCAL_MODEL')) { $envVars['LOCAL_MODEL'] } else { 'llama3.3:70b-instruct-q4_K_M' }
-    $apiModel = if ($envVars.ContainsKey('API_MODEL')) { $envVars['API_MODEL'] } else { 'qwen2.5:7b-instruct' }
-    $apiBaseUrl = if ($envVars.ContainsKey('API_BASE_URL')) { $envVars['API_BASE_URL'] } else { "http://localhost:$Port/v1" }
+    $apiModel = if ($envVars.ContainsKey('API_MODEL')) { $envVars['API_MODEL'] } else { 'minimax-m2:cloud' }
+    $apiBaseUrl = if ($envVars.ContainsKey('API_BASE_URL')) { $envVars['API_BASE_URL'] } else { "http://localhost:$Port/api" }
     $llmBaseUrl = if ($envVars.ContainsKey('LLM_BASE_URL')) { $envVars['LLM_BASE_URL'] } else { "http://localhost:$Port/v1" }
-    $apiKey = if ($envVars.ContainsKey('LLAMA_API_KEY')) { $envVars['LLAMA_API_KEY'] } elseif ($envVars.ContainsKey('LLM_API_KEY')) { $envVars['LLM_API_KEY'] } else { '' }
 
     if ($Mode -eq 'api') {
         $state = @{
             runtime = 'api'
             base_url = $apiBaseUrl
             model = $apiModel
-            api_key = $apiKey
         }
     }
     else {
@@ -256,7 +409,6 @@ function Set-RuntimeState([string]$Mode, [int]$Port) {
             runtime = 'local'
             base_url = $llmBaseUrl
             model = $localModel
-            api_key = if ($envVars.ContainsKey('LLM_API_KEY')) { $envVars['LLM_API_KEY'] } else { 'not-needed' }
         }
     }
 
@@ -274,14 +426,30 @@ if ($selectedRuntime -eq 'local') {
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 else {
-    Write-Step "API runtime selected - using local Ollama gateway with API model"
+    Write-Step "API runtime selected - using local Ollama API with cloud model"
+    $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 
 Write-Step "Installing backend (python + deps)"
 Ensure-Python
 $backendDir = Join-Path $PSScriptRoot 'backend'
+$envFilePath = Join-Path $backendDir '.env'
 Ensure-BackendEnv -Port $LlmPort
-Upsert-EnvVar -FilePath (Join-Path $backendDir '.env') -Name 'OLLAMA_BIN' -Value $ollamaBinary
+Upsert-EnvVar -FilePath $envFilePath -Name 'OLLAMA_BIN' -Value $ollamaBinary
+if ($selectedRuntime -eq 'api') {
+    Upsert-EnvVar -FilePath $envFilePath -Name 'API_BASE_URL' -Value "http://localhost:$LlmPort/api"
+    Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value 'minimax-m2:cloud'
+}
+
+$localModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue 'llama3.3:70b-instruct-q4_K_M'
+$apiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
+$selectedModel = if ($selectedRuntime -eq 'api') { $apiModel } else { $localModel }
+if ($selectedRuntime -eq 'api') {
+    Ensure-CloudLogin -OllamaBin $ollamaBinary -ModelName $selectedModel
+}
+Ensure-SelectedModelInstalled -OllamaBin $ollamaBinary -ModelName $selectedModel -RuntimeMode $selectedRuntime
+Ensure-SelectedModelRunnable -Port $LlmPort -ModelName $selectedModel -RuntimeMode $selectedRuntime
+
 Set-RuntimeState -Mode $selectedRuntime -Port $LlmPort
 Set-Location $backendDir
 
@@ -290,8 +458,8 @@ if (-not (Test-Path '.venv')) {
 }
 
 $venvPython = Join-Path $backendDir '.venv\Scripts\python.exe'
-& $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install -r requirements.txt
+Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '--upgrade', 'pip') -StepName 'upgrade-pip'
+Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '-r', 'requirements.txt') -StepName 'install-requirements'
 
 Write-Step "Running backend"
 Ensure-Port-Free -Port $BackendPort -ServiceName 'backend'
