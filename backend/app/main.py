@@ -8,11 +8,14 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.agent import HeadCodingAgent
+from app.agents.head_coder_adapter import HeadCoderAgentAdapter
 from app.config import settings
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.interfaces import OrchestratorApi, RequestContext
 from app.models import WsInboundMessage
+from app.orchestrator.events import build_lifecycle_event, classify_error
 from app.runtime_manager import RuntimeManager
+from app.state import StateStore
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -30,13 +33,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-agent = HeadCodingAgent()
+agent = HeadCoderAgentAdapter()
 runtime_manager = RuntimeManager()
+state_store = StateStore(persist_dir=settings.orchestrator_state_dir)
+orchestrator_api = OrchestratorApi(agent=agent, state_store=state_store)
 
 
-def _is_model_not_found_error(message: str) -> bool:
-    text = (message or "").lower()
-    return "model" in text and "not found" in text
+def _state_append_event_safe(run_id: str, event: dict) -> None:
+    try:
+        state_store.append_event(run_id=run_id, event=event)
+    except Exception:
+        logger.debug("state_append_event_failed run_id=%s", run_id, exc_info=True)
+
+
+def _state_mark_failed_safe(run_id: str, error: str) -> None:
+    try:
+        state_store.mark_failed(run_id=run_id, error=error)
+    except Exception:
+        logger.debug("state_mark_failed_failed run_id=%s", run_id, exc_info=True)
+
+
+def _state_mark_completed_safe(run_id: str) -> None:
+    try:
+        state_store.mark_completed(run_id=run_id)
+    except Exception:
+        logger.debug("state_mark_completed_failed run_id=%s", run_id, exc_info=True)
 
 
 class AgentTestRequest(BaseModel):
@@ -99,6 +120,15 @@ async def test_agent(request: AgentTestRequest):
         request.model or runtime_state.model,
         len(request.message or ""),
     )
+    state_store.init_run(
+        run_id=request_id,
+        session_id=session_id,
+        request_id=request_id,
+        user_message=request.message or "",
+        runtime=runtime_state.runtime,
+        model=request.model or runtime_state.model,
+    )
+    state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
 
     async def collect_event(payload: dict):
         events.append(payload)
@@ -115,14 +145,19 @@ async def test_agent(request: AgentTestRequest):
         selected_model = await runtime_manager.resolve_api_request_model(selected_model)
 
     try:
-        await agent.run(
-            request.message,
-            collect_event,
-            session_id=session_id,
-            request_id=request_id,
-            model=selected_model,
+        await orchestrator_api.run_user_message(
+            user_message=request.message,
+            send_event=collect_event,
+            request_context=RequestContext(
+                session_id=session_id,
+                request_id=request_id,
+                runtime=runtime_state.runtime,
+                model=selected_model,
+            ),
         )
+        _state_mark_completed_safe(run_id=request_id)
     except (GuardrailViolation, ToolExecutionError, RuntimeSwitchError) as exc:
+        _state_mark_failed_safe(run_id=request_id, error=str(exc))
         logger.warning(
             "agent_test_client_error request_id=%s session_id=%s error=%s",
             request_id,
@@ -131,6 +166,7 @@ async def test_agent(request: AgentTestRequest):
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LlmClientError as exc:
+        _state_mark_failed_safe(run_id=request_id, error=str(exc))
         logger.warning(
             "agent_test_llm_error request_id=%s session_id=%s error=%s",
             request_id,
@@ -139,6 +175,7 @@ async def test_agent(request: AgentTestRequest):
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
+        _state_mark_failed_safe(run_id=request_id, error=str(exc))
         logger.exception(
             "agent_test_unhandled request_id=%s session_id=%s",
             request_id,
@@ -212,16 +249,19 @@ async def agent_socket(websocket: WebSocket):
     )
 
     async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None):
+        lifecycle_event = build_lifecycle_event(
+            request_id=request_id,
+            session_id=session_id,
+            stage=stage,
+            details=details,
+            agent=agent.name,
+        )
+        _state_append_event_safe(
+            run_id=request_id,
+            event={"stage": stage, "session_id": session_id, "details": details or {}},
+        )
         await send_event(
-            {
-                "type": "lifecycle",
-                "agent": agent.name,
-                "stage": stage,
-                "request_id": request_id,
-                "session_id": session_id,
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "details": details or {},
-            }
+            lifecycle_event
         )
 
     try:
@@ -241,6 +281,16 @@ async def agent_socket(websocket: WebSocket):
                     len(data.content or ""),
                     data.model,
                 )
+                current_runtime_state = runtime_manager.get_state()
+                state_store.init_run(
+                    run_id=request_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    user_message=data.content or "",
+                    runtime=current_runtime_state.runtime,
+                    model=data.model or current_runtime_state.model,
+                )
+                state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
                 await send_lifecycle(
                     stage="request_received",
                     request_id=request_id,
@@ -349,130 +399,103 @@ async def agent_socket(websocket: WebSocket):
                         if runtime_state.model != resolved_model:
                             runtime_manager.set_active_model(resolved_model)
 
-                try:
-                    logger.info(
-                        "ws_agent_run_start request_id=%s session_id=%s selected_model=%s",
-                        request_id,
-                        session_id,
-                        selected_model,
-                    )
-                    await agent.run(
-                        data.content,
-                        send_event,
+                logger.info(
+                    "ws_agent_run_start request_id=%s session_id=%s selected_model=%s",
+                    request_id,
+                    session_id,
+                    selected_model,
+                )
+                await orchestrator_api.run_user_message(
+                    user_message=data.content,
+                    send_event=send_event,
+                    request_context=RequestContext(
                         session_id=session_id,
                         request_id=request_id,
+                        runtime=runtime_state.runtime,
                         model=selected_model,
-                    )
-                    logger.info(
-                        "ws_agent_run_done request_id=%s session_id=%s selected_model=%s",
-                        request_id,
-                        session_id,
-                        selected_model,
-                    )
-                except LlmClientError as exc:
-                    if selected_model != runtime_state.model and _is_model_not_found_error(str(exc)):
-                        logger.warning(
-                            "ws_model_fallback request_id=%s session_id=%s from_model=%s to_model=%s error=%s",
-                            request_id,
-                            session_id,
-                            selected_model,
-                            runtime_state.model,
-                            exc,
-                        )
-                        await send_event(
-                            {
-                                "type": "status",
-                                "agent": agent.name,
-                                "message": f"Model '{selected_model}' not found. Retrying with active runtime model '{runtime_state.model}'.",
-                            }
-                        )
-                        await send_lifecycle(
-                            stage="model_fallback_retry",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={"from": selected_model, "to": runtime_state.model},
-                        )
-                        await agent.run(
-                            data.content,
-                            send_event,
-                            session_id=session_id,
-                            request_id=request_id,
-                            model=runtime_state.model,
-                        )
-                    else:
-                        logger.warning(
-                            "ws_llm_error request_id=%s session_id=%s model=%s error=%s",
-                            request_id,
-                            session_id,
-                            selected_model,
-                            exc,
-                        )
-                        raise
+                    ),
+                )
+                logger.info(
+                    "ws_agent_run_done request_id=%s session_id=%s selected_model=%s",
+                    request_id,
+                    session_id,
+                    selected_model,
+                )
                 await send_lifecycle(
                     stage="request_completed",
                     request_id=request_id,
                     session_id=session_id,
                 )
+                _state_mark_completed_safe(run_id=request_id)
             except (WebSocketDisconnect, ClientDisconnectedError):
                 logger.info("ws_disconnected session_id=%s", session_id)
                 break
             except GuardrailViolation as exc:
+                _state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
                     {
                         "type": "error",
                         "agent": agent.name,
                         "message": f"Guardrail blocked request: {exc}",
+                        "error_category": classify_error(exc),
                     }
                 )
                 await send_lifecycle(
                     stage="request_failed_guardrail",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"error": str(exc)},
+                    details={"error": str(exc), "error_category": classify_error(exc)},
                 )
             except ToolExecutionError as exc:
+                _state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
                     {
                         "type": "error",
                         "agent": agent.name,
                         "message": f"Toolchain error: {exc}",
+                        "error_category": classify_error(exc),
                     }
                 )
                 await send_lifecycle(
                     stage="request_failed_toolchain",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"error": str(exc)},
+                    details={"error": str(exc), "error_category": classify_error(exc)},
                 )
             except RuntimeSwitchError as exc:
+                _state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
                     {
                         "type": "runtime_switch_error",
                         "session_id": session_id,
                         "message": str(exc),
+                        "error_category": classify_error(exc),
                     }
                 )
                 await send_lifecycle(
                     stage="runtime_switch_failed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"error": str(exc)},
+                    details={"error": str(exc), "error_category": classify_error(exc)},
                 )
             except LlmClientError as exc:
+                _state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
                     {
                         "type": "error",
                         "agent": agent.name,
                         "message": f"LLM error: {exc}",
+                        "error_category": classify_error(exc),
                     }
                 )
                 await send_lifecycle(
                     stage="request_failed_llm",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"error": str(exc)},
+                    details={"error": str(exc), "error_category": classify_error(exc)},
                 )
             except Exception as exc:
+                _state_mark_failed_safe(run_id=request_id, error=str(exc))
                 logger.exception(
                     "ws_unhandled_error request_id=%s session_id=%s",
                     request_id,
@@ -483,13 +506,14 @@ async def agent_socket(websocket: WebSocket):
                         "type": "error",
                         "agent": agent.name,
                         "message": f"Request error: {exc}",
+                        "error_category": classify_error(exc),
                     }
                 )
                 await send_lifecycle(
                     stage="request_failed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"error": str(exc)},
+                    details={"error": str(exc), "error_category": classify_error(exc)},
                 )
     except WebSocketDisconnect:
         logger.info("ws_outer_disconnect session_id=%s", connection_session_id)

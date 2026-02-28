@@ -45,6 +45,7 @@ class Settings(BaseModel):
     workspace_root: str = os.getenv("WORKSPACE_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
     memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
     memory_persist_dir: str = os.getenv("MEMORY_PERSIST_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "memory_store")))
+    orchestrator_state_dir: str = os.getenv("ORCHESTRATOR_STATE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "state_store")))
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
     max_user_message_length: int = int(os.getenv("MAX_USER_MESSAGE_LENGTH", "8000"))
     local_model: str = os.getenv("LOCAL_MODEL", os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M"))

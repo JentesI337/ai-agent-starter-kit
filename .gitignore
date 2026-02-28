@@ -22,6 +22,7 @@ frontend/.env
 
 # Runtime state/logs
 backend/memory_store/
+backend/state_store/
 backend/runtime_state.json
 *.log
 

@@ -37,6 +37,11 @@ class MemoryStore:
         lines = [f"- {item.role}: {item.content}" for item in items]
         return "\n".join(lines)
 
+    def get_items(self, session_id: str) -> list[MemoryItem]:
+        key = self._normalize_session_id(session_id)
+        items = self._store.get(key, deque())
+        return list(items)
+
     def _load_from_disk(self) -> None:
         if not self.persist_dir:
             return

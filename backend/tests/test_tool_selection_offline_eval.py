@@ -86,3 +86,53 @@ def test_offline_tool_call_accuracy_curated_set() -> None:
 
     accuracy = correct / len(cases)
     assert accuracy >= 0.8
+
+
+def test_final_response_sanitizer_removes_tool_call_artifacts() -> None:
+    agent = HeadCodingAgent()
+    raw = (
+        "Done.\n"
+        "[TOOL_CALL] {tool => \"list_dir\", args => { --path \".\" }} [/TOOL_CALL]\n"
+        "Next steps."
+    )
+
+    sanitized = agent._sanitize_final_response(raw)
+
+    assert "[TOOL_CALL]" not in sanitized
+    assert "tool =>" not in sanitized
+    assert "Done." in sanitized
+    assert "Next steps." in sanitized
+
+
+def test_augment_actions_adds_followup_for_file_task() -> None:
+    agent = HeadCodingAgent()
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> list[dict]:
+        original = agent.client.complete_chat
+
+        async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+            if "include write_file" in user_prompt.lower():
+                return '{"actions":[{"tool":"write_file","args":{"path":"calculator.html","content":"<html></html>"}}]}'
+            return await original(system_prompt, user_prompt, model)
+
+        agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+        try:
+            return await agent._augment_actions_if_needed(
+                actions=[],
+                user_message="make a calculator with html css and javascript",
+                plan_text="create files",
+                memory_context="- user: make calculator",
+                send_event=send_event,
+                request_id="r1",
+                session_id="s1",
+                model=None,
+            )
+        finally:
+            agent.client.complete_chat = original  # type: ignore[method-assign]
+
+    result_actions = asyncio.run(run_case())
+
+    assert any(action.get("tool") == "write_file" for action in result_actions)

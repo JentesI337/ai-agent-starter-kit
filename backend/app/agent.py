@@ -8,10 +8,22 @@ from pathlib import Path
 import re
 from typing import Callable, Awaitable
 
+from app.agents.planner_agent import PlannerAgent
+from app.agents.synthesizer_agent import SynthesizerAgent
+from app.agents.tool_selector_agent import ToolSelectorAgent
 from app.config import settings
+from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
 from app.errors import GuardrailViolation, ToolExecutionError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
+from app.model_routing import ModelRegistry
+from app.orchestrator.events import build_lifecycle_event
+from app.orchestrator.step_executors import (
+    PlannerStepExecutor,
+    SynthesizeStepExecutor,
+    ToolStepExecutor,
+)
+from app.state.context_reducer import ContextReducer
 from app.tools import AgentTooling
 
 SendEvent = Callable[[dict], Awaitable[None]]
@@ -60,13 +72,29 @@ class HeadCodingAgent:
             workspace_root=settings.workspace_root,
             command_timeout_seconds=settings.command_timeout_seconds,
         )
+        self.model_registry = ModelRegistry()
+        self.context_reducer = ContextReducer()
         self.tool_registry = self._build_tool_registry()
+        self._build_sub_agents()
+
+    def _build_sub_agents(self) -> None:
+        self.planner_agent = PlannerAgent(client=self.client)
+        self.tool_selector_agent = ToolSelectorAgent(execute_tools_fn=self._execute_tools)
+        self.synthesizer_agent = SynthesizerAgent(
+            client=self.client,
+            agent_name=self.name,
+            emit_lifecycle_fn=self._emit_lifecycle,
+        )
+        self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
+        self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
+        self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
 
     def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(
             base_url=base_url,
             model=model,
         )
+        self._build_sub_agents()
 
     async def run(
         self,
@@ -104,13 +132,38 @@ class HeadCodingAgent:
             raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
 
         self.memory.add(session_id, "user", user_message)
-        memory_context = self.memory.render_context(session_id)
+        model_id = model or self.client.model
+        profile = self.model_registry.resolve(model_id)
+        budgets = self._step_budgets(profile.max_context)
+        memory_items = self.memory.get_items(session_id)
+        memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
+
+        plan_context = self.context_reducer.reduce(
+            budget_tokens=budgets["plan"],
+            user_message=user_message,
+            memory_lines=memory_lines,
+            tool_outputs=[],
+        )
         await self._emit_lifecycle(
             send_event,
             stage="memory_updated",
             request_id=request_id,
             session_id=session_id,
-            details={"memory_chars": len(memory_context)},
+            details={"memory_items": len(memory_items), "memory_chars": len(plan_context.rendered)},
+        )
+        await self._emit_lifecycle(
+            send_event,
+            stage="context_reduced",
+            request_id=request_id,
+            session_id=session_id,
+            details={
+                "model": model_id,
+                "max_context": profile.max_context,
+                "plan_budget": budgets["plan"],
+                "tool_budget": budgets["tool"],
+                "final_budget": budgets["final"],
+                "plan_used": plan_context.used_tokens,
+            },
         )
 
         await send_event(
@@ -121,13 +174,25 @@ class HeadCodingAgent:
             }
         )
 
-        plan_text = await self._create_plan(
-            user_message=user_message,
-            memory_context=memory_context,
-            model=model,
-            send_event=send_event,
+        await self._emit_lifecycle(
+            send_event,
+            stage="planning_started",
             request_id=request_id,
             session_id=session_id,
+        )
+        plan_text = await self.plan_step_executor.execute(
+            PlannerInput(
+                user_message=user_message,
+                reduced_context=plan_context.rendered,
+            ),
+            model,
+        )
+        await self._emit_lifecycle(
+            send_event,
+            stage="planning_completed",
+            request_id=request_id,
+            session_id=session_id,
+            details={"plan_chars": len(plan_text)},
         )
         self.memory.add(session_id, "plan", plan_text)
         await send_event(
@@ -138,14 +203,23 @@ class HeadCodingAgent:
             }
         )
 
-        tool_results = await self._execute_tools(
+        tool_context = self.context_reducer.reduce(
+            budget_tokens=budgets["tool"],
             user_message=user_message,
-            plan_text=plan_text,
-            memory_context=memory_context,
-            session_id=session_id,
-            request_id=request_id,
-            send_event=send_event,
-            model=model,
+            memory_lines=memory_lines,
+            tool_outputs=[plan_text],
+        )
+
+        tool_results = await self.tool_step_executor.execute(
+            ToolSelectorInput(
+                user_message=user_message,
+                plan_text=plan_text,
+                reduced_context=tool_context.rendered,
+            ),
+            session_id,
+            request_id,
+            send_event,
+            model,
         )
 
         await send_event(
@@ -156,42 +230,36 @@ class HeadCodingAgent:
             }
         )
 
-        final_prompt = (
-            "User request:\n"
-            f"{user_message}\n\n"
-            "Plan:\n"
-            f"{plan_text}\n\n"
-            "Tool outputs:\n"
-            f"{tool_results or '(no tool outputs)'}\n\n"
-            "Relevant memory:\n"
-            f"{memory_context}\n\n"
-            "Generate a concise final answer with concrete next implementation steps."
+        final_context = self.context_reducer.reduce(
+            budget_tokens=budgets["final"],
+            user_message=user_message,
+            memory_lines=memory_lines,
+            tool_outputs=[tool_results] if tool_results else [],
+            snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
         )
 
-        await self._emit_lifecycle(
+        final_text = await self.synthesize_step_executor.execute(
+            SynthesizerInput(
+                user_message=user_message,
+                plan_text=plan_text,
+                tool_results=tool_results or "",
+                reduced_context=final_context.rendered,
+            ),
+            session_id,
+            request_id,
             send_event,
-            stage="streaming_started",
-            request_id=request_id,
-            session_id=session_id,
+            model,
         )
-
-        output_parts: list[str] = []
-        async for token in self.client.stream_chat_completion(
-            settings.agent_final_prompt,
-            final_prompt,
-            model=model,
-        ):
-            output_parts.append(token)
-            await send_event({"type": "token", "agent": self.name, "token": token})
-
-        final_text = "".join(output_parts).strip()
-        await self._emit_lifecycle(
-            send_event,
-            stage="streaming_completed",
-            request_id=request_id,
-            session_id=session_id,
-            details={"output_chars": len(final_text)},
-        )
+        sanitized_final = self._sanitize_final_response(final_text)
+        if sanitized_final != final_text:
+            await self._emit_lifecycle(
+                send_event,
+                stage="final_sanitized",
+                request_id=request_id,
+                session_id=session_id,
+                details={"original_chars": len(final_text), "sanitized_chars": len(sanitized_final)},
+            )
+        final_text = sanitized_final
         self.memory.add(session_id, "assistant", final_text or "No output generated.")
         await send_event(
             {
@@ -208,6 +276,55 @@ class HeadCodingAgent:
         )
         return final_text
 
+    async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:
+        planner_output = await self.planner_agent.execute(payload, model=model)
+        return planner_output.plan_text
+
+    async def _execute_tool_step(
+        self,
+        payload: ToolSelectorInput,
+        session_id: str,
+        request_id: str,
+        send_event: SendEvent,
+        model: str | None,
+    ) -> str:
+        tool_output = await self.tool_selector_agent.execute(
+            payload,
+            session_id=session_id,
+            request_id=request_id,
+            send_event=send_event,
+            model=model,
+        )
+        return tool_output.tool_results
+
+    async def _execute_synthesize_step(
+        self,
+        payload: SynthesizerInput,
+        session_id: str,
+        request_id: str,
+        send_event: SendEvent,
+        model: str | None,
+    ) -> str:
+        synthesize_output = await self.synthesizer_agent.execute(
+            payload,
+            send_event=send_event,
+            session_id=session_id,
+            request_id=request_id,
+            model=model,
+        )
+        return synthesize_output.final_text
+
+    def _step_budgets(self, max_context: int) -> dict[str, int]:
+        budget = max(1024, max_context)
+        plan_budget = max(256, int(budget * 0.25))
+        tool_budget = max(256, int(budget * 0.30))
+        final_budget = max(512, int(budget * 0.45))
+        return {
+            "plan": plan_budget,
+            "tool": tool_budget,
+            "final": final_budget,
+        }
+
     def _validate_guardrails(self, user_message: str, session_id: str, model: str | None) -> None:
         if not user_message.strip():
             raise GuardrailViolation("Message must not be empty.")
@@ -221,43 +338,6 @@ class HeadCodingAgent:
             raise GuardrailViolation("session_id contains unsupported characters.")
         if model and len(model) > 120:
             raise GuardrailViolation("model name too long.")
-
-    async def _create_plan(
-        self,
-        user_message: str,
-        memory_context: str,
-        model: str | None,
-        send_event: SendEvent,
-        request_id: str,
-        session_id: str,
-    ) -> str:
-        await self._emit_lifecycle(
-            send_event,
-            stage="planning_started",
-            request_id=request_id,
-            session_id=session_id,
-        )
-        planner_prompt = (
-            "Create a short implementation plan (3-6 bullets) for a coding agent task.\n"
-            "Focus on actionable steps only.\n\n"
-            "Conversation memory:\n"
-            f"{memory_context}\n\n"
-            "Current task:\n"
-            f"{user_message}"
-        )
-        plan = await self.client.complete_chat(
-            settings.agent_plan_prompt,
-            planner_prompt,
-            model=model,
-        )
-        await self._emit_lifecycle(
-            send_event,
-            stage="planning_completed",
-            request_id=request_id,
-            session_id=session_id,
-            details={"plan_chars": len(plan)},
-        )
-        return plan
 
     async def _execute_tools(
         self,
@@ -356,6 +436,18 @@ class HeadCodingAgent:
             )
 
         actions, rejected_count = self._validate_actions(actions)
+
+        actions = await self._augment_actions_if_needed(
+            actions=actions,
+            user_message=user_message,
+            plan_text=plan_text,
+            memory_context=memory_context,
+            send_event=send_event,
+            request_id=request_id,
+            session_id=session_id,
+            model=model,
+        )
+
         if rejected_count > 0:
             await self._emit_lifecycle(
                 send_event,
@@ -447,6 +539,109 @@ class HeadCodingAgent:
                 )
 
         return "\n\n".join(results)
+
+    async def _augment_actions_if_needed(
+        self,
+        *,
+        actions: list[dict],
+        user_message: str,
+        plan_text: str,
+        memory_context: str,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+        model: str | None,
+    ) -> list[dict]:
+        if not self._is_file_creation_task(user_message):
+            return actions
+
+        has_write_action = any(str(action.get("tool", "")).strip() == "write_file" for action in actions)
+        if has_write_action:
+            return actions
+
+        await self._emit_lifecycle(
+            send_event,
+            stage="tool_selection_followup_started",
+            request_id=request_id,
+            session_id=session_id,
+            details={"reason": "file_task_without_write_file"},
+        )
+
+        followup_prompt = (
+            "You previously selected tools for a coding task.\n"
+            "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
+            "Return strict JSON only:\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command\",\"args\":{}}]}\n"
+            "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
+            "If still insufficient context, return {\"actions\":[]}\n\n"
+            "Memory:\n"
+            f"{memory_context}\n\n"
+            "Task:\n"
+            f"{user_message}\n\n"
+            "Plan:\n"
+            f"{plan_text}"
+        )
+
+        followup_raw = await self.client.complete_chat(
+            settings.agent_tool_selector_prompt,
+            followup_prompt,
+            model=model,
+        )
+        followup_actions, followup_error = self._extract_actions(followup_raw)
+        if followup_error:
+            await self._emit_lifecycle(
+                send_event,
+                stage="tool_selection_followup_failed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": followup_error},
+            )
+            return actions
+
+        validated_followups, _ = self._validate_actions(followup_actions)
+        merged = actions + validated_followups
+        deduped: list[dict] = []
+        seen_keys: set[str] = set()
+        for action in merged:
+            key = json.dumps(action, sort_keys=True)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(action)
+
+        await self._emit_lifecycle(
+            send_event,
+            stage="tool_selection_followup_completed",
+            request_id=request_id,
+            session_id=session_id,
+            details={"base_actions": len(actions), "merged_actions": len(deduped)},
+        )
+        return deduped
+
+    def _is_file_creation_task(self, user_message: str) -> bool:
+        text = (user_message or "").lower()
+        markers = (
+            "create",
+            "build",
+            "make",
+            "save",
+            "file",
+            "html",
+            "css",
+            "javascript",
+            "js",
+        )
+        return any(marker in text for marker in markers)
+
+    def _sanitize_final_response(self, final_text: str) -> str:
+        text = (final_text or "").strip()
+        if not text:
+            return text
+
+        sanitized = re.sub(r"\[TOOL_CALL\].*?\[/TOOL_CALL\]", "", text, flags=re.IGNORECASE | re.DOTALL)
+        sanitized = re.sub(r"\{\s*tool\s*=>.*?\}", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
+        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized).strip()
+        return sanitized
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
         text = raw.strip()
@@ -686,13 +881,11 @@ class HeadCodingAgent:
         details: dict | None = None,
     ) -> None:
         await send_event(
-            {
-                "type": "lifecycle",
-                "agent": self.name,
-                "stage": stage,
-                "request_id": request_id,
-                "session_id": session_id,
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "details": details or {},
-            }
+            build_lifecycle_event(
+                request_id=request_id,
+                session_id=session_id,
+                stage=stage,
+                details=details,
+                agent=self.name,
+            )
         )

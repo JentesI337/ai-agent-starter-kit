@@ -37,12 +37,6 @@
 
     <div class="controls">
       <label>
-        Agent
-        <select [(ngModel)]="selectedAgentId" [disabled]="firstRunChoicePending">
-          <option *ngFor="let agent of agents" [value]="agent.id">{{ agent.name }}</option>
-        </select>
-      </label>
-      <label>
         Runtime
         <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
           <option value="local">local-70b</option>

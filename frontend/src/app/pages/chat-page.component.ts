@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService } from '../services/agent-socket.service';
-import { AgentDescriptor, AgentsService } from '../services/agents.service';
+import { AgentsService } from '../services/agents.service';
 
 interface ChatLine {
   role: 'user' | 'agent' | 'system';
@@ -34,7 +34,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   runtimeSwitching = false;
   apiModelsAvailable: boolean | null = null;
   apiModelsHint = '';
-  agents: AgentDescriptor[] = [];
   isConnected = false;
   lines: ChatLine[] = [];
   lifecycleLines: LifecycleLine[] = [];
@@ -58,19 +57,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     } else {
       this.firstRunChoicePending = true;
     }
-
-    this.agentsService.getAgents().subscribe({
-      next: (agents) => {
-        this.agents = agents;
-        if (agents.length > 0) {
-          this.selectedAgentId = agents[0].id;
-          this.model = agents[0].defaultModel ?? this.model;
-        }
-      },
-      error: () => {
-        this.lines.push({ role: 'system', text: 'Could not load agents list.' });
-      },
-    });
 
     this.agentsService.getRuntimeStatus().subscribe({
       next: (status) => {

@@ -1,14 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
-export interface AgentDescriptor {
-  id: string;
-  name: string;
-  role: string;
-  status: string;
-  defaultModel?: string;
-}
-
 export interface RuntimeStatus {
   runtime: 'local' | 'api';
   baseUrl: string;
@@ -19,46 +11,13 @@ export interface RuntimeStatus {
   apiModelsError?: string | null;
 }
 
-export interface BackendPingResult {
-  ok: boolean;
-  service: string;
-  runtime: 'local' | 'api';
-  model: string;
-  ts: string;
-}
-
-export interface AgentTestResult {
-  ok: boolean;
-  runtime: 'local' | 'api';
-  model: string;
-  sessionId: string;
-  requestId: string;
-  eventCount: number;
-  final: string | null;
-}
-
 @Injectable({ providedIn: 'root' })
 export class AgentsService {
   private readonly apiBase = 'http://localhost:8000';
 
   constructor(private readonly http: HttpClient) {}
 
-  getAgents() {
-    return this.http.get<AgentDescriptor[]>(`${this.apiBase}/api/agents`);
-  }
-
   getRuntimeStatus() {
     return this.http.get<RuntimeStatus>(`${this.apiBase}/api/runtime/status`);
-  }
-
-  testBackendPing() {
-    return this.http.get<BackendPingResult>(`${this.apiBase}/api/test/ping`);
-  }
-
-  testAgentCall(message = 'hi', model?: string) {
-    return this.http.post<AgentTestResult>(`${this.apiBase}/api/test/agent`, {
-      message,
-      model,
-    });
   }
 }

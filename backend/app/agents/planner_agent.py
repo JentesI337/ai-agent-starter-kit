@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import json
+
+from app.config import settings
+from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
+from app.contracts.schemas import PlannerInput, PlannerOutput
+from app.llm_client import LlmClient
+
+
+class PlannerAgent(AgentContract):
+    role = "planner-agent"
+    input_schema = PlannerInput
+    output_schema = PlannerOutput
+    constraints = AgentConstraints(
+        max_context=4096,
+        temperature=0.2,
+        reasoning_depth=2,
+        reflection_passes=0,
+        combine_steps=False,
+    )
+
+    def __init__(self, client: LlmClient):
+        self.client = client
+
+    @property
+    def name(self) -> str:
+        return "planner-agent"
+
+    def configure_runtime(self, base_url: str, model: str) -> None:
+        self.client = LlmClient(base_url=base_url, model=model)
+
+    async def execute(self, payload: PlannerInput, model: str | None = None) -> PlannerOutput:
+        planner_prompt = (
+            "Create a short implementation plan (3-6 bullets) for a coding agent task.\n"
+            "Focus on actionable steps only.\n\n"
+            "Reduced context:\n"
+            f"{payload.reduced_context}\n\n"
+            "Current task:\n"
+            f"{payload.user_message}"
+        )
+        plan = await self.client.complete_chat(
+            settings.agent_plan_prompt,
+            planner_prompt,
+            model=model,
+        )
+        return PlannerOutput(plan_text=plan)
+
+    async def run(
+        self,
+        user_message: str,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None = None,
+    ) -> str:
+        payload = PlannerInput.model_validate_json(user_message)
+        result = await self.execute(payload, model=model)
+        return json.dumps(result.model_dump(), ensure_ascii=False)
