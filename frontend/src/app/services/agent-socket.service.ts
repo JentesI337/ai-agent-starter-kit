@@ -17,6 +17,12 @@ export interface AgentSocketEvent {
   base_url?: string;
   attempt?: number;
   level?: string;
+  seq?: number;
+}
+
+interface AgentSocketEnvelope {
+  seq: number;
+  event: AgentSocketEvent;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -25,6 +31,7 @@ export class AgentSocketService {
   private socketUrl = '';
   private reconnectTimer: number | null = null;
   private manualDisconnect = false;
+  private lastSequence: number | null = null;
   private readonly eventsSubject = new BehaviorSubject<AgentSocketEvent | null>(null);
   private readonly connectedSubject = new BehaviorSubject<boolean>(false);
 
@@ -54,6 +61,7 @@ export class AgentSocketService {
         return;
       }
       this.ngZone.run(() => {
+        this.lastSequence = null;
         this.connectedSubject.next(true);
         this.eventsSubject.next({ type: 'socket_open', message: `Socket connected: ${url}` });
       });
@@ -92,14 +100,40 @@ export class AgentSocketService {
           message: rawText.length > 240 ? `${rawText.slice(0, 240)}…` : rawText,
         });
         try {
-          const data = JSON.parse(event.data) as AgentSocketEvent;
-          this.eventsSubject.next(data);
+          const parsed = JSON.parse(event.data) as AgentSocketEvent | AgentSocketEnvelope;
+          if (this.isEnvelope(parsed)) {
+            this.handleSequence(parsed.seq);
+            this.eventsSubject.next({ ...parsed.event, seq: parsed.seq });
+            return;
+          }
+          this.eventsSubject.next(parsed);
         } catch {
           const preview = typeof event.data === 'string' ? event.data.slice(0, 200) : '[non-string]';
           this.eventsSubject.next({ type: 'status', message: `Invalid message from socket: ${preview}` });
         }
       });
     };
+  }
+
+  private isEnvelope(payload: AgentSocketEvent | AgentSocketEnvelope): payload is AgentSocketEnvelope {
+    return (
+      typeof payload === 'object' &&
+      payload !== null &&
+      'seq' in payload &&
+      typeof (payload as AgentSocketEnvelope).seq === 'number' &&
+      'event' in payload
+    );
+  }
+
+  private handleSequence(seq: number): void {
+    if (this.lastSequence !== null && seq > this.lastSequence + 1) {
+      this.eventsSubject.next({
+        type: 'sequence_gap',
+        level: 'warning',
+        message: `Missing websocket events: expected seq ${this.lastSequence + 1}, got ${seq}`,
+      });
+    }
+    this.lastSequence = seq;
   }
 
   sendUserMessage(content: string, options?: { agentId?: string; model?: string; sessionId?: string }): void {

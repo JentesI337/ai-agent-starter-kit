@@ -263,6 +263,17 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (event.type === 'sequence_gap') {
+      this.lines.push({
+        role: 'system',
+        text: `Transport warning: ${event.message ?? 'sequence gap detected'} (token/final may be incomplete).`,
+      });
+      this.pushLifecycle('sequence_gap', event.message ?? 'sequence gap detected', {
+        seq: event.seq,
+      });
+      return;
+    }
+
     if (event.type === 'error' && event.message) {
       this.pushLifecycle('frontend_error_event', 'Error event received', {
         message: event.message,

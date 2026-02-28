@@ -18,6 +18,13 @@ def _set_local_runtime() -> None:
     )
 
 
+def _unwrap_event(envelope: dict) -> dict:
+    assert "seq" in envelope
+    assert isinstance(envelope["seq"], int)
+    assert "event" in envelope
+    return envelope["event"]
+
+
 def test_runtime_status_endpoint_includes_api_model_health_fields() -> None:
     _set_local_runtime()
     client = TestClient(app)
@@ -88,7 +95,8 @@ def test_websocket_connect_emits_status_event() -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        event = ws.receive_json()
+        envelope = ws.receive_json()
+        event = _unwrap_event(envelope)
 
     assert event["type"] == "status"
     assert event["message"] == "Connected to head agent."
@@ -117,7 +125,7 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = ws.receive_json()
+        _ = _unwrap_event(ws.receive_json())
         ws.send_json(
             {
                 "type": "user_message",
@@ -127,12 +135,16 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
         )
 
         events = []
+        seq_values = []
         for _ in range(12):
-            evt = ws.receive_json()
+            envelope = ws.receive_json()
+            seq_values.append(envelope.get("seq"))
+            evt = _unwrap_event(envelope)
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
 
+    assert seq_values == sorted(seq_values)
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_received" for evt in events)
     assert any(evt.get("type") == "final" and evt.get("message") == "echo:hi" for evt in events)
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)

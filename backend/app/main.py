@@ -163,6 +163,7 @@ async def agent_socket(websocket: WebSocket):
     await websocket.accept()
     connection_session_id = str(uuid.uuid4())
     runtime_state = runtime_manager.get_state()
+    sequence_number = 0
     logger.info(
         "ws_connected session_id=%s runtime=%s model=%s",
         connection_session_id,
@@ -173,7 +174,33 @@ async def agent_socket(websocket: WebSocket):
     class ClientDisconnectedError(Exception):
         pass
 
-    await websocket.send_json(
+    async def send_event(payload: dict):
+        nonlocal sequence_number
+        try:
+            sequence_number += 1
+            if "session_id" not in payload:
+                payload["session_id"] = connection_session_id
+            envelope = {
+                "seq": sequence_number,
+                "event": payload,
+            }
+            logger.debug(
+                "ws_send_event session_id=%s seq=%s type=%s request_id=%s",
+                payload.get("session_id", connection_session_id),
+                sequence_number,
+                payload.get("type"),
+                payload.get("request_id"),
+            )
+            await websocket.send_text(json.dumps(envelope))
+        except (WebSocketDisconnect, RuntimeError) as exc:
+            logger.info(
+                "ws_send_event_disconnected session_id=%s type=%s",
+                payload.get("session_id", connection_session_id),
+                payload.get("type"),
+            )
+            raise ClientDisconnectedError() from exc
+
+    await send_event(
         {
             "type": "status",
             "agent": agent.name,
@@ -183,23 +210,6 @@ async def agent_socket(websocket: WebSocket):
             "model": runtime_state.model,
         }
     )
-
-    async def send_event(payload: dict):
-        try:
-            logger.debug(
-                "ws_send_event session_id=%s type=%s request_id=%s",
-                payload.get("session_id", connection_session_id),
-                payload.get("type"),
-                payload.get("request_id"),
-            )
-            await websocket.send_text(json.dumps(payload))
-        except (WebSocketDisconnect, RuntimeError) as exc:
-            logger.info(
-                "ws_send_event_disconnected session_id=%s type=%s",
-                payload.get("session_id", connection_session_id),
-                payload.get("type"),
-            )
-            raise ClientDisconnectedError() from exc
 
     async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None):
         await send_event(
