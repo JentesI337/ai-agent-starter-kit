@@ -14,6 +14,34 @@ class Settings(BaseModel):
         "AGENT_SYSTEM_PROMPT",
         "You are a senior coding head agent. Think step-by-step and return practical plans.",
     )
+    agent_plan_prompt: str = os.getenv(
+        "AGENT_PLAN_PROMPT",
+        os.getenv(
+            "AGENT_SYSTEM_PROMPT",
+            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+        ),
+    )
+    agent_tool_selector_prompt: str = os.getenv(
+        "AGENT_TOOL_SELECTOR_PROMPT",
+        os.getenv(
+            "AGENT_SYSTEM_PROMPT",
+            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+        ),
+    )
+    agent_tool_repair_prompt: str = os.getenv(
+        "AGENT_TOOL_REPAIR_PROMPT",
+        os.getenv(
+            "AGENT_SYSTEM_PROMPT",
+            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+        ),
+    )
+    agent_final_prompt: str = os.getenv(
+        "AGENT_FINAL_PROMPT",
+        os.getenv(
+            "AGENT_SYSTEM_PROMPT",
+            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+        ),
+    )
     workspace_root: str = os.getenv("WORKSPACE_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
     memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
     memory_persist_dir: str = os.getenv("MEMORY_PERSIST_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "memory_store")))

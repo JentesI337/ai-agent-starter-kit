@@ -177,7 +177,7 @@ class HeadCodingAgent:
 
         output_parts: list[str] = []
         async for token in self.client.stream_chat_completion(
-            settings.agent_system_prompt,
+            settings.agent_final_prompt,
             final_prompt,
             model=model,
         ):
@@ -246,7 +246,7 @@ class HeadCodingAgent:
             f"{user_message}"
         )
         plan = await self.client.complete_chat(
-            settings.agent_system_prompt,
+            settings.agent_plan_prompt,
             planner_prompt,
             model=model,
         )
@@ -293,7 +293,7 @@ class HeadCodingAgent:
         )
 
         raw = await self.client.complete_chat(
-            settings.agent_system_prompt,
+            settings.agent_tool_selector_prompt,
             tool_selector_prompt,
             model=model,
         )
@@ -478,7 +478,7 @@ class HeadCodingAgent:
             f"{raw_block}"
         )
         return await self.client.complete_chat(
-            settings.agent_system_prompt,
+            settings.agent_tool_repair_prompt,
             repair_prompt,
             model=model,
         )
