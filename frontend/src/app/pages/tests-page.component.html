@@ -19,4 +19,29 @@
     <p *ngIf="agentError" class="error">{{ agentError }}</p>
     <pre *ngIf="agentResult">{{ agentResult | json }}</pre>
   </div>
+
+  <div class="card orchestrator-card">
+    <h2>Orchestrator</h2>
+    <p>Calls <code>/api/orchestrator/run</code> — runs the full plan → code → review pipeline.</p>
+    <button (click)="runOrchestratorTest()" [disabled]="orchestratorLoading">{{ orchestratorLoading ? 'Running...' : 'Run orchestrator test' }}</button>
+    <p *ngIf="orchestratorError" class="error">{{ orchestratorError }}</p>
+    <div *ngIf="orchestratorResult" class="orchestrator-result">
+      <div class="result-section">
+        <h3>Plan</h3>
+        <pre>{{ orchestratorResult.result.plan | json }}</pre>
+      </div>
+      <div class="result-section">
+        <h3>Coder Results</h3>
+        <pre>{{ orchestratorResult.result.results | json }}</pre>
+      </div>
+      <div class="result-section">
+        <h3>Review</h3>
+        <pre>{{ orchestratorResult.result.review | json }}</pre>
+      </div>
+      <div class="result-section">
+        <h3>Task Graph</h3>
+        <pre>{{ orchestratorResult.result.graph_summary | json }}</pre>
+      </div>
+    </div>
+  </div>
 </section>

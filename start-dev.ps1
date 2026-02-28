@@ -23,14 +23,46 @@ function Resolve-RuntimeMode {
         return $RuntimeMode
     }
 
-    Write-Host "Select runtime mode:" -ForegroundColor Cyan
-    Write-Host "1) local (70B)"
-    Write-Host "2) api (minimax-m2:cloud)"
+    Write-Host ""
+    Write-Host "=== Runtime Mode Selection ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1) LOCAL   - Run a local Llama model via Ollama"
+    Write-Host "               Requires sufficient GPU VRAM. No internet needed after pull."
+    Write-Host ""
+    Write-Host "  2) API     - Use Ollama Pro cloud model (minimax-m2:cloud)"
+    Write-Host "               Requires an active Ollama Pro plan and 'ollama signin'."
+    Write-Host "               No API keys needed - authentication via Ollama account login." -ForegroundColor DarkGray
+    Write-Host ""
     $choice = Read-Host "Enter 1 or 2"
     if ($choice -eq '2') {
         return 'api'
     }
     return 'local'
+}
+
+function Resolve-LocalModel {
+    $envFilePath = Join-Path $PSScriptRoot 'backend\.env'
+    $existing = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue ''
+
+    Write-Host ""
+    Write-Host "=== Local Model Selection ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1) llama3.2:3b                       ~2 GB   (small, fast, low VRAM)"
+    Write-Host "  2) llama3.1:8b                       ~5 GB   (balanced)"
+    Write-Host "  3) qwen2.5-coder:32b                ~18 GB   (strong coder, mid VRAM)"
+    Write-Host "  4) llama3.3:70b-instruct-q4_K_M     ~40 GB   (best quality, high VRAM)"
+    if ($existing) {
+        Write-Host ""
+        Write-Host "  Current: $existing" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    $choice = Read-Host "Enter 1-4 (default: 4)"
+    switch ($choice) {
+        '1' { return 'llama3.2:3b' }
+        '2' { return 'llama3.1:8b' }
+        '3' { return 'qwen2.5-coder:32b' }
+        default { return 'llama3.3:70b-instruct-q4_K_M' }
+    }
 }
 
 function Warn-RootVenvConflict {
@@ -177,7 +209,7 @@ function Ensure-CloudLogin([string]$OllamaBin, [string]$ModelName) {
         return
     }
 
-    Write-Step "Checking Ollama Cloud login"
+    Write-Step "Checking Ollama Pro login (no API key - uses 'ollama signin')"
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
@@ -426,7 +458,7 @@ if ($selectedRuntime -eq 'local') {
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 else {
-    Write-Step "API runtime selected - using local Ollama API with cloud model"
+    Write-Step "API runtime selected - cloud model via Ollama Pro (no API key)"
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 
@@ -436,14 +468,19 @@ $backendDir = Join-Path $PSScriptRoot 'backend'
 $envFilePath = Join-Path $backendDir '.env'
 Ensure-BackendEnv -Port $LlmPort
 Upsert-EnvVar -FilePath $envFilePath -Name 'OLLAMA_BIN' -Value $ollamaBinary
-if ($selectedRuntime -eq 'api') {
+
+if ($selectedRuntime -eq 'local') {
+    $selectedModel = Resolve-LocalModel
+    Upsert-EnvVar -FilePath $envFilePath -Name 'LOCAL_MODEL' -Value $selectedModel
+    Write-Host "Local model: $selectedModel" -ForegroundColor Green
+}
+else {
     Upsert-EnvVar -FilePath $envFilePath -Name 'API_BASE_URL' -Value "http://localhost:$LlmPort/api"
     Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value 'minimax-m2:cloud'
+    $selectedModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
+    Write-Host "API model: $selectedModel (Ollama Pro)" -ForegroundColor Green
 }
 
-$localModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue 'llama3.3:70b-instruct-q4_K_M'
-$apiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
-$selectedModel = if ($selectedRuntime -eq 'api') { $apiModel } else { $localModel }
 if ($selectedRuntime -eq 'api') {
     Ensure-CloudLogin -OllamaBin $ollamaBinary -ModelName $selectedModel
 }

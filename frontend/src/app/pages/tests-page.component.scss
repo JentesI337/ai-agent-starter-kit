@@ -55,4 +55,21 @@ pre {
   background: #fafafa;
   padding: 8px;
   overflow: auto;
+  max-height: 400px;
+  font-size: 0.85rem;
+}
+
+.orchestrator-card {
+  border-left: 3px solid #2563eb;
+}
+
+.orchestrator-result {
+  display: grid;
+  gap: 8px;
+}
+
+.result-section h3 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  color: #374151;
 }

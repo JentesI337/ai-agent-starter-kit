@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 
 import { AgentsService, AgentTestResult, BackendPingResult } from '../services/agents.service';
+import { OrchestratorRunResponse, OrchestratorService } from '../services/orchestrator.service';
 
 @Component({
   selector: 'app-tests-page',
@@ -19,7 +20,14 @@ export class TestsPageComponent {
   agentError = '';
   agentResult: AgentTestResult | null = null;
 
-  constructor(private readonly agentsService: AgentsService) {}
+  orchestratorLoading = false;
+  orchestratorError = '';
+  orchestratorResult: OrchestratorRunResponse | null = null;
+
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly orchestratorService: OrchestratorService
+  ) {}
 
   runPingTest(): void {
     this.pingLoading = true;
@@ -51,6 +59,23 @@ export class TestsPageComponent {
       error: (error) => {
         this.agentLoading = false;
         this.agentError = (error as Error)?.message || 'Agent test failed.';
+      },
+    });
+  }
+
+  runOrchestratorTest(): void {
+    this.orchestratorLoading = true;
+    this.orchestratorError = '';
+    this.orchestratorResult = null;
+
+    this.orchestratorService.run('Explain what 2+2 equals.').subscribe({
+      next: (result) => {
+        this.orchestratorResult = result;
+        this.orchestratorLoading = false;
+      },
+      error: (error) => {
+        this.orchestratorLoading = false;
+        this.orchestratorError = (error as Error)?.message || 'Orchestrator test failed.';
       },
     });
   }

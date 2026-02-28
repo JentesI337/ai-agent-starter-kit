@@ -52,6 +52,8 @@ class Settings(BaseModel):
     api_base_url: str = os.getenv("API_BASE_URL", "http://localhost:11434/api")
     ollama_bin: str = os.getenv("OLLAMA_BIN", "")
     runtime_state_file: str = os.getenv("RUNTIME_STATE_FILE", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runtime_state.json")))
+    # Comma-separated list of permitted model names.  Empty string = allow all (backward-compatible).
+    allowed_models_csv: str = os.getenv("ALLOWED_MODELS", "")
 
 
 settings = Settings()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent import HeadCodingAgent
+from app.agent import HeadCodingAgent, IMPLEMENTATION_CREATE_TOOLS
 from app.errors import ToolExecutionError
 
 
@@ -10,21 +10,55 @@ def test_extract_actions_requires_strict_json_object() -> None:
     candidate = "[TOOL_CALL] tool => \"CreateFile\""
     agent = HeadCodingAgent()
 
-    actions, parse_error = agent._extract_actions(candidate)
+    selection = agent._extract_actions(candidate)
 
-    assert actions == []
-    assert parse_error is not None
+    assert selection.actions == []
+    assert selection.parse_error is not None
 
 
 def test_structured_alias_is_normalized_to_registry_tool() -> None:
     agent = HeadCodingAgent()
 
-    actions, parse_error = agent._extract_actions('{"actions":[{"tool":"CreateFile","args":{"path":"a.txt","content":"x"}}]}')
+    selection = agent._extract_actions('{"actions":[{"tool":"CreateFile","args":{"path":"a.txt","content":"x"}}]}')
 
-    assert parse_error is None
-    normalized, rejected = agent._validate_actions(actions)
+    assert selection.parse_error is None
+    normalized, rejected, reasons = agent._validate_actions(selection.actions)
     assert rejected == 0
+    assert reasons == []
     assert normalized[0]["tool"] == "write_file"
+
+
+def test_extract_actions_accepts_optional_execution_mode() -> None:
+    agent = HeadCodingAgent()
+
+    selection = agent._extract_actions('{"mode":"sequential","actions":[{"tool":"read_file","args":{"path":"README.md"}}]}')
+
+    assert selection.parse_error is None
+    assert selection.mode == "sequential"
+    assert len(selection.actions) == 1
+
+
+def test_extract_actions_rejects_unsupported_action_fields() -> None:
+    agent = HeadCodingAgent()
+
+    selection = agent._extract_actions('{"actions":[{"tool":"read_file","args":{"path":"README.md"},"extra":1}]}')
+
+    assert selection.actions == []
+    assert selection.parse_error is not None
+
+
+def test_validate_actions_honors_phase_allowed_tools() -> None:
+    agent = HeadCodingAgent()
+
+    normalized, rejected, reasons = agent._validate_actions(
+        [{"tool": "write_file", "args": {"path": "x.txt", "content": "ok"}}],
+        allowed_tools={"list_dir", "read_file"},
+    )
+
+    assert normalized == []
+    assert rejected == 1
+    assert reasons
+    assert "not allowed in this phase" in reasons[0]
 
 
 def test_evaluator_blocks_dangerous_run_command() -> None:
@@ -72,7 +106,7 @@ def test_offline_tool_call_accuracy_curated_set() -> None:
 
     correct = 0
     for action, expected_tool in cases:
-        normalized_actions, rejected = agent._validate_actions([action])
+        normalized_actions, rejected, _ = agent._validate_actions([action])
         if expected_tool is None:
             if rejected == 1:
                 correct += 1
@@ -86,3 +120,85 @@ def test_offline_tool_call_accuracy_curated_set() -> None:
 
     accuracy = correct / len(cases)
     assert accuracy >= 0.8
+
+
+def test_triage_marks_code_task_as_exploration_needed() -> None:
+    agent = HeadCodingAgent()
+
+    triage = agent._triage_task("please fix this bug in the code and update tests")
+
+    assert triage.needs_exploration is True
+    assert triage.needs_evidence_gate is True
+    assert "code_context" in triage.required_evidence_types
+    assert triage.confidence > 0
+
+
+def test_triage_detects_greenfield_create_intent() -> None:
+    agent = HeadCodingAgent()
+
+    triage = agent._triage_task("make a calculator app with html css and javascript")
+
+    assert triage.create_intent is True
+    assert triage.needs_exploration is True
+    assert "repo_map" in triage.required_evidence_types
+
+
+def test_triage_skips_exploration_for_precise_single_file_change() -> None:
+    agent = HeadCodingAgent()
+
+    triage = agent._triage_task("update backend/app/agent.py change timeout from 8 to 10")
+
+    assert triage.needs_exploration is False
+    assert triage.confidence >= 0.85
+
+
+def test_assess_evidence_coverage_reports_missing_types() -> None:
+    agent = HeadCodingAgent()
+
+    coverage = agent._assess_evidence_coverage(
+        tool_results="[list_dir]\nbackend/\n\n[read_file]\n# app/agent.py",
+        required_evidence_types=("repo_map", "code_context", "test_context"),
+    )
+
+    assert coverage["missing"] == ["test_context"]
+    assert coverage["quality_score"] < 1.0
+
+
+def test_evidence_helpers_detect_verified_reads() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._has_verified_evidence("") is False
+    assert agent._has_verified_evidence("[read_file]\ncontent") is True
+    assert agent._has_verified_evidence("[run_command] ERROR: timeout") is False
+    assert agent._has_verified_evidence("[write_file]\nOK", allow_write_only=False) is False
+    assert agent._has_verified_evidence("[write_file]\nOK", allow_write_only=True) is True
+
+
+def test_bootstrap_action_created_for_calculator_prompt() -> None:
+    agent = HeadCodingAgent()
+
+    action = agent._build_bootstrap_action("make a calculator app with html css and javascript")
+
+    assert action is not None
+    assert action["tool"] == "write_file"
+    assert action["args"]["path"] == "index.html"
+
+
+def test_create_implementation_tools_reject_list_dir() -> None:
+    agent = HeadCodingAgent()
+
+    normalized, rejected, reasons = agent._validate_actions(
+        [{"tool": "list_dir", "args": {}}],
+        allowed_tools=IMPLEMENTATION_CREATE_TOOLS,
+    )
+
+    assert normalized == []
+    assert rejected == 1
+    assert "not allowed in this phase" in reasons[0]
+
+
+def test_has_successful_tool_result_detects_write_success() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._has_successful_tool_result("[write_file]\nOK", "write_file") is True
+    assert agent._has_successful_tool_result("[write_file] ERROR: failed", "write_file") is False

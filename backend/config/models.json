@@ -1,0 +1,104 @@
+{
+  "models": [
+    {
+      "model_id": "llama3.2:3b",
+      "tier": "small",
+      "max_context": 4096,
+      "reasoning_depth": 1,
+      "reflection_passes": 0,
+      "combine_steps": false,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "llama3.1:8b",
+      "tier": "small",
+      "max_context": 8192,
+      "reasoning_depth": 2,
+      "reflection_passes": 0,
+      "combine_steps": false,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "qwen2.5:14b",
+      "tier": "small",
+      "max_context": 8192,
+      "reasoning_depth": 2,
+      "reflection_passes": 0,
+      "combine_steps": false,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "qwen2.5-coder:32b",
+      "tier": "mid",
+      "max_context": 16384,
+      "reasoning_depth": 3,
+      "reflection_passes": 1,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "llama3.3:70b-instruct-q4_K_M",
+      "tier": "mid",
+      "max_context": 16384,
+      "reasoning_depth": 4,
+      "reflection_passes": 1,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "deepseek-r1:70b",
+      "tier": "mid",
+      "max_context": 32768,
+      "reasoning_depth": 5,
+      "reflection_passes": 1,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    },
+    {
+      "model_id": "gpt-4",
+      "tier": "high",
+      "max_context": 128000,
+      "reasoning_depth": 6,
+      "reflection_passes": 3,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.03
+    },
+    {
+      "model_id": "gpt-4o",
+      "tier": "high",
+      "max_context": 128000,
+      "reasoning_depth": 6,
+      "reflection_passes": 3,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.005
+    },
+    {
+      "model_id": "claude-sonnet-4-20250514",
+      "tier": "high",
+      "max_context": 200000,
+      "reasoning_depth": 6,
+      "reflection_passes": 3,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.003
+    },
+    {
+      "model_id": "minimax-m2:cloud",
+      "tier": "high",
+      "max_context": 128000,
+      "reasoning_depth": 5,
+      "reflection_passes": 2,
+      "combine_steps": true,
+      "temperature": 0.3,
+      "cost_per_1k_tokens": 0.0
+    }
+  ]
+}

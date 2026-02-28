@@ -5,6 +5,9 @@ import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService } from '../services/agent-socket.service';
 import { AgentDescriptor, AgentsService } from '../services/agents.service';
+import { OrchestratorRunResult, OrchestratorService } from '../services/orchestrator.service';
+
+type ChatMode = 'legacy' | 'orchestrator';
 
 interface ChatLine {
   role: 'user' | 'agent' | 'system';
@@ -25,6 +28,7 @@ interface LifecycleLine {
   styleUrl: './chat-page.component.scss',
 })
 export class ChatPageComponent implements OnInit, OnDestroy {
+  chatMode: ChatMode = 'legacy';
   input = '';
   model = '';
   runtimeTarget: 'local' | 'api' = 'local';
@@ -38,6 +42,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   isConnected = false;
   lines: ChatLine[] = [];
   lifecycleLines: LifecycleLine[] = [];
+  orchestratorRunning = false;
+  lastOrchestratorResult: OrchestratorRunResult | null = null;
   private activeAssistantIndex: number | null = null;
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
@@ -45,6 +51,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   constructor(
     private readonly socketService: AgentSocketService,
     private readonly agentsService: AgentsService,
+    private readonly orchestratorService: OrchestratorService,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
@@ -132,6 +139,11 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   }
 
   send(): void {
+    if (this.chatMode === 'orchestrator') {
+      this.sendOrchestrator();
+      return;
+    }
+
     if (this.firstRunChoicePending) {
       this.lines.push({ role: 'system', text: 'Please choose local or api runtime first.' });
       return;
@@ -165,6 +177,70 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         error: (error as Error).message,
       });
     }
+  }
+
+  private sendOrchestrator(): void {
+    const content = this.input.trim();
+    if (!content) {
+      return;
+    }
+
+    this.lines.push({ role: 'user', text: content });
+    this.lines.push({ role: 'system', text: 'Orchestrator running (plan → code → review)...' });
+    this.orchestratorRunning = true;
+    this.lastOrchestratorResult = null;
+    this.input = '';
+    this.pushLifecycle('orchestrator_start', 'Orchestrator pipeline started', { chars: content.length });
+
+    this.orchestratorService.run(content).subscribe({
+      next: (response) => {
+        this.orchestratorRunning = false;
+        this.lastOrchestratorResult = response.result;
+
+        // Show plan steps
+        if (response.result.plan?.steps?.length) {
+          const stepList = response.result.plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
+          this.lines.push({ role: 'agent', text: `📋 Plan:\n${stepList}` });
+        }
+
+        // Show coder results
+        if (response.result.results?.length) {
+          for (const coder of response.result.results) {
+            if (coder.changes?.length) {
+              const files = coder.changes.map((ch) => `  ${ch.action} ${ch.path}`).join('\n');
+              this.lines.push({ role: 'agent', text: `💻 Changes:\n${files}` });
+            }
+            if (coder.reasoning) {
+              this.lines.push({ role: 'agent', text: `Reasoning: ${coder.reasoning}` });
+            }
+          }
+        }
+
+        // Show review
+        if (response.result.review) {
+          const review = response.result.review;
+          const verdict = review.approved ? '✅ Approved' : '❌ Rejected';
+          const conf = ` (confidence: ${review.confidence_score})`;
+          const issues = review.issues?.length
+            ? '\n' + review.issues.map((i: { severity: string; message: string }) => `  • [${i.severity}] ${i.message}`).join('\n')
+            : '';
+          this.lines.push({ role: 'agent', text: `${verdict}${conf}${issues}` });
+        }
+
+        this.pushLifecycle('orchestrator_done', 'Orchestrator pipeline completed', {
+          plan_steps: response.result.plan?.steps?.length ?? 0,
+          approved: response.result.review?.approved ?? null,
+        });
+        this.cdr.detectChanges();
+      },
+      error: (error) => {
+        this.orchestratorRunning = false;
+        const msg = (error as Error)?.message || 'Orchestrator call failed.';
+        this.lines.push({ role: 'system', text: `Orchestrator error: ${msg}` });
+        this.pushLifecycle('orchestrator_error', msg);
+        this.cdr.detectChanges();
+      },
+    });
   }
 
   switchRuntime(): void {

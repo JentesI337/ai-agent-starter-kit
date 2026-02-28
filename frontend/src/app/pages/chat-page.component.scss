@@ -188,3 +188,34 @@ button.secondary {
 
 .online { color: #1a7f37; }
 .offline { color: #cf222e; }
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+
+  button {
+    padding: 4px 12px;
+    border: none;
+    background: #f8f9fa;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #374151;
+
+    &.active {
+      background: #1f6feb;
+      color: #fff;
+    }
+
+    &:not(:last-child) {
+      border-right: 1px solid #d9d9d9;
+    }
+  }
+}
+
+.orchestrator-info {
+  font-size: 0.9rem;
+  color: #6b7280;
+  padding: 6px 0;
+}

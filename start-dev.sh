@@ -29,15 +29,50 @@ resolve_runtime_mode() {
     return
   fi
 
-  echo "Select runtime mode:"
-  echo "1) local (70B)"
-  echo "2) api (minimax-m2:cloud)"
+  echo "" >&2
+  echo "=== Runtime Mode Selection ===" >&2
+  echo "" >&2
+  echo "  1) LOCAL   - Run a local Llama model via Ollama" >&2
+  echo "               Requires sufficient GPU VRAM. No internet needed after pull." >&2
+  echo "" >&2
+  echo "  2) API     - Use Ollama Pro cloud model (minimax-m2:cloud)" >&2
+  echo "               Requires an active Ollama Pro plan and 'ollama signin'." >&2
+  echo "               No API keys needed - authentication via Ollama account login." >&2
+  echo "" >&2
   read -r -p "Enter 1 or 2: " choice
   if [[ "$choice" == "2" ]]; then
     echo "api"
   else
     echo "local"
   fi
+}
+
+resolve_local_model() {
+  local env_file="$ROOT_DIR/backend/.env"
+  local existing=""
+  if [[ -f "$env_file" ]]; then
+    existing="$(grep -E '^LOCAL_MODEL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+  fi
+
+  echo "" >&2
+  echo "=== Local Model Selection ===" >&2
+  echo "" >&2
+  echo "  1) llama3.2:3b                       ~2 GB   (small, fast, low VRAM)" >&2
+  echo "  2) llama3.1:8b                       ~5 GB   (balanced)" >&2
+  echo "  3) qwen2.5-coder:32b                ~18 GB   (strong coder, mid VRAM)" >&2
+  echo "  4) llama3.3:70b-instruct-q4_K_M     ~40 GB   (best quality, high VRAM)" >&2
+  if [[ -n "$existing" ]]; then
+    echo "" >&2
+    echo "  Current: $existing" >&2
+  fi
+  echo "" >&2
+  read -r -p "Enter 1-4 (default: 4): " choice
+  case "$choice" in
+    1) echo "llama3.2:3b" ;;
+    2) echo "llama3.1:8b" ;;
+    3) echo "qwen2.5-coder:32b" ;;
+    *) echo "llama3.3:70b-instruct-q4_K_M" ;;
+  esac
 }
 
 warn_root_venv_conflict() {
@@ -204,7 +239,7 @@ ensure_cloud_login() {
     return
   fi
 
-  step "Checking Ollama Cloud login"
+  step "Checking Ollama Pro login (no API key - uses 'ollama signin')"
   local out rc
   out="$("$ollama_bin" whoami 2>&1)"
   rc=$?
@@ -447,7 +482,7 @@ OLLAMA_BIN_PATH="$(ensure_ollama)"
 if [[ "$selected_runtime" == "local" ]]; then
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 else
-  step "API runtime selected - using local Ollama API with cloud model"
+  step "API runtime selected - cloud model via Ollama Pro (no API key)"
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 fi
 
@@ -455,17 +490,16 @@ step "Installing backend (python + deps)"
 ensure_python
 ensure_backend_env
 upsert_env_var "$ROOT_DIR/backend/.env" "OLLAMA_BIN" "$OLLAMA_BIN_PATH"
-if [[ "$selected_runtime" == "api" ]]; then
+
+if [[ "$selected_runtime" == "local" ]]; then
+  selected_model="$(resolve_local_model)"
+  upsert_env_var "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "$selected_model"
+  echo "Local model: $selected_model"
+else
   upsert_env_var "$ROOT_DIR/backend/.env" "API_BASE_URL" "http://localhost:$LLM_PORT/api"
   upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud"
-fi
-
-local_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "llama3.3:70b-instruct-q4_K_M")"
-api_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
-if [[ "$selected_runtime" == "api" ]]; then
-  selected_model="$api_model"
-else
-  selected_model="$local_model"
+  selected_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
+  echo "API model: $selected_model (Ollama Pro)"
 fi
 
 if [[ "$selected_runtime" == "api" ]]; then

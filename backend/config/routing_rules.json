@@ -1,0 +1,62 @@
+{
+  "default_tier": "small",
+  "rules": [
+    {
+      "name": "simple_small_context",
+      "description": "Simple tasks with small context → small models",
+      "conditions": {
+        "task_complexity": ["simple"],
+        "max_context_size": 4096,
+        "min_confidence_score": 0.7
+      },
+      "target_tier": "small"
+    },
+    {
+      "name": "simple_large_context",
+      "description": "Simple tasks but large context → mid models for context window",
+      "conditions": {
+        "task_complexity": ["simple"],
+        "min_context_size": 4097
+      },
+      "target_tier": "mid"
+    },
+    {
+      "name": "moderate_tasks",
+      "description": "Moderate complexity → mid-tier for combined steps and single reflection",
+      "conditions": {
+        "task_complexity": ["moderate"]
+      },
+      "target_tier": "mid"
+    },
+    {
+      "name": "complex_tasks",
+      "description": "Complex tasks → high-tier for deep reasoning and multi-pass reflection",
+      "conditions": {
+        "task_complexity": ["complex"]
+      },
+      "target_tier": "high"
+    },
+    {
+      "name": "low_confidence_escalation",
+      "description": "Previous pass had low confidence → escalate one tier",
+      "conditions": {
+        "max_confidence_score": 0.4
+      },
+      "escalate_tiers": 1
+    },
+    {
+      "name": "reflection_required",
+      "description": "Task needs reflection → at least mid-tier",
+      "conditions": {
+        "required_reflection": true
+      },
+      "min_tier": "mid"
+    }
+  ],
+  "budget_enforcement": {
+    "enabled": true,
+    "fallback_to_cheaper": true,
+    "warn_at_percentage": 80
+  },
+  "tier_order": ["small", "mid", "high"]
+}

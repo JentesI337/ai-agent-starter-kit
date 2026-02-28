@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from app.agent import HeadCodingAgent
 from app.config import settings
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.llm_client import LlmClient
 from app.models import WsInboundMessage
+from app.orchestrator.orchestrator import Orchestrator, OrchestratorError
 from app.runtime_manager import RuntimeManager
 
 logging.basicConfig(
@@ -32,6 +34,20 @@ app.add_middleware(
 
 agent = HeadCodingAgent()
 runtime_manager = RuntimeManager()
+
+# Orchestrator — constraint-first, model-agnostic orchestration system
+_orchestrator: Orchestrator | None = None
+
+
+def _get_orchestrator() -> Orchestrator:
+    """Lazy-initialize the orchestrator with current runtime settings."""
+    global _orchestrator
+    if _orchestrator is None:
+        state = runtime_manager.get_state()
+        _orchestrator = Orchestrator(
+            llm_client=LlmClient(base_url=state.base_url, model=state.model),
+        )
+    return _orchestrator
 
 
 def _is_model_not_found_error(message: str) -> bool:
@@ -155,6 +171,75 @@ async def test_agent(request: AgentTestRequest):
         "requestId": request_id,
         "eventCount": len(events),
         "final": final_event.get("message") if final_event else None,
+    }
+
+
+# ------------------------------------------------------------------
+# Orchestrator endpoints
+# ------------------------------------------------------------------
+
+class OrchestratorRequest(BaseModel):
+    message: str
+    model: str | None = None
+    session_id: str | None = None
+
+
+@app.post("/api/orchestrator/run")
+async def orchestrator_run(request: OrchestratorRequest):
+    """Execute a full orchestration cycle for a user request."""
+    orchestrator = _get_orchestrator()
+    runtime_state = runtime_manager.get_state()
+    session_id = request.session_id or str(uuid.uuid4())
+    request_id = str(uuid.uuid4())
+    events: list[dict] = []
+
+    async def collect_event(payload: dict):
+        events.append(payload)
+
+    # Use the runtime model as default when no explicit model override given
+    effective_model = request.model or runtime_state.model
+
+    try:
+        result = await orchestrator.run(
+            user_message=request.message,
+            send_event=collect_event,
+            session_id=session_id,
+            request_id=request_id,
+            model_override=effective_model,
+        )
+        return {
+            "ok": True,
+            "runtime": runtime_state.runtime,
+            "sessionId": session_id,
+            "requestId": request_id,
+            "result": result,
+            "eventCount": len(events),
+        }
+    except OrchestratorError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("orchestrator_run_error request_id=%s", request_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/orchestrator/models")
+async def orchestrator_models():
+    """List all registered model capability profiles."""
+    orchestrator = _get_orchestrator()
+    profiles = orchestrator.router.get_profiles()
+    return {
+        "models": [p.model_dump(mode="json") for p in profiles],
+        "count": len(profiles),
+    }
+
+
+@app.get("/api/orchestrator/state")
+async def orchestrator_state():
+    """Get current orchestrator state summary."""
+    orchestrator = _get_orchestrator()
+    return {
+        "store": orchestrator.store.get_session_summary(),
+        "graph": orchestrator.graph.summary(),
     }
 
 
