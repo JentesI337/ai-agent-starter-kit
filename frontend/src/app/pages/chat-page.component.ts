@@ -4,7 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
-import { AgentDescriptor, AgentsService, MonitoringSchema } from '../services/agents.service';
+import {
+  AgentDescriptor,
+  AgentsService,
+  CustomAgentDefinition,
+  CreateCustomAgentPayload,
+  MonitoringSchema,
+  PresetDescriptor,
+} from '../services/agents.service';
 
 interface ChatLine {
   role: 'user' | 'agent' | 'system';
@@ -56,6 +63,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   runtimeTarget: 'local' | 'api' = 'local';
   firstRunChoicePending = false;
   selectedAgentId = 'head-agent';
+  selectedPresetId = '';
+  customAgentName = '';
+  customAgentId = '';
+  customAgentDescription = '';
+  customAgentBase = 'head-agent';
+  customWorkflowText = '';
+  customAgentBusy = false;
   sessionId = '';
   runtimeSwitching = false;
   apiModelsAvailable: boolean | null = null;
@@ -65,6 +79,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   lifecycleLines: LifecycleLine[] = [];
   reasoningLines: LifecycleLine[] = [];
   availableAgents: AgentDescriptor[] = [];
+  availablePresets: PresetDescriptor[] = [];
+  customAgents: CustomAgentDefinition[] = [];
   monitoringSchema: MonitoringSchema | null = null;
   agentActivities: AgentActivity[] = [];
   requestActivities: RequestActivity[] = [];
@@ -128,9 +144,24 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       },
     });
 
+    this.agentsService.getPresets().subscribe({
+      next: (presets) => {
+        this.availablePresets = presets;
+        if (this.selectedPresetId && !presets.some((preset) => preset.id === this.selectedPresetId)) {
+          this.selectedPresetId = '';
+        }
+      },
+    });
+
     this.agentsService.getMonitoringSchema().subscribe({
       next: (schema) => {
         this.monitoringSchema = schema;
+      },
+    });
+
+    this.agentsService.getCustomAgents().subscribe({
+      next: (items) => {
+        this.customAgents = items;
       },
     });
 
@@ -257,6 +288,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       const toolPolicy = this.buildToolPolicyPayload();
       this.socketService.sendUserMessage(content, {
         agentId: this.selectedAgentId,
+        preset: this.selectedPresetId || undefined,
         model: this.model.trim() || undefined,
         sessionId: this.sessionId || undefined,
         toolPolicy,
@@ -265,6 +297,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.pushLifecycle('frontend_send', 'Message sent to websocket', {
         chars: content.length,
         agent: this.selectedAgentId,
+        preset: this.selectedPresetId || '(none)',
         model: this.model.trim() || '(default)',
         sessionId: this.sessionId || '(new)',
         toolPolicy,
@@ -277,6 +310,71 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         error: (error as Error).message,
       });
     }
+  }
+
+  createCustomAgent(): void {
+    const name = this.customAgentName.trim();
+    if (!name || this.customAgentBusy) {
+      return;
+    }
+
+    const steps = this.customWorkflowText
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    const payload: CreateCustomAgentPayload = {
+      id: this.customAgentId.trim() || undefined,
+      name,
+      description: this.customAgentDescription.trim(),
+      base_agent_id: this.customAgentBase,
+      workflow_steps: steps,
+    };
+
+    this.customAgentBusy = true;
+    this.agentsService.createCustomAgent(payload).subscribe({
+      next: (created) => {
+        this.lines.push({ role: 'system', text: `Custom agent created: ${created.id}` });
+        this.pushLifecycle('frontend_custom_agent_created', 'Custom agent saved', {
+          id: created.id,
+          base: created.base_agent_id,
+          workflowSteps: created.workflow_steps.length,
+        });
+        this.customAgentName = '';
+        this.customAgentId = '';
+        this.customAgentDescription = '';
+        this.customWorkflowText = '';
+        this.refreshAgentsAndSchema(created.id);
+        this.customAgentBusy = false;
+      },
+      error: (error) => {
+        this.lines.push({ role: 'system', text: `Custom agent creation failed: ${error?.error?.detail ?? error.message}` });
+        this.customAgentBusy = false;
+      },
+    });
+  }
+
+  deleteCustomAgent(agentId: string): void {
+    if (!agentId || this.customAgentBusy) {
+      return;
+    }
+
+    this.customAgentBusy = true;
+    this.agentsService.deleteCustomAgent(agentId).subscribe({
+      next: () => {
+        this.lines.push({ role: 'system', text: `Custom agent deleted: ${agentId}` });
+        this.pushLifecycle('frontend_custom_agent_deleted', 'Custom agent removed', { id: agentId });
+        if (this.selectedAgentId === agentId) {
+          this.selectedAgentId = 'head-agent';
+        }
+        this.refreshAgentsAndSchema();
+        this.customAgentBusy = false;
+      },
+      error: (error) => {
+        this.lines.push({ role: 'system', text: `Custom agent delete failed: ${error?.error?.detail ?? error.message}` });
+        this.customAgentBusy = false;
+      },
+    });
   }
 
   spawnSubrun(): void {
@@ -296,6 +394,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       const toolPolicy = this.buildToolPolicyPayload();
       this.socketService.sendSubrunSpawn(content, {
         agentId: this.selectedAgentId,
+        preset: this.selectedPresetId || undefined,
         model: this.model.trim() || undefined,
         sessionId: this.sessionId || undefined,
         toolPolicy,
@@ -304,6 +403,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.pushLifecycle('frontend_subrun_send', 'Subrun spawn sent to websocket', {
         chars: content.length,
         agent: this.selectedAgentId,
+        preset: this.selectedPresetId || '(none)',
         model: this.model.trim() || '(default)',
         sessionId: this.sessionId || '(new)',
         toolPolicy,
@@ -590,6 +690,33 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.requestActivities = [...this.requestActivityMap.values()]
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 200);
+  }
+
+  private refreshAgentsAndSchema(selectAgentId?: string): void {
+    this.agentsService.getAgents().subscribe({
+      next: (agents) => {
+        this.availableAgents = agents;
+        if (selectAgentId && agents.some((agent) => agent.id === selectAgentId)) {
+          this.selectedAgentId = selectAgentId;
+          return;
+        }
+        if (!agents.some((agent) => agent.id === this.selectedAgentId) && agents.length > 0) {
+          this.selectedAgentId = agents[0].id;
+        }
+      },
+    });
+
+    this.agentsService.getMonitoringSchema().subscribe({
+      next: (schema) => {
+        this.monitoringSchema = schema;
+      },
+    });
+
+    this.agentsService.getCustomAgents().subscribe({
+      next: (items) => {
+        this.customAgents = items;
+      },
+    });
   }
 
   private buildToolPolicyPayload(): ToolPolicyPayload | undefined {

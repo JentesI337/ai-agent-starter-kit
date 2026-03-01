@@ -112,6 +112,13 @@
         </select>
       </label>
       <label>
+        Preset
+        <select [(ngModel)]="selectedPresetId" [disabled]="firstRunChoicePending">
+          <option value="">(none)</option>
+          <option *ngFor="let preset of availablePresets" [value]="preset.id">{{ preset.id }}</option>
+        </select>
+      </label>
+      <label>
         Runtime
         <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
           <option value="local">local-70b</option>
@@ -133,6 +140,48 @@
         Tool deny (CSV)
         <input [(ngModel)]="toolDenyInput" placeholder="run_command" [disabled]="firstRunChoicePending" />
       </label>
+    </div>
+
+    <div class="controls">
+      <label>
+        Custom agent name
+        <input [(ngModel)]="customAgentName" placeholder="My Flow Agent" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Custom agent id (optional)
+        <input [(ngModel)]="customAgentId" placeholder="my-flow-agent" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Base agent
+        <select [(ngModel)]="customAgentBase" [disabled]="customAgentBusy">
+          <option value="head-agent">head-agent</option>
+          <option value="coder-agent">coder-agent</option>
+        </select>
+      </label>
+      <label>
+        Description
+        <input [(ngModel)]="customAgentDescription" placeholder="What this flow should optimize for" [disabled]="customAgentBusy" />
+      </label>
+    </div>
+
+    <textarea
+      [(ngModel)]="customWorkflowText"
+      rows="4"
+      placeholder="Workflow steps (one per line):&#10;Analyze requirements&#10;Read impacted files&#10;Implement minimal patch&#10;Run tests"
+      [disabled]="customAgentBusy"
+    ></textarea>
+
+    <div class="composer-actions">
+      <button class="secondary" (click)="createCustomAgent()" [disabled]="customAgentBusy || !customAgentName.trim()">
+        {{ customAgentBusy ? 'Creating...' : 'Create Custom Agent' }}
+      </button>
+    </div>
+
+    <div class="tool-strip" *ngIf="customAgents.length > 0">
+      <span class="tool-chip" *ngFor="let custom of customAgents">
+        {{ custom.id }}
+        <button class="secondary" (click)="deleteCustomAgent(custom.id)" [disabled]="customAgentBusy">Delete</button>
+      </span>
     </div>
 
     <div class="tool-strip" *ngIf="selectedAgentTools.length > 0">

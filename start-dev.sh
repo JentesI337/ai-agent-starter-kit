@@ -280,15 +280,15 @@ ensure_cloud_login() {
 }
 
 ensure_python() {
-  if has_cmd python3; then
+  if has_cmd python3.12; then
     return
   fi
 
-  step "python3 not found, trying package-manager install"
-  install_packages python3 python3-venv python3-pip
+  step "python3.12 not found, trying package-manager install"
+  install_packages python3.12 python3.12-venv python3.12-pip || true
 
-  if ! has_cmd python3; then
-    echo "Python install failed. Install Python 3.11+ and rerun." >&2
+  if ! has_cmd python3.12; then
+    echo "Python 3.12 install failed. Install Python 3.12 and rerun." >&2
     exit 1
   fi
 }
@@ -531,8 +531,16 @@ ensure_selected_model_runnable "$LLM_PORT" "$selected_model" "$selected_runtime"
 set_runtime_state "$selected_runtime"
 cd "$ROOT_DIR/backend"
 
+if [[ -x ".venv/bin/python" ]]; then
+  venv_version="$(./.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  if [[ "$venv_version" != "3.12" ]]; then
+    step "Recreating backend/.venv (found Python $venv_version, expected 3.12)"
+    rm -rf .venv
+  fi
+fi
+
 if [[ ! -d ".venv" ]]; then
-  python3 -m venv .venv
+  python3.12 -m venv .venv
 fi
 
 run_pip_step "./.venv/bin/python" "upgrade-pip" install --upgrade pip

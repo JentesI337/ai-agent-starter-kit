@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 import uuid
 
+from app.config import settings
 from app.errors import ToolExecutionError
 
 
@@ -18,6 +19,8 @@ class AgentTooling:
     def __init__(self, workspace_root: str, command_timeout_seconds: int = 60):
         self.workspace_root = Path(workspace_root).resolve()
         self.command_timeout_seconds = command_timeout_seconds
+        self._command_allowlist_enabled = settings.command_allowlist_enabled
+        self._command_allowlist = self._build_command_allowlist()
         self._background_jobs: dict[str, dict] = {}
         self._bg_lock = threading.Lock()
 
@@ -144,6 +147,7 @@ class AgentTooling:
     def start_background_command(self, command: str, cwd: str | None = None) -> str:
         if not command.strip():
             raise ToolExecutionError("start_background_command requires non-empty 'command'.")
+        self._enforce_command_allowlist(command)
         run_cwd = self._resolve_command_cwd(cwd)
         job_id = str(uuid.uuid4())[:8]
         log_dir = self.workspace_root / ".agent_background"
@@ -266,6 +270,7 @@ class AgentTooling:
             raise ToolExecutionError("Command must not be empty.")
         if len(command) > 1000:
             raise ToolExecutionError("Command is too long.")
+        self._enforce_command_allowlist(command)
 
         run_cwd = self._resolve_command_cwd(cwd)
         try:
@@ -285,6 +290,70 @@ class AgentTooling:
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
         output = output.strip() or "(no output)"
         return f"exit_code={completed.returncode}\n{output[:12000]}"
+
+    def _build_command_allowlist(self) -> set[str]:
+        values: list[str] = []
+        values.extend(settings.command_allowlist or [])
+        values.extend(settings.command_allowlist_extra or [])
+        return {item.strip().lower() for item in values if isinstance(item, str) and item.strip()}
+
+    def _enforce_command_allowlist(self, command: str) -> None:
+        if not self._command_allowlist_enabled:
+            return
+
+        leader = self._extract_command_leader(command)
+        if not leader:
+            raise ToolExecutionError("Command must begin with an executable name.")
+
+        blocked_leaders = {
+            "rm",
+            "del",
+            "rmdir",
+            "format",
+            "shutdown",
+            "reboot",
+            "halt",
+            "mkfs",
+            "diskpart",
+        }
+        if leader in blocked_leaders:
+            raise ToolExecutionError(f"Command '{leader}' is blocked by safety policy.")
+
+        if leader not in self._command_allowlist:
+            raise ToolExecutionError(
+                f"Command '{leader}' is not allowed by command allowlist. "
+                "Set COMMAND_ALLOWLIST_EXTRA to permit it in development."
+            )
+
+    def _extract_command_leader(self, command: str) -> str:
+        text = (command or "").strip()
+        if not text:
+            return ""
+
+        if text[0] in {'"', "'"}:
+            quote = text[0]
+            closing_index = text.find(quote, 1)
+            if closing_index > 1:
+                token = text[1:closing_index]
+            else:
+                token = text[1:]
+        else:
+            token = re.split(r"\s|[|&;<>]", text, maxsplit=1)[0]
+
+        token = token.strip()
+        if not token:
+            return ""
+
+        name = Path(token).name.lower()
+        if name.endswith(".exe"):
+            name = name[:-4]
+        if name.endswith(".cmd"):
+            name = name[:-4]
+        if name.endswith(".bat"):
+            name = name[:-4]
+        if name.endswith(".ps1"):
+            name = name[:-4]
+        return name
 
     def _resolve_workspace_path(self, raw_path: str) -> Path:
         target = (self.workspace_root / raw_path).resolve()

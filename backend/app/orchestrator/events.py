@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+import uuid
 
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 
@@ -53,12 +54,25 @@ def build_lifecycle_event(
     details: dict | None = None,
     agent: str | None = None,
 ) -> dict:
+    ts = datetime.now(timezone.utc).isoformat()
+    phase = "progress"
+    if stage.endswith("_started") or stage.endswith("_received") or stage.endswith("_requested"):
+        phase = "start"
+    elif stage.endswith("_completed") or stage.endswith("_done"):
+        phase = "end"
+    elif stage.endswith("_failed") or stage.endswith("_rejected"):
+        phase = "error"
+
     payload = {
         "type": "lifecycle",
+        "schema": "lifecycle.v1",
+        "event_id": str(uuid.uuid4()),
+        "phase": phase,
         "stage": stage,
         "request_id": request_id,
+        "run_id": request_id,
         "session_id": session_id,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": ts,
         "details": details or {},
     }
     if agent:

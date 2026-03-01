@@ -4,7 +4,7 @@
 
 ```powershell
 cd backend
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
@@ -15,7 +15,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -25,6 +25,12 @@ uvicorn app.main:app --reload --port 8000
 `WORKSPACE_ROOT` can be relative (`.`) or absolute. Relative paths are resolved from the `backend` folder.
 
 `ORCHESTRATOR_STATE_DIR` controls where external run state JSON files are persisted (default: `backend/state_store`).
+
+`MEMORY_RESET_ON_STARTUP` and `ORCHESTRATOR_STATE_RESET_ON_STARTUP` are environment-aware by default:
+- development: `true`
+- production: `false`
+
+Quick operational checks are documented in `SMOKE_RUNBOOK.md`.
 
 ## WebSocket
 
@@ -36,12 +42,23 @@ uvicorn app.main:app --reload --port 8000
 	"type": "user_message",
 	"content": "Build me an API agent",
 	"agent_id": "head-agent",
+	"preset": "research",
 	"model": "llama3.3:70b-instruct-q4_K_M",
 	"session_id": "optional-stable-session-id"
 }
 ```
 
-Available agent IDs: `head-agent` and `coder-agent` (`head-coder` is still accepted as legacy alias).
+Available agent IDs: `head-agent`, `coder-agent`, and `review-agent` (`head-coder` is still accepted as legacy alias).
+
+Available presets:
+- `research`
+- `review`
+
+Fetch preset policies via `GET /api/presets`.
+
+Preset behavior:
+- Preset tool policy is merged with request `tool_policy`.
+- If `head-agent` is requested and preset is `review`, routing is delegated to `review-agent`.
 
 The server streams progress messages (`status`, `agent_step`, `token`, `final`, `error`, `lifecycle`).
 
@@ -89,6 +106,44 @@ Lifecycle `stage` examples:
 - Execution model: Plan -> Execute tools -> Review/final response.
 - Guardrails: empty/oversized input and invalid model/session values are blocked and returned as `error` events.
 - Tool selection is validated; malformed JSON or invalid actions are reported as lifecycle/error events (no silent fallback).
+
+## Custom Flows (Create, Select, Run)
+
+- Create custom agents via `POST /api/custom-agents` with:
+	- `name`, `base_agent_id` (`head-agent`, `coder-agent`, or `review-agent`), `workflow_steps[]`
+- List current custom agents via `GET /api/custom-agents`.
+- Use custom agent id through websocket `agent_id` in `/ws/agent` messages.
+- Remove custom agents via `DELETE /api/custom-agents/{id}`.
+
+Custom agent definitions are stored in `CUSTOM_AGENTS_DIR` (default: `backend/custom_agents`).
+
+## Optional real API E2E tests (small/large model + subrun)
+
+Real API E2E tests now run by default in the backend suite (strict mode, no auto-skip).
+
+Enable and run:
+
+```powershell
+$env:OLLAMA_CLOUD_API_BASE_URL="http://localhost:11434/api"
+$env:OLLAMA_CLOUD_MODEL_SMALL="minimax-m2:cloud"
+$env:OLLAMA_CLOUD_MODEL_LARGE="qwen3-coder:480b-cloud"
+pytest backend/tests/test_backend_e2e_real_api.py -q
+```
+
+Optional timeout tuning:
+- `REAL_API_E2E_WAIT_TIMEOUT_MS` (default: `120000`)
+
+Emergency opt-out (explicit only):
+- `SKIP_REAL_OLLAMA_API_E2E=1`
+
+GitHub Actions (manual):
+- Workflow: `.github/workflows/backend-real-api-e2e.yml`
+- Trigger via `workflow_dispatch` and set:
+	- `api_base_url`
+	- `small_model`
+	- `large_model`
+	- `wait_timeout_ms`
+- The workflow enables `RUN_REAL_OLLAMA_API_E2E=1` and executes `backend/tests/test_backend_e2e_real_api.py`.
 
 ## Refactoring status
 

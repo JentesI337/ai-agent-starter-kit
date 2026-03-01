@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from threading import RLock
 from typing import Deque
 
 
@@ -17,6 +18,7 @@ class MemoryStore:
     def __init__(self, max_items_per_session: int = 20, persist_dir: str | None = None):
         self.max_items_per_session = max_items_per_session
         self._store: dict[str, Deque[MemoryItem]] = {}
+        self._lock = RLock()
         self.persist_dir = Path(persist_dir).resolve() if persist_dir else None
         if self.persist_dir:
             self.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -24,14 +26,16 @@ class MemoryStore:
 
     def add(self, session_id: str, role: str, content: str) -> None:
         key = self._normalize_session_id(session_id)
-        if key not in self._store:
-            self._store[key] = deque(maxlen=self.max_items_per_session)
-        self._store[key].append(MemoryItem(role=role, content=content))
-        self._append_to_disk(session_id=key, role=role, content=content)
+        with self._lock:
+            if key not in self._store:
+                self._store[key] = deque(maxlen=self.max_items_per_session)
+            self._store[key].append(MemoryItem(role=role, content=content))
+            self._append_to_disk(session_id=key, role=role, content=content)
 
     def render_context(self, session_id: str) -> str:
         key = self._normalize_session_id(session_id)
-        items = self._store.get(key, deque())
+        with self._lock:
+            items = list(self._store.get(key, deque()))
         if not items:
             return "(no previous context)"
         lines = [f"- {item.role}: {item.content}" for item in items]
@@ -39,39 +43,42 @@ class MemoryStore:
 
     def get_items(self, session_id: str) -> list[MemoryItem]:
         key = self._normalize_session_id(session_id)
-        items = self._store.get(key, deque())
-        return list(items)
+        with self._lock:
+            items = self._store.get(key, deque())
+            return list(items)
 
     def clear_all(self) -> None:
-        self._store.clear()
-        if not self.persist_dir:
-            return
-        for file_path in self.persist_dir.glob("*.jsonl"):
-            try:
-                file_path.unlink(missing_ok=True)
-            except Exception:
-                continue
+        with self._lock:
+            self._store.clear()
+            if not self.persist_dir:
+                return
+            for file_path in self.persist_dir.glob("*.jsonl"):
+                try:
+                    file_path.unlink(missing_ok=True)
+                except Exception:
+                    continue
 
     def _load_from_disk(self) -> None:
         if not self.persist_dir:
             return
 
-        for file_path in self.persist_dir.glob("*.jsonl"):
-            session_id = file_path.stem
-            for line in file_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                    role = str(payload.get("role", "")).strip()
-                    content = str(payload.get("content", "")).strip()
-                    if not role:
+        with self._lock:
+            for file_path in self.persist_dir.glob("*.jsonl"):
+                session_id = file_path.stem
+                for line in file_path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
                         continue
-                    if session_id not in self._store:
-                        self._store[session_id] = deque(maxlen=self.max_items_per_session)
-                    self._store[session_id].append(MemoryItem(role=role, content=content))
-                except Exception:
-                    continue
+                    try:
+                        payload = json.loads(line)
+                        role = str(payload.get("role", "")).strip()
+                        content = str(payload.get("content", "")).strip()
+                        if not role:
+                            continue
+                        if session_id not in self._store:
+                            self._store[session_id] = deque(maxlen=self.max_items_per_session)
+                        self._store[session_id].append(MemoryItem(role=role, content=content))
+                    except Exception:
+                        continue
 
     def _append_to_disk(self, session_id: str, role: str, content: str) -> None:
         if not self.persist_dir:

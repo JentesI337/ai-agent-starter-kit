@@ -4,16 +4,23 @@ import asyncio
 import json
 import logging
 import re
+from threading import Lock
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter
+from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.config import settings
 from app.contracts.agent_contract import AgentContract
+from app.custom_agents import (
+    CustomAgentAdapter,
+    CustomAgentCreateRequest,
+    CustomAgentDefinition,
+    CustomAgentStore,
+)
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import OrchestratorApi, RequestContext
 from app.models import WsInboundMessage
@@ -30,17 +37,160 @@ logger = logging.getLogger("app.main")
 
 app = FastAPI(title="AI Agent Starter Kit")
 
+cors_origins = list(settings.cors_allow_origins)
+if settings.app_env != "production" and not cors_origins:
+    cors_origins = ["*"]
+
+cors_allow_credentials = settings.cors_allow_credentials
+if "*" in cors_origins:
+    cors_allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 PRIMARY_AGENT_ID = "head-agent"
 CODER_AGENT_ID = "coder-agent"
+REVIEW_AGENT_ID = "review-agent"
 LEGACY_AGENT_ALIASES = {"head-coder": PRIMARY_AGENT_ID}
+
+PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
+    "research": {
+        "allow": [
+            "web_fetch",
+            "read_file",
+            "file_search",
+            "grep_search",
+            "list_code_usages",
+            "list_dir",
+            "get_changed_files",
+        ],
+        "deny": [
+            "write_file",
+            "apply_patch",
+            "run_command",
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+    "review": {
+        "allow": [
+            "read_file",
+            "file_search",
+            "grep_search",
+            "list_code_usages",
+            "list_dir",
+            "get_changed_files",
+            "web_fetch",
+        ],
+        "deny": [
+            "write_file",
+            "apply_patch",
+            "run_command",
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+}
+
+TOOL_PROFILES: dict[str, dict[str, list[str]]] = {
+    "minimal": {
+        "allow": [
+            "list_dir",
+            "read_file",
+            "file_search",
+            "grep_search",
+            "list_code_usages",
+            "get_changed_files",
+            "web_fetch",
+        ],
+        "deny": [
+            "write_file",
+            "apply_patch",
+            "run_command",
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+    "coding": {
+        "allow": [
+            "list_dir",
+            "read_file",
+            "write_file",
+            "apply_patch",
+            "file_search",
+            "grep_search",
+            "list_code_usages",
+            "get_changed_files",
+            "run_command",
+            "start_background_command",
+            "get_background_output",
+            "kill_background_process",
+            "web_fetch",
+        ],
+        "deny": [],
+    },
+    "review": {
+        "allow": [
+            "list_dir",
+            "read_file",
+            "file_search",
+            "grep_search",
+            "list_code_usages",
+            "get_changed_files",
+            "web_fetch",
+        ],
+        "deny": [
+            "write_file",
+            "apply_patch",
+            "run_command",
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+}
+
+TOOL_POLICY_BY_PROVIDER: dict[str, dict[str, list[str]]] = {
+    "local": {
+        "allow": [
+            "run_command",
+            "start_background_command",
+            "get_background_output",
+            "kill_background_process",
+        ],
+        "deny": [],
+    },
+    "api": {
+        "allow": [],
+        "deny": [
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+}
+
+TOOL_POLICY_BY_MODEL: dict[str, dict[str, list[str]]] = {
+    "minimax-m2:cloud": {
+        "allow": [],
+        "deny": [
+            "start_background_command",
+            "kill_background_process",
+        ],
+    },
+    "qwen3-coder:480b-cloud": {
+        "allow": [
+            "run_command",
+            "start_background_command",
+            "get_background_output",
+            "kill_background_process",
+        ],
+        "deny": [],
+    },
+}
 
 
 def _resolve_persist_dir(path_value: str) -> Path:
@@ -96,6 +246,7 @@ _clear_startup_persistence()
 agent_registry: dict[str, AgentContract] = {
     PRIMARY_AGENT_ID: HeadAgentAdapter(),
     CODER_AGENT_ID: CoderAgentAdapter(),
+    REVIEW_AGENT_ID: ReviewAgentAdapter(),
 }
 runtime_manager = RuntimeManager()
 state_store = StateStore(persist_dir=settings.orchestrator_state_dir)
@@ -103,6 +254,40 @@ orchestrator_registry: dict[str, OrchestratorApi] = {
     agent_id: OrchestratorApi(agent=agent_instance, state_store=state_store)
     for agent_id, agent_instance in agent_registry.items()
 }
+custom_agent_store = CustomAgentStore(persist_dir=settings.custom_agents_dir)
+custom_agent_ids: set[str] = set()
+
+
+def _sync_custom_agents() -> None:
+    global custom_agent_ids
+
+    for custom_id in list(custom_agent_ids):
+        agent_registry.pop(custom_id, None)
+        orchestrator_registry.pop(custom_id, None)
+
+    custom_agent_ids = set()
+
+    definitions = custom_agent_store.list()
+    for definition in definitions:
+        custom_id = LEGACY_AGENT_ALIASES.get((definition.id or "").strip().lower(), (definition.id or "").strip().lower())
+        if not custom_id or custom_id in {PRIMARY_AGENT_ID, CODER_AGENT_ID, REVIEW_AGENT_ID}:
+            continue
+
+        base_id = LEGACY_AGENT_ALIASES.get(
+            (definition.base_agent_id or "").strip().lower(),
+            (definition.base_agent_id or "").strip().lower(),
+        )
+        base_agent = agent_registry.get(base_id)
+        if base_agent is None:
+            continue
+
+        adapter = CustomAgentAdapter(definition=definition, base_agent=base_agent)
+        agent_registry[custom_id] = adapter
+        orchestrator_registry[custom_id] = OrchestratorApi(agent=adapter, state_store=state_store)
+        custom_agent_ids.add(custom_id)
+
+
+_sync_custom_agents()
 
 agent = agent_registry[PRIMARY_AGENT_ID]
 orchestrator_api = orchestrator_registry[PRIMARY_AGENT_ID]
@@ -118,6 +303,20 @@ subrun_lane = SubrunLane(
     announce_retry_jitter=settings.subrun_announce_retry_jitter,
 )
 active_run_tasks: dict[str, asyncio.Task] = {}
+idempotency_registry: dict[str, dict] = {}
+idempotency_lock = Lock()
+workflow_idempotency_registry: dict[str, dict] = {}
+workflow_idempotency_lock = Lock()
+workflow_execute_idempotency_registry: dict[str, dict] = {}
+workflow_execute_idempotency_lock = Lock()
+workflow_delete_idempotency_registry: dict[str, dict] = {}
+workflow_delete_idempotency_lock = Lock()
+workflow_version_registry: dict[str, int] = {}
+workflow_version_lock = Lock()
+session_patch_idempotency_registry: dict[str, dict] = {}
+session_patch_idempotency_lock = Lock()
+session_reset_idempotency_registry: dict[str, dict] = {}
+session_reset_idempotency_lock = Lock()
 
 
 def _normalize_agent_id(agent_id: str | None) -> str:
@@ -126,6 +325,7 @@ def _normalize_agent_id(agent_id: str | None) -> str:
 
 
 def _resolve_agent(agent_id: str | None) -> tuple[str, AgentContract, OrchestratorApi]:
+    _sync_custom_agents()
     normalized_agent_id = _normalize_agent_id(agent_id)
     selected_agent = agent_registry.get(normalized_agent_id)
     selected_orchestrator = orchestrator_registry.get(normalized_agent_id)
@@ -173,8 +373,33 @@ def _looks_like_coding_request(message: str) -> bool:
     return bool(re.search(r"\b(build|create|generate|update)\b.*\b(script|module|component|service|backend|frontend)\b", text))
 
 
+def _looks_like_review_request(message: str) -> bool:
+    text = (message or "").strip().lower()
+    if not text:
+        return False
+
+    keyword_markers = (
+        "review",
+        "code review",
+        "audit",
+        "critique",
+        "quality check",
+        "security review",
+        "find issues",
+        "what is wrong",
+        "smell",
+    )
+    return any(marker in text for marker in keyword_markers)
+
+
 def _get_agent_tools(agent_contract: AgentContract) -> list[str]:
     delegate = getattr(agent_contract, "_delegate", None)
+    if delegate is None:
+        delegate = getattr(agent_contract, "_base_agent", None)
+    if delegate is not None:
+        nested_delegate = getattr(delegate, "_delegate", None)
+        if nested_delegate is not None:
+            delegate = nested_delegate
     registry = getattr(delegate, "tool_registry", None)
     if isinstance(registry, dict):
         return sorted(str(name) for name in registry.keys())
@@ -183,6 +408,15 @@ def _get_agent_tools(agent_contract: AgentContract) -> list[str]:
 
 def _remove_active_task(run_id: str) -> None:
     active_run_tasks.pop(run_id, None)
+
+
+def _normalize_contract_run_status(status: str | None) -> str | None:
+    normalized = (status or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized == "failed":
+        return "error"
+    return normalized
 
 
 def _state_append_event_safe(run_id: str, event: dict) -> None:
@@ -209,6 +443,7 @@ def _state_mark_completed_safe(run_id: str) -> None:
 class AgentTestRequest(BaseModel):
     message: str = "hi"
     model: str | None = None
+    preset: str | None = None
     tool_policy: dict[str, list[str]] | None = None
 
 
@@ -216,7 +451,1751 @@ class RunStartRequest(BaseModel):
     message: str
     session_id: str | None = None
     model: str | None = None
+    preset: str | None = None
     tool_policy: dict[str, list[str]] | None = None
+
+
+class ControlRunStartRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    model: str | None = None
+    preset: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlRunWaitRequest(BaseModel):
+    run_id: str
+    timeout_ms: int | None = None
+    poll_interval_ms: int | None = None
+
+
+class ControlSessionsListRequest(BaseModel):
+    limit: int = 100
+    active_only: bool = False
+
+
+class ControlSessionsResolveRequest(BaseModel):
+    session_id: str
+    active_only: bool = False
+
+
+class ControlSessionsHistoryRequest(BaseModel):
+    session_id: str
+    limit: int = 50
+
+
+class ControlSessionsSendRequest(BaseModel):
+    session_id: str
+    message: str
+    model: str | None = None
+    preset: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlSessionsSpawnRequest(BaseModel):
+    parent_session_id: str
+    message: str
+    model: str | None = None
+    preset: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlSessionsStatusRequest(BaseModel):
+    session_id: str
+
+
+class ControlSessionsGetRequest(BaseModel):
+    session_id: str
+
+
+class ControlSessionsPatchRequest(BaseModel):
+    session_id: str
+    meta: dict[str, object] = {}
+    idempotency_key: str | None = None
+
+
+class ControlSessionsResetRequest(BaseModel):
+    session_id: str
+    idempotency_key: str | None = None
+
+
+class ControlToolsCatalogRequest(BaseModel):
+    agent_id: str | None = None
+
+
+class ControlToolsProfileRequest(BaseModel):
+    profile_id: str | None = None
+
+
+class ControlToolsPolicyMatrixRequest(BaseModel):
+    agent_id: str | None = None
+
+
+class ControlWorkflowsListRequest(BaseModel):
+    limit: int = 100
+    base_agent_id: str | None = None
+
+
+class ControlWorkflowsGetRequest(BaseModel):
+    workflow_id: str
+
+
+class ControlWorkflowsCreateRequest(BaseModel):
+    id: str | None = None
+    name: str
+    description: str = ""
+    base_agent_id: str = PRIMARY_AGENT_ID
+    steps: list[str] = []
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlWorkflowsUpdateRequest(BaseModel):
+    id: str
+    name: str | None = None
+    description: str | None = None
+    base_agent_id: str | None = None
+    steps: list[str] | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlWorkflowsExecuteRequest(BaseModel):
+    workflow_id: str
+    message: str
+    session_id: str | None = None
+    model: str | None = None
+    preset: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    idempotency_key: str | None = None
+
+
+class ControlWorkflowsDeleteRequest(BaseModel):
+    workflow_id: str
+    idempotency_key: str | None = None
+
+
+class ControlRunsGetRequest(BaseModel):
+    run_id: str
+
+
+class ControlRunsListRequest(BaseModel):
+    limit: int = 100
+    session_id: str | None = None
+
+
+class ControlRunsEventsRequest(BaseModel):
+    run_id: str
+    limit: int = 200
+
+
+class ControlRunsAuditRequest(BaseModel):
+    run_id: str
+
+
+class ControlToolsPolicyPreviewRequest(BaseModel):
+    agent_id: str | None = None
+    profile: str | None = None
+    preset: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+    also_allow: list[str] | None = None
+
+
+def _normalize_preset(value: str | None) -> str | None:
+    preset = (value or "").strip().lower()
+    return preset or None
+
+
+def _normalize_idempotency_key(value: str | None) -> str | None:
+    key = (value or "").strip()
+    if not key:
+        return None
+    if len(key) > 200:
+        raise GuardrailViolation("Idempotency key too long (max 200).")
+    return key
+
+
+def _build_run_start_fingerprint(
+    *,
+    message: str,
+    session_id: str | None,
+    model: str | None,
+    preset: str | None,
+    tool_policy: dict[str, list[str]] | None,
+    runtime: str,
+) -> str:
+    payload = {
+        "message": message,
+        "session_id": session_id,
+        "model": model,
+        "preset": preset,
+        "tool_policy": tool_policy,
+        "runtime": runtime,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_run_or_raise(
+    *,
+    idempotency_key: str | None,
+    fingerprint: str,
+) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with idempotency_lock:
+        existing = idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different request payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    return {
+        "status": "accepted",
+        "runId": existing.get("run_id"),
+        "sessionId": existing.get("session_id"),
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": True,
+        },
+    }
+
+
+def _register_idempotent_run(
+    *,
+    idempotency_key: str | None,
+    fingerprint: str,
+    run_id: str,
+    session_id: str,
+) -> None:
+    if not idempotency_key:
+        return
+    with idempotency_lock:
+        idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "run_id": run_id,
+            "session_id": session_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def _start_run_background(
+    *,
+    agent_id: str | None,
+    message: str,
+    session_id: str,
+    model: str | None,
+    preset: str | None,
+    tool_policy: dict[str, list[str]] | None,
+    meta: dict | None = None,
+) -> str:
+    runtime_state = runtime_manager.get_state()
+    run_id = str(uuid.uuid4())
+
+    state_store.init_run(
+        run_id=run_id,
+        session_id=session_id,
+        request_id=run_id,
+        user_message=message or "",
+        runtime=runtime_state.runtime,
+        model=model or runtime_state.model,
+        meta={"source": "rest", "async": True, **(meta or {})},
+    )
+    state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="pending")
+    _state_append_event_safe(
+        run_id=run_id,
+        event=build_lifecycle_event(
+            request_id=run_id,
+            session_id=session_id,
+            stage="accepted",
+            details={"source": "api", "chars": len(message or "")},
+            agent=agent.name,
+        ),
+    )
+
+    task = asyncio.create_task(
+        _run_background_message(
+            agent_id=agent_id,
+            run_id=run_id,
+            session_id=session_id,
+            message=message,
+            model=model,
+            preset=preset,
+            tool_policy=tool_policy,
+        )
+    )
+    active_run_tasks[run_id] = task
+    return run_id
+
+
+async def _wait_for_run_result(run_id: str, timeout_ms: int | None = None, poll_interval_ms: int | None = None) -> dict:
+    run_state = state_store.get_run(run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    timeout = max(0, int(timeout_ms if timeout_ms is not None else settings.run_wait_default_timeout_ms))
+    poll = max(10, int(poll_interval_ms if poll_interval_ms is not None else settings.run_wait_poll_interval_ms))
+    elapsed = 0
+
+    while elapsed <= timeout:
+        run_state = state_store.get_run(run_id)
+        if run_state is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        status = run_state.get("status")
+        if status in {"completed", "failed"}:
+            return {
+                "status": "ok" if status == "completed" else "error",
+                "runId": run_id,
+                "runStatus": _normalize_contract_run_status(status),
+                "error": run_state.get("error"),
+                "final": _extract_final_message(run_state),
+            }
+
+        task = active_run_tasks.get(run_id)
+        if task and task.done():
+            refreshed = state_store.get_run(run_id)
+            return {
+                "status": "ok" if (refreshed or {}).get("status") == "completed" else "error",
+                "runId": run_id,
+                "runStatus": _normalize_contract_run_status((refreshed or {}).get("status")),
+                "error": (refreshed or {}).get("error"),
+                "final": _extract_final_message(refreshed or {}),
+            }
+
+        await asyncio.sleep(poll / 1000.0)
+        elapsed += poll
+
+    return {
+        "status": "timeout",
+        "runId": run_id,
+        "runStatus": _normalize_contract_run_status((state_store.get_run(run_id) or {}).get("status")),
+    }
+
+
+def _list_sessions_minimal(*, limit: int, active_only: bool) -> dict:
+    runs = state_store.list_runs(limit=max(limit * 5, 200))
+    by_session: dict[str, dict] = {}
+    for run in runs:
+        session_id = str(run.get("session_id", "")).strip()
+        if not session_id:
+            continue
+        if active_only and run.get("status") != "active":
+            continue
+        if session_id in by_session:
+            continue
+        by_session[session_id] = {
+            "session_id": session_id,
+            "latest_run_id": run.get("run_id"),
+            "status": _normalize_contract_run_status(run.get("status")),
+            "runtime": run.get("runtime"),
+            "model": run.get("model"),
+            "updated_at": run.get("updated_at"),
+            "created_at": run.get("created_at"),
+        }
+        if len(by_session) >= max(1, limit):
+            break
+
+    items = list(by_session.values())
+    return {
+        "schema": "sessions.list.v1",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _resolve_session_minimal(*, session_id: str, active_only: bool) -> dict | None:
+    target = (session_id or "").strip()
+    if not target:
+        return None
+
+    runs = state_store.list_runs(limit=2000)
+    latest: dict | None = None
+    runs_count = 0
+    active_runs_count = 0
+
+    for run in runs:
+        if str(run.get("session_id", "")).strip() != target:
+            continue
+        runs_count += 1
+        if run.get("status") == "active":
+            active_runs_count += 1
+
+        if latest is None:
+            latest = run
+
+    if latest is None:
+        return None
+
+    if active_only and latest.get("status") != "active":
+        return None
+
+    return {
+        "schema": "sessions.resolve.v1",
+        "session": {
+            "session_id": target,
+            "latest_run_id": latest.get("run_id"),
+            "status": _normalize_contract_run_status(latest.get("status")),
+            "runtime": latest.get("runtime"),
+            "model": latest.get("model"),
+            "updated_at": latest.get("updated_at"),
+            "created_at": latest.get("created_at"),
+            "runs_count": runs_count,
+            "active_runs_count": active_runs_count,
+        },
+    }
+
+
+def _session_history_minimal(*, session_id: str, limit: int) -> dict:
+    target = (session_id or "").strip()
+    runs = state_store.list_runs(limit=max(limit * 5, 250))
+    items: list[dict] = []
+
+    for run in runs:
+        if str(run.get("session_id", "")).strip() != target:
+            continue
+
+        items.append(
+            {
+                "run_id": run.get("run_id"),
+                "status": _normalize_contract_run_status(run.get("status")),
+                "runtime": run.get("runtime"),
+                "model": run.get("model"),
+                "updated_at": run.get("updated_at"),
+                "created_at": run.get("created_at"),
+                "error": run.get("error"),
+                "final": _extract_final_message(run),
+            }
+        )
+
+        if len(items) >= max(1, limit):
+            break
+
+    return {
+        "schema": "sessions.history.v1",
+        "session_id": target,
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _send_session_minimal(*, request: ControlSessionsSendRequest, idempotency_key_header: str | None) -> dict:
+    runtime_state = runtime_manager.get_state()
+    session_id = (request.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session id must not be empty")
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
+    fingerprint = _build_run_start_fingerprint(
+        message=request.message,
+        session_id=session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        runtime=runtime_state.runtime,
+    )
+    existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return {
+            "schema": "sessions.send.v1",
+            **existing,
+        }
+
+    run_id = _start_run_background(
+        agent_id=None,
+        message=request.message,
+        session_id=session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+    )
+    _register_idempotent_run(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        run_id=run_id,
+        session_id=session_id,
+    )
+
+    return {
+        "schema": "sessions.send.v1",
+        "status": "accepted",
+        "runId": run_id,
+        "sessionId": session_id,
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+
+
+def _spawn_session_minimal(*, request: ControlSessionsSpawnRequest, idempotency_key_header: str | None) -> dict:
+    runtime_state = runtime_manager.get_state()
+    parent_session_id = (request.parent_session_id or "").strip()
+    if not parent_session_id:
+        raise HTTPException(status_code=400, detail="Parent session id must not be empty")
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
+    fingerprint = _build_run_start_fingerprint(
+        message=request.message,
+        session_id=parent_session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        runtime=runtime_state.runtime,
+    )
+    existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return {
+            "schema": "sessions.spawn.v1",
+            "status": existing.get("status"),
+            "runId": existing.get("runId"),
+            "sessionId": existing.get("sessionId"),
+            "parentSessionId": parent_session_id,
+            "idempotency": existing.get("idempotency"),
+        }
+
+    child_session_id = str(uuid.uuid4())
+    run_id = _start_run_background(
+        agent_id=None,
+        message=request.message,
+        session_id=child_session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        meta={
+            "source": "control.sessions.spawn",
+            "parent_session_id": parent_session_id,
+        },
+    )
+    _register_idempotent_run(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        run_id=run_id,
+        session_id=child_session_id,
+    )
+
+    return {
+        "schema": "sessions.spawn.v1",
+        "status": "accepted",
+        "runId": run_id,
+        "sessionId": child_session_id,
+        "parentSessionId": parent_session_id,
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+
+
+def _session_status_minimal(*, session_id: str) -> dict:
+    target = (session_id or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="Session id must not be empty")
+
+    runs = state_store.list_runs(limit=2000)
+    latest: dict | None = None
+    runs_count = 0
+    active_runs_count = 0
+
+    for run in runs:
+        if str(run.get("session_id", "")).strip() != target:
+            continue
+
+        runs_count += 1
+        if run.get("status") == "active":
+            active_runs_count += 1
+        if latest is None:
+            latest = run
+
+    if latest is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {
+        "schema": "sessions.status.v1",
+        "session": {
+            "session_id": target,
+            "latest_run_id": latest.get("run_id"),
+            "status": _normalize_contract_run_status(latest.get("status")),
+            "runtime": latest.get("runtime"),
+            "model": latest.get("model"),
+            "updated_at": latest.get("updated_at"),
+            "created_at": latest.get("created_at"),
+            "runs_count": runs_count,
+            "active_runs_count": active_runs_count,
+            "latest_final": _extract_final_message(latest),
+            "latest_error": latest.get("error"),
+        },
+    }
+
+
+def _get_session_minimal(*, session_id: str) -> dict:
+    payload = _session_status_minimal(session_id=session_id)
+    return {
+        "schema": "sessions.get.v1",
+        "session": payload.get("session"),
+    }
+
+
+def _build_session_patch_fingerprint(*, session_id: str, meta: dict[str, object]) -> str:
+    payload = {
+        "session_id": session_id,
+        "meta": meta,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_session_patch_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with session_patch_idempotency_lock:
+        existing = session_patch_idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different session patch payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    payload = dict(existing.get("response") or {})
+    payload["idempotency"] = {
+        "key": idempotency_key,
+        "reused": True,
+    }
+    return payload
+
+
+def _register_idempotent_session_patch(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
+    if not idempotency_key:
+        return
+
+    with session_patch_idempotency_lock:
+        session_patch_idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "response": response,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def _patch_session_minimal(*, request: ControlSessionsPatchRequest, idempotency_key_header: str | None) -> dict:
+    session_id = (request.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session id must not be empty")
+
+    patch_meta = request.meta if isinstance(request.meta, dict) else {}
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
+    fingerprint = _build_session_patch_fingerprint(session_id=session_id, meta=patch_meta)
+    existing = _find_idempotent_session_patch_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    runs = state_store.list_runs(limit=2000)
+    latest: dict | None = None
+    for run in runs:
+        if str(run.get("session_id", "")).strip() != session_id:
+            continue
+        latest = run
+        break
+
+    if latest is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    run_id = str(latest.get("run_id") or "").strip()
+    if not run_id:
+        raise HTTPException(status_code=500, detail="Session latest run is missing run_id")
+
+    updated = state_store.patch_run_meta(run_id, patch_meta)
+    response = {
+        "schema": "sessions.patch.v1",
+        "session": {
+            "session_id": session_id,
+            "latest_run_id": run_id,
+            "meta": updated.get("meta") or {},
+            "updated_at": updated.get("updated_at"),
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_session_patch(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _build_session_reset_fingerprint(*, session_id: str) -> str:
+    payload = {
+        "session_id": session_id,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_session_reset_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with session_reset_idempotency_lock:
+        existing = session_reset_idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different session reset payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    payload = dict(existing.get("response") or {})
+    payload["idempotency"] = {
+        "key": idempotency_key,
+        "reused": True,
+    }
+    return payload
+
+
+def _register_idempotent_session_reset(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
+    if not idempotency_key:
+        return
+
+    with session_reset_idempotency_lock:
+        session_reset_idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "response": response,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def _reset_session_minimal(*, request: ControlSessionsResetRequest, idempotency_key_header: str | None) -> dict:
+    session_id = (request.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session id must not be empty")
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
+    fingerprint = _build_session_reset_fingerprint(session_id=session_id)
+    existing = _find_idempotent_session_reset_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    runs = state_store.list_runs(limit=2000)
+    latest: dict | None = None
+    for run in runs:
+        if str(run.get("session_id", "")).strip() != session_id:
+            continue
+        latest = run
+        break
+
+    if latest is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    run_id = str(latest.get("run_id") or "").strip()
+    if not run_id:
+        raise HTTPException(status_code=500, detail="Session latest run is missing run_id")
+
+    updated = state_store.set_run_meta(run_id, {})
+    response = {
+        "schema": "sessions.reset.v1",
+        "session": {
+            "session_id": session_id,
+            "latest_run_id": run_id,
+            "meta": updated.get("meta") or {},
+            "updated_at": updated.get("updated_at"),
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_session_reset(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _merge_tool_policy(
+    base: dict[str, list[str]] | None,
+    incoming: dict[str, list[str]] | None,
+) -> dict[str, list[str]] | None:
+    allow_values: list[str] = []
+    deny_values: list[str] = []
+
+    for source in (base or {}, incoming or {}):
+        for item in source.get("allow") or []:
+            if isinstance(item, str):
+                value = item.strip()
+                if value and value not in allow_values:
+                    allow_values.append(value)
+        for item in source.get("deny") or []:
+            if isinstance(item, str):
+                value = item.strip()
+                if value and value not in deny_values:
+                    deny_values.append(value)
+
+    if not allow_values and not deny_values:
+        return None
+
+    payload: dict[str, list[str]] = {}
+    if allow_values:
+        payload["allow"] = allow_values
+    if deny_values:
+        payload["deny"] = deny_values
+    return payload
+
+
+def _resolve_tool_policy_with_preset(
+    preset: str | None,
+    incoming: dict[str, list[str]] | None,
+) -> tuple[dict[str, list[str]] | None, str | None]:
+    normalized = _normalize_preset(preset)
+    if normalized is None:
+        return incoming, None
+
+    preset_policy = PRESET_TOOL_POLICIES.get(normalized)
+    if preset_policy is None:
+        raise GuardrailViolation(f"Unsupported preset: {preset}")
+
+    merged = _merge_tool_policy(preset_policy, incoming)
+    return merged, normalized
+
+
+def _normalize_policy_values(values: list[str] | None, allowed_universe: set[str]) -> set[str] | None:
+    if values is None:
+        return None
+    normalized: set[str] = set()
+    for item in values:
+        if not isinstance(item, str):
+            continue
+        candidate = item.strip().lower()
+        if candidate and candidate in allowed_universe:
+            normalized.add(candidate)
+    return normalized
+
+
+def _build_tools_catalog(*, agent_id: str | None = None) -> dict:
+    _sync_custom_agents()
+
+    agents: list[dict] = []
+    selected_ids: set[str] | None = None
+    if agent_id:
+        normalized = _normalize_agent_id(agent_id)
+        if normalized not in agent_registry:
+            raise HTTPException(status_code=400, detail=f"Unsupported agent: {agent_id}")
+        selected_ids = {normalized}
+
+    for item_agent_id, item_agent in sorted(agent_registry.items(), key=lambda pair: pair[0]):
+        if selected_ids is not None and item_agent_id not in selected_ids:
+            continue
+        agents.append(
+            {
+                "id": item_agent_id,
+                "role": getattr(item_agent, "role", "agent"),
+                "tools": _get_agent_tools(item_agent),
+            }
+        )
+
+    all_tools: set[str] = set()
+    for item in agents:
+        all_tools |= set(item.get("tools") or [])
+
+    return {
+        "schema": "tools.catalog.v1",
+        "count": len(agents),
+        "agents": agents,
+        "presets": [
+            {
+                "id": preset_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for preset_id, policy in sorted(PRESET_TOOL_POLICIES.items(), key=lambda pair: pair[0])
+        ],
+        "globalPolicy": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+        "tools": sorted(all_tools),
+    }
+
+
+def _build_tools_profiles(*, profile_id: str | None = None) -> dict:
+    normalized_profile = (profile_id or "").strip().lower() or None
+    if normalized_profile and normalized_profile not in TOOL_PROFILES:
+        raise HTTPException(status_code=400, detail=f"Unsupported profile: {profile_id}")
+
+    profiles = []
+    for item_id, policy in sorted(TOOL_PROFILES.items(), key=lambda pair: pair[0]):
+        if normalized_profile and item_id != normalized_profile:
+            continue
+        profiles.append(
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+        )
+
+    return {
+        "schema": "tools.profile.v1",
+        "count": len(profiles),
+        "profiles": profiles,
+        "selected": normalized_profile,
+    }
+
+
+def _build_tools_policy_matrix(*, agent_id: str | None = None) -> dict:
+    normalized_agent_id = None
+    selected_tools: list[str] = []
+    if agent_id is not None:
+        try:
+            normalized_agent_id, selected_agent, _ = _resolve_agent(agent_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        selected_tools = _get_agent_tools(selected_agent)
+
+    return {
+        "schema": "tools.policy.matrix.v1",
+        "agent_id": normalized_agent_id,
+        "base_tools": selected_tools,
+        "global": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+        "profiles": [
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for item_id, policy in sorted(TOOL_PROFILES.items(), key=lambda pair: pair[0])
+        ],
+        "presets": [
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for item_id, policy in sorted(PRESET_TOOL_POLICIES.items(), key=lambda pair: pair[0])
+        ],
+        "by_provider": {
+            item_id: {
+                "allow": list(policy.get("allow") or []),
+                "deny": list(policy.get("deny") or []),
+            }
+            for item_id, policy in sorted(TOOL_POLICY_BY_PROVIDER.items(), key=lambda pair: pair[0])
+        },
+        "by_model": {
+            item_id: {
+                "allow": list(policy.get("allow") or []),
+                "deny": list(policy.get("deny") or []),
+            }
+            for item_id, policy in sorted(TOOL_POLICY_BY_MODEL.items(), key=lambda pair: pair[0])
+        },
+    }
+
+
+def _list_workflows_minimal(*, limit: int, base_agent_id: str | None = None) -> dict:
+    normalized_base_agent = _normalize_agent_id(base_agent_id) if base_agent_id else None
+    items: list[dict] = []
+
+    for definition in custom_agent_store.list():
+        base_id = _normalize_agent_id(definition.base_agent_id)
+        if normalized_base_agent and base_id != normalized_base_agent:
+            continue
+
+        steps = [step for step in (definition.workflow_steps or []) if isinstance(step, str) and step.strip()]
+        items.append(
+            {
+                "id": definition.id,
+                "name": definition.name,
+                "base_agent_id": base_id,
+                "version": _get_workflow_version(definition.id),
+                "steps": steps,
+                "step_count": len(steps),
+            }
+        )
+        if len(items) >= max(1, limit):
+            break
+
+    return {
+        "schema": "workflows.list.v1",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _get_workflow_minimal(*, workflow_id: str) -> dict:
+    definition = _find_workflow_or_404(workflow_id)
+    steps = [step for step in (definition.workflow_steps or []) if isinstance(step, str) and step.strip()]
+    return {
+        "schema": "workflows.get.v1",
+        "workflow": {
+            "id": definition.id,
+            "name": definition.name,
+            "description": definition.description,
+            "base_agent_id": _normalize_agent_id(definition.base_agent_id),
+            "version": _get_workflow_version(definition.id),
+            "steps": steps,
+            "step_count": len(steps),
+            "tool_policy": definition.tool_policy,
+        },
+    }
+
+
+def _get_workflow_version(workflow_id: str) -> int:
+    normalized = _normalize_agent_id(workflow_id)
+    with workflow_version_lock:
+        return int(workflow_version_registry.get(normalized, 1))
+
+
+def _set_workflow_version(workflow_id: str, version: int) -> None:
+    normalized = _normalize_agent_id(workflow_id)
+    with workflow_version_lock:
+        workflow_version_registry[normalized] = max(1, int(version))
+
+
+def _increment_workflow_version(workflow_id: str) -> int:
+    normalized = _normalize_agent_id(workflow_id)
+    with workflow_version_lock:
+        current = int(workflow_version_registry.get(normalized, 1))
+        next_version = current + 1
+        workflow_version_registry[normalized] = next_version
+        return next_version
+
+
+def _delete_workflow_version(workflow_id: str) -> None:
+    normalized = _normalize_agent_id(workflow_id)
+    with workflow_version_lock:
+        workflow_version_registry.pop(normalized, None)
+
+
+def _build_workflow_create_fingerprint(
+    *,
+    operation: str,
+    workflow_id: str | None,
+    name: str,
+    description: str,
+    base_agent_id: str,
+    steps: list[str],
+    tool_policy: dict[str, list[str]] | None,
+) -> str:
+    payload = {
+        "operation": operation,
+        "id": workflow_id,
+        "name": name,
+        "description": description,
+        "base_agent_id": base_agent_id,
+        "steps": steps,
+        "tool_policy": tool_policy,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_workflow_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with workflow_idempotency_lock:
+        existing = workflow_idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different workflow payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    payload = dict(existing.get("response") or {})
+    payload["idempotency"] = {
+        "key": idempotency_key,
+        "reused": True,
+    }
+    return payload
+
+
+def _register_idempotent_workflow(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
+    if not idempotency_key:
+        return
+    with workflow_idempotency_lock:
+        workflow_idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "response": response,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
+    _sync_custom_agents()
+
+    normalized_base_agent = _normalize_agent_id(request.base_agent_id)
+    if normalized_base_agent not in agent_registry:
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+
+    steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
+    workflow_id = (request.id or "").strip() or None
+    name = (request.name or "").strip()
+    description = (request.description or "").strip()
+    if not name:
+        raise GuardrailViolation("Workflow name must not be empty.")
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key)
+    fingerprint = _build_workflow_create_fingerprint(
+        operation="create",
+        workflow_id=workflow_id,
+        name=name,
+        description=description,
+        base_agent_id=normalized_base_agent,
+        steps=steps,
+        tool_policy=request.tool_policy,
+    )
+    existing = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    created = custom_agent_store.upsert(
+        CustomAgentCreateRequest(
+            id=workflow_id,
+            name=name,
+            description=description,
+            base_agent_id=normalized_base_agent,
+            workflow_steps=steps,
+            tool_policy=request.tool_policy,
+        ),
+        id_factory=lambda base_name: f"workflow-{base_name}-{str(uuid.uuid4())[:8]}",
+    )
+    _sync_custom_agents()
+    _set_workflow_version(created.id, 1)
+
+    response = {
+        "schema": "workflows.create.v1",
+        "status": "created",
+        "workflow": {
+            "id": created.id,
+            "name": created.name,
+            "description": created.description,
+            "base_agent_id": _normalize_agent_id(created.base_agent_id),
+            "version": _get_workflow_version(created.id),
+            "steps": list(created.workflow_steps or []),
+            "step_count": len(created.workflow_steps or []),
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_workflow(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
+    _sync_custom_agents()
+
+    workflow_id = (request.id or "").strip().lower()
+    if not workflow_id:
+        raise GuardrailViolation("Workflow id must not be empty.")
+
+    existing = next((item for item in custom_agent_store.list() if item.id == workflow_id), None)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    resolved_name = (request.name or existing.name or "").strip()
+    if not resolved_name:
+        raise GuardrailViolation("Workflow name must not be empty.")
+
+    resolved_description = (
+        existing.description
+        if request.description is None
+        else (request.description or "").strip()
+    )
+
+    if request.base_agent_id is None:
+        normalized_base_agent = _normalize_agent_id(existing.base_agent_id)
+    else:
+        normalized_base_agent = _normalize_agent_id(request.base_agent_id)
+    if normalized_base_agent not in agent_registry:
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+
+    if request.steps is None:
+        resolved_steps = [step for step in (existing.workflow_steps or []) if isinstance(step, str) and step.strip()]
+    else:
+        resolved_steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
+
+    resolved_tool_policy = existing.tool_policy if request.tool_policy is None else request.tool_policy
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key)
+    fingerprint = _build_workflow_create_fingerprint(
+        operation="update",
+        workflow_id=workflow_id,
+        name=resolved_name,
+        description=resolved_description,
+        base_agent_id=normalized_base_agent,
+        steps=resolved_steps,
+        tool_policy=resolved_tool_policy,
+    )
+    existing_response = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing_response is not None:
+        return existing_response
+
+    updated = custom_agent_store.upsert(
+        CustomAgentCreateRequest(
+            id=workflow_id,
+            name=resolved_name,
+            description=resolved_description,
+            base_agent_id=normalized_base_agent,
+            workflow_steps=resolved_steps,
+            tool_policy=resolved_tool_policy,
+        )
+    )
+    _sync_custom_agents()
+    next_version = _increment_workflow_version(updated.id)
+
+    response = {
+        "schema": "workflows.update.v1",
+        "status": "updated",
+        "workflow": {
+            "id": updated.id,
+            "name": updated.name,
+            "description": updated.description,
+            "base_agent_id": _normalize_agent_id(updated.base_agent_id),
+            "version": next_version,
+            "steps": list(updated.workflow_steps or []),
+            "step_count": len(updated.workflow_steps or []),
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_workflow(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _find_workflow_or_404(workflow_id: str) -> CustomAgentDefinition:
+    target = _normalize_agent_id(workflow_id)
+    match = next((item for item in custom_agent_store.list() if _normalize_agent_id(item.id) == target), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return match
+
+
+def _build_workflow_execute_fingerprint(
+    *,
+    workflow_id: str,
+    message: str,
+    session_id: str | None,
+    model: str | None,
+    preset: str | None,
+    tool_policy: dict[str, list[str]] | None,
+    runtime: str,
+) -> str:
+    payload = {
+        "operation": "execute",
+        "workflow_id": workflow_id,
+        "message": message,
+        "session_id": session_id,
+        "model": model,
+        "preset": preset,
+        "tool_policy": tool_policy,
+        "runtime": runtime,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_workflow_execute_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with workflow_execute_idempotency_lock:
+        existing = workflow_execute_idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different workflow execute payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    payload = dict(existing.get("response") or {})
+    payload["idempotency"] = {
+        "key": idempotency_key,
+        "reused": True,
+    }
+    return payload
+
+
+def _register_idempotent_workflow_execute(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
+    if not idempotency_key:
+        return
+    with workflow_execute_idempotency_lock:
+        workflow_execute_idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "response": response,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) -> dict:
+    _sync_custom_agents()
+
+    workflow = _find_workflow_or_404(request.workflow_id)
+    workflow_agent_id = _normalize_agent_id(workflow.id)
+
+    runtime_state = runtime_manager.get_state()
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key)
+    fingerprint = _build_workflow_execute_fingerprint(
+        workflow_id=workflow_agent_id,
+        message=request.message,
+        session_id=request.session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        runtime=runtime_state.runtime,
+    )
+    existing = _find_idempotent_workflow_execute_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    session_id = request.session_id or str(uuid.uuid4())
+    run_id = _start_run_background(
+        agent_id=workflow_agent_id,
+        message=request.message,
+        session_id=session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        meta={
+            "workflow_execute": True,
+            "workflow_id": workflow_agent_id,
+            "workflow_version": _get_workflow_version(workflow_agent_id),
+        },
+    )
+
+    steps = [step for step in (workflow.workflow_steps or []) if isinstance(step, str) and step.strip()]
+    step_spawn_cap = max(1, int(settings.subrun_max_children_per_parent))
+    executable_steps = steps[:step_spawn_cap]
+    spawned_subruns: list[dict] = []
+    subrun_warnings: list[str] = []
+
+    if len(steps) > len(executable_steps):
+        subrun_warnings.append(
+            f"workflow step cap reached ({step_spawn_cap}); skipped {len(steps) - len(executable_steps)} steps"
+        )
+
+    async def _noop_send_event(_event: dict) -> None:
+        return None
+
+    for index, step in enumerate(executable_steps, start=1):
+        step_message = f"Workflow step {index}/{len(executable_steps)}: {step}\n\nParent message:\n{request.message}"
+        try:
+            subrun_id = await subrun_lane.spawn(
+                parent_request_id=run_id,
+                parent_session_id=session_id,
+                user_message=step_message,
+                runtime=runtime_state.runtime,
+                model=request.model or runtime_state.model,
+                timeout_seconds=settings.subrun_timeout_seconds,
+                tool_policy=request.tool_policy,
+                send_event=_noop_send_event,
+            )
+            info = subrun_lane.get_info(subrun_id) or {}
+            allowed, decision = subrun_lane.evaluate_visibility(
+                subrun_id,
+                requester_session_id=session_id,
+                visibility_scope=settings.session_visibility_default,
+            )
+            spawned_subruns.append(
+                {
+                    "index": index,
+                    "name": step,
+                    "run_id": subrun_id,
+                    "child_session_id": info.get("child_session_id"),
+                    "status": info.get("status"),
+                    "a2a": {
+                        "parent_session_id": session_id,
+                        "allowed": allowed,
+                        "visibility": decision,
+                    },
+                }
+            )
+        except Exception as exc:
+            subrun_warnings.append(f"step[{index}] {step}: {exc}")
+
+    graph_nodes = [{"id": run_id, "kind": "workflow_root"}] + [
+        {
+            "id": item.get("run_id"),
+            "kind": "workflow_step_subrun",
+            "index": item.get("index"),
+            "name": item.get("name"),
+        }
+        for item in spawned_subruns
+    ]
+    graph_edges = [
+        {
+            "from": run_id,
+            "to": item.get("run_id"),
+            "type": "step_subrun",
+            "index": item.get("index"),
+        }
+        for item in spawned_subruns
+    ]
+
+    response = {
+        "schema": "workflows.execute.v1",
+        "status": "accepted",
+        "runId": run_id,
+        "sessionId": session_id,
+        "workflow": {
+            "id": workflow_agent_id,
+            "name": workflow.name,
+            "base_agent_id": _normalize_agent_id(workflow.base_agent_id),
+            "version": _get_workflow_version(workflow_agent_id),
+            "steps": steps,
+            "step_count": len(steps),
+        },
+        "execution": {
+            "engine": "workflow.revision_flow.v1",
+            "mode": "subrun_graph",
+            "root_run_id": run_id,
+            "visibility_scope": settings.session_visibility_default,
+            "a2a_policy": "parent_child_session_tree",
+            "steps": spawned_subruns,
+            "warnings": subrun_warnings,
+            "budgets": {
+                "step_spawn_cap": step_spawn_cap,
+                "step_total": len(steps),
+                "step_executed": len(executable_steps),
+                "subrun_timeout_seconds": settings.subrun_timeout_seconds,
+            },
+            "graph": {
+                "nodes": graph_nodes,
+                "edges": graph_edges,
+            },
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_workflow_execute(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _build_workflow_delete_fingerprint(*, workflow_id: str) -> str:
+    payload = {
+        "operation": "delete",
+        "workflow_id": workflow_id,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_idempotent_workflow_delete_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
+    if not idempotency_key:
+        return None
+
+    with workflow_delete_idempotency_lock:
+        existing = workflow_delete_idempotency_registry.get(idempotency_key)
+
+    if existing is None:
+        return None
+
+    if existing.get("fingerprint") != fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Idempotency key replayed with a different workflow delete payload.",
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    payload = dict(existing.get("response") or {})
+    payload["idempotency"] = {
+        "key": idempotency_key,
+        "reused": True,
+    }
+    return payload
+
+
+def _register_idempotent_workflow_delete(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
+    if not idempotency_key:
+        return
+    with workflow_delete_idempotency_lock:
+        workflow_delete_idempotency_registry[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "response": response,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+def _delete_workflow_minimal(*, request: ControlWorkflowsDeleteRequest) -> dict:
+    workflow_id = _normalize_agent_id(request.workflow_id)
+    if not workflow_id:
+        raise GuardrailViolation("Workflow id must not be empty.")
+
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key)
+    fingerprint = _build_workflow_delete_fingerprint(workflow_id=workflow_id)
+    existing = _find_idempotent_workflow_delete_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    workflow = _find_workflow_or_404(workflow_id)
+
+    deleted = custom_agent_store.delete(workflow_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    _delete_workflow_version(workflow_id)
+    _sync_custom_agents()
+
+    response = {
+        "schema": "workflows.delete.v1",
+        "status": "deleted",
+        "workflow": {
+            "id": workflow_id,
+            "name": workflow.name,
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_workflow_delete(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+def _get_run_minimal(*, run_id: str) -> dict:
+    run_state = state_store.get_run(run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    events = run_state.get("events") or []
+    lifecycle_events = [event for event in events if event.get("type") == "lifecycle"]
+    return {
+        "schema": "runs.get.v1",
+        "run": {
+            "run_id": run_state.get("run_id"),
+            "request_id": run_state.get("request_id"),
+            "session_id": run_state.get("session_id"),
+            "status": _normalize_contract_run_status(run_state.get("status")),
+            "runtime": run_state.get("runtime"),
+            "model": run_state.get("model"),
+            "created_at": run_state.get("created_at"),
+            "updated_at": run_state.get("updated_at"),
+            "error": run_state.get("error"),
+            "final": _extract_final_message(run_state),
+            "event_count": len(events),
+            "lifecycle_count": len(lifecycle_events),
+        },
+    }
+
+
+def _list_runs_minimal(*, limit: int, session_id: str | None) -> dict:
+    capped_limit = max(1, min(limit, 200))
+    session_filter = (session_id or "").strip()
+
+    runs = state_store.list_runs(limit=max(capped_limit * 5, 200))
+    items: list[dict] = []
+
+    for run in runs:
+        if session_filter and str(run.get("session_id", "")).strip() != session_filter:
+            continue
+
+        items.append(
+            {
+                "run_id": run.get("run_id"),
+                "request_id": run.get("request_id"),
+                "session_id": run.get("session_id"),
+                "status": _normalize_contract_run_status(run.get("status")),
+                "runtime": run.get("runtime"),
+                "model": run.get("model"),
+                "created_at": run.get("created_at"),
+                "updated_at": run.get("updated_at"),
+                "error": run.get("error"),
+                "final": _extract_final_message(run),
+            }
+        )
+
+        if len(items) >= capped_limit:
+            break
+
+    return {
+        "schema": "runs.list.v1",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _list_run_events_minimal(*, run_id: str, limit: int) -> dict:
+    run_state = state_store.get_run(run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    capped_limit = max(1, min(limit, 1000))
+    events = list(run_state.get("events") or [])
+    items = events[-capped_limit:]
+
+    return {
+        "schema": "runs.events.v1",
+        "run_id": run_id,
+        "count": len(items),
+        "total_count": len(events),
+        "items": items,
+    }
+
+
+def _get_run_audit_minimal(*, run_id: str) -> dict:
+    run_state = state_store.get_run(run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    events = list(run_state.get("events") or [])
+    lifecycle_events = [event for event in events if event.get("type") == "lifecycle"]
+    lifecycle_stage_counts: dict[str, int] = {}
+    for event in lifecycle_events:
+        stage = str(event.get("stage") or "").strip()
+        if not stage:
+            continue
+        lifecycle_stage_counts[stage] = lifecycle_stage_counts.get(stage, 0) + 1
+
+    return {
+        "schema": "runs.audit.v1",
+        "run": {
+            "run_id": run_state.get("run_id"),
+            "session_id": run_state.get("session_id"),
+            "status": _normalize_contract_run_status(run_state.get("status")),
+            "created_at": run_state.get("created_at"),
+            "updated_at": run_state.get("updated_at"),
+        },
+        "telemetry": {
+            "event_count": len(events),
+            "lifecycle_count": len(lifecycle_events),
+            "lifecycle_stages": lifecycle_stage_counts,
+            "tool_started": lifecycle_stage_counts.get("tool_started", 0),
+            "tool_completed": lifecycle_stage_counts.get("tool_completed", 0),
+            "tool_failed": lifecycle_stage_counts.get("tool_failed", 0),
+            "tool_loop_warn": lifecycle_stage_counts.get("tool_loop_warn", 0),
+            "tool_loop_blocked": lifecycle_stage_counts.get("tool_loop_blocked", 0),
+            "tool_budget_exceeded": lifecycle_stage_counts.get("tool_budget_exceeded", 0),
+            "tool_audit_summary": lifecycle_stage_counts.get("tool_audit_summary", 0),
+        },
+    }
+
+
+def _build_tools_policy_preview(
+    *,
+    agent_id: str | None,
+    profile: str | None,
+    preset: str | None,
+    provider: str | None,
+    model: str | None,
+    tool_policy: dict[str, list[str]] | None,
+    also_allow: list[str] | None,
+) -> dict:
+    try:
+        resolved_agent_id, selected_agent, _ = _resolve_agent(agent_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    base_tools = set(_get_agent_tools(selected_agent))
+
+    normalized_profile = (profile or "").strip().lower() or None
+    profile_policy = None
+    if normalized_profile is not None:
+        profile_policy = TOOL_PROFILES.get(normalized_profile)
+        if profile_policy is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported profile: {profile}")
+
+    normalized_provider = (provider or "").strip().lower() or None
+    provider_policy = None
+    if normalized_provider is not None:
+        provider_policy = TOOL_POLICY_BY_PROVIDER.get(normalized_provider)
+        if provider_policy is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+
+    normalized_model = (model or "").strip() or None
+    model_policy = None
+    if normalized_model is not None:
+        model_policy = TOOL_POLICY_BY_MODEL.get(normalized_model)
+
+    profile_merged_policy = _merge_tool_policy(profile_policy, tool_policy)
+    merged_policy, applied_preset = _resolve_tool_policy_with_preset(preset, profile_merged_policy)
+    merged_policy = _merge_tool_policy(merged_policy, provider_policy)
+    merged_policy = _merge_tool_policy(merged_policy, model_policy)
+    if hasattr(selected_agent, "_build_read_only_policy"):
+        merged_policy = selected_agent._build_read_only_policy(merged_policy)
+
+    effective = set(base_tools)
+
+    config_allow = _normalize_policy_values(settings.agent_tools_allow, base_tools)
+    if config_allow is not None:
+        effective &= config_allow
+
+    requested_allow = _normalize_policy_values((merged_policy or {}).get("allow"), base_tools)
+    if requested_allow is not None:
+        effective &= requested_allow
+
+    deny = set()
+    deny |= _normalize_policy_values(settings.agent_tools_deny, base_tools) or set()
+    deny |= _normalize_policy_values((merged_policy or {}).get("deny"), base_tools) or set()
+    effective -= deny
+
+    also_allow_set = _normalize_policy_values(also_allow, base_tools) or set()
+    effective |= (also_allow_set - deny)
+
+    return {
+        "schema": "tools.policy.preview.v1",
+        "agent_id": resolved_agent_id,
+        "profile": normalized_profile,
+        "preset": applied_preset,
+        "provider": normalized_provider,
+        "model": normalized_model,
+        "base_tools": sorted(base_tools),
+        "effective_allow": sorted(effective),
+        "effective_deny": sorted(deny),
+        "also_allow": sorted(also_allow_set),
+        "scoped": {
+            "provider": provider_policy or {},
+            "model": model_policy or {},
+        },
+        "requested": merged_policy or {},
+        "global": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+    }
 
 
 class KillAllSubrunsRequest(BaseModel):
@@ -265,32 +2244,51 @@ def _extract_final_message(run_state: dict) -> str | None:
 
 async def _run_background_message(
     *,
+    agent_id: str | None,
     run_id: str,
     session_id: str,
     message: str,
     model: str | None,
+    preset: str | None,
     tool_policy: dict[str, list[str]] | None,
 ) -> None:
     async def collect_event(payload: dict) -> None:
         _state_append_event_safe(run_id=run_id, event=payload)
 
     try:
+        resolved_agent_id, selected_agent, selected_orchestrator = _resolve_agent(agent_id)
+        resolved_tool_policy, applied_preset = _resolve_tool_policy_with_preset(preset, tool_policy)
         state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="active")
         _state_append_event_safe(
             run_id=run_id,
             event=build_lifecycle_event(
                 request_id=run_id,
                 session_id=session_id,
+                stage="tool_policy_decision",
+                details={
+                    "agent_id": resolved_agent_id,
+                    "preset": applied_preset,
+                    "requested": tool_policy or {},
+                    "resolved": resolved_tool_policy or {},
+                },
+                agent=selected_agent.name,
+            ),
+        )
+        _state_append_event_safe(
+            run_id=run_id,
+            event=build_lifecycle_event(
+                request_id=run_id,
+                session_id=session_id,
                 stage="processing_started",
-                details={},
-                agent=agent.name,
+                details={"preset": applied_preset, "agent_id": resolved_agent_id},
+                agent=selected_agent.name,
             ),
         )
 
         runtime_state = runtime_manager.get_state()
         selected_model = (model or "").strip() or runtime_state.model
 
-        agent.configure_runtime(
+        selected_agent.configure_runtime(
             base_url=runtime_state.base_url,
             model=runtime_state.model,
         )
@@ -300,7 +2298,7 @@ async def _run_background_message(
         else:
             selected_model = await runtime_manager.resolve_api_request_model(selected_model)
 
-        await orchestrator_api.run_user_message(
+        await selected_orchestrator.run_user_message(
             user_message=message,
             send_event=collect_event,
             request_context=RequestContext(
@@ -308,7 +2306,7 @@ async def _run_background_message(
                 request_id=run_id,
                 runtime=runtime_state.runtime,
                 model=selected_model,
-                tool_policy=tool_policy,
+                tool_policy=resolved_tool_policy,
             ),
         )
         _state_mark_completed_safe(run_id=run_id)
@@ -318,8 +2316,8 @@ async def _run_background_message(
                 request_id=run_id,
                 session_id=session_id,
                 stage="processing_completed",
-                details={},
-                agent=agent.name,
+                details={"agent_id": resolved_agent_id},
+                agent=selected_agent.name,
             ),
         )
     except Exception as exc:
@@ -331,7 +2329,7 @@ async def _run_background_message(
                 session_id=session_id,
                 stage="processing_failed",
                 details={"error": str(exc)},
-                agent=agent.name,
+                agent=(selected_agent.name if "selected_agent" in locals() else agent.name),
             ),
         )
         logger.exception("background_run_failed run_id=%s session_id=%s", run_id, session_id)
@@ -341,27 +2339,76 @@ async def _run_background_message(
 
 @app.get("/api/agents")
 async def get_agents():
+    _sync_custom_agents()
     active = runtime_manager.get_state()
-    return [
-        {
-            "id": PRIMARY_AGENT_ID,
-            "name": "Head Agent",
-            "role": "head-agent",
-            "status": "ready",
-            "defaultModel": active.model,
-        },
-        {
-            "id": CODER_AGENT_ID,
-            "name": "Coder Agent",
-            "role": "coding-agent",
-            "status": "ready",
-            "defaultModel": active.model,
-        }
-    ]
+    items = []
+    for agent_id, agent_instance in agent_registry.items():
+        items.append(
+            {
+                "id": agent_id,
+                "name": agent_instance.name,
+                "role": getattr(agent_instance, "role", "agent"),
+                "status": "ready",
+                "defaultModel": active.model,
+            }
+        )
+    items.sort(key=lambda item: item["id"])
+    return items
+
+
+@app.get("/api/presets")
+async def get_presets():
+    items = []
+    for preset_id in sorted(PRESET_TOOL_POLICIES.keys()):
+        policy = PRESET_TOOL_POLICIES[preset_id]
+        items.append(
+            {
+                "id": preset_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+        )
+    return items
+
+
+@app.get("/api/custom-agents")
+async def get_custom_agents() -> list[CustomAgentDefinition]:
+    return custom_agent_store.list()
+
+
+@app.post("/api/custom-agents")
+async def create_custom_agent(request: CustomAgentCreateRequest):
+    base_agent_id = _normalize_agent_id(request.base_agent_id)
+    if base_agent_id not in agent_registry:
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+
+    created = custom_agent_store.upsert(
+        request,
+        id_factory=lambda name: f"custom-{name}-{str(uuid.uuid4())[:8]}",
+    )
+    _sync_custom_agents()
+    return created
+
+
+@app.delete("/api/custom-agents/{agent_id}")
+async def delete_custom_agent(agent_id: str):
+    normalized = _normalize_agent_id(agent_id)
+    if normalized in {PRIMARY_AGENT_ID, CODER_AGENT_ID, REVIEW_AGENT_ID}:
+        raise HTTPException(status_code=400, detail="Built-in agents cannot be deleted")
+
+    deleted = custom_agent_store.delete(normalized)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Custom agent not found")
+
+    _sync_custom_agents()
+    return {"ok": True, "deletedId": normalized}
 
 
 @app.get("/api/monitoring/schema")
 async def get_monitoring_schema():
+    _sync_custom_agents()
     return {
         "lifecycleStages": [stage.value for stage in LifecycleStage],
         "eventTypes": [
@@ -459,6 +2506,7 @@ async def test_agent(request: AgentTestRequest):
         selected_model = await runtime_manager.resolve_api_request_model(selected_model)
 
     try:
+        resolved_tool_policy, applied_preset = _resolve_tool_policy_with_preset(request.preset, request.tool_policy)
         await orchestrator_api.run_user_message(
             user_message=request.message,
             send_event=collect_event,
@@ -467,7 +2515,7 @@ async def test_agent(request: AgentTestRequest):
                 request_id=request_id,
                 runtime=runtime_state.runtime,
                 model=selected_model,
-                tool_policy=request.tool_policy,
+                tool_policy=resolved_tool_policy,
             ),
         )
         _state_mark_completed_safe(run_id=request_id)
@@ -503,6 +2551,7 @@ async def test_agent(request: AgentTestRequest):
         "ok": True,
         "runtime": runtime_state.runtime,
         "model": selected_model,
+        "preset": applied_preset,
         "sessionId": session_id,
         "requestId": request_id,
         "eventCount": len(events),
@@ -512,41 +2561,15 @@ async def test_agent(request: AgentTestRequest):
 
 @app.post("/api/runs/start")
 async def start_run(request: RunStartRequest):
-    runtime_state = runtime_manager.get_state()
-    run_id = str(uuid.uuid4())
     session_id = request.session_id or str(uuid.uuid4())
-
-    state_store.init_run(
-        run_id=run_id,
+    run_id = _start_run_background(
+        agent_id=None,
+        message=request.message,
         session_id=session_id,
-        request_id=run_id,
-        user_message=request.message or "",
-        runtime=runtime_state.runtime,
-        model=request.model or runtime_state.model,
-        meta={"source": "rest", "async": True},
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
     )
-    state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="pending")
-    _state_append_event_safe(
-        run_id=run_id,
-        event=build_lifecycle_event(
-            request_id=run_id,
-            session_id=session_id,
-            stage="accepted",
-            details={"source": "api", "chars": len(request.message or "")},
-            agent=agent.name,
-        ),
-    )
-
-    task = asyncio.create_task(
-        _run_background_message(
-            run_id=run_id,
-            session_id=session_id,
-            message=request.message,
-            model=request.model,
-            tool_policy=request.tool_policy,
-        )
-    )
-    active_run_tasks[run_id] = task
 
     return {
         "status": "accepted",
@@ -557,48 +2580,256 @@ async def start_run(request: RunStartRequest):
 
 @app.get("/api/runs/{run_id}/wait")
 async def wait_run(run_id: str, timeout_ms: int | None = None, poll_interval_ms: int | None = None):
-    run_state = state_store.get_run(run_id)
-    if run_state is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    return await _wait_for_run_result(
+        run_id,
+        timeout_ms=timeout_ms,
+        poll_interval_ms=poll_interval_ms,
+    )
 
-    timeout = max(0, int(timeout_ms if timeout_ms is not None else settings.run_wait_default_timeout_ms))
-    poll = max(10, int(poll_interval_ms if poll_interval_ms is not None else settings.run_wait_poll_interval_ms))
-    elapsed = 0
 
-    while elapsed <= timeout:
-        run_state = state_store.get_run(run_id)
-        if run_state is None:
-            raise HTTPException(status_code=404, detail="Run not found")
+@app.post("/api/control/run.start")
+async def control_run_start(
+    request: ControlRunStartRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    runtime_state = runtime_manager.get_state()
+    idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
+    session_id = request.session_id or str(uuid.uuid4())
 
-        status = run_state.get("status")
-        if status in {"completed", "failed"}:
-            return {
-                "status": "ok" if status == "completed" else "error",
-                "runId": run_id,
-                "runStatus": status,
-                "error": run_state.get("error"),
-                "final": _extract_final_message(run_state),
-            }
+    fingerprint = _build_run_start_fingerprint(
+        message=request.message,
+        session_id=request.session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+        runtime=runtime_state.runtime,
+    )
+    existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
+    if existing is not None:
+        return {
+            "schema": "run.start.v1",
+            **existing,
+        }
 
-        task = active_run_tasks.get(run_id)
-        if task and task.done():
-            refreshed = state_store.get_run(run_id)
-            return {
-                "status": "ok" if (refreshed or {}).get("status") == "completed" else "error",
-                "runId": run_id,
-                "runStatus": (refreshed or {}).get("status"),
-                "error": (refreshed or {}).get("error"),
-                "final": _extract_final_message(refreshed or {}),
-            }
-
-        await asyncio.sleep(poll / 1000.0)
-        elapsed += poll
+    run_id = _start_run_background(
+        agent_id=None,
+        message=request.message,
+        session_id=session_id,
+        model=request.model,
+        preset=request.preset,
+        tool_policy=request.tool_policy,
+    )
+    _register_idempotent_run(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        run_id=run_id,
+        session_id=session_id,
+    )
 
     return {
-        "status": "timeout",
+        "schema": "run.start.v1",
+        "status": "accepted",
         "runId": run_id,
-        "runStatus": (state_store.get_run(run_id) or {}).get("status"),
+        "sessionId": session_id,
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
     }
+
+
+@app.post("/api/control/run.wait")
+async def control_run_wait(request: ControlRunWaitRequest):
+    payload = await _wait_for_run_result(
+        request.run_id,
+        timeout_ms=request.timeout_ms,
+        poll_interval_ms=request.poll_interval_ms,
+    )
+    return {
+        "schema": "run.wait.v1",
+        **payload,
+    }
+
+
+@app.post("/api/control/agent.run")
+async def control_agent_run(
+    request: ControlRunStartRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    payload = await control_run_start(request=request, idempotency_key_header=idempotency_key_header)
+    return {
+        "schema": "agent.run.v1",
+        **{key: value for key, value in payload.items() if key != "schema"},
+    }
+
+
+@app.post("/api/control/agent.wait")
+async def control_agent_wait(request: ControlRunWaitRequest):
+    payload = await control_run_wait(request=request)
+    return {
+        "schema": "agent.wait.v1",
+        **{key: value for key, value in payload.items() if key != "schema"},
+    }
+
+
+@app.post("/api/control/sessions.list")
+async def control_sessions_list(request: ControlSessionsListRequest):
+    limit = max(1, min(int(request.limit), 500))
+    return _list_sessions_minimal(limit=limit, active_only=bool(request.active_only))
+
+
+@app.post("/api/control/sessions.resolve")
+async def control_sessions_resolve(request: ControlSessionsResolveRequest):
+    payload = _resolve_session_minimal(
+        session_id=request.session_id,
+        active_only=bool(request.active_only),
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return payload
+
+
+@app.post("/api/control/sessions.history")
+async def control_sessions_history(request: ControlSessionsHistoryRequest):
+    limit = max(1, min(int(request.limit), 500))
+    return _session_history_minimal(session_id=request.session_id, limit=limit)
+
+
+@app.post("/api/control/sessions.send")
+async def control_sessions_send(
+    request: ControlSessionsSendRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    return _send_session_minimal(request=request, idempotency_key_header=idempotency_key_header)
+
+
+@app.post("/api/control/sessions.spawn")
+async def control_sessions_spawn(
+    request: ControlSessionsSpawnRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    return _spawn_session_minimal(request=request, idempotency_key_header=idempotency_key_header)
+
+
+@app.post("/api/control/sessions.status")
+async def control_sessions_status(request: ControlSessionsStatusRequest):
+    return _session_status_minimal(session_id=request.session_id)
+
+
+@app.post("/api/control/sessions.get")
+async def control_sessions_get(request: ControlSessionsGetRequest):
+    return _get_session_minimal(session_id=request.session_id)
+
+
+@app.post("/api/control/sessions.patch")
+async def control_sessions_patch(
+    request: ControlSessionsPatchRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    return _patch_session_minimal(request=request, idempotency_key_header=idempotency_key_header)
+
+
+@app.post("/api/control/sessions.reset")
+async def control_sessions_reset(
+    request: ControlSessionsResetRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    return _reset_session_minimal(request=request, idempotency_key_header=idempotency_key_header)
+
+
+@app.post("/api/control/tools.catalog")
+async def control_tools_catalog(request: ControlToolsCatalogRequest):
+    return _build_tools_catalog(agent_id=request.agent_id)
+
+
+@app.post("/api/control/tools.profile")
+async def control_tools_profile(request: ControlToolsProfileRequest):
+    return _build_tools_profiles(profile_id=request.profile_id)
+
+
+@app.post("/api/control/tools.policy.matrix")
+async def control_tools_policy_matrix(request: ControlToolsPolicyMatrixRequest):
+    return _build_tools_policy_matrix(agent_id=request.agent_id)
+
+
+@app.post("/api/control/workflows.list")
+async def control_workflows_list(request: ControlWorkflowsListRequest):
+    limit = max(1, min(int(request.limit), 500))
+    return _list_workflows_minimal(limit=limit, base_agent_id=request.base_agent_id)
+
+
+@app.post("/api/control/workflows.get")
+async def control_workflows_get(request: ControlWorkflowsGetRequest):
+    return _get_workflow_minimal(workflow_id=request.workflow_id)
+
+
+@app.post("/api/control/workflows.create")
+async def control_workflows_create(
+    request: ControlWorkflowsCreateRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
+    return _create_workflow_minimal(request=payload)
+
+
+@app.post("/api/control/workflows.update")
+async def control_workflows_update(
+    request: ControlWorkflowsUpdateRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
+    return _update_workflow_minimal(request=payload)
+
+
+@app.post("/api/control/workflows.execute")
+async def control_workflows_execute(
+    request: ControlWorkflowsExecuteRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
+    return await _execute_workflow_minimal(request=payload)
+
+
+@app.post("/api/control/workflows.delete")
+async def control_workflows_delete(
+    request: ControlWorkflowsDeleteRequest,
+    idempotency_key_header: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
+    return _delete_workflow_minimal(request=payload)
+
+
+@app.post("/api/control/runs.get")
+async def control_runs_get(request: ControlRunsGetRequest):
+    return _get_run_minimal(run_id=request.run_id)
+
+
+@app.post("/api/control/runs.list")
+async def control_runs_list(request: ControlRunsListRequest):
+    return _list_runs_minimal(limit=request.limit, session_id=request.session_id)
+
+
+@app.post("/api/control/runs.events")
+async def control_runs_events(request: ControlRunsEventsRequest):
+    return _list_run_events_minimal(run_id=request.run_id, limit=request.limit)
+
+
+@app.post("/api/control/runs.audit")
+async def control_runs_audit(request: ControlRunsAuditRequest):
+    return _get_run_audit_minimal(run_id=request.run_id)
+
+
+@app.post("/api/control/tools.policy.preview")
+async def control_tools_policy_preview(request: ControlToolsPolicyPreviewRequest):
+    return _build_tools_policy_preview(
+        agent_id=request.agent_id,
+        profile=request.profile,
+        preset=request.preset,
+        provider=request.provider,
+        model=request.model,
+        tool_policy=request.tool_policy,
+        also_allow=request.also_allow,
+    )
 
 
 @app.get("/api/subruns")
@@ -686,6 +2917,7 @@ async def agent_socket(websocket: WebSocket):
         runtime_state.runtime,
         runtime_state.model,
     )
+    active_event_agent_name = agent.name
 
     class ClientDisconnectedError(Exception):
         pass
@@ -733,7 +2965,7 @@ async def agent_socket(websocket: WebSocket):
             session_id=session_id,
             stage=stage,
             details=details,
-            agent=agent.name,
+            agent=active_event_agent_name,
         )
         _state_append_event_safe(
             run_id=request_id,
@@ -747,9 +2979,11 @@ async def agent_socket(websocket: WebSocket):
         while True:
             request_id = str(uuid.uuid4())
             session_id = connection_session_id
+            active_event_agent_name = agent.name
             try:
                 raw = await websocket.receive_text()
                 data = WsInboundMessage.model_validate_json(raw)
+                _sync_custom_agents()
                 session_id = data.session_id or connection_session_id
                 logger.info(
                     "ws_message_received request_id=%s session_id=%s type=%s agent_id=%s content_len=%s requested_model=%s",
@@ -777,20 +3011,31 @@ async def agent_socket(websocket: WebSocket):
                     )
                     continue
 
+                incoming_tool_policy = data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None
+                resolved_tool_policy, applied_preset = _resolve_tool_policy_with_preset(data.preset, incoming_tool_policy)
+
                 effective_agent_id = requested_agent_id
                 routing_reason: str | None = None
-                if requested_agent_id == PRIMARY_AGENT_ID and _looks_like_coding_request(data.content or ""):
-                    effective_agent_id = CODER_AGENT_ID
-                    routing_reason = "coding_intent"
+                if requested_agent_id == PRIMARY_AGENT_ID:
+                    if applied_preset == "review":
+                        effective_agent_id = REVIEW_AGENT_ID
+                        routing_reason = "preset_review"
+                    elif (not settings.agent_no_agency) and _looks_like_review_request(data.content or ""):
+                        effective_agent_id = REVIEW_AGENT_ID
+                        routing_reason = "review_intent"
+                    elif (not settings.agent_no_agency) and _looks_like_coding_request(data.content or ""):
+                        effective_agent_id = CODER_AGENT_ID
+                        routing_reason = "coding_intent"
 
                 resolved_agent_id, selected_agent, selected_orchestrator = _resolve_agent(effective_agent_id)
+                active_event_agent_name = selected_agent.name
 
                 if routing_reason:
                     await send_event(
                         {
                             "type": "status",
                             "agent": agent.name,
-                            "message": "Head agent delegated this request to coder-agent.",
+                            "message": f"Head agent delegated this request to {resolved_agent_id}.",
                             "routing_reason": routing_reason,
                             "requested_agent_id": requested_agent_id,
                             "effective_agent_id": resolved_agent_id,
@@ -815,6 +3060,7 @@ async def agent_socket(websocket: WebSocket):
                         "requested_agent_id": requested_agent_id,
                         "effective_agent_id": resolved_agent_id,
                         "routing_reason": routing_reason,
+                        "preset": applied_preset,
                     },
                 )
 
@@ -854,7 +3100,7 @@ async def agent_socket(websocket: WebSocket):
                             runtime=runtime_state.runtime,
                             model=selected_model,
                             timeout_seconds=settings.subrun_timeout_seconds,
-                            tool_policy=data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None,
+                            tool_policy=resolved_tool_policy,
                             send_event=send_event,
                         )
                     except GuardrailViolation as exc:
@@ -921,6 +3167,7 @@ async def agent_socket(websocket: WebSocket):
                         "requested_agent_id": requested_agent_id,
                         "effective_agent_id": resolved_agent_id,
                         "routing_reason": routing_reason,
+                        "preset": applied_preset,
                     },
                 )
 
@@ -980,7 +3227,7 @@ async def agent_socket(websocket: WebSocket):
                         request_id=request_id,
                         runtime=runtime_state.runtime,
                         model=selected_model,
-                        tool_policy=data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None,
+                        tool_policy=resolved_tool_policy,
                     ),
                 )
                 logger.info(

@@ -60,7 +60,7 @@ API runtime uses local Ollama API with cloud model naming:
 What the scripts do:
 - check/install Ollama for all runtime modes and persist CLI path to backend `.env` (`OLLAMA_BIN`)
 - ensure local Ollama server is running for `local` runtime (and adjust `LLM_BASE_URL`)
-- install Python + backend deps, then run backend
+- install Python 3.12 + backend deps, then run backend
 - install Node.js/npm, install frontend deps, build frontend, run frontend
 
 Ollama install flow (used by runtime switching):
@@ -94,11 +94,14 @@ Optional fast rerun (skip install):
 - Windows: `./start-test.ps1 -SkipInstall`
 - Linux/macOS: `SKIP_INSTALL=1 ./start-test.sh`
 
+Smoke checks after setup/deploy:
+- See `backend/SMOKE_RUNBOOK.md`
+
 ## 1) Start backend (Windows)
 
 ```powershell
 cd backend
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
@@ -109,7 +112,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -146,6 +149,20 @@ Backend head agent pipeline:
 - tools (`list_dir`, `read_file`, `write_file`, `run_command`)
 - simple Plan -> Execute -> Review flow
 - guardrail validation with frontend-visible error events
+
+## Custom Flows (Create, Select, Run)
+
+1. Open the chat page and create a custom agent:
+  - set name, optional id, base agent (`head-agent` or `coder-agent`)
+  - add workflow steps (one step per line)
+  - click `Create Custom Agent`
+2. Select the new agent from the `Agent` dropdown.
+3. Send a normal user message; the custom workflow is injected before execution.
+4. Cleanup when no longer needed:
+  - use the `Delete` button in the custom agent list
+  - or call `DELETE /api/custom-agents/{id}`.
+
+Custom agents are persisted as JSON files in `backend/custom_agents` (configurable via `CUSTOM_AGENTS_DIR`).
 
 ## Goal support
 

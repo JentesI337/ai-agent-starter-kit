@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -125,6 +126,31 @@ class StateStore:
             self._write_snapshot(run_id, state)
             return state
 
+    def patch_run_meta(self, run_id: str, meta_patch: dict | None) -> dict:
+        with self._lock:
+            state = self._read_run(run_id)
+            current_meta = state.get("meta")
+            if not isinstance(current_meta, dict):
+                current_meta = {}
+
+            if isinstance(meta_patch, dict):
+                for key, value in meta_patch.items():
+                    current_meta[str(key)] = self._transform_value(value, key=str(key))
+
+            state["meta"] = current_meta
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_run(run_id, state)
+            return state
+
+    def set_run_meta(self, run_id: str, meta: dict | None) -> dict:
+        with self._lock:
+            state = self._read_run(run_id)
+            transformed_meta = self._transform_value(meta or {})
+            state["meta"] = transformed_meta
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_run(run_id, state)
+            return state
+
     def clear_all(self) -> None:
         with self._lock:
             for run_file in self.runs_dir.glob("*.json"):
@@ -198,11 +224,25 @@ class StateStore:
         file_path = self._run_file(run_id)
         tmp = file_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(file_path)
+        self._replace_with_retry(tmp, file_path)
 
     def _write_snapshot(self, run_id: str, state: dict) -> None:
         snapshot = build_summary_snapshot(state)
         file_path = self._snapshot_file(run_id)
         tmp = file_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(file_path)
+        self._replace_with_retry(tmp, file_path)
+
+    def _replace_with_retry(self, tmp: Path, target: Path) -> None:
+        delays = (0.005, 0.02, 0.05)
+        last_error: PermissionError | None = None
+        for delay in delays:
+            try:
+                tmp.replace(target)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(delay)
+
+        if last_error is not None:
+            raise last_error

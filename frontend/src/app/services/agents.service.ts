@@ -19,6 +19,14 @@ export interface AgentDescriptor {
   defaultModel: string;
 }
 
+export interface PresetDescriptor {
+  id: string;
+  toolPolicy: {
+    allow?: string[];
+    deny?: string[];
+  };
+}
+
 export interface MonitoringSchema {
   lifecycleStages: string[];
   eventTypes: string[];
@@ -32,6 +40,30 @@ export interface MonitoringSchema {
     role: string;
     tools: string[];
   }>;
+}
+
+export interface CustomAgentDefinition {
+  id: string;
+  name: string;
+  description: string;
+  base_agent_id: string;
+  workflow_steps: string[];
+  tool_policy?: {
+    allow?: string[];
+    deny?: string[];
+  } | null;
+}
+
+export interface CreateCustomAgentPayload {
+  id?: string;
+  name: string;
+  description?: string;
+  base_agent_id: string;
+  workflow_steps: string[];
+  tool_policy?: {
+    allow?: string[];
+    deny?: string[];
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -48,7 +80,23 @@ export class AgentsService {
     return this.http.get<AgentDescriptor[]>(`${this.apiBase}/api/agents`);
   }
 
+  getPresets() {
+    return this.http.get<PresetDescriptor[]>(`${this.apiBase}/api/presets`);
+  }
+
   getMonitoringSchema() {
     return this.http.get<MonitoringSchema>(`${this.apiBase}/api/monitoring/schema`);
+  }
+
+  getCustomAgents() {
+    return this.http.get<CustomAgentDefinition[]>(`${this.apiBase}/api/custom-agents`);
+  }
+
+  createCustomAgent(payload: CreateCustomAgentPayload) {
+    return this.http.post<CustomAgentDefinition>(`${this.apiBase}/api/custom-agents`, payload);
+  }
+
+  deleteCustomAgent(agentId: string) {
+    return this.http.delete<{ ok: boolean; deletedId: string }>(`${this.apiBase}/api/custom-agents/${encodeURIComponent(agentId)}`);
   }
 }

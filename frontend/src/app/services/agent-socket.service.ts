@@ -152,7 +152,7 @@ export class AgentSocketService {
 
   sendUserMessage(
     content: string,
-    options?: { agentId?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
+    options?: { agentId?: string; preset?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
   ): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error('Socket is not connected.');
@@ -163,6 +163,7 @@ export class AgentSocketService {
         type: 'user_message',
         content,
         agent_id: options?.agentId,
+        preset: options?.preset,
         model: options?.model,
         session_id: options?.sessionId,
         tool_policy: options?.toolPolicy,
@@ -172,7 +173,7 @@ export class AgentSocketService {
 
   sendSubrunSpawn(
     content: string,
-    options?: { agentId?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
+    options?: { agentId?: string; preset?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
   ): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error('Socket is not connected.');
@@ -183,6 +184,7 @@ export class AgentSocketService {
         type: 'subrun_spawn',
         content,
         agent_id: options?.agentId,
+        preset: options?.preset,
         model: options?.model,
         session_id: options?.sessionId,
         tool_policy: options?.toolPolicy,

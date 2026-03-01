@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
-from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
+from app.main import app, agent, agent_registry, runtime_manager, settings, subrun_lane
 from app.errors import GuardrailViolation
 from app.runtime_manager import RuntimeState
 
@@ -520,3 +521,400 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
     payload = allowed.json()
     assert payload["run_id"] == subrun_id
     assert payload["visibility_decision"]["allowed"] is True
+
+
+def test_custom_agent_create_is_visible_in_agents_list() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    custom_name = f"Custom Test Agent {uuid.uuid4().hex[:6]}"
+    create = client.post(
+        "/api/custom-agents",
+        json={
+            "name": custom_name,
+            "base_agent_id": "head-agent",
+            "description": "test flow",
+            "workflow_steps": ["step one", "step two"],
+        },
+    )
+
+    assert create.status_code == 200
+    created = create.json()
+    created_id = created["id"]
+
+    listed_custom = client.get("/api/custom-agents")
+    assert listed_custom.status_code == 200
+    assert any(item.get("id") == created_id for item in listed_custom.json())
+
+    listed_agents = client.get("/api/agents")
+    assert listed_agents.status_code == 200
+    assert any(item.get("id") == created_id for item in listed_agents.json())
+
+    deleted = client.delete(f"/api/custom-agents/{created_id}")
+    assert deleted.status_code == 200
+
+
+def test_custom_agent_delete_removes_agent_from_lists() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    create = client.post(
+        "/api/custom-agents",
+        json={
+            "name": f"Delete Test Agent {uuid.uuid4().hex[:6]}",
+            "base_agent_id": "head-agent",
+            "description": "delete flow",
+            "workflow_steps": ["a", "b"],
+        },
+    )
+    assert create.status_code == 200
+    created_id = create.json()["id"]
+
+    delete_resp = client.delete(f"/api/custom-agents/{created_id}")
+    assert delete_resp.status_code == 200
+
+    listed_custom = client.get("/api/custom-agents")
+    assert listed_custom.status_code == 200
+    assert not any(item.get("id") == created_id for item in listed_custom.json())
+
+    listed_agents = client.get("/api/agents")
+    assert listed_agents.status_code == 200
+    assert not any(item.get("id") == created_id for item in listed_agents.json())
+
+
+def test_custom_agent_can_run_via_websocket(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": f"custom-flow:{user_message}",
+            }
+        )
+        return f"custom-flow:{user_message}"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_head_run)
+
+    client = TestClient(app)
+    create = client.post(
+        "/api/custom-agents",
+        json={
+            "name": f"WS Test Agent {uuid.uuid4().hex[:6]}",
+            "base_agent_id": "head-agent",
+            "description": "ws flow",
+            "workflow_steps": ["analyze", "execute"],
+        },
+    )
+    assert create.status_code == 200
+    custom_id = create.json()["id"]
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "hello custom",
+                "agent_id": custom_id,
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(evt.get("type") == "final" and "custom-flow:" in str(evt.get("message", "")) for evt in events)
+
+    deleted = client.delete(f"/api/custom-agents/{custom_id}")
+    assert deleted.status_code == 200
+
+
+def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) -> None:
+    _set_local_runtime()
+    monkeypatch.setattr(settings, "agent_no_agency", False)
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_review_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "review-agent",
+                "message": f"reviewed:{user_message}",
+            }
+        )
+        return f"reviewed:{user_message}"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["review-agent"], "run", fake_review_run)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "Please review this diff --git a/foo.py b/foo.py",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "status"
+        and "delegated this request to review-agent" in str(evt.get("message", "")).lower()
+        for evt in events
+    )
+    assert any(evt.get("type") == "final" and evt.get("agent") == "review-agent" for evt in events)
+
+
+def test_websocket_head_agent_no_agency_disables_intent_delegation(monkeypatch) -> None:
+    _set_local_runtime()
+    monkeypatch.setattr(settings, "agent_no_agency", True)
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "head-no-agency",
+            }
+        )
+        return "head-no-agency"
+
+    async def fail_coder_run(*args, **kwargs):
+        raise AssertionError("coder-agent must not be auto-selected in no-agency mode")
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_head_run)
+    monkeypatch.setattr(agent_registry["coder-agent"], "run", fail_coder_run)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "please implement a python function for fibonacci",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(evt.get("type") == "final" and evt.get("agent") == "head-agent" for evt in events)
+    assert not any(evt.get("routing_reason") == "coding_intent" for evt in events)
+
+
+def test_review_agent_enforces_read_only_policy(monkeypatch) -> None:
+    _set_local_runtime()
+
+    captured_policy = {}
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_delegate_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        captured_policy["value"] = tool_policy or {}
+        await send_event(
+            {
+                "type": "final",
+                "agent": "review-agent",
+                "message": "policy-captured",
+            }
+        )
+        return "policy-captured"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["review-agent"]._delegate, "run", fake_delegate_run)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "Review this patch in src/main.ts and find issues.",
+                "agent_id": "review-agent",
+                "tool_policy": {"allow": ["read_file", "run_command"]},
+            }
+        )
+
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    deny = set((captured_policy.get("value") or {}).get("deny") or [])
+    assert "write_file" in deny
+    assert "apply_patch" in deny
+    assert "run_command" in deny
+
+
+def test_review_agent_requires_evidence_and_returns_guidance(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("Delegate should not be called when evidence is missing")
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["review-agent"]._delegate, "run", fail_if_called)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "Please review this",
+                "agent_id": "review-agent",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    final_event = next((evt for evt in events if evt.get("type") == "final"), None)
+    assert final_event is not None
+    assert "need concrete evidence" in str(final_event.get("message", "")).lower()
+
+
+def test_presets_endpoint_lists_research_and_review() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    response = client.get("/api/presets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ids = {item.get("id") for item in payload}
+    assert "research" in ids
+    assert "review" in ids
+
+
+def test_websocket_head_agent_preset_review_routes_to_review_agent(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_review_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "review-agent",
+                "message": "preset-review-route-ok",
+            }
+        )
+        return "preset-review-route-ok"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["review-agent"], "run", fake_review_run)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "Please summarize this architecture",
+                "agent_id": "head-agent",
+                "preset": "review",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "status"
+        and "delegated this request to review-agent" in str(evt.get("message", "")).lower()
+        and evt.get("routing_reason") == "preset_review"
+        for evt in events
+    )
+    assert any(evt.get("type") == "final" and evt.get("message") == "preset-review-route-ok" for evt in events)
+
+
+def test_rest_agent_applies_research_preset_and_merges_policy(monkeypatch) -> None:
+    _set_local_runtime()
+
+    captured = {}
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        captured["tool_policy"] = tool_policy
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "preset-policy-ok",
+            }
+        )
+        return "preset-policy-ok"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/test/agent",
+        json={
+            "message": "research current ai market share",
+            "preset": "research",
+            "tool_policy": {"allow": ["web_fetch"], "deny": ["grep_search"]},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["preset"] == "research"
+    assert payload["final"] == "preset-policy-ok"
+
+    policy = captured.get("tool_policy") or {}
+    deny = set(policy.get("deny") or [])
+    allow = set(policy.get("allow") or [])
+    assert "web_fetch" in allow
+    assert "run_command" in deny
+    assert "write_file" in deny
+    assert "grep_search" in deny
+

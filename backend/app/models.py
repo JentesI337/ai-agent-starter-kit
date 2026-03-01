@@ -10,6 +10,7 @@ class WsInboundMessage(BaseModel):
     type: str
     content: str = ""
     agent_id: str | None = None
+    preset: str | None = None
     model: str | None = None
     session_id: str | None = None
     runtime_target: str | None = None

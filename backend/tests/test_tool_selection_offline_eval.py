@@ -173,6 +173,22 @@ def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
     assert allowed == set()
 
 
+def test_effective_tool_policy_no_agency_disables_all_tools(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    monkeypatch.setattr(settings, "agent_no_agency", True)
+    monkeypatch.setattr(settings, "agent_tools_allow", None)
+    monkeypatch.setattr(settings, "agent_tools_deny", [])
+
+    allowed = agent._resolve_effective_allowed_tools(
+        {
+            "allow": ["read_file", "run_command"],
+            "deny": [],
+        }
+    )
+
+    assert allowed == set()
+
+
 def test_validate_actions_respects_active_tool_policy() -> None:
     agent = HeadCodingAgent()
     actions, parse_error = agent._extract_actions('{"actions":[{"tool":"write_file","args":{"path":"a.txt","content":"x"}}]}')
@@ -347,3 +363,102 @@ def test_augment_actions_adds_web_fetch_for_web_research() -> None:
         and payload.get("details", {}).get("reason") == "web_research_without_web_fetch"
         for payload in events
     )
+
+
+def test_execute_tools_loop_detector_warns_and_blocks(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        return "content"
+
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 2)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 3)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="read readme repeatedly",
+                plan_text="read file",
+                memory_context="user: read readme",
+                session_id="s-loop",
+                request_id="r-loop",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert result.count("[read_file]") >= 2
+    assert "REJECTED: tool loop blocked" in result
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_warn" for evt in events)
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_blocked" for evt in events)
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_audit_summary" for evt in events)
+
+
+def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"instructions.md"}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        return "content"
+
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 99)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 100)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 1)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="read two files",
+                plan_text="read files",
+                memory_context="user: read files",
+                session_id="s-budget",
+                request_id="r-budget",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "REJECTED: tool call budget exceeded" in result
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_budget_exceeded" for evt in events)
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_audit_summary" for evt in events)

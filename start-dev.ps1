@@ -130,18 +130,49 @@ function Get-OllamaBinaryPath {
 }
 
 function Ensure-Python {
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        return
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            & py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" | Out-Null
+            return
+        }
+        catch {
+        }
     }
 
-    Write-Step "Python not found, trying install via winget"
+    Write-Step "Python 3.12 not found, trying install via winget"
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
     }
 
-    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        throw "Python install failed. Please install Python 3.11+ and rerun script."
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            & py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" | Out-Null
+            return
+        }
+        catch {
+        }
     }
+
+    throw "Python 3.12 install failed. Please install Python 3.12 and rerun script."
+}
+
+function Ensure-BackendVenv312([string]$BackendDirPath) {
+    $venvDir = Join-Path $BackendDirPath '.venv'
+    $venvPython = Join-Path $venvDir 'Scripts\python.exe'
+
+    if (Test-Path $venvPython) {
+        $version = (& $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
+        if ($version -ne '3.12') {
+            Write-Step "Recreating backend/.venv (found Python $version, expected 3.12)"
+            Remove-Item -Recurse -Force $venvDir
+        }
+    }
+
+    if (-not (Test-Path $venvDir)) {
+        & py -3.12 -m venv $venvDir
+    }
+
+    return (Join-Path $venvDir 'Scripts\python.exe')
 }
 
 function Ensure-Node {
@@ -484,11 +515,7 @@ Ensure-SelectedModelRunnable -Port $LlmPort -ModelName $selectedModel -RuntimeMo
 Set-RuntimeState -Mode $selectedRuntime -Port $LlmPort
 Set-Location $backendDir
 
-if (-not (Test-Path '.venv')) {
-    python -m venv .venv
-}
-
-$venvPython = Join-Path $backendDir '.venv\Scripts\python.exe'
+$venvPython = Ensure-BackendVenv312 -BackendDirPath $backendDir
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '--upgrade', 'pip') -StepName 'upgrade-pip'
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '-r', 'requirements.txt') -StepName 'install-requirements'
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+from time import monotonic
 from typing import Callable, Awaitable
 from urllib.parse import quote_plus
 
@@ -293,6 +294,33 @@ class HeadAgent:
                 effective_allowed_tools,
             )
 
+            if self._is_web_research_task(user_message) and not self._has_successful_web_fetch(tool_results or ""):
+                web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_fetch")
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="web_research_sources_unavailable",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"error_count": len(web_errors)},
+                )
+                final_text = self._build_web_fetch_unavailable_reply(web_errors)
+                await send_event(
+                    {
+                        "type": "final",
+                        "agent": self.name,
+                        "message": final_text,
+                    }
+                )
+                self.memory.add(session_id, "assistant", final_text)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"response_chars": len(final_text), "fallback": "web_fetch_unavailable"},
+                )
+                return final_text
+
             await send_event(
                 {
                     "type": "agent_step",
@@ -506,6 +534,9 @@ class HeadAgent:
         return normalized
 
     def _resolve_effective_allowed_tools(self, tool_policy: dict[str, list[str]] | None) -> set[str]:
+        if settings.agent_no_agency:
+            return set()
+
         base_allowed = set(ALLOWED_TOOLS)
 
         config_allow = self._normalize_tool_set(settings.agent_tools_allow)
@@ -685,11 +716,61 @@ class HeadAgent:
             return ""
 
         results: list[str] = []
+        tool_call_cap = max(1, int(getattr(settings, "run_tool_call_cap", 8)))
+        tool_time_cap_seconds = max(1.0, float(getattr(settings, "run_tool_time_cap_seconds", 90)))
+        loop_warn_threshold = max(1, int(getattr(settings, "tool_loop_warn_threshold", 2)))
+        loop_critical_threshold = max(loop_warn_threshold + 1, int(getattr(settings, "tool_loop_critical_threshold", 3)))
+        tool_call_count = 0
+        loop_blocked_count = 0
+        budget_blocked_count = 0
+        tool_error_count = 0
+        signature_counts: dict[str, int] = {}
+        started_at = monotonic()
+
         for idx, action in enumerate(actions[:3], start=1):
             tool = str(action.get("tool", "")).strip()
             args = action.get("args", {})
             if not isinstance(args, dict):
                 args = {}
+
+            elapsed = monotonic() - started_at
+            if elapsed >= tool_time_cap_seconds:
+                budget_blocked_count += 1
+                message = f"tool time budget exceeded ({tool_time_cap_seconds:.1f}s)"
+                results.append(f"[{tool}] REJECTED: {message}")
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_budget_exceeded",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "tool": tool,
+                        "index": idx,
+                        "budget_type": "time",
+                        "elapsed_seconds": round(elapsed, 3),
+                        "limit_seconds": tool_time_cap_seconds,
+                    },
+                )
+                break
+
+            if tool_call_count >= tool_call_cap:
+                budget_blocked_count += 1
+                message = f"tool call budget exceeded ({tool_call_cap})"
+                results.append(f"[{tool}] REJECTED: {message}")
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_budget_exceeded",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "tool": tool,
+                        "index": idx,
+                        "budget_type": "call_count",
+                        "used_calls": tool_call_count,
+                        "limit_calls": tool_call_cap,
+                    },
+                )
+                break
 
             evaluated_args, eval_error = self._evaluate_action(tool, args, allowed_tools)
             if eval_error:
@@ -707,6 +788,43 @@ class HeadAgent:
                     request_id=request_id,
                     session_id=session_id,
                     details={"tool": tool, "index": idx, "error": eval_error},
+                )
+                continue
+
+            signature = json.dumps({"tool": tool, "args": evaluated_args}, ensure_ascii=False, sort_keys=True)
+            current_count = signature_counts.get(signature, 0) + 1
+            signature_counts[signature] = current_count
+            if current_count == loop_warn_threshold:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_loop_warn",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "tool": tool,
+                        "index": idx,
+                        "signature_hits": current_count,
+                        "warn_threshold": loop_warn_threshold,
+                    },
+                )
+            if current_count >= loop_critical_threshold:
+                loop_blocked_count += 1
+                message = (
+                    "tool loop blocked "
+                    f"(signature repeated {current_count}x, threshold {loop_critical_threshold})"
+                )
+                results.append(f"[{tool}] REJECTED: {message}")
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_loop_blocked",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "tool": tool,
+                        "index": idx,
+                        "signature_hits": current_count,
+                        "critical_threshold": loop_critical_threshold,
+                    },
                 )
                 continue
 
@@ -740,7 +858,10 @@ class HeadAgent:
             )
 
             try:
+                tool_started = monotonic()
                 result = await self._run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
+                tool_call_count += 1
+                tool_elapsed_ms = int((monotonic() - tool_started) * 1000)
                 clipped = result[:6000]
                 self.memory.add(session_id, f"tool:{tool}", clipped)
                 results.append(f"[{tool}]\n{clipped}")
@@ -749,7 +870,7 @@ class HeadAgent:
                     stage="tool_completed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"tool": tool, "index": idx, "result_chars": len(clipped)},
+                    details={"tool": tool, "index": idx, "result_chars": len(clipped), "elapsed_ms": tool_elapsed_ms},
                 )
                 await self._invoke_hooks(
                     hook_name="after_tool_call",
@@ -765,6 +886,8 @@ class HeadAgent:
                     },
                 )
             except ToolExecutionError as exc:
+                tool_call_count += 1
+                tool_error_count += 1
                 results.append(f"[{tool}] ERROR: {exc}")
                 await send_event(
                     {
@@ -793,6 +916,25 @@ class HeadAgent:
                         "error": str(exc),
                     },
                 )
+
+        total_elapsed_ms = int((monotonic() - started_at) * 1000)
+        await self._emit_lifecycle(
+            send_event,
+            stage="tool_audit_summary",
+            request_id=request_id,
+            session_id=session_id,
+            details={
+                "tool_calls": tool_call_count,
+                "tool_errors": tool_error_count,
+                "loop_blocked": loop_blocked_count,
+                "budget_blocked": budget_blocked_count,
+                "elapsed_ms": total_elapsed_ms,
+                "call_cap": tool_call_cap,
+                "time_cap_seconds": tool_time_cap_seconds,
+                "loop_warn_threshold": loop_warn_threshold,
+                "loop_critical_threshold": loop_critical_threshold,
+            },
+        )
 
         return "\n\n".join(results)
 
@@ -913,6 +1055,42 @@ class HeadAgent:
             "internet",
         )
         return any(marker in text for marker in markers)
+
+    def _has_successful_web_fetch(self, tool_results: str) -> bool:
+        if not tool_results:
+            return False
+        success_pattern = re.compile(r"\[web_fetch\]\s*\n(?!ERROR:)", re.IGNORECASE)
+        return bool(success_pattern.search(tool_results))
+
+    def _extract_tool_errors(self, tool_results: str, *, tool_name: str) -> list[str]:
+        if not tool_results:
+            return []
+        pattern = re.compile(rf"\[{re.escape(tool_name)}\]\s+ERROR:\s*(.+)", re.IGNORECASE)
+        errors = [match.group(1).strip() for match in pattern.finditer(tool_results)]
+        return [item for item in errors if item]
+
+    def _build_web_fetch_unavailable_reply(self, web_errors: list[str]) -> str:
+        lines = [
+            "I couldn't reliably fetch web sources for this request, so I can't provide a grounded deep-research answer yet.",
+            "",
+            "What failed:",
+        ]
+        if web_errors:
+            for item in web_errors[:3]:
+                lines.append(f"- {item}")
+        else:
+            lines.append("- No successful web_fetch result was returned.")
+
+        lines.extend(
+            [
+                "",
+                "How to proceed:",
+                "- Retry the request once (temporary upstream issues can resolve on retry).",
+                "- Provide 3-5 direct source URLs and I will analyze them deeply.",
+                "- If you want, I can first build a reliable source list, then run a second pass with comparative analysis.",
+            ]
+        )
+        return "\n".join(lines).strip()
 
     def _build_web_research_url(self, user_message: str) -> str:
         text = (user_message or "").strip()
@@ -1197,8 +1375,8 @@ class HeadAgent:
                 name="web_fetch",
                 required_args=("url",),
                 optional_args=("max_chars",),
-                timeout_seconds=12.0,
-                max_retries=0,
+                timeout_seconds=20.0,
+                max_retries=1,
             ),
         }
 
@@ -1600,6 +1778,11 @@ class HeadAgent:
 class CoderAgent(HeadAgent):
     def __init__(self):
         super().__init__(name=settings.coder_agent_name, role="coding-agent")
+
+
+class ReviewAgent(HeadAgent):
+    def __init__(self):
+        super().__init__(name=settings.review_agent_name, role="review-agent")
 
 
 HeadCodingAgent = HeadAgent
