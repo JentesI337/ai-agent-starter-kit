@@ -1,80 +1,234 @@
 <section class="chat">
   <header class="chat-header">
-    <h1>{{ chatMode === 'orchestrator' ? 'Orchestrator Chat' : 'Head Agent Chat' }}</h1>
+    <div>
+      <h1>Agent Control & Monitoring</h1>
+      <p class="subtitle">Live observability from backend events. Internal chain-of-thought stays hidden.</p>
+    </div>
     <div class="header-badges">
-      <div class="mode-toggle">
-        <button [class.active]="chatMode === 'legacy'" (click)="chatMode = 'legacy'">Legacy</button>
-        <button [class.active]="chatMode === 'orchestrator'" (click)="chatMode = 'orchestrator'">Orchestrator</button>
-      </div>
-      <span [class.online]="isConnected" [class.offline]="!isConnected" *ngIf="chatMode === 'legacy'">
+      <span class="pill" [class.online]="isConnected" [class.offline]="!isConnected">
         {{ isConnected ? 'connected' : 'disconnected' }}
       </span>
-      <span class="api-models-badge" [class.available]="apiModelsAvailable === true" [class.unavailable]="apiModelsAvailable === false" *ngIf="chatMode === 'legacy'">
+      <span class="pill" [class.available]="apiModelsAvailable === true" [class.unavailable]="apiModelsAvailable === false">
         API models: {{ apiModelsAvailable === null ? 'n/a' : (apiModelsAvailable ? 'available' : 'unavailable') }}
       </span>
-      <span class="api-models-hint" *ngIf="apiModelsHint && chatMode === 'legacy'">{{ apiModelsHint }}</span>
+      <span class="hint" *ngIf="apiModelsHint">{{ apiModelsHint }}</span>
     </div>
   </header>
 
   <div class="workspace">
-    <div class="chat-log">
-      <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
-        {{ line.text }}
+    <section class="panel chat-panel">
+      <h2>Conversation</h2>
+      <div class="chat-log">
+        <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
+          {{ line.text }}
+        </div>
       </div>
-    </div>
+    </section>
 
-    <aside class="lifecycle-log">
-      <h2>Lifecycle</h2>
-      <div class="event" *ngFor="let item of lifecycleLines">
-        <div class="meta">{{ item.time }} · {{ item.type }}</div>
-        <div class="text">{{ item.text }}</div>
-      </div>
-    </aside>
-  </div>
-
-  <div class="composer">
-    <!-- Legacy mode controls -->
-    <ng-container *ngIf="chatMode === 'legacy'">
-      <div class="first-run" *ngIf="firstRunChoicePending">
-        <p>First run: choose your runtime mode.</p>
-        <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
-        <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (minimax-m2:cloud)</button>
-      </div>
-
-      <div class="controls">
+    <section class="panel monitor-panel">
+      <div class="monitor-filters">
         <label>
           Agent
-          <select [(ngModel)]="selectedAgentId" [disabled]="firstRunChoicePending">
-            <option *ngFor="let agent of agents" [value]="agent.id">{{ agent.name }}</option>
+          <select [(ngModel)]="monitorAgentFilter">
+            <option value="all">all</option>
+            <option *ngFor="let agentId of monitoringAgentOptions" [value]="agentId">{{ agentId }}</option>
           </select>
         </label>
         <label>
-          Runtime
-          <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
-            <option value="local">local-70b</option>
-            <option value="api">api-minimax-m2:cloud</option>
+          Status
+          <select [(ngModel)]="monitorStatusFilter">
+            <option value="all">all</option>
+            <option value="running">running</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
           </select>
         </label>
-        <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
-        <button class="secondary" (click)="resetRuntimePreference()">Reset Runtime Choice</button>
         <label>
-          Model
-          <input [(ngModel)]="model" placeholder="llama70b model name" [disabled]="firstRunChoicePending" />
+          Request ID
+          <input [(ngModel)]="monitorRequestFilter" placeholder="filter by request id" />
         </label>
+        <label>
+          Text Search
+          <input [(ngModel)]="monitorSearch" placeholder="stage, error, tool, ..." />
+        </label>
+        <button class="secondary" (click)="resetMonitoringFilters()">Reset</button>
       </div>
-    </ng-container>
 
-    <!-- Orchestrator mode info -->
-    <div class="orchestrator-info" *ngIf="chatMode === 'orchestrator'">
-      Pipeline: <strong>Planner → Coder → Reviewer</strong> · Models auto-routed by capability tier
+      <h2>Agent Activity</h2>
+      <div class="table-header" *ngIf="filteredAgentActivities.length > 0">
+        <span>Agent</span><span>Role</span><span>Stage</span><span>Req</span><span>Errors</span>
+      </div>
+      <div class="table-row" *ngFor="let item of filteredAgentActivities | slice:0:50">
+        <span>{{ item.agentId }}</span>
+        <span>{{ item.role }}</span>
+        <span>{{ item.currentStage }}</span>
+        <span>{{ item.activeRequestId || '-' }}</span>
+        <span>{{ item.errors }}</span>
+      </div>
+
+      <h2>Request Activity</h2>
+      <div class="table-header" *ngIf="filteredRequestActivities.length > 0">
+        <span>Request</span><span>Agent</span><span>Status</span><span>Stage</span><span>Tools</span>
+      </div>
+      <div class="table-row" *ngFor="let item of filteredRequestActivities | slice:0:100">
+        <span>{{ item.requestId }}</span>
+        <span>{{ item.agentId }}</span>
+        <span [class.ok]="item.status === 'completed'" [class.fail]="item.status === 'failed'">{{ item.status }}</span>
+        <span>{{ item.stage }}</span>
+        <span>{{ item.toolEvents }}</span>
+      </div>
+
+      <h2>Run Audit Snapshot</h2>
+      <div class="composer-actions">
+        <button class="secondary" (click)="refreshRunAudit()" [disabled]="runAuditLoading || !effectiveRunAuditId">
+          {{ runAuditLoading ? 'Loading audit...' : 'Refresh Audit' }}
+        </button>
+        <span class="hint" *ngIf="effectiveRunAuditId">run_id: {{ effectiveRunAuditId }}</span>
+      </div>
+      <p class="trace-note" *ngIf="runAuditError">{{ runAuditError }}</p>
+      <div class="table-row" *ngIf="runAudit as audit">
+        <span>status: {{ audit.run.status || '-' }}</span>
+        <span>events: {{ audit.telemetry.event_count }}</span>
+        <span>lifecycle: {{ audit.telemetry.lifecycle_count }}</span>
+        <span>tool_started: {{ audit.telemetry.tool_started }}</span>
+        <span>tool_failed: {{ audit.telemetry.tool_failed }}</span>
+      </div>
+      <div class="audit-highlights" *ngIf="runAudit as audit">
+        <span class="tool-chip" *ngIf="topBlockedReason as topBlocked">
+          top blocked_with_reason: {{ topBlocked.key }} ({{ topBlocked.count }})
+        </span>
+        <span class="tool-chip" *ngIf="topEmptyReason as topEmpty">
+          top tool_selection_empty: {{ topEmpty.key }} ({{ topEmpty.count }})
+        </span>
+        <span class="trace-note" *ngIf="!topBlockedReason && !topEmptyReason">
+          no blocked/empty reasons recorded for this run
+        </span>
+      </div>
+      <div class="event-stream" *ngIf="runAudit as audit">
+        <div class="event">
+          <div class="meta">blocked_with_reason</div>
+          <div class="text">{{ audit.telemetry.blocked_with_reason | json }}</div>
+        </div>
+        <div class="event">
+          <div class="meta">tool_selection_empty_reasons</div>
+          <div class="text">{{ audit.telemetry.tool_selection_empty_reasons | json }}</div>
+        </div>
+      </div>
+
+      <h2>Observable Reasoning Trace</h2>
+      <p class="trace-note">Shows lifecycle + tool decisions + agent steps emitted by backend. No hidden chain-of-thought content.</p>
+      <div class="event-stream">
+        <div class="event" *ngFor="let item of filteredReasoningLines | slice:0:120">
+          <div class="meta">{{ item.time }} · {{ item.type }}</div>
+          <div class="text">{{ item.text }}</div>
+        </div>
+      </div>
+
+      <h2>Lifecycle Stream</h2>
+      <div class="event-stream">
+        <div class="event" *ngFor="let item of filteredLifecycleLines | slice:0:150">
+          <div class="meta">{{ item.time }} · {{ item.type }}</div>
+          <div class="text">{{ item.text }}</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel composer">
+    <div class="first-run" *ngIf="firstRunChoicePending">
+      <p>First run: choose your runtime mode.</p>
+      <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
+      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (cloud model)</button>
     </div>
 
-    <textarea [(ngModel)]="input" rows="3"
-      [placeholder]="chatMode === 'orchestrator' ? 'Describe the task for the orchestrator...' : 'Describe what the head agent should build...'"
+    <div class="controls">
+      <label>
+        Agent
+        <select [(ngModel)]="selectedAgentId" [disabled]="firstRunChoicePending">
+          <option *ngFor="let agent of availableAgents" [value]="agent.id">{{ agent.id }} ({{ agent.role }})</option>
+        </select>
+      </label>
+      <label>
+        Preset
+        <select [(ngModel)]="selectedPresetId" [disabled]="firstRunChoicePending">
+          <option value="">(none)</option>
+          <option *ngFor="let preset of availablePresets" [value]="preset.id">{{ preset.id }}</option>
+        </select>
+      </label>
+      <label>
+        Runtime
+        <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
+          <option value="local">local-70b</option>
+          <option value="api">api-cloud-model</option>
+        </select>
+      </label>
+      <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
+      <button class="secondary" (click)="resetRuntimePreference()">Reset Runtime Choice</button>
+      <button class="secondary" (click)="quickResetSession()">Quick Session Reset</button>
+      <label>
+        Model
+        <input [(ngModel)]="model" placeholder="model name" [disabled]="firstRunChoicePending" />
+      </label>
+      <label>
+        Tool allow (CSV)
+        <input [(ngModel)]="toolAllowInput" placeholder="read_file,write_file" [disabled]="firstRunChoicePending" />
+      </label>
+      <label>
+        Tool deny (CSV)
+        <input [(ngModel)]="toolDenyInput" placeholder="run_command" [disabled]="firstRunChoicePending" />
+      </label>
+    </div>
+
+    <div class="controls">
+      <label>
+        Custom agent name
+        <input [(ngModel)]="customAgentName" placeholder="My Flow Agent" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Custom agent id (optional)
+        <input [(ngModel)]="customAgentId" placeholder="my-flow-agent" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Base agent
+        <select [(ngModel)]="customAgentBase" [disabled]="customAgentBusy">
+          <option value="head-agent">head-agent</option>
+          <option value="coder-agent">coder-agent</option>
+        </select>
+      </label>
+      <label>
+        Description
+        <input [(ngModel)]="customAgentDescription" placeholder="What this flow should optimize for" [disabled]="customAgentBusy" />
+      </label>
+    </div>
+
+    <textarea
+      [(ngModel)]="customWorkflowText"
+      rows="4"
+      placeholder="Workflow steps (one per line):&#10;Analyze requirements&#10;Read impacted files&#10;Implement minimal patch&#10;Run tests"
+      [disabled]="customAgentBusy"
     ></textarea>
-    <button (click)="send()"
-      [disabled]="chatMode === 'legacy' ? (!isConnected || firstRunChoicePending) : orchestratorRunning">
-      {{ orchestratorRunning ? 'Running...' : 'Send' }}
-    </button>
-  </div>
+
+    <div class="composer-actions">
+      <button class="secondary" (click)="createCustomAgent()" [disabled]="customAgentBusy || !customAgentName.trim()">
+        {{ customAgentBusy ? 'Creating...' : 'Create Custom Agent' }}
+      </button>
+    </div>
+
+    <div class="tool-strip" *ngIf="customAgents.length > 0">
+      <span class="tool-chip" *ngFor="let custom of customAgents">
+        {{ custom.id }}
+        <button class="secondary" (click)="deleteCustomAgent(custom.id)" [disabled]="customAgentBusy">Delete</button>
+      </span>
+    </div>
+
+    <div class="tool-strip" *ngIf="selectedAgentTools.length > 0">
+      <span class="tool-chip" *ngFor="let tool of selectedAgentTools">{{ tool }}</span>
+    </div>
+
+    <textarea [(ngModel)]="input" rows="3" placeholder="Describe what the agent should do..."></textarea>
+    <div class="composer-actions">
+      <button class="secondary" (click)="spawnSubrun()" [disabled]="!isConnected || firstRunChoicePending">Spawn Subrun</button>
+      <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>
+    </div>
+  </section>
 </section>

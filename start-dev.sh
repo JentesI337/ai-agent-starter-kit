@@ -5,6 +5,7 @@ LLM_PORT="${LLM_PORT:-11434}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-4200}"
 RUNTIME_MODE="${RUNTIME_MODE:-}"
+API_MODEL_CHOICE="${API_MODEL_CHOICE:-${API_MODEL:-}}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CLEANUP_SCRIPT="$ROOT_DIR/clean-dev.sh"
@@ -29,16 +30,9 @@ resolve_runtime_mode() {
     return
   fi
 
-  echo "" >&2
-  echo "=== Runtime Mode Selection ===" >&2
-  echo "" >&2
-  echo "  1) LOCAL   - Run a local Llama model via Ollama" >&2
-  echo "               Requires sufficient GPU VRAM. No internet needed after pull." >&2
-  echo "" >&2
-  echo "  2) API     - Use Ollama Pro cloud model (minimax-m2:cloud)" >&2
-  echo "               Requires an active Ollama Pro plan and 'ollama signin'." >&2
-  echo "               No API keys needed - authentication via Ollama account login." >&2
-  echo "" >&2
+  echo "Select runtime mode:"
+  echo "1) local (70B)"
+  echo "2) api (cloud model selection)"
   read -r -p "Enter 1 or 2: " choice
   if [[ "$choice" == "2" ]]; then
     echo "api"
@@ -47,31 +41,54 @@ resolve_runtime_mode() {
   fi
 }
 
-resolve_local_model() {
-  local env_file="$ROOT_DIR/backend/.env"
-  local existing=""
-  if [[ -f "$env_file" ]]; then
-    existing="$(grep -E '^LOCAL_MODEL=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+is_supported_api_model() {
+  local model="$1"
+  [[ "$model" == "minimax-m2:cloud" || "$model" == "gpt-oss:20b-cloud" || "$model" == "qwen3-coder:480b-cloud" ]]
+}
+
+resolve_api_model() {
+  local current_model="$1"
+
+  if [[ -n "$API_MODEL_CHOICE" ]]; then
+    if is_supported_api_model "$API_MODEL_CHOICE"; then
+      echo "$API_MODEL_CHOICE"
+      return
+    fi
+    echo "Unsupported API_MODEL_CHOICE/API_MODEL value: $API_MODEL_CHOICE" >&2
+    echo "Supported values: minimax-m2:cloud, gpt-oss:20b-cloud, qwen3-coder:480b-cloud" >&2
+    exit 1
   fi
 
-  echo "" >&2
-  echo "=== Local Model Selection ===" >&2
-  echo "" >&2
-  echo "  1) llama3.2:3b                       ~2 GB   (small, fast, low VRAM)" >&2
-  echo "  2) llama3.1:8b                       ~5 GB   (balanced)" >&2
-  echo "  3) qwen2.5-coder:32b                ~18 GB   (strong coder, mid VRAM)" >&2
-  echo "  4) llama3.3:70b-instruct-q4_K_M     ~40 GB   (best quality, high VRAM)" >&2
-  if [[ -n "$existing" ]]; then
-    echo "" >&2
-    echo "  Current: $existing" >&2
+  local default_model="minimax-m2:cloud"
+  if is_supported_api_model "$current_model"; then
+    default_model="$current_model"
   fi
-  echo "" >&2
-  read -r -p "Enter 1-4 (default: 4): " choice
+
+  echo "Select API model:" >&2
+  echo "1) minimax-m2:cloud (small - very low cost)" >&2
+  echo "2) gpt-oss:20b-cloud (mid - mid cost)" >&2
+  echo "3) qwen3-coder:480b-cloud (high - high cost)" >&2
+  echo "Press Enter for default: $default_model" >&2
+
+  local choice
+  read -r -p "Enter 1, 2 or 3: " choice
   case "$choice" in
-    1) echo "llama3.2:3b" ;;
-    2) echo "llama3.1:8b" ;;
-    3) echo "qwen2.5-coder:32b" ;;
-    *) echo "llama3.3:70b-instruct-q4_K_M" ;;
+    1)
+      echo "minimax-m2:cloud"
+      ;;
+    2)
+      echo "gpt-oss:20b-cloud"
+      ;;
+    3)
+      echo "qwen3-coder:480b-cloud"
+      ;;
+    "")
+      echo "$default_model"
+      ;;
+    *)
+      echo "Invalid choice. Using default: $default_model" >&2
+      echo "$default_model"
+      ;;
   esac
 }
 
@@ -239,7 +256,7 @@ ensure_cloud_login() {
     return
   fi
 
-  step "Checking Ollama Pro login (no API key - uses 'ollama signin')"
+  step "Checking Ollama Cloud login"
   local out rc
   out="$("$ollama_bin" whoami 2>&1)"
   rc=$?
@@ -263,15 +280,15 @@ ensure_cloud_login() {
 }
 
 ensure_python() {
-  if has_cmd python3; then
+  if has_cmd python3.12; then
     return
   fi
 
-  step "python3 not found, trying package-manager install"
-  install_packages python3 python3-venv python3-pip
+  step "python3.12 not found, trying package-manager install"
+  install_packages python3.12 python3.12-venv python3.12-pip || true
 
-  if ! has_cmd python3; then
-    echo "Python install failed. Install Python 3.11+ and rerun." >&2
+  if ! has_cmd python3.12; then
+    echo "Python 3.12 install failed. Install Python 3.12 and rerun." >&2
     exit 1
   fi
 }
@@ -482,7 +499,7 @@ OLLAMA_BIN_PATH="$(ensure_ollama)"
 if [[ "$selected_runtime" == "local" ]]; then
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 else
-  step "API runtime selected - cloud model via Ollama Pro (no API key)"
+  step "API runtime selected - using local Ollama API with selected cloud model"
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 fi
 
@@ -490,16 +507,19 @@ step "Installing backend (python + deps)"
 ensure_python
 ensure_backend_env
 upsert_env_var "$ROOT_DIR/backend/.env" "OLLAMA_BIN" "$OLLAMA_BIN_PATH"
-
-if [[ "$selected_runtime" == "local" ]]; then
-  selected_model="$(resolve_local_model)"
-  upsert_env_var "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "$selected_model"
-  echo "Local model: $selected_model"
-else
+if [[ "$selected_runtime" == "api" ]]; then
+  existing_api_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
+  selected_api_model="$(resolve_api_model "$existing_api_model")"
   upsert_env_var "$ROOT_DIR/backend/.env" "API_BASE_URL" "http://localhost:$LLM_PORT/api"
-  upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud"
-  selected_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
-  echo "API model: $selected_model (Ollama Pro)"
+  upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "$selected_api_model"
+fi
+
+local_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "llama3.3:70b-instruct-q4_K_M")"
+api_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
+if [[ "$selected_runtime" == "api" ]]; then
+  selected_model="$api_model"
+else
+  selected_model="$local_model"
 fi
 
 if [[ "$selected_runtime" == "api" ]]; then
@@ -511,8 +531,16 @@ ensure_selected_model_runnable "$LLM_PORT" "$selected_model" "$selected_runtime"
 set_runtime_state "$selected_runtime"
 cd "$ROOT_DIR/backend"
 
+if [[ -x ".venv/bin/python" ]]; then
+  venv_version="$(./.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  if [[ "$venv_version" != "3.12" ]]; then
+    step "Recreating backend/.venv (found Python $venv_version, expected 3.12)"
+    rm -rf .venv
+  fi
+fi
+
 if [[ ! -d ".venv" ]]; then
-  python3 -m venv .venv
+  python3.12 -m venv .venv
 fi
 
 run_pip_step "./.venv/bin/python" "upgrade-pip" install --upgrade pip
