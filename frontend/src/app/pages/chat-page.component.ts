@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
-import { AgentsService } from '../services/agents.service';
+import { AgentDescriptor, AgentsService, MonitoringSchema } from '../services/agents.service';
 
 interface ChatLine {
   role: 'user' | 'agent' | 'system';
@@ -15,6 +15,30 @@ interface LifecycleLine {
   time: string;
   type: string;
   text: string;
+}
+
+interface AgentActivity {
+  agentId: string;
+  role: string;
+  currentStage: string;
+  lastMessage: string;
+  activeRequestId: string;
+  updatedAt: string;
+  events: number;
+  toolEvents: number;
+  errors: number;
+}
+
+interface RequestActivity {
+  requestId: string;
+  sessionId: string;
+  agentId: string;
+  stage: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  updatedAt: string;
+  toolEvents: number;
+  error: string;
 }
 
 @Component({
@@ -31,7 +55,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   model = '';
   runtimeTarget: 'local' | 'api' = 'local';
   firstRunChoicePending = false;
-  selectedAgentId = 'head-coder';
+  selectedAgentId = 'head-agent';
   sessionId = '';
   runtimeSwitching = false;
   apiModelsAvailable: boolean | null = null;
@@ -39,9 +63,21 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   isConnected = false;
   lines: ChatLine[] = [];
   lifecycleLines: LifecycleLine[] = [];
+  reasoningLines: LifecycleLine[] = [];
+  availableAgents: AgentDescriptor[] = [];
+  monitoringSchema: MonitoringSchema | null = null;
+  agentActivities: AgentActivity[] = [];
+  requestActivities: RequestActivity[] = [];
+  monitorAgentFilter = 'all';
+  monitorStatusFilter: 'all' | 'running' | 'completed' | 'failed' = 'all';
+  monitorRequestFilter = '';
+  monitorSearch = '';
+
   private activeAssistantIndex: number | null = null;
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
+  private readonly agentActivityMap = new Map<string, AgentActivity>();
+  private readonly requestActivityMap = new Map<string, RequestActivity>();
 
   constructor(
     private readonly socketService: AgentSocketService,
@@ -82,6 +118,22 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       },
     });
 
+    this.agentsService.getAgents().subscribe({
+      next: (agents) => {
+        this.availableAgents = agents;
+        const selectedExists = agents.some((agent) => agent.id === this.selectedAgentId);
+        if (!selectedExists && agents.length > 0) {
+          this.selectedAgentId = agents[0].id;
+        }
+      },
+    });
+
+    this.agentsService.getMonitoringSchema().subscribe({
+      next: (schema) => {
+        this.monitoringSchema = schema;
+      },
+    });
+
     this.subscriptions.add(
       this.socketService.connected$.subscribe((connected) => {
         this.isConnected = connected;
@@ -93,14 +145,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         if (!event) {
           return;
         }
-        console.info('[ws:event]', event.type, {
-          stage: event.stage,
-          requestId: event.request_id,
-          sessionId: event.session_id,
-          message: event.message,
-          model: event.model,
-          runtime: event.runtime,
-        });
         try {
           this.applyEvent(event);
         } catch (error) {
@@ -110,6 +154,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           });
           this.lines.push({ role: 'system', text: `Frontend event handling failed: ${(error as Error).message}` });
         }
+        this.refreshMonitoringViews();
         this.cdr.detectChanges();
       })
     );
@@ -117,6 +162,82 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
+  }
+
+  get selectedAgentTools(): string[] {
+    const match = this.monitoringSchema?.agents.find((item) => item.id === this.selectedAgentId);
+    return match?.tools ?? [];
+  }
+
+  get monitoringAgentOptions(): string[] {
+    const options = new Set<string>();
+    for (const agent of this.availableAgents) {
+      options.add(agent.id);
+    }
+    for (const item of this.agentActivities) {
+      options.add(item.agentId);
+    }
+    return [...options].sort((a, b) => a.localeCompare(b));
+  }
+
+  get filteredAgentActivities(): AgentActivity[] {
+    const query = this.monitorSearch.trim().toLowerCase();
+    return this.agentActivities.filter((item) => {
+      if (this.monitorAgentFilter !== 'all' && item.agentId !== this.monitorAgentFilter) {
+        return false;
+      }
+      if (this.monitorRequestFilter.trim() && !item.activeRequestId.includes(this.monitorRequestFilter.trim())) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = `${item.agentId} ${item.role} ${item.currentStage} ${item.lastMessage}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  get filteredRequestActivities(): RequestActivity[] {
+    const query = this.monitorSearch.trim().toLowerCase();
+    return this.requestActivities.filter((item) => {
+      if (this.monitorAgentFilter !== 'all' && item.agentId !== this.monitorAgentFilter) {
+        return false;
+      }
+      if (this.monitorStatusFilter !== 'all' && item.status !== this.monitorStatusFilter) {
+        return false;
+      }
+      if (this.monitorRequestFilter.trim() && !item.requestId.includes(this.monitorRequestFilter.trim())) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = `${item.requestId} ${item.agentId} ${item.stage} ${item.error}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  get filteredReasoningLines(): LifecycleLine[] {
+    const query = this.monitorSearch.trim().toLowerCase();
+    if (!query) {
+      return this.reasoningLines;
+    }
+    return this.reasoningLines.filter((item) => `${item.type} ${item.text}`.toLowerCase().includes(query));
+  }
+
+  get filteredLifecycleLines(): LifecycleLine[] {
+    const query = this.monitorSearch.trim().toLowerCase();
+    if (!query) {
+      return this.lifecycleLines;
+    }
+    return this.lifecycleLines.filter((item) => `${item.type} ${item.text}`.toLowerCase().includes(query));
+  }
+
+  resetMonitoringFilters(): void {
+    this.monitorAgentFilter = 'all';
+    this.monitorStatusFilter = 'all';
+    this.monitorRequestFilter = '';
+    this.monitorSearch = '';
   }
 
   send(): void {
@@ -226,13 +347,41 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.pushLifecycle('frontend_runtime_reset', 'Runtime preference reset by user');
   }
 
+  quickResetSession(): void {
+    const previousSessionId = this.sessionId;
+    this.sessionId = '';
+    this.input = '';
+    this.activeAssistantIndex = null;
+    this.lines = [];
+    this.lifecycleLines = [];
+    this.reasoningLines = [];
+    this.agentActivityMap.clear();
+    this.requestActivityMap.clear();
+    this.agentActivities = [];
+    this.requestActivities = [];
+    this.resetMonitoringFilters();
+
+    this.lines.push({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
+    this.pushLifecycle('frontend_session_reset', 'Session reset by user', {
+      previousSessionId: previousSessionId || '(none)',
+      nextSessionId: '(new)',
+    });
+  }
+
   private applyEvent(event: AgentSocketEvent): void {
-    this.pushLifecycle(event.type, this.describeEvent(event), {
-      stage: event.stage,
-      requestId: event.request_id,
-      sessionId: event.session_id,
-      ...(event.details ?? {}),
-    }, event.ts);
+    this.pushLifecycle(
+      event.type,
+      this.describeEvent(event),
+      {
+        stage: event.stage,
+        requestId: event.request_id,
+        sessionId: event.session_id,
+        ...(event.details ?? {}),
+      },
+      event.ts
+    );
+
+    this.updateMonitoring(event);
 
     if (event.type === 'status' && event.message) {
       if (event.session_id) {
@@ -301,7 +450,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'socket_raw') {
-      this.pushLifecycle('socket_raw', event.message ?? 'socket_raw');
       return;
     }
 
@@ -310,18 +458,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         role: 'system',
         text: `Transport warning: ${event.message ?? 'sequence gap detected'} (token/final may be incomplete).`,
       });
-      this.pushLifecycle('sequence_gap', event.message ?? 'sequence gap detected', {
-        seq: event.seq,
-      });
       return;
     }
 
     if (event.type === 'error' && event.message) {
-      this.pushLifecycle('frontend_error_event', 'Error event received', {
-        message: event.message,
-        requestId: event.request_id,
-        sessionId: event.session_id,
-      }, event.ts);
       this.lines.push({ role: 'system', text: `Error: ${event.message}` });
       this.activeAssistantIndex = null;
       return;
@@ -347,6 +487,109 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
       this.activeAssistantIndex = null;
     }
+  }
+
+  private updateMonitoring(event: AgentSocketEvent): void {
+    const timestamp = event.ts ?? new Date().toISOString();
+    const agentId = (event.agent || this.selectedAgentId || 'unknown').toString();
+    const stage = event.stage || event.type || 'event';
+    const message = event.message || event.step || stage;
+
+    const existingAgent = this.agentActivityMap.get(agentId) ?? {
+      agentId,
+      role: this.resolveAgentRole(agentId),
+      currentStage: stage,
+      lastMessage: message,
+      activeRequestId: event.request_id || '',
+      updatedAt: timestamp,
+      events: 0,
+      toolEvents: 0,
+      errors: 0,
+    };
+
+    existingAgent.role = this.resolveAgentRole(agentId);
+    existingAgent.currentStage = stage;
+    existingAgent.lastMessage = message;
+    existingAgent.updatedAt = timestamp;
+    existingAgent.events += 1;
+    if (event.request_id) {
+      existingAgent.activeRequestId = event.request_id;
+    }
+    if ((event.stage || '').startsWith('tool_')) {
+      existingAgent.toolEvents += 1;
+    }
+    if (event.type === 'error' || (event.stage || '').startsWith('request_failed')) {
+      existingAgent.errors += 1;
+    }
+    if (event.stage === 'request_completed' || (event.stage || '').startsWith('request_failed')) {
+      existingAgent.activeRequestId = '';
+    }
+
+    this.agentActivityMap.set(agentId, existingAgent);
+
+    if (event.request_id) {
+      const existingRequest = this.requestActivityMap.get(event.request_id) ?? {
+        requestId: event.request_id,
+        sessionId: event.session_id || '',
+        agentId,
+        stage,
+        status: 'running' as const,
+        startedAt: timestamp,
+        updatedAt: timestamp,
+        toolEvents: 0,
+        error: '',
+      };
+
+      existingRequest.agentId = agentId;
+      existingRequest.sessionId = event.session_id || existingRequest.sessionId;
+      existingRequest.stage = stage;
+      existingRequest.updatedAt = timestamp;
+      if ((event.stage || '').startsWith('tool_')) {
+        existingRequest.toolEvents += 1;
+      }
+      if (event.stage === 'request_completed') {
+        existingRequest.status = 'completed';
+      }
+      if ((event.stage || '').startsWith('request_failed') || event.type === 'error') {
+        existingRequest.status = 'failed';
+        existingRequest.error = event.message || existingRequest.error;
+      }
+
+      this.requestActivityMap.set(event.request_id, existingRequest);
+    }
+
+    if (
+      event.type === 'agent_step' ||
+      event.type === 'lifecycle' ||
+      (event.type === 'status' && Boolean(event.message))
+    ) {
+      this.reasoningLines.unshift({
+        time: new Date(timestamp).toLocaleTimeString(),
+        type: event.type,
+        text: `${agentId}: ${message}`,
+      });
+      if (this.reasoningLines.length > 400) {
+        this.reasoningLines = this.reasoningLines.slice(0, 400);
+      }
+    }
+  }
+
+  private resolveAgentRole(agentId: string): string {
+    const fromSchema = this.monitoringSchema?.agents.find((item) => item.id === agentId);
+    if (fromSchema) {
+      return fromSchema.role;
+    }
+    const fromAgents = this.availableAgents.find((item) => item.id === agentId);
+    return fromAgents?.role ?? 'agent';
+  }
+
+  private refreshMonitoringViews(): void {
+    this.agentActivities = [...this.agentActivityMap.values()].sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt)
+    );
+    this.requestActivities = [...this.requestActivityMap.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 200);
   }
 
   private buildToolPolicyPayload(): ToolPolicyPayload | undefined {
@@ -413,8 +656,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       type,
       text: `${text}${detailText}`,
     });
-    if (this.lifecycleLines.length > 300) {
-      this.lifecycleLines = this.lifecycleLines.slice(0, 300);
+    if (this.lifecycleLines.length > 500) {
+      this.lifecycleLines = this.lifecycleLines.slice(0, 500);
     }
   }
 }

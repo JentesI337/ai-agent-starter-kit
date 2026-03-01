@@ -79,7 +79,7 @@ Vorgeschlagene Modulstruktur (schrittweise einführen):
   - `model_registry.py`
   - `router.py`
 - `app/agents/`
-  - `head_coder_adapter.py` (wrappt bestehende `HeadCodingAgent`-Logik)
+  - `head_agent_adapter.py` (wrappt bestehende `HeadCodingAgent`-Logik)
   - später: `planner_agent.py`, `tool_selector_agent.py`, `synthesizer_agent.py`
 - `app/interfaces/`
   - `request_context.py` (request/session/run Metadaten)
@@ -100,7 +100,7 @@ Vorgeschlagene Modulstruktur (schrittweise einführen):
 ## Phase 1 — Contracts einführen (ohne Behavior-Change)
 
 - Agent-Contract-Basisklassen und Pydantic-Schemas anlegen.
-- Bestehenden `HeadCodingAgent` über `head_coder_adapter` in Contract-Form verfügbar machen.
+- Bestehenden `HeadCodingAgent` über `head_agent_adapter` in Contract-Form verfügbar machen.
 - Bestehende Prompts/Tooling unverändert lassen.
 
 **Definition of Done**

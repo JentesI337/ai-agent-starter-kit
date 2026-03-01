@@ -125,6 +125,19 @@ class StateStore:
             self._write_snapshot(run_id, state)
             return state
 
+    def clear_all(self) -> None:
+        with self._lock:
+            for run_file in self.runs_dir.glob("*.json"):
+                try:
+                    run_file.unlink(missing_ok=True)
+                except Exception:
+                    continue
+            for snapshot_file in self.snapshots_dir.glob("*.json"):
+                try:
+                    snapshot_file.unlink(missing_ok=True)
+                except Exception:
+                    continue
+
     def _transform_value(self, value, key: str | None = None):
         if isinstance(value, str):
             return self._transform_string(value, key=key)

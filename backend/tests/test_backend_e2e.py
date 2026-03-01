@@ -6,7 +6,7 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
-from app.main import app, agent, runtime_manager, subrun_lane
+from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.errors import GuardrailViolation
 from app.runtime_manager import RuntimeState
 
@@ -61,6 +61,23 @@ def test_rest_ping_endpoint_without_agent() -> None:
     assert isinstance(payload.get("ts"), str)
 
 
+def test_monitoring_schema_endpoint_exposes_agents_and_lifecycle() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    response = client.get("/api/monitoring/schema")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload.get("lifecycleStages"), list)
+    assert "run_started" in payload["lifecycleStages"]
+    assert isinstance(payload.get("agents"), list)
+    assert any(item.get("id") == "head-agent" for item in payload["agents"])
+    assert any(item.get("id") == "coder-agent" for item in payload["agents"])
+    head = next(item for item in payload["agents"] if item.get("id") == "head-agent")
+    assert "write_file" in head.get("tools", [])
+
+
 def test_rest_agent_endpoint_with_agent(monkeypatch) -> None:
     _set_local_runtime()
 
@@ -104,7 +121,7 @@ def test_websocket_connect_emits_status_event() -> None:
         event = _unwrap_event(envelope)
 
     assert event["type"] == "status"
-    assert event["message"] == "Connected to head agent."
+    assert event["message"] == "Connected to agent runtime."
     assert "session_id" in event
 
 
@@ -199,6 +216,67 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
     assert any(evt.get("type") == "subrun_status" and evt.get("status") == "running" for evt in events)
     assert any(evt.get("type") == "subrun_status" and evt.get("status") == "completed" for evt in events)
     assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "completed" for evt in events)
+
+
+def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "head-should-not-handle-coding",
+            }
+        )
+        return "head-should-not-handle-coding"
+
+    async def fake_coder_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "coder-agent",
+                "message": f"coder:{user_message}",
+            }
+        )
+        return f"coder:{user_message}"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_head_run)
+    monkeypatch.setattr(agent_registry["coder-agent"], "run", fake_coder_run)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "write a python function to add two numbers",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "status"
+        and "delegated this request to coder-agent" in str(evt.get("message", "")).lower()
+        for evt in events
+    )
+    assert any(evt.get("type") == "final" and evt.get("agent") == "coder-agent" for evt in events)
+    assert not any(
+        evt.get("type") == "final" and evt.get("message") == "head-should-not-handle-coding"
+        for evt in events
+    )
 
 
 def test_runs_start_and_wait_returns_ok(monkeypatch) -> None:

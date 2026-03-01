@@ -42,6 +42,16 @@ class MemoryStore:
         items = self._store.get(key, deque())
         return list(items)
 
+    def clear_all(self) -> None:
+        self._store.clear()
+        if not self.persist_dir:
+            return
+        for file_path in self.persist_dir.glob("*.jsonl"):
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                continue
+
     def _load_from_disk(self) -> None:
         if not self.persist_dir:
             return

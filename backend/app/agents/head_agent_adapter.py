@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+from app.agent import CoderAgent, HeadAgent
+from app.config import settings
+from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
+from app.contracts.schemas import CoderAgentInput, CoderAgentOutput, HeadAgentInput, HeadAgentOutput
+
+
+class HeadAgentAdapter(AgentContract):
+    role = "head-agent"
+    input_schema = HeadAgentInput
+    output_schema = HeadAgentOutput
+    constraints = AgentConstraints(
+        max_context=settings.max_user_message_length,
+        temperature=0.3,
+        reasoning_depth=2,
+        reflection_passes=0,
+        combine_steps=False,
+    )
+
+    def __init__(self, delegate: HeadAgent | None = None):
+        self._delegate = delegate or HeadAgent()
+
+    @property
+    def name(self) -> str:
+        return self._delegate.name
+
+    def configure_runtime(self, base_url: str, model: str) -> None:
+        self._delegate.configure_runtime(base_url=base_url, model=model)
+
+    async def run(
+        self,
+        user_message: str,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
+    ) -> str:
+        payload = self.input_schema(
+            user_message=user_message,
+            session_id=session_id,
+            request_id=request_id,
+            model=model,
+            tool_policy=tool_policy,
+        )
+        final_text = await self._delegate.run(
+            payload.user_message,
+            send_event,
+            session_id=payload.session_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            tool_policy=payload.tool_policy,
+        )
+        output = self.output_schema(final_text=final_text)
+        return output.final_text
+
+
+class CoderAgentAdapter(AgentContract):
+    role = "coding-agent"
+    input_schema = CoderAgentInput
+    output_schema = CoderAgentOutput
+    constraints = AgentConstraints(
+        max_context=settings.max_user_message_length,
+        temperature=0.3,
+        reasoning_depth=2,
+        reflection_passes=0,
+        combine_steps=False,
+    )
+
+    def __init__(self, delegate: CoderAgent | None = None):
+        self._delegate = delegate or CoderAgent()
+
+    @property
+    def name(self) -> str:
+        return self._delegate.name
+
+    def configure_runtime(self, base_url: str, model: str) -> None:
+        self._delegate.configure_runtime(base_url=base_url, model=model)
+
+    async def run(
+        self,
+        user_message: str,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
+    ) -> str:
+        payload = self.input_schema(
+            user_message=user_message,
+            session_id=session_id,
+            request_id=request_id,
+            model=model,
+            tool_policy=tool_policy,
+        )
+        final_text = await self._delegate.run(
+            payload.user_message,
+            send_event,
+            session_id=payload.session_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            tool_policy=payload.tool_policy,
+        )
+        output = self.output_schema(final_text=final_text)
+        return output.final_text
+
+
+HeadCoderAgentAdapter = HeadAgentAdapter

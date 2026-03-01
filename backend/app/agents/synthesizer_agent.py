@@ -53,7 +53,12 @@ class SynthesizerAgent(AgentContract):
             f"{payload.tool_results or '(no tool outputs)'}\n\n"
             "Relevant memory:\n"
             f"{payload.reduced_context}\n\n"
-            "Generate a concise final answer with concrete next implementation steps.\n"
+            "Generate a concise, helpful final answer.\n"
+            "For general requests, respond naturally without forcing implementation steps.\n"
+            "For coding/technical requests, include concrete next implementation steps.\n"
+            "If Tool outputs include web_fetch data, you MUST ground the answer in that data.\n"
+            "When web_fetch data exists, do not claim browsing is unavailable and do not ignore fetched content.\n"
+            "Include a short 'Sources used' section with source_url values found in tool outputs when available.\n"
             "Do not emit tool directives, no [TOOL_CALL] blocks, and no pseudo tool syntax.\n"
             "Only report completed actions and clear next steps."
         )

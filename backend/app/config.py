@@ -19,43 +19,56 @@ class Settings(BaseModel):
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
     llm_model: str = os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M")
-    agent_name: str = os.getenv("AGENT_NAME", "head-coder")
+    agent_name: str = os.getenv("AGENT_NAME", "head-agent")
+    coder_agent_name: str = os.getenv("CODER_AGENT_NAME", "coder-agent")
     agent_system_prompt: str = os.getenv(
         "AGENT_SYSTEM_PROMPT",
-        "You are a senior coding head agent. Think step-by-step and return practical plans.",
+        "You are a senior head agent. Think step-by-step and return practical plans.",
     )
     agent_plan_prompt: str = os.getenv(
         "AGENT_PLAN_PROMPT",
         os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+            "You are a senior head agent. Think step-by-step and return practical plans.",
         ),
     )
     agent_tool_selector_prompt: str = os.getenv(
         "AGENT_TOOL_SELECTOR_PROMPT",
         os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+            "You are a senior head agent. Think step-by-step and return practical plans.",
         ),
     )
     agent_tool_repair_prompt: str = os.getenv(
         "AGENT_TOOL_REPAIR_PROMPT",
         os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+            "You are a senior head agent. Think step-by-step and return practical plans.",
         ),
     )
     agent_final_prompt: str = os.getenv(
         "AGENT_FINAL_PROMPT",
         os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a senior coding head agent. Think step-by-step and return practical plans.",
+            "You are a senior head agent. Think step-by-step and return practical plans.",
         ),
     )
     workspace_root: str = os.getenv("WORKSPACE_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
     memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
     memory_persist_dir: str = os.getenv("MEMORY_PERSIST_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "memory_store")))
+    memory_reset_on_startup: bool = os.getenv("MEMORY_RESET_ON_STARTUP", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     orchestrator_state_dir: str = os.getenv("ORCHESTRATOR_STATE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "state_store")))
+    orchestrator_state_reset_on_startup: bool = os.getenv("ORCHESTRATOR_STATE_RESET_ON_STARTUP", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
     max_user_message_length: int = int(os.getenv("MAX_USER_MESSAGE_LENGTH", "8000"))
     local_model: str = os.getenv("LOCAL_MODEL", os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M"))

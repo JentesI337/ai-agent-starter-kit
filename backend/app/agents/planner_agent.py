@@ -32,8 +32,9 @@ class PlannerAgent(AgentContract):
 
     async def execute(self, payload: PlannerInput, model: str | None = None) -> PlannerOutput:
         planner_prompt = (
-            "Create a short implementation plan (3-6 bullets) for a coding agent task.\n"
-            "Focus on actionable steps only.\n\n"
+            "Create a short execution plan (2-5 bullets) for the user's request.\n"
+            "If the request is simple (greeting, small talk, or direct question), keep the plan minimal.\n"
+            "If the request is technical or coding-related, include actionable implementation steps.\n\n"
             "Reduced context:\n"
             f"{payload.reduced_context}\n\n"
             "Current task:\n"

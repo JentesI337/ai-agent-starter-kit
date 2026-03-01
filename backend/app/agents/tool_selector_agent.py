@@ -7,7 +7,21 @@ from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEv
 from app.contracts.schemas import ToolSelectorInput, ToolSelectorOutput
 
 ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str]], Awaitable[str]]
-DEFAULT_ALLOWED_TOOLS = {"list_dir", "read_file", "write_file", "run_command"}
+DEFAULT_ALLOWED_TOOLS = {
+    "list_dir",
+    "read_file",
+    "write_file",
+    "run_command",
+    "apply_patch",
+    "file_search",
+    "grep_search",
+    "list_code_usages",
+    "get_changed_files",
+    "start_background_command",
+    "get_background_output",
+    "kill_background_process",
+    "web_fetch",
+}
 
 
 class ToolSelectorAgent(AgentContract):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class HeadCoderInput(BaseModel):
+class HeadAgentInput(BaseModel):
     user_message: str = Field(min_length=1)
     session_id: str = Field(min_length=1, max_length=120)
     request_id: str = Field(min_length=1)
@@ -11,7 +11,19 @@ class HeadCoderInput(BaseModel):
     tool_policy: dict[str, list[str]] | None = None
 
 
-class HeadCoderOutput(BaseModel):
+class HeadAgentOutput(BaseModel):
+    final_text: str
+
+
+class CoderAgentInput(BaseModel):
+    user_message: str = Field(min_length=1)
+    session_id: str = Field(min_length=1, max_length=120)
+    request_id: str = Field(min_length=1)
+    model: str | None = Field(default=None, max_length=120)
+    tool_policy: dict[str, list[str]] | None = None
+
+
+class CoderAgentOutput(BaseModel):
     final_text: str
 
 
@@ -43,3 +55,7 @@ class SynthesizerInput(BaseModel):
 
 class SynthesizerOutput(BaseModel):
     final_text: str
+
+
+HeadCoderInput = HeadAgentInput
+HeadCoderOutput = HeadAgentOutput

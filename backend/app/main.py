@@ -3,18 +3,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.agents.head_coder_adapter import HeadCoderAgentAdapter
+from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter
 from app.config import settings
+from app.contracts.agent_contract import AgentContract
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import OrchestratorApi, RequestContext
 from app.models import WsInboundMessage
-from app.orchestrator.events import build_lifecycle_event, classify_error
+from app.orchestrator.events import LifecycleStage, build_lifecycle_event, classify_error
 from app.orchestrator.subrun_lane import SubrunLane
 from app.runtime_manager import RuntimeManager
 from app.state import StateStore
@@ -35,10 +38,74 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-agent = HeadCoderAgentAdapter()
+PRIMARY_AGENT_ID = "head-agent"
+CODER_AGENT_ID = "coder-agent"
+LEGACY_AGENT_ALIASES = {"head-coder": PRIMARY_AGENT_ID}
+
+
+def _resolve_persist_dir(path_value: str) -> Path:
+    candidate = Path(path_value)
+    if not candidate.is_absolute():
+        candidate = (Path(settings.workspace_root) / candidate).resolve()
+    return candidate
+
+
+def _clear_startup_persistence() -> None:
+    if settings.memory_reset_on_startup:
+        memory_dir = _resolve_persist_dir(settings.memory_persist_dir)
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        removed_files = 0
+        for file_path in memory_dir.glob("*.jsonl"):
+            try:
+                file_path.unlink(missing_ok=True)
+                removed_files += 1
+            except Exception:
+                logger.debug("memory_file_cleanup_failed file=%s", file_path, exc_info=True)
+        logger.info("startup_memory_reset enabled=%s removed_files=%s", settings.memory_reset_on_startup, removed_files)
+
+    if settings.orchestrator_state_reset_on_startup:
+        state_dir = _resolve_persist_dir(settings.orchestrator_state_dir)
+        runs_dir = state_dir / "runs"
+        snapshots_dir = state_dir / "snapshots"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        removed_runs = 0
+        removed_snapshots = 0
+        for file_path in runs_dir.glob("*.json"):
+            try:
+                file_path.unlink(missing_ok=True)
+                removed_runs += 1
+            except Exception:
+                logger.debug("state_run_cleanup_failed file=%s", file_path, exc_info=True)
+        for file_path in snapshots_dir.glob("*.json"):
+            try:
+                file_path.unlink(missing_ok=True)
+                removed_snapshots += 1
+            except Exception:
+                logger.debug("state_snapshot_cleanup_failed file=%s", file_path, exc_info=True)
+        logger.info(
+            "startup_state_reset enabled=%s removed_runs=%s removed_snapshots=%s",
+            settings.orchestrator_state_reset_on_startup,
+            removed_runs,
+            removed_snapshots,
+        )
+
+
+_clear_startup_persistence()
+
+agent_registry: dict[str, AgentContract] = {
+    PRIMARY_AGENT_ID: HeadAgentAdapter(),
+    CODER_AGENT_ID: CoderAgentAdapter(),
+}
 runtime_manager = RuntimeManager()
 state_store = StateStore(persist_dir=settings.orchestrator_state_dir)
-orchestrator_api = OrchestratorApi(agent=agent, state_store=state_store)
+orchestrator_registry: dict[str, OrchestratorApi] = {
+    agent_id: OrchestratorApi(agent=agent_instance, state_store=state_store)
+    for agent_id, agent_instance in agent_registry.items()
+}
+
+agent = agent_registry[PRIMARY_AGENT_ID]
+orchestrator_api = orchestrator_registry[PRIMARY_AGENT_ID]
 subrun_lane = SubrunLane(
     orchestrator_api=orchestrator_api,
     state_store=state_store,
@@ -51,6 +118,67 @@ subrun_lane = SubrunLane(
     announce_retry_jitter=settings.subrun_announce_retry_jitter,
 )
 active_run_tasks: dict[str, asyncio.Task] = {}
+
+
+def _normalize_agent_id(agent_id: str | None) -> str:
+    raw = (agent_id or PRIMARY_AGENT_ID).strip().lower()
+    return LEGACY_AGENT_ALIASES.get(raw, raw)
+
+
+def _resolve_agent(agent_id: str | None) -> tuple[str, AgentContract, OrchestratorApi]:
+    normalized_agent_id = _normalize_agent_id(agent_id)
+    selected_agent = agent_registry.get(normalized_agent_id)
+    selected_orchestrator = orchestrator_registry.get(normalized_agent_id)
+    if selected_agent is None or selected_orchestrator is None:
+        raise ValueError(f"Unsupported agent: {agent_id}")
+    return normalized_agent_id, selected_agent, selected_orchestrator
+
+
+def _looks_like_coding_request(message: str) -> bool:
+    text = (message or "").strip().lower()
+    if not text:
+        return False
+
+    keyword_markers = (
+        "code",
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c++",
+        "c#",
+        "golang",
+        "rust",
+        "sql",
+        "html",
+        "css",
+        "bug",
+        "debug",
+        "fix",
+        "refactor",
+        "implement",
+        "function",
+        "class",
+        "api",
+        "endpoint",
+        "test",
+        "pytest",
+        "unit test",
+        "write file",
+        "apply patch",
+    )
+    if any(marker in text for marker in keyword_markers):
+        return True
+
+    return bool(re.search(r"\b(build|create|generate|update)\b.*\b(script|module|component|service|backend|frontend)\b", text))
+
+
+def _get_agent_tools(agent_contract: AgentContract) -> list[str]:
+    delegate = getattr(agent_contract, "_delegate", None)
+    registry = getattr(delegate, "tool_registry", None)
+    if isinstance(registry, dict):
+        return sorted(str(name) for name in registry.keys())
+    return []
 
 
 def _remove_active_task(run_id: str) -> None:
@@ -216,13 +344,52 @@ async def get_agents():
     active = runtime_manager.get_state()
     return [
         {
-            "id": "head-coder",
-            "name": "Head Coding Agent",
-            "role": "coding-head-agent",
+            "id": PRIMARY_AGENT_ID,
+            "name": "Head Agent",
+            "role": "head-agent",
+            "status": "ready",
+            "defaultModel": active.model,
+        },
+        {
+            "id": CODER_AGENT_ID,
+            "name": "Coder Agent",
+            "role": "coding-agent",
             "status": "ready",
             "defaultModel": active.model,
         }
     ]
+
+
+@app.get("/api/monitoring/schema")
+async def get_monitoring_schema():
+    return {
+        "lifecycleStages": [stage.value for stage in LifecycleStage],
+        "eventTypes": [
+            "status",
+            "lifecycle",
+            "agent_step",
+            "token",
+            "final",
+            "error",
+            "subrun_status",
+            "subrun_announce",
+            "runtime_switch_done",
+            "runtime_switch_error",
+        ],
+        "reasoningVisibility": {
+            "chainOfThought": "hidden",
+            "observableTrace": "available_via_lifecycle_and_tool_events",
+        },
+        "agents": [
+            {
+                "id": agent_id,
+                "name": agent_instance.name,
+                "role": getattr(agent_instance, "role", "agent"),
+                "tools": _get_agent_tools(agent_instance),
+            }
+            for agent_id, agent_instance in agent_registry.items()
+        ],
+    }
 
 
 @app.get("/api/runtime/status")
@@ -553,7 +720,7 @@ async def agent_socket(websocket: WebSocket):
         {
             "type": "status",
             "agent": agent.name,
-            "message": "Connected to head agent.",
+            "message": "Connected to agent runtime.",
             "session_id": connection_session_id,
             "runtime": runtime_state.runtime,
             "model": runtime_state.model,
@@ -589,10 +756,46 @@ async def agent_socket(websocket: WebSocket):
                     request_id,
                     session_id,
                     data.type,
-                    data.agent_id or "head-coder",
+                    _normalize_agent_id(data.agent_id),
                     len(data.content or ""),
                     data.model,
                 )
+                requested_agent_id = _normalize_agent_id(data.agent_id)
+                if requested_agent_id not in agent_registry:
+                    await send_event(
+                        {
+                            "type": "status",
+                            "agent": agent.name,
+                            "message": f"Unsupported agent: {data.agent_id}",
+                        }
+                    )
+                    await send_lifecycle(
+                        stage="request_rejected_unsupported_agent",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"agent_id": data.agent_id},
+                    )
+                    continue
+
+                effective_agent_id = requested_agent_id
+                routing_reason: str | None = None
+                if requested_agent_id == PRIMARY_AGENT_ID and _looks_like_coding_request(data.content or ""):
+                    effective_agent_id = CODER_AGENT_ID
+                    routing_reason = "coding_intent"
+
+                resolved_agent_id, selected_agent, selected_orchestrator = _resolve_agent(effective_agent_id)
+
+                if routing_reason:
+                    await send_event(
+                        {
+                            "type": "status",
+                            "agent": agent.name,
+                            "message": "Head agent delegated this request to coder-agent.",
+                            "routing_reason": routing_reason,
+                            "requested_agent_id": requested_agent_id,
+                            "effective_agent_id": resolved_agent_id,
+                        }
+                    )
                 current_runtime_state = runtime_manager.get_state()
                 state_store.init_run(
                     run_id=request_id,
@@ -607,7 +810,12 @@ async def agent_socket(websocket: WebSocket):
                     stage="request_received",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"chars": len(data.content), "agent_id": data.agent_id or "head-coder"},
+                    details={
+                        "chars": len(data.content),
+                        "requested_agent_id": requested_agent_id,
+                        "effective_agent_id": resolved_agent_id,
+                        "routing_reason": routing_reason,
+                    },
                 )
 
                 if data.type == "runtime_switch_request":
@@ -704,27 +912,16 @@ async def agent_socket(websocket: WebSocket):
                     )
                     continue
 
-                if data.agent_id and data.agent_id != "head-coder":
-                    await send_event(
-                        {
-                            "type": "status",
-                            "agent": agent.name,
-                            "message": f"Unsupported agent: {data.agent_id}",
-                        }
-                    )
-                    await send_lifecycle(
-                        stage="request_rejected_unsupported_agent",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={"agent_id": data.agent_id},
-                    )
-                    continue
-
                 await send_lifecycle(
                     stage="request_dispatched",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"model": data.model},
+                    details={
+                        "model": data.model,
+                        "requested_agent_id": requested_agent_id,
+                        "effective_agent_id": resolved_agent_id,
+                        "routing_reason": routing_reason,
+                    },
                 )
 
                 runtime_state = runtime_manager.get_state()
@@ -736,7 +933,7 @@ async def agent_socket(websocket: WebSocket):
                     runtime_state.model,
                 )
 
-                agent.configure_runtime(
+                selected_agent.configure_runtime(
                     base_url=runtime_state.base_url,
                     model=runtime_state.model,
                 )
@@ -748,7 +945,7 @@ async def agent_socket(websocket: WebSocket):
                         await send_event(
                             {
                                 "type": "status",
-                                "agent": agent.name,
+                                "agent": selected_agent.name,
                                 "message": f"Model '{selected_model}' not available. Using '{resolved_model}'.",
                             }
                         )
@@ -761,7 +958,7 @@ async def agent_socket(websocket: WebSocket):
                         await send_event(
                             {
                                 "type": "status",
-                                "agent": agent.name,
+                                "agent": selected_agent.name,
                                 "message": f"API model '{selected_model}' not available. Using '{resolved_model}'.",
                             }
                         )
@@ -775,7 +972,7 @@ async def agent_socket(websocket: WebSocket):
                     session_id,
                     selected_model,
                 )
-                await orchestrator_api.run_user_message(
+                await selected_orchestrator.run_user_message(
                     user_message=data.content,
                     send_event=send_event,
                     request_context=RequestContext(

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 from typing import Callable, Awaitable
+from urllib.parse import quote_plus
 
 from app.agents.planner_agent import PlannerAgent
 from app.agents.synthesizer_agent import SynthesizerAgent
@@ -27,13 +28,36 @@ from app.state.context_reducer import ContextReducer
 from app.tools import AgentTooling
 
 SendEvent = Callable[[dict], Awaitable[None]]
-ALLOWED_TOOLS = {"list_dir", "read_file", "write_file", "run_command"}
+ALLOWED_TOOLS = {
+    "list_dir",
+    "read_file",
+    "write_file",
+    "run_command",
+    "apply_patch",
+    "file_search",
+    "grep_search",
+    "list_code_usages",
+    "get_changed_files",
+    "start_background_command",
+    "get_background_output",
+    "kill_background_process",
+    "web_fetch",
+}
 TOOL_NAME_ALIASES = {
     "createfile": "write_file",
     "writefile": "write_file",
     "readfile": "read_file",
     "listdir": "list_dir",
     "runcommand": "run_command",
+    "applypatch": "apply_patch",
+    "filesearch": "file_search",
+    "grepsearch": "grep_search",
+    "listcodeusages": "list_code_usages",
+    "getchangedfiles": "get_changed_files",
+    "startbackgroundcommand": "start_background_command",
+    "getbackgroundoutput": "get_background_output",
+    "killbackgroundprocess": "kill_background_process",
+    "webfetch": "web_fetch",
 }
 
 
@@ -62,10 +86,10 @@ class ReplyShapeResult:
     deduped_lines: int
 
 
-class HeadCodingAgent:
-    def __init__(self):
-        self.name = settings.agent_name
-        self.role = "coding-head-agent"
+class HeadAgent:
+    def __init__(self, name: str | None = None, role: str = "head-agent"):
+        self.name = name or settings.agent_name
+        self.role = role
         self.client = LlmClient(
             base_url=settings.llm_base_url,
             model=settings.llm_model,
@@ -541,12 +565,20 @@ class HeadCodingAgent:
         )
 
         tool_selector_prompt = (
-            "Choose up to 3 tool calls to support this coding task.\n"
+            "Choose up to 3 tool calls to support this task.\n"
             "Return strict JSON only in this schema:\n"
             f"{{\"actions\":[{{\"tool\":\"{allowed_text}\",\"args\":{{}}}}]}}\n"
             "If no tool is needed return {\"actions\":[]}.\n"
-            "For write_file include args path and content.\n"
-            "For run_command include args command and optional cwd.\n\n"
+            "If the user explicitly asks to search/browse/check the web, include at least one web_fetch action whenever allowed.\n"
+            "Key args by tool:\n"
+            "- write_file: path, content\n"
+            "- apply_patch: path, search, replace, optional replace_all\n"
+            "- run_command/start_background_command: command, optional cwd\n"
+            "- file_search: pattern, optional max_results\n"
+            "- grep_search: query, optional include_pattern, optional is_regexp, optional max_results\n"
+            "- list_code_usages: symbol, optional include_pattern, optional max_results\n"
+            "- get_background_output/kill_background_process: job_id\n"
+            "- web_fetch: url, optional max_chars\n\n"
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
             f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}.\n\n"
             "Memory:\n"
@@ -777,12 +809,32 @@ class HeadCodingAgent:
         model: str | None,
         allowed_tools: set[str],
     ) -> list[dict]:
-        if not self._is_file_creation_task(user_message):
-            return actions
+        augmented_actions = list(actions)
 
-        has_write_action = any(str(action.get("tool", "")).strip() == "write_file" for action in actions)
+        if self._is_web_research_task(user_message) and "web_fetch" in allowed_tools:
+            has_web_fetch = any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
+            if not has_web_fetch:
+                fallback_url = self._build_web_research_url(user_message)
+                if fallback_url:
+                    augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="tool_selection_followup_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "reason": "web_research_without_web_fetch",
+                            "added_tool": "web_fetch",
+                            "url": fallback_url,
+                        },
+                    )
+
+        if not self._is_file_creation_task(user_message):
+            return augmented_actions
+
+        has_write_action = any(str(action.get("tool", "")).strip() == "write_file" for action in augmented_actions)
         if has_write_action:
-            return actions
+            return augmented_actions
 
         await self._emit_lifecycle(
             send_event,
@@ -793,10 +845,10 @@ class HeadCodingAgent:
         )
 
         followup_prompt = (
-            "You previously selected tools for a coding task.\n"
+            "You previously selected tools for a task.\n"
             "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
             "Return strict JSON only:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch\",\"args\":{}}]}\n"
             "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
             "If still insufficient context, return {\"actions\":[]}\n\n"
             "Memory:\n"
@@ -821,10 +873,10 @@ class HeadCodingAgent:
                 session_id=session_id,
                 details={"error": followup_error},
             )
-            return actions
+            return augmented_actions
 
         validated_followups, _ = self._validate_actions(followup_actions, allowed_tools)
-        merged = actions + validated_followups
+        merged = augmented_actions + validated_followups
         deduped: list[dict] = []
         seen_keys: set[str] = set()
         for action in merged:
@@ -842,6 +894,51 @@ class HeadCodingAgent:
             details={"base_actions": len(actions), "merged_actions": len(deduped)},
         )
         return deduped
+
+    def _is_web_research_task(self, user_message: str) -> bool:
+        text = (user_message or "").lower()
+        markers = (
+            "search on the web",
+            "search the web",
+            "browse the web",
+            "look up",
+            "latest",
+            "current",
+            "news",
+            "google",
+            "bing",
+            "duckduckgo",
+            "find online",
+            "web search",
+            "internet",
+        )
+        return any(marker in text for marker in markers)
+
+    def _build_web_research_url(self, user_message: str) -> str:
+        text = (user_message or "").strip()
+        if not text:
+            return ""
+
+        explicit_url = re.search(r"https?://\S+", text)
+        if explicit_url:
+            return explicit_url.group(0).rstrip(").,;:!?")
+
+        query = text
+        for prefix in (
+            "can you",
+            "please",
+            "could you",
+            "search on the web for",
+            "search the web for",
+            "look up",
+            "find",
+        ):
+            if query.lower().startswith(prefix):
+                query = query[len(prefix) :].strip()
+
+        if not query:
+            query = text
+        return f"https://duckduckgo.com/html/?q={quote_plus(query)}"
 
     def _is_file_creation_task(self, user_message: str) -> bool:
         text = (user_message or "").lower()
@@ -961,7 +1058,7 @@ class HeadCodingAgent:
         repair_prompt = (
             "Convert the following tool-selection output into strict JSON only.\n"
             "Output schema:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch\",\"args\":{}}]}\n"
             "Rules:\n"
             "- Output only one JSON object.\n"
             "- No markdown and no explanations.\n"
@@ -1040,6 +1137,69 @@ class HeadCodingAgent:
                 timeout_seconds=float(max(3, settings.command_timeout_seconds)),
                 max_retries=1,
             ),
+            "apply_patch": ToolSpec(
+                name="apply_patch",
+                required_args=("path", "search", "replace"),
+                optional_args=("replace_all",),
+                timeout_seconds=10.0,
+                max_retries=0,
+            ),
+            "file_search": ToolSpec(
+                name="file_search",
+                required_args=("pattern",),
+                optional_args=("max_results",),
+                timeout_seconds=6.0,
+                max_retries=0,
+            ),
+            "grep_search": ToolSpec(
+                name="grep_search",
+                required_args=("query",),
+                optional_args=("include_pattern", "is_regexp", "max_results"),
+                timeout_seconds=8.0,
+                max_retries=0,
+            ),
+            "list_code_usages": ToolSpec(
+                name="list_code_usages",
+                required_args=("symbol",),
+                optional_args=("include_pattern", "max_results"),
+                timeout_seconds=8.0,
+                max_retries=0,
+            ),
+            "get_changed_files": ToolSpec(
+                name="get_changed_files",
+                required_args=(),
+                optional_args=(),
+                timeout_seconds=8.0,
+                max_retries=0,
+            ),
+            "start_background_command": ToolSpec(
+                name="start_background_command",
+                required_args=("command",),
+                optional_args=("cwd",),
+                timeout_seconds=6.0,
+                max_retries=0,
+            ),
+            "get_background_output": ToolSpec(
+                name="get_background_output",
+                required_args=("job_id",),
+                optional_args=("tail_lines",),
+                timeout_seconds=5.0,
+                max_retries=0,
+            ),
+            "kill_background_process": ToolSpec(
+                name="kill_background_process",
+                required_args=("job_id",),
+                optional_args=(),
+                timeout_seconds=5.0,
+                max_retries=0,
+            ),
+            "web_fetch": ToolSpec(
+                name="web_fetch",
+                required_args=("url",),
+                optional_args=("max_chars",),
+                timeout_seconds=12.0,
+                max_retries=0,
+            ),
         }
 
     def _normalize_tool_name(self, tool_name: str) -> str:
@@ -1059,33 +1219,158 @@ class HeadCodingAgent:
         if spec is None:
             return {}, "tool is not in registry"
 
-        normalized_args: dict[str, str] = {}
+        normalized_args: dict[str, object] = {}
         allowed_keys = set(spec.required_args) | set(spec.optional_args)
         if set(args.keys()) - allowed_keys:
             return {}, "arguments contain unsupported fields"
 
         for required_name in spec.required_args:
-            value = args.get(required_name)
-            if not isinstance(value, str) or not value.strip():
+            if required_name not in args:
                 return {}, f"missing required argument '{required_name}'"
-            normalized_args[required_name] = value
+            normalized_args[required_name] = args[required_name]
 
         for optional_name in spec.optional_args:
-            value = args.get(optional_name)
-            if value is None:
-                continue
+            if optional_name in args:
+                normalized_args[optional_name] = args[optional_name]
+
+        def _require_str(name: str, *, non_empty: bool = True, max_len: int = 4000) -> tuple[str | None, str | None]:
+            value = normalized_args.get(name)
             if not isinstance(value, str):
-                return {}, f"optional argument '{optional_name}' must be a string"
-            normalized_args[optional_name] = value
+                return None, f"argument '{name}' must be a string"
+            if non_empty and not value.strip():
+                return None, f"argument '{name}' must not be empty"
+            if len(value) > max_len:
+                return None, f"argument '{name}' too long"
+            return value, None
 
-        path_value = normalized_args.get("path")
-        if path_value is not None and (len(path_value) > 400 or "\x00" in path_value):
-            return {}, "path is not plausible"
+        def _require_bool(name: str, default: bool = False) -> tuple[bool, str | None]:
+            if name not in normalized_args:
+                return default, None
+            value = normalized_args[name]
+            if not isinstance(value, bool):
+                return default, f"argument '{name}' must be a boolean"
+            return value, None
 
-        if tool == "run_command":
-            command = normalized_args.get("command", "")
-            if self._violates_command_policy(command):
+        def _optional_int(name: str, default: int, min_value: int, max_value: int) -> tuple[int, str | None]:
+            if name not in normalized_args:
+                return default, None
+            value = normalized_args[name]
+            if not isinstance(value, int):
+                return default, f"argument '{name}' must be an integer"
+            if value < min_value or value > max_value:
+                return default, f"argument '{name}' out of range"
+            return value, None
+
+        if tool in {"list_dir", "read_file", "write_file", "apply_patch"}:
+            if "path" in normalized_args:
+                path_value, err = _require_str("path", max_len=400)
+                if err:
+                    return {}, err
+                if path_value is not None and "\x00" in path_value:
+                    return {}, "path is not plausible"
+
+        if tool == "write_file":
+            content, err = _require_str("content", non_empty=False, max_len=350000)
+            if err:
+                return {}, err
+            normalized_args["content"] = content
+
+        if tool == "run_command" or tool == "start_background_command":
+            command, err = _require_str("command", max_len=1000)
+            if err:
+                return {}, err
+            if command is not None and self._violates_command_policy(command):
                 return {}, "command blocked by policy"
+            normalized_args["command"] = command
+            if "cwd" in normalized_args:
+                cwd, err = _require_str("cwd", max_len=400)
+                if err:
+                    return {}, err
+                normalized_args["cwd"] = cwd
+
+        if tool == "apply_patch":
+            search, err = _require_str("search", max_len=50000)
+            if err:
+                return {}, err
+            replace, err = _require_str("replace", non_empty=False, max_len=50000)
+            if err:
+                return {}, err
+            replace_all, err = _require_bool("replace_all", default=False)
+            if err:
+                return {}, err
+            normalized_args["search"] = search
+            normalized_args["replace"] = replace
+            normalized_args["replace_all"] = replace_all
+
+        if tool == "file_search":
+            pattern, err = _require_str("pattern", max_len=300)
+            if err:
+                return {}, err
+            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
+            if err:
+                return {}, err
+            normalized_args["pattern"] = pattern
+            normalized_args["max_results"] = max_results
+
+        if tool == "grep_search":
+            query, err = _require_str("query", max_len=500)
+            if err:
+                return {}, err
+            if "include_pattern" in normalized_args:
+                include_pattern, err = _require_str("include_pattern", max_len=300)
+                if err:
+                    return {}, err
+                normalized_args["include_pattern"] = include_pattern
+            is_regexp, err = _require_bool("is_regexp", default=False)
+            if err:
+                return {}, err
+            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
+            if err:
+                return {}, err
+            normalized_args["query"] = query
+            normalized_args["is_regexp"] = is_regexp
+            normalized_args["max_results"] = max_results
+
+        if tool == "list_code_usages":
+            symbol, err = _require_str("symbol", max_len=160)
+            if err:
+                return {}, err
+            if "include_pattern" in normalized_args:
+                include_pattern, err = _require_str("include_pattern", max_len=300)
+                if err:
+                    return {}, err
+                normalized_args["include_pattern"] = include_pattern
+            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
+            if err:
+                return {}, err
+            normalized_args["symbol"] = symbol
+            normalized_args["max_results"] = max_results
+
+        if tool == "get_background_output":
+            job_id, err = _require_str("job_id", max_len=80)
+            if err:
+                return {}, err
+            tail_lines, err = _optional_int("tail_lines", default=200, min_value=1, max_value=1000)
+            if err:
+                return {}, err
+            normalized_args["job_id"] = job_id
+            normalized_args["tail_lines"] = tail_lines
+
+        if tool == "kill_background_process":
+            job_id, err = _require_str("job_id", max_len=80)
+            if err:
+                return {}, err
+            normalized_args["job_id"] = job_id
+
+        if tool == "web_fetch":
+            url, err = _require_str("url", max_len=1000)
+            if err:
+                return {}, err
+            max_chars, err = _optional_int("max_chars", default=12000, min_value=1000, max_value=100000)
+            if err:
+                return {}, err
+            normalized_args["url"] = url
+            normalized_args["max_chars"] = max_chars
 
         return normalized_args, None
 
@@ -1103,7 +1388,7 @@ class HeadCodingAgent:
     def _build_execution_policy(self, tool: str) -> ToolExecutionPolicy:
         spec = self.tool_registry[tool]
         retry_class = "none"
-        if tool == "run_command":
+        if tool in {"run_command", "web_fetch"}:
             retry_class = "transient"
         return ToolExecutionPolicy(
             retry_class=retry_class,
@@ -1171,6 +1456,89 @@ class HeadCodingAgent:
             if cwd is not None and not isinstance(cwd, str):
                 raise ToolExecutionError("run_command 'cwd' must be string if provided.")
             return self.tools.run_command(command=command, cwd=cwd)
+        if tool == "apply_patch":
+            path = args.get("path")
+            search = args.get("search")
+            replace = args.get("replace")
+            replace_all = args.get("replace_all", False)
+            if not isinstance(path, str) or not isinstance(search, str) or not isinstance(replace, str):
+                raise ToolExecutionError("apply_patch requires 'path', 'search' and 'replace'.")
+            if not isinstance(replace_all, bool):
+                raise ToolExecutionError("apply_patch 'replace_all' must be boolean if provided.")
+            return self.tools.apply_patch(path=path, search=search, replace=replace, replace_all=replace_all)
+        if tool == "file_search":
+            pattern = args.get("pattern")
+            max_results = args.get("max_results", 100)
+            if not isinstance(pattern, str):
+                raise ToolExecutionError("file_search requires 'pattern'.")
+            if not isinstance(max_results, int):
+                raise ToolExecutionError("file_search 'max_results' must be int if provided.")
+            return self.tools.file_search(pattern=pattern, max_results=max_results)
+        if tool == "grep_search":
+            query = args.get("query")
+            include_pattern = args.get("include_pattern")
+            is_regexp = args.get("is_regexp", False)
+            max_results = args.get("max_results", 100)
+            if not isinstance(query, str):
+                raise ToolExecutionError("grep_search requires 'query'.")
+            if include_pattern is not None and not isinstance(include_pattern, str):
+                raise ToolExecutionError("grep_search 'include_pattern' must be string if provided.")
+            if not isinstance(is_regexp, bool):
+                raise ToolExecutionError("grep_search 'is_regexp' must be boolean if provided.")
+            if not isinstance(max_results, int):
+                raise ToolExecutionError("grep_search 'max_results' must be int if provided.")
+            return self.tools.grep_search(
+                query=query,
+                include_pattern=include_pattern,
+                is_regexp=is_regexp,
+                max_results=max_results,
+            )
+        if tool == "list_code_usages":
+            symbol = args.get("symbol")
+            include_pattern = args.get("include_pattern")
+            max_results = args.get("max_results", 100)
+            if not isinstance(symbol, str):
+                raise ToolExecutionError("list_code_usages requires 'symbol'.")
+            if include_pattern is not None and not isinstance(include_pattern, str):
+                raise ToolExecutionError("list_code_usages 'include_pattern' must be string if provided.")
+            if not isinstance(max_results, int):
+                raise ToolExecutionError("list_code_usages 'max_results' must be int if provided.")
+            return self.tools.list_code_usages(
+                symbol=symbol,
+                include_pattern=include_pattern,
+                max_results=max_results,
+            )
+        if tool == "get_changed_files":
+            return self.tools.get_changed_files()
+        if tool == "start_background_command":
+            command = args.get("command")
+            cwd = args.get("cwd")
+            if not isinstance(command, str):
+                raise ToolExecutionError("start_background_command requires 'command'.")
+            if cwd is not None and not isinstance(cwd, str):
+                raise ToolExecutionError("start_background_command 'cwd' must be string if provided.")
+            return self.tools.start_background_command(command=command, cwd=cwd)
+        if tool == "get_background_output":
+            job_id = args.get("job_id")
+            tail_lines = args.get("tail_lines", 200)
+            if not isinstance(job_id, str):
+                raise ToolExecutionError("get_background_output requires 'job_id'.")
+            if not isinstance(tail_lines, int):
+                raise ToolExecutionError("get_background_output 'tail_lines' must be int if provided.")
+            return self.tools.get_background_output(job_id=job_id, tail_lines=tail_lines)
+        if tool == "kill_background_process":
+            job_id = args.get("job_id")
+            if not isinstance(job_id, str):
+                raise ToolExecutionError("kill_background_process requires 'job_id'.")
+            return self.tools.kill_background_process(job_id=job_id)
+        if tool == "web_fetch":
+            url = args.get("url")
+            max_chars = args.get("max_chars", 12000)
+            if not isinstance(url, str):
+                raise ToolExecutionError("web_fetch requires 'url'.")
+            if not isinstance(max_chars, int):
+                raise ToolExecutionError("web_fetch 'max_chars' must be int if provided.")
+            return self.tools.web_fetch(url=url, max_chars=max_chars)
         raise ToolExecutionError(f"Unknown tool: {tool}")
 
     async def _emit_lifecycle(
@@ -1227,3 +1595,11 @@ class HeadCodingAgent:
                     session_id=session_id,
                     details={"hook": type(hook).__name__, "name": hook_name, "error": str(exc)},
                 )
+
+
+class CoderAgent(HeadAgent):
+    def __init__(self):
+        super().__init__(name=settings.coder_agent_name, role="coding-agent")
+
+
+HeadCodingAgent = HeadAgent

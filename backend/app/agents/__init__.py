@@ -1,1 +1,8 @@
-__all__ = ["HeadCoderAgentAdapter", "PlannerAgent", "ToolSelectorAgent", "SynthesizerAgent"]
+__all__ = [
+	"HeadAgentAdapter",
+	"CoderAgentAdapter",
+	"HeadCoderAgentAdapter",
+	"PlannerAgent",
+	"ToolSelectorAgent",
+	"SynthesizerAgent",
+]

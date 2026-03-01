@@ -8,7 +8,21 @@ from app.errors import ToolExecutionError
 from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
 
 
-FULL_TOOLS = {"list_dir", "read_file", "write_file", "run_command"}
+FULL_TOOLS = {
+    "list_dir",
+    "read_file",
+    "write_file",
+    "run_command",
+    "apply_patch",
+    "file_search",
+    "grep_search",
+    "list_code_usages",
+    "get_changed_files",
+    "start_background_command",
+    "get_background_output",
+    "kill_background_process",
+    "web_fetch",
+}
 
 
 def test_extract_actions_requires_strict_json_object() -> None:
@@ -293,3 +307,43 @@ def test_reply_shaping_deduplicates_tool_confirmations() -> None:
     assert shaped.suppressed is False
     assert shaped.deduped_lines == 1
     assert shaped.text.count("read_file completed successfully") == 1
+
+
+def test_web_research_task_detection_positive() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._is_web_research_task("can you search on the web for the best ai models?") is True
+
+
+def test_augment_actions_adds_web_fetch_for_web_research() -> None:
+    agent = HeadCodingAgent()
+
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    result_actions = asyncio.run(
+        agent._augment_actions_if_needed(
+            actions=[],
+            user_message="can you search on the web for the best ai models?",
+            plan_text="find best ai models",
+            memory_context="- user: search web",
+            send_event=send_event,
+            request_id="r-web",
+            session_id="s-web",
+            model=None,
+            allowed_tools=FULL_TOOLS,
+        )
+    )
+
+    assert any(action.get("tool") == "web_fetch" for action in result_actions)
+    web_action = next(action for action in result_actions if action.get("tool") == "web_fetch")
+    assert "url" in web_action.get("args", {})
+    assert str(web_action["args"]["url"]).startswith("https://duckduckgo.com/html/?q=")
+    assert any(
+        payload.get("type") == "lifecycle"
+        and payload.get("stage") == "tool_selection_followup_completed"
+        and payload.get("details", {}).get("reason") == "web_research_without_web_fetch"
+        for payload in events
+    )

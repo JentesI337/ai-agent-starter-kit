@@ -35,11 +35,13 @@ uvicorn app.main:app --reload --port 8000
 {
 	"type": "user_message",
 	"content": "Build me an API agent",
-	"agent_id": "head-coder",
+	"agent_id": "head-agent",
 	"model": "llama3.3:70b-instruct-q4_K_M",
 	"session_id": "optional-stable-session-id"
 }
 ```
+
+Available agent IDs: `head-agent` and `coder-agent` (`head-coder` is still accepted as legacy alias).
 
 The server streams progress messages (`status`, `agent_step`, `token`, `final`, `error`, `lifecycle`).
 
@@ -83,7 +85,7 @@ Lifecycle `stage` examples:
 - Memory context per session (`session_id`) with rolling window, persisted in `MEMORY_PERSIST_DIR`.
 - Persisted session files are automatically trimmed to `MEMORY_MAX_ITEMS` entries.
 - External run state persistence in `ORCHESTRATOR_STATE_DIR` with per-run JSON and summary snapshots.
-- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`.
+- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`.
 - Execution model: Plan -> Execute tools -> Review/final response.
 - Guardrails: empty/oversized input and invalid model/session values are blocked and returned as `error` events.
 - Tool selection is validated; malformed JSON or invalid actions are reported as lifecycle/error events (no silent fallback).
@@ -91,10 +93,10 @@ Lifecycle `stage` examples:
 ## Refactoring status
 
 - Contract layer introduced (`app/contracts`).
-- Head agent is consumed through adapter (`app/agents/head_coder_adapter.py`).
+- Head agent is consumed through adapter (`app/agents/head_agent_adapter.py`).
 - Transport delegates execution via orchestrator interface (`app/interfaces/orchestrator_api.py`).
 - Deterministic pipeline runner scaffold added (`app/orchestrator/pipeline_runner.py`).
 - Hard context-budget reduction per step added (`app/state/context_reducer.py`).
 - Model capability profiles and registry added (`app/model_routing`).
 - Centralized model router with fallback chain added (`app/model_routing/router.py`) and executed in orchestrator runner.
-- Head flow split into contract agents (`planner`, `tool_selector`, `synthesizer`) orchestrated deterministically in `HeadCodingAgent`.
+- Head flow split into contract agents (`planner`, `tool_selector`, `synthesizer`) orchestrated deterministically in `HeadAgent`.
