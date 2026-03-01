@@ -111,8 +111,14 @@
 .controls {
   display: grid;
   gap: 8px;
-  grid-template-columns: 220px 220px auto 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: end;
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 label {
@@ -138,7 +144,6 @@ input {
 }
 
 button {
-  justify-self: end;
   padding: 8px 14px;
   border: none;
   border-radius: 8px;

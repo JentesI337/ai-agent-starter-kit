@@ -3,7 +3,7 @@ import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
-import { AgentSocketEvent, AgentSocketService } from '../services/agent-socket.service';
+import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
 import { AgentsService } from '../services/agents.service';
 
 interface ChatLine {
@@ -26,6 +26,8 @@ interface LifecycleLine {
 })
 export class ChatPageComponent implements OnInit, OnDestroy {
   input = '';
+  toolAllowInput = '';
+  toolDenyInput = '';
   model = '';
   runtimeTarget: 'local' | 'api' = 'local';
   firstRunChoicePending = false;
@@ -131,10 +133,12 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.lines.push({ role: 'user', text: content });
 
     try {
+      const toolPolicy = this.buildToolPolicyPayload();
       this.socketService.sendUserMessage(content, {
         agentId: this.selectedAgentId,
         model: this.model.trim() || undefined,
         sessionId: this.sessionId || undefined,
+        toolPolicy,
       });
       this.lines.push({ role: 'system', text: 'Agent is working...' });
       this.pushLifecycle('frontend_send', 'Message sent to websocket', {
@@ -142,12 +146,51 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         agent: this.selectedAgentId,
         model: this.model.trim() || '(default)',
         sessionId: this.sessionId || '(new)',
+        toolPolicy,
       });
       this.activeAssistantIndex = null;
       this.input = '';
     } catch (error) {
       this.lines.push({ role: 'system', text: `Send failed: ${(error as Error).message}` });
       this.pushLifecycle('frontend_send_failed', 'Message send failed', {
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  spawnSubrun(): void {
+    if (this.firstRunChoicePending) {
+      this.lines.push({ role: 'system', text: 'Please choose local or api runtime first.' });
+      return;
+    }
+
+    const content = this.input.trim();
+    if (!content) {
+      return;
+    }
+
+    this.lines.push({ role: 'user', text: `[subrun] ${content}` });
+
+    try {
+      const toolPolicy = this.buildToolPolicyPayload();
+      this.socketService.sendSubrunSpawn(content, {
+        agentId: this.selectedAgentId,
+        model: this.model.trim() || undefined,
+        sessionId: this.sessionId || undefined,
+        toolPolicy,
+      });
+      this.lines.push({ role: 'system', text: 'Subrun accepted and running in background...' });
+      this.pushLifecycle('frontend_subrun_send', 'Subrun spawn sent to websocket', {
+        chars: content.length,
+        agent: this.selectedAgentId,
+        model: this.model.trim() || '(default)',
+        sessionId: this.sessionId || '(new)',
+        toolPolicy,
+      });
+      this.input = '';
+    } catch (error) {
+      this.lines.push({ role: 'system', text: `Subrun spawn failed: ${(error as Error).message}` });
+      this.pushLifecycle('frontend_subrun_send_failed', 'Subrun spawn failed', {
         error: (error as Error).message,
       });
     }
@@ -244,6 +287,19 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (event.type === 'subrun_status') {
+      const status = event.status ?? event.message ?? 'unknown';
+      this.lines.push({ role: 'system', text: `Subrun status: ${String(status)}` });
+      return;
+    }
+
+    if (event.type === 'subrun_announce') {
+      const status = String(event.status ?? 'unknown');
+      const result = String(event.result ?? event.message ?? '(not available)');
+      this.lines.push({ role: 'agent', text: `Subrun (${status}): ${result}` });
+      return;
+    }
+
     if (event.type === 'socket_raw') {
       this.pushLifecycle('socket_raw', event.message ?? 'socket_raw');
       return;
@@ -293,6 +349,25 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  private buildToolPolicyPayload(): ToolPolicyPayload | undefined {
+    const allow = this.parseCsvTools(this.toolAllowInput);
+    const deny = this.parseCsvTools(this.toolDenyInput);
+    if (allow.length === 0 && deny.length === 0) {
+      return undefined;
+    }
+    return {
+      allow: allow.length > 0 ? allow : undefined,
+      deny: deny.length > 0 ? deny : undefined,
+    };
+  }
+
+  private parseCsvTools(value: string): string[] {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+
   private describeEvent(event: AgentSocketEvent): string {
     if (event.type === 'lifecycle' && event.stage) {
       return event.stage;
@@ -314,6 +389,12 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
     if (event.type === 'runtime_switch_error') {
       return event.message ?? 'runtime_switch_error';
+    }
+    if (event.type === 'subrun_status') {
+      return `subrun_status ${event.status ?? 'unknown'}`;
+    }
+    if (event.type === 'subrun_announce') {
+      return `subrun_announce ${event.status ?? 'unknown'}`;
     }
     if (event.type === 'final') {
       return 'final';

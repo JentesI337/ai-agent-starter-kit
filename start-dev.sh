@@ -5,6 +5,7 @@ LLM_PORT="${LLM_PORT:-11434}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-4200}"
 RUNTIME_MODE="${RUNTIME_MODE:-}"
+API_MODEL_CHOICE="${API_MODEL_CHOICE:-${API_MODEL:-}}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CLEANUP_SCRIPT="$ROOT_DIR/clean-dev.sh"
@@ -31,13 +32,64 @@ resolve_runtime_mode() {
 
   echo "Select runtime mode:"
   echo "1) local (70B)"
-  echo "2) api (minimax-m2:cloud)"
+  echo "2) api (cloud model selection)"
   read -r -p "Enter 1 or 2: " choice
   if [[ "$choice" == "2" ]]; then
     echo "api"
   else
     echo "local"
   fi
+}
+
+is_supported_api_model() {
+  local model="$1"
+  [[ "$model" == "minimax-m2:cloud" || "$model" == "gpt-oss:20b-cloud" || "$model" == "qwen3-coder:480b-cloud" ]]
+}
+
+resolve_api_model() {
+  local current_model="$1"
+
+  if [[ -n "$API_MODEL_CHOICE" ]]; then
+    if is_supported_api_model "$API_MODEL_CHOICE"; then
+      echo "$API_MODEL_CHOICE"
+      return
+    fi
+    echo "Unsupported API_MODEL_CHOICE/API_MODEL value: $API_MODEL_CHOICE" >&2
+    echo "Supported values: minimax-m2:cloud, gpt-oss:20b-cloud, qwen3-coder:480b-cloud" >&2
+    exit 1
+  fi
+
+  local default_model="minimax-m2:cloud"
+  if is_supported_api_model "$current_model"; then
+    default_model="$current_model"
+  fi
+
+  echo "Select API model:" >&2
+  echo "1) minimax-m2:cloud (small - very low cost)" >&2
+  echo "2) gpt-oss:20b-cloud (mid - mid cost)" >&2
+  echo "3) qwen3-coder:480b-cloud (high - high cost)" >&2
+  echo "Press Enter for default: $default_model" >&2
+
+  local choice
+  read -r -p "Enter 1, 2 or 3: " choice
+  case "$choice" in
+    1)
+      echo "minimax-m2:cloud"
+      ;;
+    2)
+      echo "gpt-oss:20b-cloud"
+      ;;
+    3)
+      echo "qwen3-coder:480b-cloud"
+      ;;
+    "")
+      echo "$default_model"
+      ;;
+    *)
+      echo "Invalid choice. Using default: $default_model" >&2
+      echo "$default_model"
+      ;;
+  esac
 }
 
 warn_root_venv_conflict() {
@@ -447,7 +499,7 @@ OLLAMA_BIN_PATH="$(ensure_ollama)"
 if [[ "$selected_runtime" == "local" ]]; then
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 else
-  step "API runtime selected - using local Ollama API with cloud model"
+  step "API runtime selected - using local Ollama API with selected cloud model"
   ensure_ollama_running "$LLM_PORT" "$OLLAMA_BIN_PATH"
 fi
 
@@ -456,8 +508,10 @@ ensure_python
 ensure_backend_env
 upsert_env_var "$ROOT_DIR/backend/.env" "OLLAMA_BIN" "$OLLAMA_BIN_PATH"
 if [[ "$selected_runtime" == "api" ]]; then
+  existing_api_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud")"
+  selected_api_model="$(resolve_api_model "$existing_api_model")"
   upsert_env_var "$ROOT_DIR/backend/.env" "API_BASE_URL" "http://localhost:$LLM_PORT/api"
-  upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "minimax-m2:cloud"
+  upsert_env_var "$ROOT_DIR/backend/.env" "API_MODEL" "$selected_api_model"
 fi
 
 local_model="$(get_env_or_default "$ROOT_DIR/backend/.env" "LOCAL_MODEL" "llama3.3:70b-instruct-q4_K_M")"

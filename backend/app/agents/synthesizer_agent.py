@@ -93,6 +93,7 @@ class SynthesizerAgent(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
     ) -> str:
         payload = SynthesizerInput.model_validate_json(user_message)
         result = await self.execute(

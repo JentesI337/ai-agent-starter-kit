@@ -23,6 +23,7 @@ class PipelineRunner:
         request_id: str,
         runtime: str,
         model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
     ) -> str:
         for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
             self.state_store.set_task_status(
@@ -65,6 +66,7 @@ class PipelineRunner:
             session_id=session_id,
             request_id=request_id,
             route=route,
+            tool_policy=tool_policy,
         )
 
         for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
@@ -85,6 +87,7 @@ class PipelineRunner:
         session_id: str,
         request_id: str,
         route,
+        tool_policy: dict[str, list[str]] | None,
     ) -> str:
         models = [route.primary_model, *route.fallback_models]
         last_error: Exception | None = None
@@ -115,6 +118,7 @@ class PipelineRunner:
                     session_id=session_id,
                     request_id=request_id,
                     model=candidate_model,
+                    tool_policy=tool_policy,
                 )
             except LlmClientError as exc:
                 last_error = exc

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
+from app.config import settings
 from app.state.snapshots import build_summary_snapshot
 from app.state.task_graph import TaskGraph
 
@@ -28,8 +30,11 @@ class StateStore:
         user_message: str,
         runtime: str,
         model: str,
+        meta: dict | None = None,
     ) -> dict:
         now = datetime.now(timezone.utc).isoformat()
+        transformed_message = self._transform_value(user_message)
+        transformed_meta = self._transform_value(meta or {})
         state = {
             "run_id": run_id,
             "session_id": session_id,
@@ -40,19 +45,38 @@ class StateStore:
             "created_at": now,
             "updated_at": now,
             "input": {
-                "user_message": user_message,
+                "user_message": transformed_message,
             },
             "task_graph": TaskGraph().to_dict(),
             "events": [],
             "error": None,
+            "meta": transformed_meta,
         }
         self._write_run(run_id, state)
         return state
 
+    def get_run(self, run_id: str) -> dict | None:
+        with self._lock:
+            try:
+                return self._read_run(run_id)
+            except FileNotFoundError:
+                return None
+
+    def list_runs(self, limit: int = 200) -> list[dict]:
+        items: list[dict] = []
+        for run_file in sorted(self.runs_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True):
+            if len(items) >= max(1, limit):
+                break
+            try:
+                items.append(json.loads(run_file.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return items
+
     def append_event(self, run_id: str, event: dict) -> dict:
         with self._lock:
             state = self._read_run(run_id)
-            state["events"].append(event)
+            state["events"].append(self._transform_value(event))
             state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._write_run(run_id, state)
             return state
@@ -95,11 +119,55 @@ class StateStore:
         with self._lock:
             state = self._read_run(run_id)
             state["status"] = "failed"
-            state["error"] = error
+            state["error"] = self._transform_value(error, key="error")
             state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._write_run(run_id, state)
             self._write_snapshot(run_id, state)
             return state
+
+    def _transform_value(self, value, key: str | None = None):
+        if isinstance(value, str):
+            return self._transform_string(value, key=key)
+        if isinstance(value, list):
+            return [self._transform_value(item, key=key) for item in value]
+        if isinstance(value, dict):
+            transformed: dict[str, object] = {}
+            for item_key, item in value.items():
+                normalized_key = str(item_key)
+                transformed[normalized_key] = self._transform_value(item, key=normalized_key)
+            return transformed
+        return value
+
+    def _transform_string(self, value: str, key: str | None = None) -> str:
+        text = value
+        if settings.persist_transform_redact_secrets:
+            if self._is_sensitive_key(key):
+                text = "[REDACTED]"
+            else:
+                text = self._redact_secret_like_values(text)
+
+        max_chars = max(64, int(settings.persist_transform_max_string_chars))
+        if len(text) > max_chars:
+            omitted = len(text) - max_chars
+            text = f"{text[:max_chars]}...[truncated:{omitted}]"
+        return text
+
+    def _is_sensitive_key(self, key: str | None) -> bool:
+        if not key:
+            return False
+        normalized = key.strip().lower()
+        markers = ("password", "secret", "token", "api_key", "apikey", "authorization", "auth")
+        return any(marker in normalized for marker in markers)
+
+    def _redact_secret_like_values(self, value: str) -> str:
+        text = value
+        text = re.sub(
+            r"(?i)(api[_-]?key|token|password|secret)\s*([:=])\s*([^\s,;\"']+)",
+            lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+            text,
+        )
+        text = re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
+        return text
 
     def _run_file(self, run_id: str) -> Path:
         return self.runs_dir / f"{run_id}.json"

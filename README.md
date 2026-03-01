@@ -44,9 +44,17 @@ Runtime mode selection:
 - Windows non-interactive: `./start-dev.ps1 -RuntimeMode local` or `./start-dev.ps1 -RuntimeMode api`
 - Linux/macOS non-interactive: `RUNTIME_MODE=local ./start-dev.sh` or `RUNTIME_MODE=api ./start-dev.sh`
 
+API model selection (when `api` runtime is selected):
+- Interactive prompt options:
+  - `minimax-m2:cloud` (small - very low cost)
+  - `gpt-oss:20b-cloud` (mid - mid cost)
+  - `qwen3-coder:480b-cloud` (high - high cost)
+- Windows non-interactive: `./start-dev.ps1 -RuntimeMode api -ApiModel minimax-m2:cloud` (or `gpt-oss:20b-cloud` / `qwen3-coder:480b-cloud`)
+- Linux/macOS non-interactive: `RUNTIME_MODE=api API_MODEL_CHOICE=minimax-m2:cloud ./start-dev.sh` (or `gpt-oss:20b-cloud` / `qwen3-coder:480b-cloud`)
+
 API runtime uses local Ollama API with cloud model naming:
 - Startup persists `API_BASE_URL=http://localhost:11434/api` in `backend/.env` for `api` mode
-- Startup persists `API_MODEL=minimax-m2:cloud` for `api` mode
+- Startup persists selected `API_MODEL` for `api` mode
 - No additional credential setup is required in-app
 
 What the scripts do:
@@ -127,7 +135,7 @@ Open `http://localhost:4200`.
 - `Chat` page:
   - sends `user_message` to `ws://localhost:8000/ws/agent`
   - includes minimal `agent` and `model` selection
-  - runtime switch (`local` 70B / `api` minimax-m2:cloud) with persisted preference
+  - runtime switch (`local` 70B / `api` selected cloud model) with persisted preference
   - auto-reconnects websocket if connection drops
   - receives live events: `status`, `agent_step`, `token`, `final`, `error`
 - `Agents` page:

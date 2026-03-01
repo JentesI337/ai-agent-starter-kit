@@ -5,6 +5,16 @@ import os
 load_dotenv()
 
 
+def _parse_csv_env(value: str, fallback: list[str]) -> list[str]:
+    entries = [item.strip() for item in (value or "").split(",") if item.strip()]
+    return entries or fallback
+
+
+def _parse_optional_csv_env(value: str | None) -> list[str] | None:
+    entries = [item.strip() for item in (value or "").split(",") if item.strip()]
+    return entries or None
+
+
 class Settings(BaseModel):
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
@@ -50,9 +60,39 @@ class Settings(BaseModel):
     max_user_message_length: int = int(os.getenv("MAX_USER_MESSAGE_LENGTH", "8000"))
     local_model: str = os.getenv("LOCAL_MODEL", os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M"))
     api_model: str = os.getenv("API_MODEL", "minimax-m2:cloud")
+    api_supported_models: list[str] = _parse_csv_env(
+        os.getenv("API_SUPPORTED_MODELS", "minimax-m2:cloud,gpt-oss:20b-cloud,qwen3-coder:480b-cloud"),
+        ["minimax-m2:cloud", "gpt-oss:20b-cloud", "qwen3-coder:480b-cloud"],
+    )
     api_base_url: str = os.getenv("API_BASE_URL", "http://localhost:11434/api")
     ollama_bin: str = os.getenv("OLLAMA_BIN", "")
     runtime_state_file: str = os.getenv("RUNTIME_STATE_FILE", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runtime_state.json")))
+    agent_tools_allow: list[str] | None = _parse_optional_csv_env(os.getenv("AGENT_TOOLS_ALLOW"))
+    agent_tools_deny: list[str] = _parse_csv_env(os.getenv("AGENT_TOOLS_DENY", ""), [])
+    subrun_max_concurrent: int = int(os.getenv("SUBRUN_MAX_CONCURRENT", "2"))
+    subrun_timeout_seconds: int = int(os.getenv("SUBRUN_TIMEOUT_SECONDS", "900"))
+    subrun_max_spawn_depth: int = int(os.getenv("SUBRUN_MAX_SPAWN_DEPTH", "2"))
+    subrun_max_children_per_parent: int = int(os.getenv("SUBRUN_MAX_CHILDREN_PER_PARENT", "5"))
+    subrun_announce_retry_max_attempts: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_ATTEMPTS", "5"))
+    subrun_announce_retry_base_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_BASE_DELAY_MS", "500"))
+    subrun_announce_retry_max_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_DELAY_MS", "10000"))
+    subrun_announce_retry_jitter: bool = os.getenv("SUBRUN_ANNOUNCE_RETRY_JITTER", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    session_lane_global_max_concurrent: int = int(os.getenv("SESSION_LANE_GLOBAL_MAX_CONCURRENT", "8"))
+    run_wait_default_timeout_ms: int = int(os.getenv("RUN_WAIT_DEFAULT_TIMEOUT_MS", "30000"))
+    run_wait_poll_interval_ms: int = int(os.getenv("RUN_WAIT_POLL_INTERVAL_MS", "200"))
+    session_visibility_default: str = os.getenv("SESSION_VISIBILITY_DEFAULT", "tree")
+    persist_transform_max_string_chars: int = int(os.getenv("PERSIST_TRANSFORM_MAX_STRING_CHARS", "8000"))
+    persist_transform_redact_secrets: bool = os.getenv("PERSIST_TRANSFORM_REDACT_SECRETS", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 settings = Settings()

@@ -61,7 +61,8 @@ Runtime switch messages:
 
 Runtime targets/models:
 - local: `LOCAL_MODEL` (default biggest local 70B)
-- api: `API_MODEL` defaults to `minimax-m2:cloud` (configurable via env)
+- api: `API_MODEL` defaults to `minimax-m2:cloud` and supports `gpt-oss:20b-cloud`, `qwen3-coder:480b-cloud`
+- optional: `API_SUPPORTED_MODELS` can define the supported API cloud-model list for backend status/config
 - optional: `OLLAMA_BIN` can be set if `ollama` is not on PATH.
 
 Lifecycle `stage` examples:

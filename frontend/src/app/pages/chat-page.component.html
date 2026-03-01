@@ -32,7 +32,7 @@
     <div class="first-run" *ngIf="firstRunChoicePending">
       <p>First run: choose your runtime mode.</p>
       <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
-      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (minimax-m2:cloud)</button>
+      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (selected cloud model)</button>
     </div>
 
     <div class="controls">
@@ -40,7 +40,7 @@
         Runtime
         <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
           <option value="local">local-70b</option>
-          <option value="api">api-minimax-m2:cloud</option>
+          <option value="api">api-cloud-model</option>
         </select>
       </label>
       <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
@@ -49,8 +49,19 @@
         Model
         <input [(ngModel)]="model" placeholder="llama70b model name" [disabled]="firstRunChoicePending" />
       </label>
+      <label>
+        Tool allow (CSV)
+        <input [(ngModel)]="toolAllowInput" placeholder="read_file,write_file" [disabled]="firstRunChoicePending" />
+      </label>
+      <label>
+        Tool deny (CSV)
+        <input [(ngModel)]="toolDenyInput" placeholder="run_command" [disabled]="firstRunChoicePending" />
+      </label>
     </div>
     <textarea [(ngModel)]="input" rows="3" placeholder="Describe what the head agent should build..."></textarea>
-    <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>
+    <div class="composer-actions">
+      <button class="secondary" (click)="spawnSubrun()" [disabled]="!isConnected || firstRunChoicePending">Spawn Subrun</button>
+      <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>
+    </div>
   </div>
 </section>

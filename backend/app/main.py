@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -14,6 +15,7 @@ from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, T
 from app.interfaces import OrchestratorApi, RequestContext
 from app.models import WsInboundMessage
 from app.orchestrator.events import build_lifecycle_event, classify_error
+from app.orchestrator.subrun_lane import SubrunLane
 from app.runtime_manager import RuntimeManager
 from app.state import StateStore
 
@@ -37,6 +39,22 @@ agent = HeadCoderAgentAdapter()
 runtime_manager = RuntimeManager()
 state_store = StateStore(persist_dir=settings.orchestrator_state_dir)
 orchestrator_api = OrchestratorApi(agent=agent, state_store=state_store)
+subrun_lane = SubrunLane(
+    orchestrator_api=orchestrator_api,
+    state_store=state_store,
+    max_concurrent=settings.subrun_max_concurrent,
+    max_spawn_depth=settings.subrun_max_spawn_depth,
+    max_children_per_parent=settings.subrun_max_children_per_parent,
+    announce_retry_max_attempts=settings.subrun_announce_retry_max_attempts,
+    announce_retry_base_delay_ms=settings.subrun_announce_retry_base_delay_ms,
+    announce_retry_max_delay_ms=settings.subrun_announce_retry_max_delay_ms,
+    announce_retry_jitter=settings.subrun_announce_retry_jitter,
+)
+active_run_tasks: dict[str, asyncio.Task] = {}
+
+
+def _remove_active_task(run_id: str) -> None:
+    active_run_tasks.pop(run_id, None)
 
 
 def _state_append_event_safe(run_id: str, event: dict) -> None:
@@ -63,6 +81,134 @@ def _state_mark_completed_safe(run_id: str) -> None:
 class AgentTestRequest(BaseModel):
     message: str = "hi"
     model: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+
+
+class RunStartRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    model: str | None = None
+    tool_policy: dict[str, list[str]] | None = None
+
+
+class KillAllSubrunsRequest(BaseModel):
+    parent_session_id: str | None = None
+    parent_request_id: str | None = None
+    cascade: bool = True
+    requester_session_id: str | None = None
+    visibility_scope: str | None = None
+
+
+def _normalize_visibility_scope(value: str | None) -> str:
+    scope = (value or settings.session_visibility_default or "tree").strip().lower()
+    if scope not in {"self", "tree", "agent", "all"}:
+        return "tree"
+    return scope
+
+
+def _enforce_subrun_visibility_or_403(run_id: str, requester_session_id: str | None, visibility_scope: str | None) -> dict:
+    scope = _normalize_visibility_scope(visibility_scope)
+    allowed, decision = subrun_lane.evaluate_visibility(
+        run_id,
+        requester_session_id=(requester_session_id or ""),
+        visibility_scope=scope,
+    )
+
+    _state_append_event_safe(
+        run_id=run_id,
+        event={
+            "type": "visibility_decision",
+            "decision": decision,
+        },
+    )
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail={"message": "Subrun visibility denied", "decision": decision})
+    return decision
+
+
+def _extract_final_message(run_state: dict) -> str | None:
+    events = run_state.get("events") or []
+    for event in reversed(events):
+        if event.get("type") == "final" and event.get("message"):
+            return event.get("message")
+    return None
+
+
+async def _run_background_message(
+    *,
+    run_id: str,
+    session_id: str,
+    message: str,
+    model: str | None,
+    tool_policy: dict[str, list[str]] | None,
+) -> None:
+    async def collect_event(payload: dict) -> None:
+        _state_append_event_safe(run_id=run_id, event=payload)
+
+    try:
+        state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="active")
+        _state_append_event_safe(
+            run_id=run_id,
+            event=build_lifecycle_event(
+                request_id=run_id,
+                session_id=session_id,
+                stage="processing_started",
+                details={},
+                agent=agent.name,
+            ),
+        )
+
+        runtime_state = runtime_manager.get_state()
+        selected_model = (model or "").strip() or runtime_state.model
+
+        agent.configure_runtime(
+            base_url=runtime_state.base_url,
+            model=runtime_state.model,
+        )
+
+        if runtime_state.runtime == "local":
+            selected_model = await runtime_manager.ensure_model_ready(collect_event, session_id, selected_model)
+        else:
+            selected_model = await runtime_manager.resolve_api_request_model(selected_model)
+
+        await orchestrator_api.run_user_message(
+            user_message=message,
+            send_event=collect_event,
+            request_context=RequestContext(
+                session_id=session_id,
+                request_id=run_id,
+                runtime=runtime_state.runtime,
+                model=selected_model,
+                tool_policy=tool_policy,
+            ),
+        )
+        _state_mark_completed_safe(run_id=run_id)
+        _state_append_event_safe(
+            run_id=run_id,
+            event=build_lifecycle_event(
+                request_id=run_id,
+                session_id=session_id,
+                stage="processing_completed",
+                details={},
+                agent=agent.name,
+            ),
+        )
+    except Exception as exc:
+        _state_mark_failed_safe(run_id=run_id, error=str(exc))
+        _state_append_event_safe(
+            run_id=run_id,
+            event=build_lifecycle_event(
+                request_id=run_id,
+                session_id=session_id,
+                stage="processing_failed",
+                details={"error": str(exc)},
+                agent=agent.name,
+            ),
+        )
+        logger.exception("background_run_failed run_id=%s session_id=%s", run_id, session_id)
+    finally:
+        _remove_active_task(run_id)
 
 
 @app.get("/api/agents")
@@ -88,6 +234,7 @@ async def get_runtime_status():
         "baseUrl": state.base_url,
         "model": state.model,
         "authenticated": runtime_manager.is_runtime_authenticated(),
+        "apiSupportedModels": settings.api_supported_models,
         "apiModelsAvailable": api_models["available"],
         "apiModelsCount": api_models["count"],
         "apiModelsError": api_models["error"],
@@ -153,6 +300,7 @@ async def test_agent(request: AgentTestRequest):
                 request_id=request_id,
                 runtime=runtime_state.runtime,
                 model=selected_model,
+                tool_policy=request.tool_policy,
             ),
         )
         _state_mark_completed_safe(run_id=request_id)
@@ -192,6 +340,170 @@ async def test_agent(request: AgentTestRequest):
         "requestId": request_id,
         "eventCount": len(events),
         "final": final_event.get("message") if final_event else None,
+    }
+
+
+@app.post("/api/runs/start")
+async def start_run(request: RunStartRequest):
+    runtime_state = runtime_manager.get_state()
+    run_id = str(uuid.uuid4())
+    session_id = request.session_id or str(uuid.uuid4())
+
+    state_store.init_run(
+        run_id=run_id,
+        session_id=session_id,
+        request_id=run_id,
+        user_message=request.message or "",
+        runtime=runtime_state.runtime,
+        model=request.model or runtime_state.model,
+        meta={"source": "rest", "async": True},
+    )
+    state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="pending")
+    _state_append_event_safe(
+        run_id=run_id,
+        event=build_lifecycle_event(
+            request_id=run_id,
+            session_id=session_id,
+            stage="accepted",
+            details={"source": "api", "chars": len(request.message or "")},
+            agent=agent.name,
+        ),
+    )
+
+    task = asyncio.create_task(
+        _run_background_message(
+            run_id=run_id,
+            session_id=session_id,
+            message=request.message,
+            model=request.model,
+            tool_policy=request.tool_policy,
+        )
+    )
+    active_run_tasks[run_id] = task
+
+    return {
+        "status": "accepted",
+        "runId": run_id,
+        "sessionId": session_id,
+    }
+
+
+@app.get("/api/runs/{run_id}/wait")
+async def wait_run(run_id: str, timeout_ms: int | None = None, poll_interval_ms: int | None = None):
+    run_state = state_store.get_run(run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    timeout = max(0, int(timeout_ms if timeout_ms is not None else settings.run_wait_default_timeout_ms))
+    poll = max(10, int(poll_interval_ms if poll_interval_ms is not None else settings.run_wait_poll_interval_ms))
+    elapsed = 0
+
+    while elapsed <= timeout:
+        run_state = state_store.get_run(run_id)
+        if run_state is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        status = run_state.get("status")
+        if status in {"completed", "failed"}:
+            return {
+                "status": "ok" if status == "completed" else "error",
+                "runId": run_id,
+                "runStatus": status,
+                "error": run_state.get("error"),
+                "final": _extract_final_message(run_state),
+            }
+
+        task = active_run_tasks.get(run_id)
+        if task and task.done():
+            refreshed = state_store.get_run(run_id)
+            return {
+                "status": "ok" if (refreshed or {}).get("status") == "completed" else "error",
+                "runId": run_id,
+                "runStatus": (refreshed or {}).get("status"),
+                "error": (refreshed or {}).get("error"),
+                "final": _extract_final_message(refreshed or {}),
+            }
+
+        await asyncio.sleep(poll / 1000.0)
+        elapsed += poll
+
+    return {
+        "status": "timeout",
+        "runId": run_id,
+        "runStatus": (state_store.get_run(run_id) or {}).get("status"),
+    }
+
+
+@app.get("/api/subruns")
+async def list_subruns(
+    parent_session_id: str | None = None,
+    parent_request_id: str | None = None,
+    requester_session_id: str | None = None,
+    visibility_scope: str | None = None,
+    limit: int = 100,
+):
+    scope = _normalize_visibility_scope(visibility_scope)
+    return {
+        "items": subrun_lane.list_runs(
+            parent_session_id=parent_session_id,
+            parent_request_id=parent_request_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=scope,
+            limit=limit,
+        ),
+        "visibility_scope": scope,
+        "requester_session_id": requester_session_id,
+    }
+
+
+@app.get("/api/subruns/{run_id}")
+async def get_subrun_info(run_id: str, requester_session_id: str, visibility_scope: str | None = None):
+    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
+    info = subrun_lane.get_info(run_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Subrun not found")
+    info["visibility_decision"] = decision
+    return info
+
+
+@app.get("/api/subruns/{run_id}/log")
+async def get_subrun_log(run_id: str, requester_session_id: str, visibility_scope: str | None = None):
+    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
+    log = subrun_lane.get_log(run_id)
+    if log is None:
+        raise HTTPException(status_code=404, detail="Subrun not found")
+    return {"runId": run_id, "events": log, "visibility_decision": decision}
+
+
+@app.post("/api/subruns/{run_id}/kill")
+async def kill_subrun(
+    run_id: str,
+    requester_session_id: str,
+    visibility_scope: str | None = None,
+    cascade: bool = True,
+):
+    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
+    killed = await subrun_lane.kill(run_id, cascade=cascade)
+    if not killed:
+        raise HTTPException(status_code=404, detail="Subrun not running or not found")
+    return {"runId": run_id, "killed": True, "cascade": cascade, "visibility_decision": decision}
+
+
+@app.post("/api/subruns/kill-all")
+async def kill_all_subruns(request: KillAllSubrunsRequest):
+    scope = _normalize_visibility_scope(request.visibility_scope)
+    killed_count = await subrun_lane.kill_all(
+        parent_session_id=request.parent_session_id,
+        parent_request_id=request.parent_request_id,
+        cascade=request.cascade,
+    )
+    return {
+        "killed": killed_count,
+        "parent_session_id": request.parent_session_id,
+        "parent_request_id": request.parent_request_id,
+        "cascade": request.cascade,
+        "requester_session_id": request.requester_session_id,
+        "visibility_scope": scope,
     }
 
 
@@ -318,6 +630,64 @@ async def agent_socket(websocket: WebSocket):
                     )
                     continue
 
+                if data.type == "subrun_spawn":
+                    runtime_state = runtime_manager.get_state()
+                    selected_model = (data.model or "").strip() or runtime_state.model
+                    if runtime_state.runtime == "local":
+                        selected_model = await runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
+                    else:
+                        selected_model = await runtime_manager.resolve_api_request_model(selected_model)
+
+                    try:
+                        run_id = await subrun_lane.spawn(
+                            parent_request_id=request_id,
+                            parent_session_id=session_id,
+                            user_message=data.content,
+                            runtime=runtime_state.runtime,
+                            model=selected_model,
+                            timeout_seconds=settings.subrun_timeout_seconds,
+                            tool_policy=data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None,
+                            send_event=send_event,
+                        )
+                    except GuardrailViolation as exc:
+                        _state_mark_failed_safe(run_id=request_id, error=str(exc))
+                        await send_event(
+                            {
+                                "type": "error",
+                                "agent": agent.name,
+                                "message": f"Subrun policy blocked request: {exc}",
+                                "error_category": classify_error(exc),
+                            }
+                        )
+                        await send_lifecycle(
+                            stage="subrun_rejected_policy",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"error": str(exc), "error_category": classify_error(exc)},
+                        )
+                        await send_lifecycle(
+                            stage="request_rejected_subrun_policy",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"error": str(exc), "error_category": classify_error(exc)},
+                        )
+                        continue
+
+                    await send_lifecycle(
+                        stage="subrun_accepted",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"subrun_id": run_id, "model": selected_model},
+                    )
+                    await send_lifecycle(
+                        stage="request_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"spawned_subrun_id": run_id},
+                    )
+                    _state_mark_completed_safe(run_id=request_id)
+                    continue
+
                 if data.type != "user_message":
                     await send_event(
                         {
@@ -413,6 +783,7 @@ async def agent_socket(websocket: WebSocket):
                         request_id=request_id,
                         runtime=runtime_state.runtime,
                         model=selected_model,
+                        tool_policy=data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None,
                     ),
                 )
                 logger.info(

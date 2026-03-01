@@ -9,3 +9,4 @@ class RequestContext:
     request_id: str
     runtime: str
     model: str
+    tool_policy: dict[str, list[str]] | None = None

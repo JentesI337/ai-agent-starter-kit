@@ -3,10 +3,13 @@ param(
     [int]$BackendPort = 8000,
     [int]$FrontendPort = 4200,
     [ValidateSet('local', 'api', '')]
-    [string]$RuntimeMode = ''
+    [string]$RuntimeMode = '',
+    [ValidateSet('', 'minimax-m2:cloud', 'gpt-oss:20b-cloud', 'qwen3-coder:480b-cloud')]
+    [string]$ApiModel = ''
 )
 
 $ErrorActionPreference = 'Stop'
+$SupportedApiModels = @('minimax-m2:cloud', 'gpt-oss:20b-cloud', 'qwen3-coder:480b-cloud')
 
 $cleanupScript = Join-Path $PSScriptRoot 'clean-dev.ps1'
 if (Test-Path $cleanupScript) {
@@ -25,12 +28,38 @@ function Resolve-RuntimeMode {
 
     Write-Host "Select runtime mode:" -ForegroundColor Cyan
     Write-Host "1) local (70B)"
-    Write-Host "2) api (minimax-m2:cloud)"
+    Write-Host "2) api (cloud model selection)"
     $choice = Read-Host "Enter 1 or 2"
     if ($choice -eq '2') {
         return 'api'
     }
     return 'local'
+}
+
+function Resolve-ApiModel([string]$CurrentApiModel) {
+    if ($ApiModel -and ($ApiModel -in $SupportedApiModels)) {
+        return $ApiModel
+    }
+
+    $defaultModel = if ($CurrentApiModel -in $SupportedApiModels) { $CurrentApiModel } else { 'minimax-m2:cloud' }
+
+    Write-Host "Select API model:" -ForegroundColor Cyan
+    Write-Host "1) minimax-m2:cloud (small - very low cost)"
+    Write-Host "2) gpt-oss:20b-cloud (mid - mid cost)"
+    Write-Host "3) qwen3-coder:480b-cloud (high - high cost)"
+    Write-Host "Press Enter for default: $defaultModel"
+
+    $choice = Read-Host "Enter 1, 2 or 3"
+    switch ($choice) {
+        '1' { return 'minimax-m2:cloud' }
+        '2' { return 'gpt-oss:20b-cloud' }
+        '3' { return 'qwen3-coder:480b-cloud' }
+        '' { return $defaultModel }
+        default {
+            Write-Host "Invalid choice. Using default: $defaultModel" -ForegroundColor Yellow
+            return $defaultModel
+        }
+    }
 }
 
 function Warn-RootVenvConflict {
@@ -426,7 +455,7 @@ if ($selectedRuntime -eq 'local') {
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 else {
-    Write-Step "API runtime selected - using local Ollama API with cloud model"
+    Write-Step "API runtime selected - using local Ollama API with selected cloud model"
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 
@@ -437,8 +466,10 @@ $envFilePath = Join-Path $backendDir '.env'
 Ensure-BackendEnv -Port $LlmPort
 Upsert-EnvVar -FilePath $envFilePath -Name 'OLLAMA_BIN' -Value $ollamaBinary
 if ($selectedRuntime -eq 'api') {
+    $existingApiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
+    $selectedApiModel = Resolve-ApiModel -CurrentApiModel $existingApiModel
     Upsert-EnvVar -FilePath $envFilePath -Name 'API_BASE_URL' -Value "http://localhost:$LlmPort/api"
-    Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value 'minimax-m2:cloud'
+    Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value $selectedApiModel
 }
 
 $localModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue 'llama3.3:70b-instruct-q4_K_M'

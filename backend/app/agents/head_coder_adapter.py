@@ -35,12 +35,14 @@ class HeadCoderAgentAdapter(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
     ) -> str:
         payload = self.input_schema(
             user_message=user_message,
             session_id=session_id,
             request_id=request_id,
             model=model,
+            tool_policy=tool_policy,
         )
         final_text = await self._delegate.run(
             payload.user_message,
@@ -48,6 +50,7 @@ class HeadCoderAgentAdapter(AgentContract):
             session_id=payload.session_id,
             request_id=payload.request_id,
             model=payload.model,
+            tool_policy=payload.tool_policy,
         )
         output = self.output_schema(final_text=final_text)
         return output.final_text

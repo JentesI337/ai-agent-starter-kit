@@ -6,7 +6,8 @@ from collections.abc import Awaitable, Callable
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import ToolSelectorInput, ToolSelectorOutput
 
-ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None], Awaitable[str]]
+ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str]], Awaitable[str]]
+DEFAULT_ALLOWED_TOOLS = {"list_dir", "read_file", "write_file", "run_command"}
 
 
 class ToolSelectorAgent(AgentContract):
@@ -39,6 +40,7 @@ class ToolSelectorAgent(AgentContract):
         request_id: str,
         send_event: SendEvent,
         model: str | None,
+        allowed_tools: set[str],
     ) -> ToolSelectorOutput:
         results = await self._execute_tools_fn(
             payload.user_message,
@@ -48,6 +50,7 @@ class ToolSelectorAgent(AgentContract):
             request_id,
             send_event,
             model,
+            allowed_tools,
         )
         return ToolSelectorOutput(tool_results=results)
 
@@ -58,6 +61,7 @@ class ToolSelectorAgent(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
     ) -> str:
         payload = ToolSelectorInput.model_validate_json(user_message)
         result = await self.execute(
@@ -66,5 +70,6 @@ class ToolSelectorAgent(AgentContract):
             request_id=request_id,
             send_event=send_event,
             model=model,
+            allowed_tools=set(DEFAULT_ALLOWED_TOOLS),
         )
         return json.dumps(result.model_dump(), ensure_ascii=False)

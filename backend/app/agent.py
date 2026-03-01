@@ -53,6 +53,15 @@ class ToolExecutionPolicy:
     max_retries: int
 
 
+@dataclass(frozen=True)
+class ReplyShapeResult:
+    text: str
+    suppressed: bool
+    reason: str | None
+    removed_tokens: list[str]
+    deduped_lines: int
+
+
 class HeadCodingAgent:
     def __init__(self):
         self.name = settings.agent_name
@@ -75,7 +84,11 @@ class HeadCodingAgent:
         self.model_registry = ModelRegistry()
         self.context_reducer = ContextReducer()
         self.tool_registry = self._build_tool_registry()
+        self._hooks: list[object] = []
         self._build_sub_agents()
+
+    def register_hook(self, hook: object) -> None:
+        self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
         self.planner_agent = PlannerAgent(client=self.client)
@@ -103,7 +116,12 @@ class HeadCodingAgent:
         session_id: str,
         request_id: str,
         model: str | None = None,
+        tool_policy: dict[str, list[str]] | None = None,
     ) -> str:
+        status = "failed"
+        error_text: str | None = None
+        final_text = ""
+
         await self._emit_lifecycle(
             send_event,
             stage="run_started",
@@ -112,169 +130,264 @@ class HeadCodingAgent:
             details={"model": model or self.client.model},
         )
 
-        self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
-        await self._emit_lifecycle(
-            send_event,
-            stage="guardrails_passed",
-            request_id=request_id,
-            session_id=session_id,
-        )
-
-        toolchain_ok, toolchain_details = self.tools.check_toolchain()
-        await self._emit_lifecycle(
-            send_event,
-            stage="toolchain_checked",
-            request_id=request_id,
-            session_id=session_id,
-            details=toolchain_details,
-        )
-        if not toolchain_ok:
-            raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
-
-        self.memory.add(session_id, "user", user_message)
-        model_id = model or self.client.model
-        profile = self.model_registry.resolve(model_id)
-        budgets = self._step_budgets(profile.max_context)
-        memory_items = self.memory.get_items(session_id)
-        memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
-
-        plan_context = self.context_reducer.reduce(
-            budget_tokens=budgets["plan"],
-            user_message=user_message,
-            memory_lines=memory_lines,
-            tool_outputs=[],
-        )
-        await self._emit_lifecycle(
-            send_event,
-            stage="memory_updated",
-            request_id=request_id,
-            session_id=session_id,
-            details={"memory_items": len(memory_items), "memory_chars": len(plan_context.rendered)},
-        )
-        await self._emit_lifecycle(
-            send_event,
-            stage="context_reduced",
-            request_id=request_id,
-            session_id=session_id,
-            details={
-                "model": model_id,
-                "max_context": profile.max_context,
-                "plan_budget": budgets["plan"],
-                "tool_budget": budgets["tool"],
-                "final_budget": budgets["final"],
-                "plan_used": plan_context.used_tokens,
-            },
-        )
-
-        await send_event(
-            {
-                "type": "status",
-                "agent": self.name,
-                "message": "Analyzing your request and planning execution.",
-            }
-        )
-
-        await self._emit_lifecycle(
-            send_event,
-            stage="planning_started",
-            request_id=request_id,
-            session_id=session_id,
-        )
-        plan_text = await self.plan_step_executor.execute(
-            PlannerInput(
-                user_message=user_message,
-                reduced_context=plan_context.rendered,
-            ),
-            model,
-        )
-        await self._emit_lifecycle(
-            send_event,
-            stage="planning_completed",
-            request_id=request_id,
-            session_id=session_id,
-            details={"plan_chars": len(plan_text)},
-        )
-        self.memory.add(session_id, "plan", plan_text)
-        await send_event(
-            {
-                "type": "agent_step",
-                "agent": self.name,
-                "step": f"Plan ready: {plan_text[:220]}",
-            }
-        )
-
-        tool_context = self.context_reducer.reduce(
-            budget_tokens=budgets["tool"],
-            user_message=user_message,
-            memory_lines=memory_lines,
-            tool_outputs=[plan_text],
-        )
-
-        tool_results = await self.tool_step_executor.execute(
-            ToolSelectorInput(
-                user_message=user_message,
-                plan_text=plan_text,
-                reduced_context=tool_context.rendered,
-            ),
-            session_id,
-            request_id,
-            send_event,
-            model,
-        )
-
-        await send_event(
-            {
-                "type": "agent_step",
-                "agent": self.name,
-                "step": "Reviewing results and building final response",
-            }
-        )
-
-        final_context = self.context_reducer.reduce(
-            budget_tokens=budgets["final"],
-            user_message=user_message,
-            memory_lines=memory_lines,
-            tool_outputs=[tool_results] if tool_results else [],
-            snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
-        )
-
-        final_text = await self.synthesize_step_executor.execute(
-            SynthesizerInput(
-                user_message=user_message,
-                plan_text=plan_text,
-                tool_results=tool_results or "",
-                reduced_context=final_context.rendered,
-            ),
-            session_id,
-            request_id,
-            send_event,
-            model,
-        )
-        sanitized_final = self._sanitize_final_response(final_text)
-        if sanitized_final != final_text:
+        try:
+            self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
+            self._validate_tool_policy(tool_policy)
             await self._emit_lifecycle(
                 send_event,
-                stage="final_sanitized",
+                stage="guardrails_passed",
                 request_id=request_id,
                 session_id=session_id,
-                details={"original_chars": len(final_text), "sanitized_chars": len(sanitized_final)},
             )
-        final_text = sanitized_final
-        self.memory.add(session_id, "assistant", final_text or "No output generated.")
-        await send_event(
-            {
-                "type": "final",
-                "agent": self.name,
-                "message": final_text or "No output generated.",
-            }
-        )
-        await self._emit_lifecycle(
-            send_event,
-            stage="run_completed",
-            request_id=request_id,
-            session_id=session_id,
-        )
-        return final_text
+
+            effective_allowed_tools = self._resolve_effective_allowed_tools(tool_policy)
+            await self._emit_lifecycle(
+                send_event,
+                stage="tool_policy_resolved",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "allowed": sorted(effective_allowed_tools),
+                    "requested_allow": sorted((tool_policy or {}).get("allow", [])),
+                    "requested_deny": sorted((tool_policy or {}).get("deny", [])),
+                },
+            )
+
+            toolchain_ok, toolchain_details = self.tools.check_toolchain()
+            await self._emit_lifecycle(
+                send_event,
+                stage="toolchain_checked",
+                request_id=request_id,
+                session_id=session_id,
+                details=toolchain_details,
+            )
+            if not toolchain_ok:
+                raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
+
+            self.memory.add(session_id, "user", user_message)
+            model_id = model or self.client.model
+            profile = self.model_registry.resolve(model_id)
+            budgets = self._step_budgets(profile.max_context)
+            memory_items = self.memory.get_items(session_id)
+            memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
+
+            plan_context = self.context_reducer.reduce(
+                budget_tokens=budgets["plan"],
+                user_message=user_message,
+                memory_lines=memory_lines,
+                tool_outputs=[],
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="memory_updated",
+                request_id=request_id,
+                session_id=session_id,
+                details={"memory_items": len(memory_items), "memory_chars": len(plan_context.rendered)},
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="context_reduced",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "model": model_id,
+                    "max_context": profile.max_context,
+                    "plan_budget": budgets["plan"],
+                    "tool_budget": budgets["tool"],
+                    "final_budget": budgets["final"],
+                    "plan_used": plan_context.used_tokens,
+                },
+            )
+
+            await self._invoke_hooks(
+                hook_name="before_prompt_build",
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                payload={
+                    "prompt_type": "planning",
+                    "model": model,
+                    "context_chars": len(plan_context.rendered),
+                    "budget_tokens": budgets["plan"],
+                },
+            )
+
+            await send_event(
+                {
+                    "type": "status",
+                    "agent": self.name,
+                    "message": "Analyzing your request and planning execution.",
+                }
+            )
+
+            await self._emit_lifecycle(
+                send_event,
+                stage="planning_started",
+                request_id=request_id,
+                session_id=session_id,
+            )
+            plan_text = await self.plan_step_executor.execute(
+                PlannerInput(
+                    user_message=user_message,
+                    reduced_context=plan_context.rendered,
+                ),
+                model,
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="planning_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"plan_chars": len(plan_text)},
+            )
+            self.memory.add(session_id, "plan", plan_text)
+            await send_event(
+                {
+                    "type": "agent_step",
+                    "agent": self.name,
+                    "step": f"Plan ready: {plan_text[:220]}",
+                }
+            )
+
+            tool_context = self.context_reducer.reduce(
+                budget_tokens=budgets["tool"],
+                user_message=user_message,
+                memory_lines=memory_lines,
+                tool_outputs=[plan_text],
+            )
+
+            tool_results = await self.tool_step_executor.execute(
+                ToolSelectorInput(
+                    user_message=user_message,
+                    plan_text=plan_text,
+                    reduced_context=tool_context.rendered,
+                ),
+                session_id,
+                request_id,
+                send_event,
+                model,
+                effective_allowed_tools,
+            )
+
+            await send_event(
+                {
+                    "type": "agent_step",
+                    "agent": self.name,
+                    "step": "Reviewing results and building final response",
+                }
+            )
+
+            final_context = self.context_reducer.reduce(
+                budget_tokens=budgets["final"],
+                user_message=user_message,
+                memory_lines=memory_lines,
+                tool_outputs=[tool_results] if tool_results else [],
+                snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
+            )
+
+            await self._invoke_hooks(
+                hook_name="before_prompt_build",
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                payload={
+                    "prompt_type": "synthesize",
+                    "model": model,
+                    "context_chars": len(final_context.rendered),
+                    "budget_tokens": budgets["final"],
+                },
+            )
+
+            final_text = await self.synthesize_step_executor.execute(
+                SynthesizerInput(
+                    user_message=user_message,
+                    plan_text=plan_text,
+                    tool_results=tool_results or "",
+                    reduced_context=final_context.rendered,
+                ),
+                session_id,
+                request_id,
+                send_event,
+                model,
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="reply_shaping_started",
+                request_id=request_id,
+                session_id=session_id,
+                details={"input_chars": len(final_text)},
+            )
+            shape_result = self._shape_final_response(final_text, tool_results)
+            if (
+                shape_result.removed_tokens
+                or shape_result.deduped_lines > 0
+                or shape_result.text != final_text
+                or shape_result.suppressed
+            ):
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="reply_shaping_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "original_chars": len(final_text),
+                        "shaped_chars": len(shape_result.text),
+                        "suppressed": shape_result.suppressed,
+                        "reason": shape_result.reason,
+                        "removed_tokens": shape_result.removed_tokens,
+                        "deduped_lines": shape_result.deduped_lines,
+                    },
+                )
+            final_text = shape_result.text
+
+            if shape_result.suppressed:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="reply_suppressed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"reason": shape_result.reason or "suppressed"},
+                )
+                await send_event(
+                    {
+                        "type": "status",
+                        "agent": self.name,
+                        "message": f"Reply suppressed by shaping: {shape_result.reason or 'suppressed'}",
+                    }
+                )
+            else:
+                self.memory.add(session_id, "assistant", final_text or "No output generated.")
+                await send_event(
+                    {
+                        "type": "final",
+                        "agent": self.name,
+                        "message": final_text or "No output generated.",
+                    }
+                )
+            await self._emit_lifecycle(
+                send_event,
+                stage="run_completed",
+                request_id=request_id,
+                session_id=session_id,
+            )
+            status = "completed"
+            return final_text
+        except Exception as exc:
+            error_text = str(exc)
+            raise
+        finally:
+            await self._invoke_hooks(
+                hook_name="agent_end",
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                payload={
+                    "status": status,
+                    "error": error_text,
+                    "final_chars": len(final_text),
+                    "model": model or self.client.model,
+                },
+            )
 
     async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:
         planner_output = await self.planner_agent.execute(payload, model=model)
@@ -287,6 +400,7 @@ class HeadCodingAgent:
         request_id: str,
         send_event: SendEvent,
         model: str | None,
+        allowed_tools: set[str],
     ) -> str:
         tool_output = await self.tool_selector_agent.execute(
             payload,
@@ -294,6 +408,7 @@ class HeadCodingAgent:
             request_id=request_id,
             send_event=send_event,
             model=model,
+            allowed_tools=allowed_tools,
         )
         return tool_output.tool_results
 
@@ -339,6 +454,51 @@ class HeadCodingAgent:
         if model and len(model) > 120:
             raise GuardrailViolation("model name too long.")
 
+    def _validate_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> None:
+        if tool_policy is None:
+            return
+        for key in ("allow", "deny"):
+            values = tool_policy.get(key)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                raise GuardrailViolation(f"tool_policy.{key} must be a list.")
+            if len(values) > 20:
+                raise GuardrailViolation(f"tool_policy.{key} too large (max 20).")
+            for item in values:
+                if not isinstance(item, str) or len(item.strip()) == 0 or len(item) > 80:
+                    raise GuardrailViolation(f"tool_policy.{key} contains invalid tool name.")
+
+    def _normalize_tool_set(self, values: list[str] | None) -> set[str] | None:
+        if values is None:
+            return None
+        normalized: set[str] = set()
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            candidate = self._normalize_tool_name(value)
+            if candidate in ALLOWED_TOOLS:
+                normalized.add(candidate)
+        return normalized
+
+    def _resolve_effective_allowed_tools(self, tool_policy: dict[str, list[str]] | None) -> set[str]:
+        base_allowed = set(ALLOWED_TOOLS)
+
+        config_allow = self._normalize_tool_set(settings.agent_tools_allow)
+        if config_allow is not None:
+            base_allowed &= config_allow
+
+        requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
+        if requested_allow is not None:
+            base_allowed &= requested_allow
+
+        deny_set = set()
+        deny_set |= self._normalize_tool_set(settings.agent_tools_deny) or set()
+        deny_set |= self._normalize_tool_set((tool_policy or {}).get("deny")) or set()
+
+        base_allowed -= deny_set
+        return base_allowed
+
     async def _execute_tools(
         self,
         user_message: str,
@@ -348,22 +508,47 @@ class HeadCodingAgent:
         request_id: str,
         send_event: SendEvent,
         model: str | None,
+        allowed_tools: set[str],
     ) -> str:
+        allowed_text = "|".join(sorted(allowed_tools)) if allowed_tools else "(none)"
         await self._emit_lifecycle(
             send_event,
             stage="tool_selection_started",
             request_id=request_id,
             session_id=session_id,
         )
+        if not allowed_tools:
+            await self._emit_lifecycle(
+                send_event,
+                stage="tool_selection_skipped",
+                request_id=request_id,
+                session_id=session_id,
+                details={"reason": "no_tools_allowed"},
+            )
+            return ""
+
+        await self._invoke_hooks(
+            hook_name="before_prompt_build",
+            send_event=send_event,
+            request_id=request_id,
+            session_id=session_id,
+            payload={
+                "prompt_type": "tool_selection",
+                "model": model,
+                "context_chars": len(memory_context),
+                "allowed_tools": sorted(allowed_tools),
+            },
+        )
+
         tool_selector_prompt = (
             "Choose up to 3 tool calls to support this coding task.\n"
             "Return strict JSON only in this schema:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command\",\"args\":{}}]}\n"
+            f"{{\"actions\":[{{\"tool\":\"{allowed_text}\",\"args\":{{}}}}]}}\n"
             "If no tool is needed return {\"actions\":[]}.\n"
             "For write_file include args path and content.\n"
             "For run_command include args command and optional cwd.\n\n"
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
-            "Allowed tool names are exactly: list_dir, read_file, write_file, run_command.\n\n"
+            f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}.\n\n"
             "Memory:\n"
             f"{memory_context}\n\n"
             "Task:\n"
@@ -435,7 +620,7 @@ class HeadCodingAgent:
                 }
             )
 
-        actions, rejected_count = self._validate_actions(actions)
+        actions, rejected_count = self._validate_actions(actions, allowed_tools)
 
         actions = await self._augment_actions_if_needed(
             actions=actions,
@@ -446,6 +631,7 @@ class HeadCodingAgent:
             request_id=request_id,
             session_id=session_id,
             model=model,
+            allowed_tools=allowed_tools,
         )
 
         if rejected_count > 0:
@@ -473,7 +659,7 @@ class HeadCodingAgent:
             if not isinstance(args, dict):
                 args = {}
 
-            evaluated_args, eval_error = self._evaluate_action(tool, args)
+            evaluated_args, eval_error = self._evaluate_action(tool, args, allowed_tools)
             if eval_error:
                 results.append(f"[{tool}] REJECTED: {eval_error}")
                 await send_event(
@@ -509,6 +695,18 @@ class HeadCodingAgent:
                 details={"tool": tool, "index": idx},
             )
 
+            await self._invoke_hooks(
+                hook_name="before_tool_call",
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                payload={
+                    "tool": tool,
+                    "args": dict(evaluated_args),
+                    "index": idx,
+                },
+            )
+
             try:
                 result = await self._run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
                 clipped = result[:6000]
@@ -520,6 +718,19 @@ class HeadCodingAgent:
                     request_id=request_id,
                     session_id=session_id,
                     details={"tool": tool, "index": idx, "result_chars": len(clipped)},
+                )
+                await self._invoke_hooks(
+                    hook_name="after_tool_call",
+                    send_event=send_event,
+                    request_id=request_id,
+                    session_id=session_id,
+                    payload={
+                        "tool": tool,
+                        "args": dict(evaluated_args),
+                        "index": idx,
+                        "status": "ok",
+                        "result_chars": len(clipped),
+                    },
                 )
             except ToolExecutionError as exc:
                 results.append(f"[{tool}] ERROR: {exc}")
@@ -537,6 +748,19 @@ class HeadCodingAgent:
                     session_id=session_id,
                     details={"tool": tool, "index": idx, "error": str(exc)},
                 )
+                await self._invoke_hooks(
+                    hook_name="after_tool_call",
+                    send_event=send_event,
+                    request_id=request_id,
+                    session_id=session_id,
+                    payload={
+                        "tool": tool,
+                        "args": dict(evaluated_args),
+                        "index": idx,
+                        "status": "error",
+                        "error": str(exc),
+                    },
+                )
 
         return "\n\n".join(results)
 
@@ -551,6 +775,7 @@ class HeadCodingAgent:
         request_id: str,
         session_id: str,
         model: str | None,
+        allowed_tools: set[str],
     ) -> list[dict]:
         if not self._is_file_creation_task(user_message):
             return actions
@@ -598,7 +823,7 @@ class HeadCodingAgent:
             )
             return actions
 
-        validated_followups, _ = self._validate_actions(followup_actions)
+        validated_followups, _ = self._validate_actions(followup_actions, allowed_tools)
         merged = actions + validated_followups
         deduped: list[dict] = []
         seen_keys: set[str] = set()
@@ -642,6 +867,79 @@ class HeadCodingAgent:
         sanitized = re.sub(r"\{\s*tool\s*=>.*?\}", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
         sanitized = re.sub(r"\n{3,}", "\n\n", sanitized).strip()
         return sanitized
+
+    def _shape_final_response(self, final_text: str, tool_results: str | None) -> ReplyShapeResult:
+        text = (final_text or "").strip()
+        removed_tokens: list[str] = []
+
+        for token in ("NO_REPLY", "ANNOUNCE_SKIP"):
+            if token in text:
+                removed_tokens.append(token)
+                text = text.replace(token, "")
+
+        text = self._sanitize_final_response(text)
+
+        deduped_lines = 0
+        lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+        if lines:
+            seen_tool_confirmation: set[str] = set()
+            shaped_lines: list[str] = []
+            tool_markers = tuple(sorted(self.tool_registry.keys()))
+            for line in lines:
+                lowered = line.lower()
+                is_tool_confirmation = (
+                    any(marker in lowered for marker in tool_markers)
+                    and any(keyword in lowered for keyword in ("done", "completed", "finished", "erfolgreich"))
+                )
+                if is_tool_confirmation:
+                    if lowered in seen_tool_confirmation:
+                        deduped_lines += 1
+                        continue
+                    seen_tool_confirmation.add(lowered)
+                shaped_lines.append(line)
+            text = "\n".join(shaped_lines).strip()
+
+        if tool_results:
+            compact = re.sub(r"\s+", " ", text.lower()).strip()
+            if compact in {
+                "done",
+                "done.",
+                "completed",
+                "completed.",
+                "ok",
+                "ok.",
+                "fertig",
+                "fertig.",
+            }:
+                return ReplyShapeResult(
+                    text="",
+                    suppressed=True,
+                    reason="irrelevant_ack_after_tools",
+                    removed_tokens=removed_tokens,
+                    deduped_lines=deduped_lines,
+                )
+
+        if not text:
+            reason = "empty_after_shaping"
+            if "NO_REPLY" in removed_tokens:
+                reason = "no_reply_token"
+            elif "ANNOUNCE_SKIP" in removed_tokens:
+                reason = "announce_skip_token"
+            return ReplyShapeResult(
+                text="",
+                suppressed=True,
+                reason=reason,
+                removed_tokens=removed_tokens,
+                deduped_lines=deduped_lines,
+            )
+
+        return ReplyShapeResult(
+            text=text,
+            suppressed=False,
+            reason=None,
+            removed_tokens=removed_tokens,
+            deduped_lines=deduped_lines,
+        )
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
         text = raw.strip()
@@ -688,7 +986,7 @@ class HeadCodingAgent:
             return text[:3000]
         return text[start : end + 1][:3000]
 
-    def _validate_actions(self, actions: list[dict]) -> tuple[list[dict], int]:
+    def _validate_actions(self, actions: list[dict], allowed_tools: set[str]) -> tuple[list[dict], int]:
         valid_actions: list[dict] = []
         rejected = 0
 
@@ -702,7 +1000,7 @@ class HeadCodingAgent:
                 rejected += 1
                 continue
             normalized_tool = self._normalize_tool_name(tool)
-            if normalized_tool not in ALLOWED_TOOLS:
+            if normalized_tool not in allowed_tools:
                 rejected += 1
                 continue
             if not isinstance(args, dict):
@@ -753,7 +1051,10 @@ class HeadCodingAgent:
             return TOOL_NAME_ALIASES[lowered]
         return normalized
 
-    def _evaluate_action(self, tool: str, args: dict) -> tuple[dict, str | None]:
+    def _evaluate_action(self, tool: str, args: dict, allowed_tools: set[str]) -> tuple[dict, str | None]:
+        if tool not in allowed_tools:
+            return {}, "tool is not allowed by active policy"
+
         spec = self.tool_registry.get(tool)
         if spec is None:
             return {}, "tool is not in registry"
@@ -889,3 +1190,40 @@ class HeadCodingAgent:
                 agent=self.name,
             )
         )
+
+    async def _invoke_hooks(
+        self,
+        *,
+        hook_name: str,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+        payload: dict,
+    ) -> None:
+        if not self._hooks:
+            return
+
+        for hook in list(self._hooks):
+            method = getattr(hook, hook_name, None)
+            if method is None:
+                continue
+
+            try:
+                maybe_result = method(payload)
+                if asyncio.iscoroutine(maybe_result):
+                    await maybe_result
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="hook_invoked",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"hook": type(hook).__name__, "name": hook_name},
+                )
+            except Exception as exc:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="hook_failed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"hook": type(hook).__name__, "name": hook_name, "error": str(exc)},
+                )

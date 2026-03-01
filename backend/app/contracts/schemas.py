@@ -8,6 +8,7 @@ class HeadCoderInput(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     request_id: str = Field(min_length=1)
     model: str | None = Field(default=None, max_length=120)
+    tool_policy: dict[str, list[str]] | None = None
 
 
 class HeadCoderOutput(BaseModel):
