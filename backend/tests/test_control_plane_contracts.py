@@ -1213,6 +1213,60 @@ def test_lifecycle_emits_tool_policy_decision(monkeypatch) -> None:
     assert "grep_search" in (details.get("resolved") or {}).get("deny", [])
 
 
+def test_lifecycle_emits_agent_depth_policy_applied(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "done",
+                "request_id": request_id,
+                "session_id": session_id,
+            }
+        )
+        return "done"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    client = TestClient(app)
+
+    start = client.post(
+        "/api/control/run.start",
+        json={
+            "message": "depth-policy-event",
+            "tool_policy": {
+                "allow": ["spawn_subrun", "read_file"],
+            },
+        },
+    )
+    assert start.status_code == 200
+    run_id = start.json()["runId"]
+
+    wait = client.post(
+        "/api/control/run.wait",
+        json={"run_id": run_id, "timeout_ms": 3000, "poll_interval_ms": 50},
+    )
+    assert wait.status_code == 200
+
+    run_state = state_store.get_run(run_id)
+    assert run_state is not None
+    lifecycle_events = [event for event in run_state.get("events", []) if event.get("type") == "lifecycle"]
+    depth_event = next((event for event in lifecycle_events if event.get("stage") == "agent_depth_policy_applied"), None)
+
+    assert depth_event is not None
+    details = depth_event.get("details") or {}
+    assert details.get("depth") == 0
+    assert details.get("agent_id") == "head-agent"
+    assert "resolved" in details
+    assert isinstance(details.get("depth_layer"), dict)
+
+
 def test_control_runs_get_returns_run_summary(monkeypatch) -> None:
     _set_local_runtime()
 

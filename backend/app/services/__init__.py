@@ -8,6 +8,7 @@ from app.services.control_fingerprints import (
     build_workflow_delete_fingerprint,
 )
 from app.services.session_query_service import SessionQueryService
+from app.services.policy_approval_service import PolicyApprovalService
 from app.services.tool_policy_service import (
     PRESET_TOOL_POLICIES,
     TOOL_POLICY_BY_MODEL,
@@ -32,6 +33,7 @@ __all__ = [
     "build_workflow_execute_fingerprint",
     "build_workflow_delete_fingerprint",
     "SessionQueryService",
+    "PolicyApprovalService",
     "PRESET_TOOL_POLICIES",
     "TOOL_PROFILES",
     "TOOL_POLICY_BY_PROVIDER",

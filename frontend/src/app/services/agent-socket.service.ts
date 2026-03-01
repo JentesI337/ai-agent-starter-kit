@@ -27,6 +27,15 @@ export interface AgentSocketEvent {
   notes?: string;
   stats?: Record<string, unknown>;
   usage?: unknown;
+  approval?: {
+    approval_id?: string;
+    tool?: string;
+    resource?: string;
+    display_text?: string;
+    options?: string[];
+    scope?: string;
+    status?: string;
+  };
 }
 
 export interface ToolPolicyPayload {

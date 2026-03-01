@@ -30,6 +30,8 @@ from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tools import AgentTooling
 
 SendEvent = Callable[[dict], Awaitable[None]]
+SpawnSubrunHandler = Callable[..., Awaitable[str]]
+PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
 
 
@@ -85,6 +87,8 @@ class HeadAgent:
         tools: AgentTooling | None = None,
         model_registry: ModelRegistry | None = None,
         context_reducer: ContextReducer | None = None,
+        spawn_subrun_handler: SpawnSubrunHandler | None = None,
+        policy_approval_handler: PolicyApprovalHandler | None = None,
     ):
         self.name = name or settings.agent_name
         self.role = role
@@ -111,6 +115,8 @@ class HeadAgent:
         )
         self.model_registry = model_registry or ModelRegistry()
         self.context_reducer = context_reducer or ContextReducer()
+        self._spawn_subrun_handler = spawn_subrun_handler
+        self._policy_approval_handler = policy_approval_handler
         self.tool_registry = self._build_tool_registry()
         self._hooks: list[object] = []
         self._build_sub_agents()
@@ -157,6 +163,12 @@ class HeadAgent:
         self.planner_agent.configure_runtime(base_url=base_url, model=model)
         self.tool_selector_agent.configure_runtime(base_url=base_url, model=model)
         self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
+
+    def set_spawn_subrun_handler(self, handler: SpawnSubrunHandler | None) -> None:
+        self._spawn_subrun_handler = handler
+
+    def set_policy_approval_handler(self, handler: PolicyApprovalHandler | None) -> None:
+        self._policy_approval_handler = handler
 
     async def run(
         self,
@@ -611,14 +623,15 @@ class HeadAgent:
         model: str | None,
         allowed_tools: set[str],
     ) -> str:
-        allowed_text = "|".join(sorted(allowed_tools)) if allowed_tools else "(none)"
+        effective_allowed_tools = set(allowed_tools)
+        allowed_text = "|".join(sorted(effective_allowed_tools)) if effective_allowed_tools else "(none)"
         await self._emit_lifecycle(
             send_event,
             stage="tool_selection_started",
             request_id=request_id,
             session_id=session_id,
         )
-        if not allowed_tools:
+        if not effective_allowed_tools:
             await self._emit_tool_selection_empty(
                 send_event=send_event,
                 request_id=request_id,
@@ -636,7 +649,18 @@ class HeadAgent:
             return ""
 
         intent_decision = self._detect_intent_gate(user_message)
-        if intent_decision.intent == "execute_command" and "run_command" not in allowed_tools:
+        if intent_decision.intent == "execute_command" and "run_command" not in effective_allowed_tools:
+            approved = await self._request_policy_override(
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                tool="run_command",
+                resource=(intent_decision.extracted_command or "(missing command)"),
+            )
+            if approved:
+                effective_allowed_tools.add("run_command")
+
+        if intent_decision.intent == "execute_command" and "run_command" not in effective_allowed_tools:
             blocked_message = (
                 "I can execute commands for you, but command execution is currently blocked by the active tool policy. "
                 "Please allow `run_command` (or switch to a coding-capable profile) and retry."
@@ -702,7 +726,7 @@ class HeadAgent:
                 "prompt_type": "tool_selection",
                 "model": model,
                 "context_chars": len(memory_context),
-                "allowed_tools": sorted(allowed_tools),
+                "allowed_tools": sorted(effective_allowed_tools),
             },
         )
 
@@ -716,13 +740,14 @@ class HeadAgent:
             "- write_file: path, content\n"
             "- apply_patch: path, search, replace, optional replace_all\n"
             "- run_command/start_background_command: command, optional cwd\n"
+            "- spawn_subrun: message, optional mode(run|session), optional agent_id, optional model, optional timeout_seconds, optional tool_policy\n"
             "- file_search: pattern, optional max_results\n"
             "- grep_search: query, optional include_pattern, optional is_regexp, optional max_results\n"
             "- list_code_usages: symbol, optional include_pattern, optional max_results\n"
             "- get_background_output/kill_background_process: job_id\n"
             "- web_fetch: url, optional max_chars\n\n"
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
-            f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}.\n\n"
+            f"Allowed tool names are exactly: {', '.join(sorted(effective_allowed_tools)) or 'none'}.\n\n"
             "Memory:\n"
             f"{memory_context}\n\n"
             "Task:\n"
@@ -794,7 +819,15 @@ class HeadAgent:
                 }
             )
 
-        actions, rejected_count = self._validate_actions(actions, allowed_tools)
+        effective_allowed_tools = await self._approve_blocked_process_tools_if_needed(
+            actions=actions,
+            allowed_tools=effective_allowed_tools,
+            send_event=send_event,
+            request_id=request_id,
+            session_id=session_id,
+        )
+
+        actions, rejected_count = self._validate_actions(actions, effective_allowed_tools)
 
         actions = await self._augment_actions_if_needed(
             actions=actions,
@@ -805,7 +838,7 @@ class HeadAgent:
             request_id=request_id,
             session_id=session_id,
             model=model,
-            allowed_tools=allowed_tools,
+            allowed_tools=effective_allowed_tools,
         )
 
         if not actions and intent_decision.intent == "execute_command" and intent_decision.confidence == "high":
@@ -944,7 +977,7 @@ class HeadAgent:
                 )
                 break
 
-            evaluated_args, eval_error = self._evaluate_action(tool, args, allowed_tools)
+            evaluated_args, eval_error = self._evaluate_action(tool, args, effective_allowed_tools)
             if eval_error:
                 results.append(f"[{tool}] REJECTED: {eval_error}")
                 await send_event(
@@ -1031,7 +1064,16 @@ class HeadAgent:
 
             try:
                 tool_started = monotonic()
-                result = await self._run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
+                if tool == "spawn_subrun":
+                    result = await self._invoke_spawn_subrun_tool(
+                        args=evaluated_args,
+                        send_event=send_event,
+                        session_id=session_id,
+                        request_id=request_id,
+                        model=model,
+                    )
+                else:
+                    result = await self._run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
                 tool_call_count += 1
                 tool_elapsed_ms = int((monotonic() - tool_started) * 1000)
                 clipped = result[:6000]
@@ -1222,22 +1264,28 @@ class HeadAgent:
             "execute",
             "start",
             "launch",
-            "build",
-            "test",
-            "compile",
             "führe",
             "starte",
-            "baue",
-            "teste",
         )
-        has_command_intent = bool(re.match(r"^\s*(please\s+)?(run|execute|start|launch|build|test|compile)\b", lowered))
-        has_command_intent = has_command_intent or "run command" in lowered or "execute command" in lowered
+        has_explicit_command_keyword = any(
+            marker in lowered
+            for marker in (
+                "run command",
+                "execute command",
+                "shell command",
+                "terminal command",
+                "befehl",
+                "kommando",
+            )
+        )
+        has_command_intent = bool(re.match(r"^\s*(please\s+)?(run|execute|start|launch)\b", lowered))
         has_command_intent = has_command_intent or any(lowered.startswith(f"{marker} ") for marker in command_markers)
+        has_command_intent = has_command_intent or has_explicit_command_keyword
         if not has_command_intent:
             return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
 
         extracted_command = self._extract_explicit_command(text)
-        if extracted_command:
+        if extracted_command and self._looks_like_shell_command(extracted_command):
             return IntentGateDecision(
                 intent="execute_command",
                 confidence="high",
@@ -1245,12 +1293,69 @@ class HeadAgent:
                 missing_slots=(),
             )
 
+        if extracted_command and not has_explicit_command_keyword:
+            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
+
         return IntentGateDecision(
             intent="execute_command",
             confidence="high",
             extracted_command=None,
             missing_slots=("command",),
         )
+
+    def _looks_like_shell_command(self, candidate: str) -> bool:
+        text = (candidate or "").strip()
+        if not text:
+            return False
+
+        if re.search(r"[|><=&;]", text):
+            return True
+        if text.startswith(("./", ".\\", "/", "~", "..\\", "../")):
+            return True
+        if "\\" in text or "/" in text:
+            return True
+
+        token = text.split()[0].strip().strip('"\'').lower()
+        if not token:
+            return False
+
+        common_commands = {
+            "python",
+            "python3",
+            "py",
+            "pip",
+            "pip3",
+            "pytest",
+            "npm",
+            "npx",
+            "node",
+            "pnpm",
+            "yarn",
+            "uv",
+            "poetry",
+            "git",
+            "make",
+            "cmake",
+            "docker",
+            "kubectl",
+            "powershell",
+            "pwsh",
+            "bash",
+            "sh",
+            "cmd",
+            "ls",
+            "dir",
+            "cat",
+            "type",
+            "echo",
+            "grep",
+            "find",
+            "sed",
+            "awk",
+            "curl",
+            "wget",
+        }
+        return token in common_commands
 
     def _extract_explicit_command(self, user_message: str) -> str | None:
         text = (user_message or "").strip()
@@ -1275,15 +1380,10 @@ class HeadAgent:
             "execute ",
             "start ",
             "launch ",
-            "build ",
-            "test ",
-            "compile ",
             "please run ",
             "please execute ",
             "führe ",
             "starte ",
-            "baue ",
-            "teste ",
         )
         for prefix in prefixes:
             if lowered.startswith(prefix):
@@ -1373,6 +1473,30 @@ class HeadAgent:
                         },
                     )
 
+        if self._is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
+            has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
+            if not has_spawn_subrun:
+                augmented_actions.append(
+                    {
+                        "tool": "spawn_subrun",
+                        "args": {
+                            "message": user_message.strip() or "Execute delegated orchestration task",
+                            "mode": "run",
+                            "agent_id": "head-agent",
+                        },
+                    }
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_selection_followup_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "reason": "orchestration_without_spawn_subrun",
+                        "added_tool": "spawn_subrun",
+                    },
+                )
+
         if not self._is_file_creation_task(user_message):
             return augmented_actions
 
@@ -1392,7 +1516,7 @@ class HeadAgent:
             "You previously selected tools for a task.\n"
             "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
             "Return strict JSON only:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
             "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
             "If still insufficient context, return {\"actions\":[]}\n\n"
             "Memory:\n"
@@ -1439,6 +1563,117 @@ class HeadAgent:
         )
         return deduped
 
+    async def _approve_blocked_process_tools_if_needed(
+        self,
+        *,
+        actions: list[dict],
+        allowed_tools: set[str],
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+    ) -> set[str]:
+        effective_allowed = set(allowed_tools)
+        process_tools = {"run_command", "spawn_subrun"}
+        reviewed: set[tuple[str, str]] = set()
+
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            raw_tool = action.get("tool")
+            if not isinstance(raw_tool, str):
+                continue
+            tool = self._normalize_tool_name(raw_tool)
+            if tool not in process_tools or tool in effective_allowed:
+                continue
+            args = action.get("args")
+            if not isinstance(args, dict):
+                continue
+
+            resource = ""
+            if tool == "run_command":
+                candidate = args.get("command")
+                if isinstance(candidate, str):
+                    resource = candidate.strip()
+            elif tool == "spawn_subrun":
+                candidate = args.get("message")
+                if isinstance(candidate, str):
+                    resource = candidate.strip()
+
+            if not resource:
+                continue
+
+            key = (tool, resource)
+            if key in reviewed:
+                continue
+            reviewed.add(key)
+
+            approved = await self._request_policy_override(
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                tool=tool,
+                resource=resource,
+            )
+            if approved:
+                effective_allowed.add(tool)
+
+        return effective_allowed
+
+    async def _request_policy_override(
+        self,
+        *,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        tool: str,
+        resource: str,
+    ) -> bool:
+        if self._policy_approval_handler is None:
+            return False
+
+        display_text = self._build_policy_approval_display_text(tool=tool, resource=resource)
+        try:
+            approved = await self._policy_approval_handler(
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                agent_name=self.name,
+                tool=tool,
+                resource=resource,
+                display_text=display_text,
+            )
+        except Exception:
+            approved = False
+
+        await self._emit_lifecycle(
+            send_event,
+            stage="policy_override_decision",
+            request_id=request_id,
+            session_id=session_id,
+            details={
+                "tool": tool,
+                "resource": resource[:500],
+                "approved": bool(approved),
+            },
+        )
+        return bool(approved)
+
+    def _build_policy_approval_display_text(self, *, tool: str, resource: str) -> str:
+        if tool == "run_command":
+            return (
+                f"Agent tries to run '{resource}' but is blocked because of policy restrictions. "
+                "Do you want to allow this command?"
+            )
+        if tool == "spawn_subrun":
+            return (
+                f"Agent tries to spawn subprocess '{resource}' but is blocked because of policy restrictions. "
+                "Do you want to allow this subprocess?"
+            )
+        return (
+            f"Agent tries to use '{tool}' with '{resource}' but is blocked because of policy restrictions. "
+            "Do you want to allow it for this run?"
+        )
+
     def _is_web_research_task(self, user_message: str) -> bool:
         text = (user_message or "").lower()
         markers = (
@@ -1455,6 +1690,22 @@ class HeadAgent:
             "find online",
             "web search",
             "internet",
+        )
+        return any(marker in text for marker in markers)
+
+    def _is_subrun_orchestration_task(self, user_message: str) -> bool:
+        text = (user_message or "").lower()
+        markers = (
+            "orchestrate",
+            "orchestration",
+            "delegate",
+            "delegation",
+            "spawn subrun",
+            "spawn subprocess",
+            "spawn sub process",
+            "parallel research",
+            "multi-agent",
+            "multi agent",
         )
         return any(marker in text for marker in markers)
 
@@ -1657,7 +1908,7 @@ class HeadAgent:
         repair_prompt = (
             "Convert the following tool-selection output into strict JSON only.\n"
             "Output schema:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
             "Rules:\n"
             "- Output only one JSON object.\n"
             "- No markdown and no explanations.\n"
@@ -1798,6 +2049,13 @@ class HeadAgent:
                 optional_args=("max_chars",),
                 timeout_seconds=20.0,
                 max_retries=1,
+            ),
+            "spawn_subrun": ToolSpec(
+                name="spawn_subrun",
+                required_args=("message",),
+                optional_args=("mode", "agent_id", "model", "timeout_seconds", "tool_policy"),
+                timeout_seconds=6.0,
+                max_retries=0,
             ),
         }
 
@@ -1971,6 +2229,59 @@ class HeadAgent:
             normalized_args["url"] = url
             normalized_args["max_chars"] = max_chars
 
+        if tool == "spawn_subrun":
+            message, err = _require_str("message", max_len=4000)
+            if err:
+                return {}, err
+            normalized_args["message"] = message
+
+            if "mode" in normalized_args:
+                mode, err = _require_str("mode", max_len=20)
+                if err:
+                    return {}, err
+                normalized_mode = (mode or "").strip().lower()
+                if normalized_mode not in {"run", "session"}:
+                    return {}, "argument 'mode' must be 'run' or 'session'"
+                normalized_args["mode"] = normalized_mode
+
+            if "agent_id" in normalized_args:
+                agent_id, err = _require_str("agent_id", max_len=120)
+                if err:
+                    return {}, err
+                normalized_args["agent_id"] = agent_id
+
+            if "model" in normalized_args:
+                model_name, err = _require_str("model", max_len=120)
+                if err:
+                    return {}, err
+                normalized_args["model"] = model_name
+
+            timeout_seconds, err = _optional_int("timeout_seconds", default=0, min_value=0, max_value=3600)
+            if err:
+                return {}, err
+            normalized_args["timeout_seconds"] = timeout_seconds
+
+            tool_policy = normalized_args.get("tool_policy")
+            if tool_policy is not None:
+                if not isinstance(tool_policy, dict):
+                    return {}, "argument 'tool_policy' must be an object"
+                normalized_policy: dict[str, list[str]] = {}
+                for policy_key in ("allow", "deny"):
+                    policy_values = tool_policy.get(policy_key)
+                    if policy_values is None:
+                        continue
+                    if not isinstance(policy_values, list):
+                        return {}, f"argument 'tool_policy.{policy_key}' must be a list"
+                    if len(policy_values) > 20:
+                        return {}, f"argument 'tool_policy.{policy_key}' too large"
+                    normalized_values: list[str] = []
+                    for policy_value in policy_values:
+                        if not isinstance(policy_value, str) or not policy_value.strip() or len(policy_value) > 80:
+                            return {}, f"argument 'tool_policy.{policy_key}' contains invalid tool name"
+                        normalized_values.append(policy_value.strip())
+                    normalized_policy[policy_key] = normalized_values
+                normalized_args["tool_policy"] = normalized_policy
+
         return normalized_args, None
 
     def _violates_command_policy(self, command: str) -> bool:
@@ -2023,6 +2334,44 @@ class HeadAgent:
         if isinstance(last_error, ToolExecutionError):
             raise last_error
         raise ToolExecutionError(f"Tool execution failed ({tool})")
+
+    async def _invoke_spawn_subrun_tool(
+        self,
+        *,
+        args: dict,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None,
+    ) -> str:
+        if self._spawn_subrun_handler is None:
+            raise ToolExecutionError("spawn_subrun is not configured for this runtime.")
+
+        message = str(args.get("message", "")).strip()
+        if not message:
+            raise ToolExecutionError("spawn_subrun requires non-empty 'message'.")
+
+        mode = str(args.get("mode") or "run").strip().lower() or "run"
+        agent_id = str(args.get("agent_id") or "head-agent").strip() or "head-agent"
+        child_model = str(args.get("model") or model or "").strip() or None
+        timeout_seconds = int(args.get("timeout_seconds") or 0)
+        child_policy = args.get("tool_policy")
+
+        if child_policy is not None and not isinstance(child_policy, dict):
+            raise ToolExecutionError("spawn_subrun 'tool_policy' must be an object.")
+
+        run_id = await self._spawn_subrun_handler(
+            parent_request_id=request_id,
+            parent_session_id=session_id,
+            user_message=message,
+            model=child_model,
+            timeout_seconds=timeout_seconds,
+            tool_policy=child_policy,
+            send_event=send_event,
+            agent_id=agent_id,
+            mode=mode,
+        )
+        return f"spawned_subrun_id={run_id} mode={mode} agent_id={agent_id}"
 
     def _is_retryable_tool_error(self, error: ToolExecutionError, retry_class: str) -> bool:
         if retry_class == "none":

@@ -3,7 +3,7 @@
 Thumbs.db
 
 # Python virtual environments
-.venv/
+.venv/*
 backend/.venv/
 
 # Python cache/artifacts
@@ -37,3 +37,4 @@ dist/
 # IDE
 .vscode/
 .idea/
+backend/.venv312/*

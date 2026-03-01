@@ -12,9 +12,11 @@ class RuntimeComponents:
     runtime_manager: Any
     state_store: Any
     session_query_service: Any
+    policy_approval_service: Any
     orchestrator_registry: dict[str, Any]
     custom_agent_store: Any
     custom_agent_ids: set[str] = field(default_factory=set)
+    custom_orchestrator_agent_ids: set[str] = field(default_factory=set)
     agent: Any | None = None
     orchestrator_api: Any | None = None
     subrun_lane: Any | None = None

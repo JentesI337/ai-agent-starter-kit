@@ -47,6 +47,7 @@ def build_workflow_create_fingerprint(
     base_agent_id: str,
     steps: list[str],
     tool_policy: dict[str, list[str]] | None,
+    allow_subrun_delegation: bool,
 ) -> str:
     payload = {
         "operation": operation,
@@ -56,6 +57,7 @@ def build_workflow_create_fingerprint(
         "base_agent_id": base_agent_id,
         "steps": steps,
         "tool_policy": tool_policy,
+        "allow_subrun_delegation": allow_subrun_delegation,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -68,6 +70,7 @@ def build_workflow_execute_fingerprint(
     model: str | None,
     preset: str | None,
     tool_policy: dict[str, list[str]] | None,
+    allow_subrun_delegation: bool,
     runtime: str,
 ) -> str:
     payload = {
@@ -78,6 +81,7 @@ def build_workflow_execute_fingerprint(
         "model": model,
         "preset": preset,
         "tool_policy": tool_policy,
+        "allow_subrun_delegation": allow_subrun_delegation,
         "runtime": runtime,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)

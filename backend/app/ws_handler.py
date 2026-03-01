@@ -87,6 +87,8 @@ class SubrunLaneLike(Protocol):
         send_event: AsyncSendEvent,
         agent_id: str,
         mode: str,
+        preset: str | None,
+        orchestrator_agent_ids: list[str] | None,
         orchestrator_api: OrchestratorLike,
     ) -> str: ...
 
@@ -106,7 +108,7 @@ class WsHandlerDependencies:
     subrun_lane: SubrunLaneLike
     sync_custom_agents: Callable[[], None]
     normalize_agent_id: Callable[[str | None], str]
-    resolve_tool_policy_with_preset: Callable[[str | None, ToolPolicy | None], tuple[ToolPolicy | None, str | None]]
+    effective_orchestrator_agent_ids: Callable[[], set[str]]
     looks_like_review_request: Callable[[str], bool]
     looks_like_coding_request: Callable[[str], bool]
     resolve_agent: Callable[[str | None], tuple[str, AgentLike, OrchestratorLike]]
@@ -233,7 +235,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     continue
 
                 incoming_tool_policy = data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None
-                resolved_tool_policy, applied_preset = deps.resolve_tool_policy_with_preset(data.preset, incoming_tool_policy)
+                applied_preset = (data.preset or "").strip().lower() or None
 
                 effective_agent_id = requested_agent_id
                 routing_reason: str | None = None
@@ -327,10 +329,12 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             runtime=runtime_state.runtime,
                             model=selected_model,
                             timeout_seconds=deps.settings.subrun_timeout_seconds,
-                            tool_policy=resolved_tool_policy,
+                            tool_policy=incoming_tool_policy,
                             send_event=send_event,
                             agent_id=spawn_agent_id,
                             mode=spawn_mode,
+                            preset=applied_preset,
+                            orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
                             orchestrator_api=spawn_orchestrator,
                         )
                     except GuardrailViolation as exc:
@@ -483,7 +487,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         request_id=request_id,
                         runtime=runtime_state.runtime,
                         model=selected_model,
-                        tool_policy=resolved_tool_policy,
+                        tool_policy=incoming_tool_policy,
+                        agent_id=resolved_agent_id,
+                        depth=0,
+                        preset=applied_preset,
+                        orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
                     ),
                 )
                 deps.logger.info(

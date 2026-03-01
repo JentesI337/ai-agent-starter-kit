@@ -14,6 +14,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "get_background_output",
     "kill_background_process",
     "web_fetch",
+    "spawn_subrun",
 )
 
 TOOL_NAME_SET: set[str] = set(TOOL_NAMES)
@@ -33,4 +34,5 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "getbackgroundoutput": "get_background_output",
     "killbackgroundprocess": "kill_background_process",
     "webfetch": "web_fetch",
+    "spawnsubrun": "spawn_subrun",
 }

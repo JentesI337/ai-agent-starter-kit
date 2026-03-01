@@ -313,6 +313,7 @@ class Settings(BaseModel):
         "yes",
         "on",
     }
+    policy_approval_wait_seconds: float = float(os.getenv("POLICY_APPROVAL_WAIT_SECONDS", "30"))
     session_lane_global_max_concurrent: int = int(os.getenv("SESSION_LANE_GLOBAL_MAX_CONCURRENT", "8"))
     run_wait_default_timeout_ms: int = int(os.getenv("RUN_WAIT_DEFAULT_TIMEOUT_MS", "30000"))
     run_wait_poll_interval_ms: int = int(os.getenv("RUN_WAIT_POLL_INTERVAL_MS", "200"))

@@ -22,6 +22,7 @@ PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
             "run_command",
             "start_background_command",
             "kill_background_process",
+            "spawn_subrun",
         ],
     },
     "review": {
@@ -40,6 +41,7 @@ PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
             "run_command",
             "start_background_command",
             "kill_background_process",
+            "spawn_subrun",
         ],
     },
 }
@@ -78,6 +80,7 @@ TOOL_PROFILES: dict[str, dict[str, list[str]]] = {
             "get_background_output",
             "kill_background_process",
             "web_fetch",
+            "spawn_subrun",
         ],
         "deny": [],
     },
@@ -97,6 +100,7 @@ TOOL_PROFILES: dict[str, dict[str, list[str]]] = {
             "run_command",
             "start_background_command",
             "kill_background_process",
+            "spawn_subrun",
         ],
     },
 }
@@ -134,6 +138,8 @@ TOOL_POLICY_BY_MODEL: dict[str, dict[str, list[str]]] = {
             "start_background_command",
             "get_background_output",
             "kill_background_process",
+            "spawn_subrun",
+            "web_fetch",
         ],
         "deny": [],
     },
@@ -207,6 +213,7 @@ def resolve_tool_policy(
     request_policy: dict[str, list[str]] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
+    orchestrator_agent_ids: list[str] | None = None,
 ) -> dict:
     normalized_profile = (profile or "").strip().lower() or None
     profile_policy = None
@@ -232,7 +239,22 @@ def resolve_tool_policy(
     normalized_model = (model or "").strip() or None
     model_policy = TOOL_POLICY_BY_MODEL.get(normalized_model) if normalized_model is not None else None
 
+    normalized_agent_id = (agent_id or "").strip().lower() or None
+    normalized_depth = int(depth) if depth is not None else None
+    effective_orchestrator_agent_ids = {
+        str(item).strip().lower()
+        for item in (orchestrator_agent_ids or settings.subrun_orchestrator_agent_ids or ["head-agent"])
+        if isinstance(item, str) and str(item).strip()
+    }
+    agent_depth_deny: set[str] = set()
+    if normalized_depth is not None and normalized_depth >= 2:
+        agent_depth_deny.add("spawn_subrun")
+    if normalized_depth is not None and normalized_agent_id and normalized_agent_id not in effective_orchestrator_agent_ids:
+        agent_depth_deny.add("spawn_subrun")
+
     agent_depth_policy = None
+    if agent_depth_deny:
+        agent_depth_policy = {"deny": sorted(agent_depth_deny)}
 
     merge_chain: list[tuple[str, str | None, dict[str, list[str]] | None]] = [
         (
@@ -249,7 +271,7 @@ def resolve_tool_policy(
         ("model", normalized_model, model_policy),
         (
             "agent_depth",
-            f"{(agent_id or '').strip().lower() or None}:{depth if depth is not None else None}",
+            f"{normalized_agent_id}:{normalized_depth}",
             agent_depth_policy,
         ),
         ("request", "inline", request_policy),

@@ -41,6 +41,7 @@ from app.routers import (
 from app.runtime_manager import RuntimeManager
 from app.services import (
     PRESET_TOOL_POLICIES,
+    PolicyApprovalService,
     TOOL_POLICY_BY_MODEL,
     TOOL_POLICY_BY_PROVIDER,
     TOOL_POLICY_RESOLUTION_ORDER,
@@ -58,7 +59,6 @@ from app.services import (
     normalize_policy_values,
     policy_payload,
     resolve_tool_policy,
-    resolve_tool_policy_with_preset,
 )
 from app.state import StateStore
 from app.ws_handler import WsHandlerDependencies, handle_ws_agent
@@ -184,6 +184,7 @@ def _build_runtime_components() -> RuntimeComponents:
     runtime = RuntimeManager()
     store = StateStore(persist_dir=settings.orchestrator_state_dir)
     query_service = SessionQueryService(state_store=store)
+    policy_approval_service = PolicyApprovalService()
     orchestrators: dict[str, OrchestratorApi] = {
         agent_id: OrchestratorApi(agent=agent_instance, state_store=store)
         for agent_id, agent_instance in base_agent_registry.items()
@@ -194,6 +195,7 @@ def _build_runtime_components() -> RuntimeComponents:
         runtime_manager=runtime,
         state_store=store,
         session_query_service=query_service,
+        policy_approval_service=policy_approval_service,
         orchestrator_registry=orchestrators,
         custom_agent_store=custom_store,
     )
@@ -214,8 +216,108 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         announce_retry_max_delay_ms=settings.subrun_announce_retry_max_delay_ms,
         announce_retry_jitter=settings.subrun_announce_retry_jitter,
         leaf_spawn_depth_guard_enabled=settings.subrun_leaf_spawn_depth_guard_enabled,
-        orchestrator_agent_ids=settings.subrun_orchestrator_agent_ids,
+        orchestrator_agent_ids=list(_effective_orchestrator_agent_ids(components)),
     )
+
+    async def _spawn_subrun_from_agent(
+        *,
+        parent_request_id: str,
+        parent_session_id: str,
+        user_message: str,
+        model: str | None,
+        timeout_seconds: int,
+        tool_policy: dict[str, list[str]] | None,
+        send_event,
+        agent_id: str,
+        mode: str,
+    ) -> str:
+        _sync_custom_agents(components)
+
+        runtime_state = components.runtime_manager.get_state()
+        selected_model = (model or "").strip() or runtime_state.model
+        if runtime_state.runtime == "local":
+            selected_model = await components.runtime_manager.ensure_model_ready(
+                send_event,
+                parent_session_id,
+                selected_model,
+            )
+        else:
+            selected_model = await components.runtime_manager.resolve_api_request_model(selected_model)
+
+        normalized_agent_id = _normalize_agent_id(agent_id)
+        selected_orchestrator = components.orchestrator_registry.get(normalized_agent_id)
+        if selected_orchestrator is None:
+            raise GuardrailViolation(f"Unsupported subrun agent: {agent_id}")
+
+        effective_timeout = max(0, int(timeout_seconds))
+        if effective_timeout == 0:
+            effective_timeout = int(settings.subrun_timeout_seconds)
+
+        return await components.subrun_lane.spawn(
+            parent_request_id=parent_request_id,
+            parent_session_id=parent_session_id,
+            user_message=user_message,
+            runtime=runtime_state.runtime,
+            model=selected_model,
+            timeout_seconds=effective_timeout,
+            tool_policy=tool_policy,
+            preset=None,
+            send_event=send_event,
+            agent_id=normalized_agent_id,
+            mode=mode,
+            orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
+            orchestrator_api=selected_orchestrator,
+        )
+
+    async def _request_policy_override_from_agent(
+        *,
+        send_event,
+        session_id: str,
+        request_id: str,
+        agent_name: str,
+        tool: str,
+        resource: str,
+        display_text: str,
+    ) -> bool:
+        approval = await components.policy_approval_service.create(
+            run_id=request_id,
+            session_id=session_id,
+            agent_name=agent_name,
+            tool=tool,
+            resource=resource,
+            display_text=display_text,
+        )
+
+        await send_event(
+            {
+                "type": "policy_approval_required",
+                "agent": agent_name,
+                "request_id": request_id,
+                "session_id": session_id,
+                "approval": {
+                    "approval_id": approval["approval_id"],
+                    "tool": tool,
+                    "resource": resource,
+                    "display_text": display_text,
+                    "options": ["allow"],
+                    "scope": "run_only",
+                    "status": "pending",
+                },
+            }
+        )
+
+        return await components.policy_approval_service.wait_for_allow(
+            approval_id=approval["approval_id"],
+            timeout_seconds=settings.policy_approval_wait_seconds,
+        )
+
+    for agent_instance in components.agent_registry.values():
+        set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
+        if callable(set_handler):
+            set_handler(_spawn_subrun_from_agent)
+        set_policy_handler = getattr(agent_instance, "set_policy_approval_handler", None)
+        if callable(set_policy_handler):
+            set_policy_handler(_request_policy_override_from_agent)
 
 
 _runtime_registry = LazyRuntimeRegistry(
@@ -238,6 +340,7 @@ agent_registry: MutableMapping[str, AgentContract] = LazyMappingProxy(
 runtime_manager = LazyObjectProxy(lambda: _get_runtime_components().runtime_manager)
 state_store = LazyObjectProxy(lambda: _get_runtime_components().state_store)
 session_query_service = LazyObjectProxy(lambda: _get_runtime_components().session_query_service)
+policy_approval_service = LazyObjectProxy(lambda: _get_runtime_components().policy_approval_service)
 orchestrator_registry: MutableMapping[str, OrchestratorApi] = LazyMappingProxy(
     lambda: _get_runtime_components().orchestrator_registry
 )
@@ -256,6 +359,7 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         components.orchestrator_registry.pop(custom_id, None)
 
     components.custom_agent_ids = set()
+    components.custom_orchestrator_agent_ids = set()
 
     definitions = components.custom_agent_store.list()
     for definition in definitions:
@@ -278,6 +382,29 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
             state_store=components.state_store,
         )
         components.custom_agent_ids.add(custom_id)
+        if bool(getattr(definition, "allow_subrun_delegation", False)):
+            components.custom_orchestrator_agent_ids.add(custom_id)
+
+    if components.subrun_lane is not None:
+        components.subrun_lane._orchestrator_agent_ids = _effective_orchestrator_agent_ids(components)
+
+
+def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = None) -> set[str]:
+    if components is None:
+        components = _get_runtime_components()
+
+    configured = {
+        str(item).strip().lower()
+        for item in (settings.subrun_orchestrator_agent_ids or [PRIMARY_AGENT_ID])
+        if isinstance(item, str) and str(item).strip()
+    }
+    configured.add(PRIMARY_AGENT_ID)
+    configured |= {
+        str(item).strip().lower()
+        for item in (components.custom_orchestrator_agent_ids or set())
+        if isinstance(item, str) and str(item).strip()
+    }
+    return configured
 active_run_tasks: dict[str, asyncio.Task] = {}
 idempotency_registry: dict[str, dict] = {}
 idempotency_lock = Lock()
@@ -582,6 +709,7 @@ class ControlWorkflowsCreateRequest(BaseModel):
     base_agent_id: str = PRIMARY_AGENT_ID
     steps: list[str] = Field(default_factory=list)
     tool_policy: dict[str, list[str]] | None = None
+    allow_subrun_delegation: bool = False
     idempotency_key: str | None = None
 
 
@@ -592,6 +720,7 @@ class ControlWorkflowsUpdateRequest(BaseModel):
     base_agent_id: str | None = None
     steps: list[str] | None = None
     tool_policy: dict[str, list[str]] | None = None
+    allow_subrun_delegation: bool | None = None
     idempotency_key: str | None = None
 
 
@@ -636,6 +765,16 @@ class ControlToolsPolicyPreviewRequest(BaseModel):
     model: str | None = None
     tool_policy: dict[str, list[str]] | None = None
     also_allow: list[str] | None = None
+
+
+class ControlPolicyApprovalsPendingRequest(BaseModel):
+    run_id: str | None = None
+    session_id: str | None = None
+    limit: int = 100
+
+
+class ControlPolicyApprovalsAllowRequest(BaseModel):
+    approval_id: str
 
 
 def _normalize_preset(value: str | None) -> str | None:
@@ -1178,13 +1317,6 @@ def _merge_tool_policy(
     return merge_tool_policy(base=base, incoming=incoming)
 
 
-def _resolve_tool_policy_with_preset(
-    preset: str | None,
-    incoming: dict[str, list[str]] | None,
-) -> tuple[dict[str, list[str]] | None, str | None]:
-    return resolve_tool_policy_with_preset(preset=preset, incoming=incoming)
-
-
 def _policy_payload(policy: dict[str, list[str]] | None) -> dict[str, list[str]]:
     return policy_payload(policy)
 
@@ -1198,6 +1330,7 @@ def _resolve_tool_policy(
     request_policy: dict[str, list[str]] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
+    orchestrator_agent_ids: list[str] | None = None,
 ) -> dict:
     return resolve_tool_policy(
         profile=profile,
@@ -1207,6 +1340,7 @@ def _resolve_tool_policy(
         request_policy=request_policy,
         agent_id=agent_id,
         depth=depth,
+        orchestrator_agent_ids=orchestrator_agent_ids,
     )
 
 
@@ -1360,6 +1494,7 @@ def _list_workflows_minimal(*, limit: int, base_agent_id: str | None = None) -> 
                 "id": definition.id,
                 "name": definition.name,
                 "base_agent_id": base_id,
+                "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
                 "version": _get_workflow_version(definition.id),
                 "steps": steps,
                 "step_count": len(steps),
@@ -1385,6 +1520,7 @@ def _get_workflow_minimal(*, workflow_id: str) -> dict:
             "name": definition.name,
             "description": definition.description,
             "base_agent_id": _normalize_agent_id(definition.base_agent_id),
+            "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
             "version": _get_workflow_version(definition.id),
             "steps": steps,
             "step_count": len(steps),
@@ -1472,6 +1608,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         base_agent_id=normalized_base_agent,
         steps=steps,
         tool_policy=request.tool_policy,
+        allow_subrun_delegation=bool(request.allow_subrun_delegation),
     )
     existing = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
     if existing is not None:
@@ -1485,6 +1622,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
             base_agent_id=normalized_base_agent,
             workflow_steps=steps,
             tool_policy=request.tool_policy,
+            allow_subrun_delegation=bool(request.allow_subrun_delegation),
         ),
         id_factory=lambda base_name: f"workflow-{base_name}-{str(uuid.uuid4())[:8]}",
     )
@@ -1499,6 +1637,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
             "name": created.name,
             "description": created.description,
             "base_agent_id": _normalize_agent_id(created.base_agent_id),
+            "allow_subrun_delegation": bool(getattr(created, "allow_subrun_delegation", False)),
             "version": _get_workflow_version(created.id),
             "steps": list(created.workflow_steps or []),
             "step_count": len(created.workflow_steps or []),
@@ -1546,6 +1685,11 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         resolved_steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
 
     resolved_tool_policy = existing.tool_policy if request.tool_policy is None else request.tool_policy
+    resolved_allow_subrun_delegation = (
+        bool(getattr(existing, "allow_subrun_delegation", False))
+        if request.allow_subrun_delegation is None
+        else bool(request.allow_subrun_delegation)
+    )
 
     idempotency_key = _normalize_idempotency_key(request.idempotency_key)
     fingerprint = _build_workflow_create_fingerprint(
@@ -1556,6 +1700,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         base_agent_id=normalized_base_agent,
         steps=resolved_steps,
         tool_policy=resolved_tool_policy,
+        allow_subrun_delegation=resolved_allow_subrun_delegation,
     )
     existing_response = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
     if existing_response is not None:
@@ -1569,6 +1714,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
             base_agent_id=normalized_base_agent,
             workflow_steps=resolved_steps,
             tool_policy=resolved_tool_policy,
+            allow_subrun_delegation=resolved_allow_subrun_delegation,
         )
     )
     _sync_custom_agents()
@@ -1582,6 +1728,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
             "name": updated.name,
             "description": updated.description,
             "base_agent_id": _normalize_agent_id(updated.base_agent_id),
+            "allow_subrun_delegation": bool(getattr(updated, "allow_subrun_delegation", False)),
             "version": next_version,
             "steps": list(updated.workflow_steps or []),
             "step_count": len(updated.workflow_steps or []),
@@ -1648,6 +1795,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         model=request.model,
         preset=request.preset,
         tool_policy=request.tool_policy,
+        allow_subrun_delegation=bool(getattr(workflow, "allow_subrun_delegation", False)),
         runtime=runtime_state.runtime,
     )
     existing = _find_idempotent_workflow_execute_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -1697,6 +1845,8 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
                 send_event=_noop_send_event,
                 agent_id=workflow_agent_id,
                 mode="run",
+                preset=request.preset,
+                orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
                 orchestrator_api=workflow_orchestrator,
             )
             info = subrun_lane.get_info(subrun_id) or {}
@@ -2027,6 +2177,7 @@ def _build_tools_policy_preview(
         request_policy=tool_policy,
         agent_id=resolved_agent_id,
         depth=0,
+        orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
     )
 
     merged_policy = resolved["merged_policy"]
@@ -2135,23 +2286,8 @@ async def _run_background_message(
 
     try:
         resolved_agent_id, selected_agent, selected_orchestrator = _resolve_agent(agent_id)
-        resolved_tool_policy, applied_preset = _resolve_tool_policy_with_preset(preset, tool_policy)
+        applied_preset = _normalize_preset(preset)
         state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="active")
-        _state_append_event_safe(
-            run_id=run_id,
-            event=build_lifecycle_event(
-                request_id=run_id,
-                session_id=session_id,
-                stage="tool_policy_decision",
-                details={
-                    "agent_id": resolved_agent_id,
-                    "preset": applied_preset,
-                    "requested": tool_policy or {},
-                    "resolved": resolved_tool_policy or {},
-                },
-                agent=selected_agent.name,
-            ),
-        )
         _state_append_event_safe(
             run_id=run_id,
             event=build_lifecycle_event(
@@ -2184,7 +2320,11 @@ async def _run_background_message(
                 request_id=run_id,
                 runtime=runtime_state.runtime,
                 model=selected_model,
-                tool_policy=resolved_tool_policy,
+                tool_policy=tool_policy,
+                agent_id=resolved_agent_id,
+                depth=0,
+                preset=applied_preset,
+                orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
             ),
         )
         _state_mark_completed_safe(run_id=run_id)
@@ -2363,7 +2503,7 @@ async def test_agent(request: AgentTestRequest):
         selected_model = await runtime_manager.resolve_api_request_model(selected_model)
 
     try:
-        resolved_tool_policy, applied_preset = _resolve_tool_policy_with_preset(request.preset, request.tool_policy)
+        applied_preset = _normalize_preset(request.preset)
         await orchestrator_api.run_user_message(
             user_message=request.message,
             send_event=collect_event,
@@ -2372,7 +2512,11 @@ async def test_agent(request: AgentTestRequest):
                 request_id=request_id,
                 runtime=runtime_state.runtime,
                 model=selected_model,
-                tool_policy=resolved_tool_policy,
+                tool_policy=request.tool_policy,
+                agent_id=PRIMARY_AGENT_ID,
+                depth=0,
+                preset=applied_preset,
+                orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
             ),
         )
         _state_mark_completed_safe(run_id=request_id)
@@ -2657,6 +2801,41 @@ def _api_control_tools_policy_preview(request_data: dict) -> dict:
     )
 
 
+async def _api_control_policy_approvals_pending(request_data: dict) -> dict:
+    request = ControlPolicyApprovalsPendingRequest.model_validate(request_data)
+    items = await policy_approval_service.list_pending(
+        run_id=request.run_id,
+        session_id=request.session_id,
+        limit=request.limit,
+    )
+    return {
+        "schema": "policy.approvals.pending.v1",
+        "items": items,
+        "count": len(items),
+    }
+
+
+async def _api_control_policy_approvals_allow(request_data: dict) -> dict:
+    request = ControlPolicyApprovalsAllowRequest.model_validate(request_data)
+    updated = await policy_approval_service.allow(request.approval_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    return {
+        "schema": "policy.approvals.allow.v1",
+        "approval": updated,
+    }
+
+
+@app.post("/api/control/policy-approvals.pending")
+async def control_policy_approvals_pending(request: dict) -> dict:
+    return await _api_control_policy_approvals_pending(request)
+
+
+@app.post("/api/control/policy-approvals.allow")
+async def control_policy_approvals_allow(request: dict) -> dict:
+    return await _api_control_policy_approvals_allow(request)
+
+
 app.include_router(
     build_control_runs_router(
         run_start_handler=_api_control_run_start,
@@ -2831,7 +3010,7 @@ ws_handler_dependencies = WsHandlerDependencies(
     subrun_lane=subrun_lane,
     sync_custom_agents=_sync_custom_agents,
     normalize_agent_id=_normalize_agent_id,
-    resolve_tool_policy_with_preset=_resolve_tool_policy_with_preset,
+    effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
     looks_like_review_request=_looks_like_review_request,
     looks_like_coding_request=_looks_like_coding_request,
     resolve_agent=_resolve_agent,

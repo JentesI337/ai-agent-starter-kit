@@ -106,10 +106,12 @@ Kern-Agent mit deterministischem Ablauf:
 Aktueller Refactor-Stand:
 - Konstruktor unterstützt optionale Dependency Injection (`LlmClient`, `MemoryStore`, `AgentTooling`, `ModelRegistry`, `ContextReducer`).
 - `configure_runtime()` re-konfiguriert Sub-Agents in-place statt vollständigem Rebuild.
+- Native Delegations-Fähigkeit über Tool `spawn_subrun` (mit Guardrails/Policy) zur direkten Child-Run-Erzeugung aus dem Agentenlauf.
 
 ### 4.4 `app.interfaces.orchestrator_api` + `app.orchestrator.pipeline_runner`
 
 - `OrchestratorApi` serialisiert/koordiniert pro Session über `SessionLaneManager`.
+- `OrchestratorApi` löst Tool-Policy kontextsensitiv (provider/model/agent/depth/request) auf und emittiert Lifecycle-Event `agent_depth_policy_applied`.
 - `PipelineRunner` setzt Task-Status je Pipeline-Schritt, routed Modelle, führt Fallbacks aus.
 
 ### 4.5 `app.orchestrator.subrun_lane`
@@ -206,6 +208,10 @@ Reihenfolge:
 6. agent_depth
 7. request
 
+Praktische Wirkung von `agent_depth`:
+- Nicht-orchestrierende Agenten bzw. tiefe Delegationsstufen (`depth >= 2`) erhalten `spawn_subrun` effektiv per `deny` entzogen (worker-only Verhalten).
+- Top-Level Head-Agent-Runs (`depth = 0`) behalten Delegationsfähigkeit gemäß übriger Policy-Layer.
+
 Regel bei Konflikten:
 - `deny` überschreibt `allow`.
 
@@ -245,6 +251,7 @@ Routing:
 Beobachtbarkeit:
 - Strukturierte Logs für WS, Runtime-Switch, Fehlerpfade, Shutdown-Cleanup.
 - Lifecycle-Events als durchgehender Audit-/Status-Stream.
+- Zusätzliche Lifecycle-Sichtbarkeit für Depth-Policy-Entscheidungen über `agent_depth_policy_applied` (inkl. requested/resolved/depth-layer Details).
 
 Teststatus (Kernsuiten):
 - `tests/test_control_plane_contracts.py`

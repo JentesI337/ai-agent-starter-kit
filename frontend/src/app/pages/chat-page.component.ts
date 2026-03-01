@@ -10,6 +10,7 @@ import {
   CustomAgentDefinition,
   CreateCustomAgentPayload,
   MonitoringSchema,
+  PolicyApprovalRecord,
   PresetDescriptor,
   RunsAuditResponse,
 } from '../services/agents.service';
@@ -54,6 +55,21 @@ interface ReasonEntry {
   count: number;
 }
 
+interface PolicyApprovalItem {
+  approvalId: string;
+  runId: string;
+  sessionId: string;
+  agentName: string;
+  tool: string;
+  resource: string;
+  displayText: string;
+  options: string[];
+  selectedOption: string;
+  status: 'pending' | 'approved' | 'expired';
+  createdAt: string;
+  updatedAt: string;
+}
+
 @Component({
   selector: 'app-chat-page',
   standalone: true,
@@ -92,6 +108,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   runAuditLoading = false;
   runAuditError = '';
   runAuditLastRunId = '';
+  policyApprovals: PolicyApprovalItem[] = [];
   agentActivities: AgentActivity[] = [];
   requestActivities: RequestActivity[] = [];
   monitorAgentFilter = 'all';
@@ -104,6 +121,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
   private readonly agentActivityMap = new Map<string, AgentActivity>();
   private readonly requestActivityMap = new Map<string, RequestActivity>();
+  private readonly policyApprovalBusy = new Set<string>();
+  private approvalPollTimer: number | null = null;
+  private approvalPollInFlight = false;
+  private readonly approvalPollIntervalMs = 4000;
 
   constructor(
     private readonly socketService: AgentSocketService,
@@ -175,6 +196,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       },
     });
 
+    this.refreshPendingPolicyApprovals();
+
     this.subscriptions.add(
       this.socketService.connected$.subscribe((connected) => {
         this.isConnected = connected;
@@ -203,6 +226,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
+    this.stopApprovalPolling();
   }
 
   get selectedAgentTools(): string[] {
@@ -510,6 +534,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.runAuditError = '';
     this.runAuditLastRunId = '';
     this.runAuditLoading = false;
+    this.policyApprovals = [];
+    this.policyApprovalBusy.clear();
+    this.stopApprovalPolling();
     this.resetMonitoringFilters();
 
     this.lines.push({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
@@ -597,6 +624,38 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       const status = String(event.status ?? 'unknown');
       const result = String(event.result ?? event.message ?? '(not available)');
       this.lines.push({ role: 'agent', text: `Subrun (${status}): ${result}` });
+      return;
+    }
+
+    if (event.type === 'policy_approval_required') {
+      const approval = event.approval;
+      const approvalId = approval?.approval_id;
+      if (approvalId) {
+        const options = (approval?.options ?? ['allow']).map((item) => String(item).toLowerCase());
+        const selectedOption = options.includes('allow') ? 'allow' : options[0] || 'allow';
+        const existingIndex = this.policyApprovals.findIndex((item) => item.approvalId === approvalId);
+        const nextItem: PolicyApprovalItem = {
+          approvalId,
+          runId: String(event.request_id ?? ''),
+          sessionId: String(event.session_id ?? ''),
+          agentName: String(event.agent ?? this.selectedAgentId ?? 'agent'),
+          tool: String(approval?.tool ?? 'unknown'),
+          resource: String(approval?.resource ?? ''),
+          displayText: String(approval?.display_text ?? event.message ?? 'Approval required.'),
+          options,
+          selectedOption,
+          status: 'pending',
+          createdAt: event.ts ?? new Date().toISOString(),
+          updatedAt: event.ts ?? new Date().toISOString(),
+        };
+
+        if (existingIndex >= 0) {
+          this.policyApprovals[existingIndex] = nextItem;
+        } else {
+          this.policyApprovals.unshift(nextItem);
+        }
+        this.ensureApprovalPolling();
+      }
       return;
     }
 
@@ -821,6 +880,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     if (event.type === 'subrun_announce') {
       return `subrun_announce ${event.status ?? 'unknown'}`;
     }
+    if (event.type === 'policy_approval_required') {
+      return 'policy_approval_required';
+    }
     if (event.type === 'final') {
       return 'final';
     }
@@ -881,5 +943,121 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         }
         return a.key.localeCompare(b.key);
       });
+  }
+
+  allowPolicyApproval(item: PolicyApprovalItem): void {
+    if (!item?.approvalId || this.policyApprovalBusy.has(item.approvalId)) {
+      return;
+    }
+    if (item.selectedOption !== 'allow') {
+      return;
+    }
+
+    this.policyApprovalBusy.add(item.approvalId);
+    this.agentsService.allowPolicyApproval(item.approvalId).subscribe({
+      next: (payload) => {
+        const updated = this.mapPolicyApprovalRecord(payload.approval);
+        updated.selectedOption = 'allow';
+        const index = this.policyApprovals.findIndex((entry) => entry.approvalId === item.approvalId);
+        if (index >= 0) {
+          this.policyApprovals[index] = updated;
+        } else {
+          this.policyApprovals.unshift(updated);
+        }
+        this.lines.push({ role: 'system', text: `Policy override allowed for ${updated.tool}.` });
+        this.refreshPendingPolicyApprovals(true);
+        this.policyApprovalBusy.delete(item.approvalId);
+      },
+      error: (error) => {
+        this.lines.push({ role: 'system', text: `Allow failed: ${error?.error?.detail ?? error.message}` });
+        this.policyApprovalBusy.delete(item.approvalId);
+      },
+    });
+  }
+
+  isPolicyApprovalBusy(approvalId: string): boolean {
+    return this.policyApprovalBusy.has(approvalId);
+  }
+
+  refreshPendingPolicyApprovals(silent = false): void {
+    if (this.approvalPollInFlight) {
+      return;
+    }
+    this.approvalPollInFlight = true;
+
+    const runFilter = this.monitorRequestFilter.trim();
+    const payload = {
+      run_id: runFilter || undefined,
+      session_id: this.sessionId || undefined,
+      limit: 100,
+    };
+    this.agentsService.getPendingPolicyApprovals(payload).subscribe({
+      next: (response) => {
+        this.policyApprovals = response.items.map((item) => {
+          const mapped = this.mapPolicyApprovalRecord(item);
+          mapped.selectedOption = 'allow';
+          return mapped;
+        });
+        this.approvalPollInFlight = false;
+        this.ensureApprovalPolling();
+      },
+      error: (error) => {
+        this.approvalPollInFlight = false;
+        if (!silent) {
+          this.lines.push({ role: 'system', text: `Approval refresh failed: ${error?.error?.detail ?? error.message}` });
+        }
+      },
+    });
+  }
+
+  private ensureApprovalPolling(): void {
+    const hasPending = this.policyApprovals.some((item) => item.status === 'pending');
+    if (!hasPending) {
+      this.stopApprovalPolling();
+      return;
+    }
+
+    if (this.approvalPollTimer !== null) {
+      return;
+    }
+
+    this.approvalPollTimer = window.setInterval(() => {
+      if (!this.isConnected) {
+        return;
+      }
+      if (!this.policyApprovals.some((item) => item.status === 'pending')) {
+        this.stopApprovalPolling();
+        return;
+      }
+      this.refreshPendingPolicyApprovals(true);
+    }, this.approvalPollIntervalMs);
+  }
+
+  private stopApprovalPolling(): void {
+    if (this.approvalPollTimer !== null) {
+      window.clearInterval(this.approvalPollTimer);
+      this.approvalPollTimer = null;
+    }
+  }
+
+  private mapPolicyApprovalRecord(record: PolicyApprovalRecord): PolicyApprovalItem {
+    const normalizedStatus = String(record.status ?? 'pending').toLowerCase();
+    const status: 'pending' | 'approved' | 'expired' =
+      normalizedStatus === 'approved' ? 'approved' : normalizedStatus === 'expired' ? 'expired' : 'pending';
+
+    return {
+      approvalId: String(record.approval_id),
+      runId: String(record.run_id ?? ''),
+      sessionId: String(record.session_id ?? ''),
+      agentName: String(record.agent_name ?? 'agent'),
+      tool: String(record.tool ?? 'unknown'),
+      resource: String(record.resource ?? ''),
+      displayText: String(record.display_text ?? 'Approval required.'),
+      options: ['allow'],
+      selectedOption: 'allow',
+      status,
+      createdAt: String(record.created_at ?? new Date().toISOString()),
+      updatedAt: String(record.updated_at ?? new Date().toISOString()),
+    };
   }
 }

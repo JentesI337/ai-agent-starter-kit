@@ -135,6 +135,38 @@
   </div>
 
   <section class="panel composer">
+    <div class="policy-approvals" *ngIf="policyApprovals.length > 0">
+      <div class="composer-actions approvals-header">
+        <h3>Policy approvals</h3>
+        <button class="secondary" (click)="refreshPendingPolicyApprovals()">Refresh Pending</button>
+      </div>
+
+      <div class="approval-bubble" *ngFor="let item of policyApprovals | slice:0:20">
+        <div class="approval-meta">
+          <span>{{ item.agentName }}</span>
+          <span>{{ item.tool }}</span>
+          <span>{{ item.status }}</span>
+        </div>
+        <p>{{ item.displayText }}</p>
+
+        <div class="approval-actions" *ngIf="item.status === 'pending'; else resolvedApprovalState">
+          <select [(ngModel)]="item.selectedOption">
+            <option *ngFor="let option of item.options" [value]="option">{{ option }}</option>
+          </select>
+          <button
+            (click)="allowPolicyApproval(item)"
+            [disabled]="item.selectedOption !== 'allow' || isPolicyApprovalBusy(item.approvalId)"
+          >
+            {{ isPolicyApprovalBusy(item.approvalId) ? 'Allowing...' : 'Allow' }}
+          </button>
+        </div>
+
+        <ng-template #resolvedApprovalState>
+          <div class="trace-note">decision: {{ item.status }} · run_id: {{ item.runId || '-' }}</div>
+        </ng-template>
+      </div>
+    </div>
+
     <div class="first-run" *ngIf="firstRunChoicePending">
       <p>First run: choose your runtime mode.</p>
       <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>

@@ -17,6 +17,7 @@ class CustomAgentDefinition(BaseModel):
     base_agent_id: str = Field(default="head-agent", min_length=1, max_length=80)
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: dict[str, list[str]] | None = None
+    allow_subrun_delegation: bool = False
 
 
 class CustomAgentCreateRequest(BaseModel):
@@ -26,6 +27,7 @@ class CustomAgentCreateRequest(BaseModel):
     base_agent_id: str = Field(default="head-agent", min_length=1, max_length=80)
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: dict[str, list[str]] | None = None
+    allow_subrun_delegation: bool = False
 
 
 class CustomAgentAdapter(AgentContract):
@@ -147,6 +149,7 @@ class CustomAgentStore:
             base_agent_id=request.base_agent_id.strip().lower(),
             workflow_steps=[step.strip() for step in request.workflow_steps if isinstance(step, str) and step.strip()],
             tool_policy=request.tool_policy,
+            allow_subrun_delegation=bool(request.allow_subrun_delegation),
         )
         file_path = self.persist_dir / f"{definition.id}.json"
         file_path.write_text(

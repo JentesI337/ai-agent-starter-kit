@@ -220,6 +220,54 @@
   padding: 12px;
 }
 
+.policy-approvals {
+  display: grid;
+  gap: 8px;
+}
+
+.approvals-header {
+  align-items: center;
+}
+
+.approvals-header h3 {
+  margin: 0;
+  color: #ffe083;
+  font-size: 0.95rem;
+}
+
+.approval-bubble {
+  border: 1px solid rgba(255, 206, 72, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 206, 72, 0.08);
+  display: grid;
+  gap: 8px;
+}
+
+.approval-bubble p {
+  margin: 0;
+  color: #f8f1df;
+  font-size: 0.84rem;
+}
+
+.approval-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: #d7e6ff;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.approval-actions select {
+  min-width: 120px;
+}
+
 .first-run {
   border: 1px solid rgba(255, 206, 72, 0.4);
   border-radius: 10px;

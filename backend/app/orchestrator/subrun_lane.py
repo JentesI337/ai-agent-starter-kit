@@ -29,12 +29,14 @@ class SubrunSpec:
     runtime: str
     model: str
     tool_policy: dict[str, list[str]] | None
+    preset: str | None
     timeout_seconds: int
     depth: int
     parent_run_id: str | None
     root_run_id: str
     agent_id: str
     mode: str
+    orchestrator_agent_ids: list[str] | None
     orchestrator_api: OrchestratorApi
 
 
@@ -91,6 +93,8 @@ class SubrunLane:
         send_event: SendEvent,
         agent_id: str | None = None,
         mode: str | None = None,
+        preset: str | None = None,
+        orchestrator_agent_ids: list[str] | None = None,
         orchestrator_api: OrchestratorApi | None = None,
     ) -> str:
         run_id = str(uuid.uuid4())
@@ -133,12 +137,14 @@ class SubrunLane:
             runtime=runtime,
             model=model,
             tool_policy=tool_policy,
+            preset=(preset or "").strip().lower() or None,
             timeout_seconds=max(0, int(timeout_seconds)),
             depth=depth,
             parent_run_id=parent_run_id,
             root_run_id=root_run_id,
             agent_id=selected_agent_id,
             mode=selected_mode,
+            orchestrator_agent_ids=orchestrator_agent_ids,
             orchestrator_api=selected_orchestrator,
         )
 
@@ -611,6 +617,10 @@ class SubrunLane:
                 runtime=spec.runtime,
                 model=spec.model,
                 tool_policy=spec.tool_policy,
+                agent_id=spec.agent_id,
+                depth=spec.depth,
+                preset=spec.preset,
+                orchestrator_agent_ids=spec.orchestrator_agent_ids,
             ),
         )
 

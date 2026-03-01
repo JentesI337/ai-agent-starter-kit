@@ -34,6 +34,12 @@ class HeadAgentAdapter(AgentContract):
     def configure_runtime(self, base_url: str, model: str) -> None:
         self._delegate.configure_runtime(base_url=base_url, model=model)
 
+    def set_spawn_subrun_handler(self, handler) -> None:
+        self._delegate.set_spawn_subrun_handler(handler)
+
+    def set_policy_approval_handler(self, handler) -> None:
+        self._delegate.set_policy_approval_handler(handler)
+
     async def run(
         self,
         user_message: str,
@@ -77,6 +83,12 @@ class CoderAgentAdapter(AgentContract):
 
     def configure_runtime(self, base_url: str, model: str) -> None:
         self._delegate.configure_runtime(base_url=base_url, model=model)
+
+    def set_spawn_subrun_handler(self, handler) -> None:
+        self._delegate.set_spawn_subrun_handler(handler)
+
+    def set_policy_approval_handler(self, handler) -> None:
+        self._delegate.set_policy_approval_handler(handler)
 
     async def run(
         self,
@@ -129,6 +141,12 @@ class ReviewAgentAdapter(AgentContract):
 
     def configure_runtime(self, base_url: str, model: str) -> None:
         self._delegate.configure_runtime(base_url=base_url, model=model)
+
+    def set_spawn_subrun_handler(self, handler) -> None:
+        self._delegate.set_spawn_subrun_handler(handler)
+
+    def set_policy_approval_handler(self, handler) -> None:
+        self._delegate.set_policy_approval_handler(handler)
 
     def normalize_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
         return self._build_read_only_policy(tool_policy)

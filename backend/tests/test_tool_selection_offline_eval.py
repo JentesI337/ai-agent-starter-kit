@@ -22,6 +22,7 @@ FULL_TOOLS = {
     "get_background_output",
     "kill_background_process",
     "web_fetch",
+    "spawn_subrun",
 }
 
 
@@ -53,6 +54,74 @@ def test_evaluator_blocks_dangerous_run_command() -> None:
 
     assert evaluated_args == {}
     assert error == "command blocked by policy"
+
+
+def test_evaluator_validates_spawn_subrun_payload() -> None:
+    agent = HeadCodingAgent()
+
+    evaluated_args, error = agent._evaluate_action(
+        "spawn_subrun",
+        {
+            "message": "scan repo for migration risks",
+            "mode": "session",
+            "agent_id": "coder-agent",
+            "model": "minimax-m2:cloud",
+            "timeout_seconds": 45,
+            "tool_policy": {"allow": ["read_file"], "deny": ["write_file"]},
+        },
+        FULL_TOOLS,
+    )
+
+    assert error is None
+    assert evaluated_args["message"] == "scan repo for migration risks"
+    assert evaluated_args["mode"] == "session"
+    assert evaluated_args["agent_id"] == "coder-agent"
+    assert evaluated_args["timeout_seconds"] == 45
+
+
+def test_execute_tools_supports_spawn_subrun_tool(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":[{"tool":"spawn_subrun","args":'
+            '{"message":"analyze architecture","mode":"run","agent_id":"head-agent"}}]}'
+        )
+
+    async def fake_spawn_subrun_handler(**kwargs) -> str:
+        assert kwargs["parent_session_id"] == "s-subrun"
+        assert kwargs["parent_request_id"] == "r-subrun"
+        assert kwargs["user_message"] == "analyze architecture"
+        assert kwargs["mode"] == "run"
+        assert kwargs["agent_id"] == "head-agent"
+        return "subrun-123"
+
+    original_complete_chat = agent.client.complete_chat
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent.set_spawn_subrun_handler(fake_spawn_subrun_handler)
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="delegate a background architecture check",
+                plan_text="spawn helper",
+                memory_context="user: delegate",
+                session_id="s-subrun",
+                request_id="r-subrun",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"spawn_subrun"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+
+    assert "[spawn_subrun]" in result
+    assert "spawned_subrun_id=subrun-123" in result
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_completed" for evt in events)
 
 
 def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
@@ -315,6 +384,47 @@ def test_web_research_task_detection_positive() -> None:
     assert agent._is_web_research_task("can you search on the web for the best ai models?") is True
 
 
+def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
+    agent = HeadCodingAgent()
+
+    decision = agent._detect_intent_gate("build a big research report about llms and write it to markdown")
+
+    assert decision.intent is None
+    assert decision.extracted_command is None
+
+
+def test_augment_actions_adds_spawn_subrun_for_orchestration_request() -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    result_actions = asyncio.run(
+        agent._augment_actions_if_needed(
+            actions=[],
+            user_message="orchestrate a big parallel research about llms with authoritative sources",
+            plan_text="delegate deep research",
+            memory_context="- user: orchestrate deep research",
+            send_event=send_event,
+            request_id="r-subrun-followup",
+            session_id="s-subrun-followup",
+            model=None,
+            allowed_tools=FULL_TOOLS,
+        )
+    )
+
+    assert any(action.get("tool") == "spawn_subrun" for action in result_actions)
+    spawn_action = next(action for action in result_actions if action.get("tool") == "spawn_subrun")
+    assert str(spawn_action.get("args", {}).get("message", "")).startswith("orchestrate a big parallel research")
+    assert any(
+        payload.get("type") == "lifecycle"
+        and payload.get("stage") == "tool_selection_followup_completed"
+        and payload.get("details", {}).get("reason") == "orchestration_without_spawn_subrun"
+        for payload in events
+    )
+
+
 def test_augment_actions_adds_web_fetch_for_web_research() -> None:
     agent = HeadCodingAgent()
 
@@ -475,6 +585,104 @@ def test_execute_tools_blocks_when_command_slot_missing() -> None:
         evt.get("type") == "lifecycle"
         and evt.get("stage") == "tool_selection_empty"
         and evt.get("details", {}).get("reason") == "missing_slots"
+        for evt in events
+    )
+
+
+def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_policy_approval_handler(**kwargs) -> bool:
+        return kwargs.get("tool") == "run_command"
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return '{"actions":[]}'
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        assert tool == "run_command"
+        assert args.get("command") == "pytest -q"
+        return "approved-ok"
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    agent.set_policy_approval_handler(fake_policy_approval_handler)
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="run `pytest -q`",
+                plan_text="execute tests",
+                memory_context="user: run tests",
+                session_id="s-cmd-approval",
+                request_id="r-cmd-approval",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "[run_command]" in result
+    assert "approved-ok" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_override_decision"
+        and evt.get("details", {}).get("tool") == "run_command"
+        and evt.get("details", {}).get("approved") is True
+        for evt in events
+    )
+
+
+def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return '{"actions":[{"tool":"spawn_subrun","args":{"message":"deep research","mode":"run","agent_id":"head-agent"}}]}'
+
+    async def fake_policy_approval_handler(**kwargs) -> bool:
+        return kwargs.get("tool") == "spawn_subrun"
+
+    async def fake_spawn_subrun_handler(**kwargs) -> str:
+        return "subrun-approved"
+
+    original_complete_chat = agent.client.complete_chat
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent.set_policy_approval_handler(fake_policy_approval_handler)
+    agent.set_spawn_subrun_handler(fake_spawn_subrun_handler)
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="orchestrate deep research",
+                plan_text="spawn helper",
+                memory_context="user: orchestration",
+                session_id="s-subrun-approval",
+                request_id="r-subrun-approval",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+
+    assert "[spawn_subrun]" in result
+    assert "spawned_subrun_id=subrun-approved" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_override_decision"
+        and evt.get("details", {}).get("tool") == "spawn_subrun"
+        and evt.get("details", {}).get("approved") is True
         for evt in events
     )
 
