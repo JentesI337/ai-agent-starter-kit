@@ -322,6 +322,99 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
     assert any(evt.get("type") == "subrun_status" and evt.get("status") == "running" for evt in events)
     assert any(evt.get("type") == "subrun_status" and evt.get("status") == "completed" for evt in events)
     assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "completed" for evt in events)
+    assert any(
+        evt.get("type") == "subrun_status"
+        and evt.get("status") == "accepted"
+        and evt.get("agent_id") == "head-agent"
+        and evt.get("mode") == "run"
+        for evt in events
+    )
+
+
+def test_websocket_subrun_spawn_mode_session_reuses_parent_session(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": f"subrun:{user_message}",
+                "request_id": request_id,
+                "session_id": session_id,
+            }
+        )
+        return f"subrun:{user_message}"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "subrun_spawn",
+                "content": "session scoped task",
+                "mode": "session",
+            }
+        )
+
+        accepted_event = None
+        for _ in range(24):
+            evt = _unwrap_event(ws.receive_json())
+            if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
+                accepted_event = evt
+                break
+
+    assert accepted_event is not None
+    assert accepted_event.get("mode") == "session"
+    assert accepted_event.get("parent_session_id") == accepted_event.get("child_session_id")
+
+
+def test_websocket_subrun_spawn_leaf_blocked_by_depth_guard(monkeypatch) -> None:
+    _set_local_runtime()
+    monkeypatch.setattr(subrun_lane, "_leaf_spawn_depth_guard_enabled", True)
+    monkeypatch.setattr(subrun_lane, "_orchestrator_agent_ids", {"head-agent"})
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "subrun_spawn",
+                "content": "blocked child",
+                "agent_id": "coder-agent",
+            }
+        )
+
+        events = []
+        for _ in range(20):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_subrun_depth_policy":
+                break
+
+    assert any(
+        evt.get("type") == "error"
+        and "Subrun depth policy blocked request" in str(evt.get("message", ""))
+        for evt in events
+    )
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "subrun_rejected_depth_policy" for evt in events)
+    assert any(
+        evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_subrun_depth_policy"
+        for evt in events
+    )
 
 
 def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None:
@@ -470,6 +563,9 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
     )
     assert info_resp.status_code == 200
     assert info_resp.json()["run_id"] == subrun_id
+    announce_delivery = (info_resp.json().get("announce_delivery") or {})
+    assert announce_delivery.get("status") == "announced"
+    assert announce_delivery.get("legacy_status") == "sent"
 
     log_resp = client.get(
         f"/api/subruns/{subrun_id}/log",

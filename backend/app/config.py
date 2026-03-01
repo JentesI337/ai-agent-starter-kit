@@ -290,6 +290,19 @@ class Settings(BaseModel):
     subrun_timeout_seconds: int = int(os.getenv("SUBRUN_TIMEOUT_SECONDS", "900"))
     subrun_max_spawn_depth: int = int(os.getenv("SUBRUN_MAX_SPAWN_DEPTH", "2"))
     subrun_max_children_per_parent: int = int(os.getenv("SUBRUN_MAX_CHILDREN_PER_PARENT", "5"))
+    subrun_leaf_spawn_depth_guard_enabled: bool = os.getenv(
+        "SUBRUN_LEAF_SPAWN_DEPTH_GUARD_ENABLED",
+        "false",
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    subrun_orchestrator_agent_ids: list[str] = _parse_csv_env(
+        os.getenv("SUBRUN_ORCHESTRATOR_AGENT_IDS", "head-agent"),
+        ["head-agent"],
+    )
     subrun_announce_retry_max_attempts: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_ATTEMPTS", "5"))
     subrun_announce_retry_base_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_BASE_DELAY_MS", "500"))
     subrun_announce_retry_max_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_DELAY_MS", "10000"))

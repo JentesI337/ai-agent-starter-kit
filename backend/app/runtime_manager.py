@@ -130,32 +130,6 @@ class RuntimeManager:
                 "error": str(exc),
             }
 
-    async def _stop_ollama_if_running(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
-        await self._log(send_event, session_id, "stop_local_process", attempt, "Stopping local ollama process if running")
-        try:
-            if os.name == "nt":
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["taskkill", "/F", "/IM", "ollama.exe"],
-                    capture_output=True,
-                    text=True,
-                )
-            else:
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["pkill", "-f", "ollama"],
-                    capture_output=True,
-                    text=True,
-                )
-        except Exception:
-            pass
-
-    async def _verify_ollama_stopped(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
-        port = self._extract_port(settings.llm_base_url)
-        if self._is_port_open(port):
-            raise RuntimeSwitchError(f"Local process still active on port {port}")
-        await self._log(send_event, session_id, "verify_local_stopped", attempt, "Local process stopped")
-
     async def _start_gateway(self, send_event: SendEvent, session_id: str, attempt: int, base_url: str) -> None:
         port = self._extract_port(base_url)
         if not self._is_port_open(port):

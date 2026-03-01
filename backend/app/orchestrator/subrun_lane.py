@@ -33,6 +33,9 @@ class SubrunSpec:
     depth: int
     parent_run_id: str | None
     root_run_id: str
+    agent_id: str
+    mode: str
+    orchestrator_api: OrchestratorApi
 
 
 class SubrunLane:
@@ -48,6 +51,8 @@ class SubrunLane:
         announce_retry_base_delay_ms: int,
         announce_retry_max_delay_ms: int,
         announce_retry_jitter: bool,
+        leaf_spawn_depth_guard_enabled: bool = False,
+        orchestrator_agent_ids: list[str] | None = None,
     ):
         self._orchestrator_api = orchestrator_api
         self._state_store = state_store
@@ -58,6 +63,12 @@ class SubrunLane:
         self._announce_retry_base_delay_ms = max(10, int(announce_retry_base_delay_ms))
         self._announce_retry_max_delay_ms = max(self._announce_retry_base_delay_ms, int(announce_retry_max_delay_ms))
         self._announce_retry_jitter = bool(announce_retry_jitter)
+        self._leaf_spawn_depth_guard_enabled = bool(leaf_spawn_depth_guard_enabled)
+        self._orchestrator_agent_ids = {
+            str(item).strip().lower()
+            for item in (orchestrator_agent_ids or ["head-agent"])
+            if isinstance(item, str) and str(item).strip()
+        }
         self._run_tasks: dict[str, asyncio.Task] = {}
         self._run_status: dict[str, dict] = {}
         self._announce_status: dict[str, dict] = {}
@@ -78,9 +89,23 @@ class SubrunLane:
         timeout_seconds: int,
         tool_policy: dict[str, list[str]] | None,
         send_event: SendEvent,
+        agent_id: str | None = None,
+        mode: str | None = None,
+        orchestrator_api: OrchestratorApi | None = None,
     ) -> str:
         run_id = str(uuid.uuid4())
-        child_session_id = f"{parent_session_id}-subrun-{run_id[:8]}"
+        selected_mode = self._normalize_spawn_mode(mode)
+        child_session_id = (
+            parent_session_id if selected_mode == "session" else f"{parent_session_id}-subrun-{run_id[:8]}"
+        )
+        selected_agent_id = (agent_id or "").strip() or "head-agent"
+        normalized_selected_agent_id = selected_agent_id.lower()
+        selected_orchestrator = orchestrator_api or self._orchestrator_api
+
+        if self._leaf_spawn_depth_guard_enabled and normalized_selected_agent_id not in self._orchestrator_agent_ids:
+            raise GuardrailViolation(
+                f"Subrun depth policy blocked request: leaf agent '{selected_agent_id}' cannot spawn child runs."
+            )
 
         parent_spec = self._run_specs.get(parent_request_id)
         depth = (parent_spec.depth + 1) if parent_spec else 1
@@ -112,6 +137,9 @@ class SubrunLane:
             depth=depth,
             parent_run_id=parent_run_id,
             root_run_id=root_run_id,
+            agent_id=selected_agent_id,
+            mode=selected_mode,
+            orchestrator_api=selected_orchestrator,
         )
 
         self._state_store.init_run(
@@ -128,6 +156,8 @@ class SubrunLane:
                 "root_run_id": root_run_id,
                 "parent_request_id": parent_request_id,
                 "parent_session_id": parent_session_id,
+                "agent_id": selected_agent_id,
+                "mode": selected_mode,
             },
         )
         self._state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="pending")
@@ -142,6 +172,8 @@ class SubrunLane:
                 "depth": depth,
                 "parent_run_id": parent_run_id,
                 "root_run_id": root_run_id,
+                "agent_id": selected_agent_id,
+                "mode": selected_mode,
             },
         )
 
@@ -154,6 +186,8 @@ class SubrunLane:
                 "child_session_id": child_session_id,
                 "status": "accepted",
                 "depth": depth,
+                "agent_id": selected_agent_id,
+                "mode": selected_mode,
             }
         )
 
@@ -163,7 +197,8 @@ class SubrunLane:
             self._run_specs[run_id] = spec
             self._children_by_parent[parent_request_id].add(run_id)
             self._parent_by_child[run_id] = parent_request_id
-            self._children_by_session[parent_session_id].add(child_session_id)
+            if child_session_id != parent_session_id:
+                self._children_by_session[parent_session_id].add(child_session_id)
         return run_id
 
     async def wait_for_completion(self, run_id: str, timeout: float = 10.0) -> dict | None:
@@ -218,6 +253,8 @@ class SubrunLane:
                         "depth": spec.depth,
                         "parent_run_id": spec.parent_run_id,
                         "root_run_id": spec.root_run_id,
+                        "agent_id": spec.agent_id,
+                        "mode": spec.mode,
                     }
                 )
             entries.append(entry)
@@ -344,6 +381,8 @@ class SubrunLane:
                     "depth": spec.depth,
                     "parent_run_id": spec.parent_run_id,
                     "root_run_id": spec.root_run_id,
+                    "agent_id": spec.agent_id,
+                    "mode": spec.mode,
                 }
             )
         return info
@@ -433,6 +472,7 @@ class SubrunLane:
 
     async def _run(self, *, spec: SubrunSpec, send_event: SendEvent) -> None:
         started_at = monotonic()
+        started_at_ts = datetime.now(timezone.utc).isoformat()
         final_text = ""
         status = "failed"
         notes: str | None = None
@@ -440,7 +480,7 @@ class SubrunLane:
         await self._set_status(
             run_id=spec.run_id,
             status="running",
-            details={"started_at": datetime.now(timezone.utc).isoformat()},
+            details={"started_at": started_at_ts},
         )
         self._state_store.set_task_status(run_id=spec.run_id, task_id="request", label="request", status="active")
 
@@ -453,6 +493,9 @@ class SubrunLane:
                 "child_session_id": spec.child_session_id,
                 "status": "running",
                 "depth": spec.depth,
+                "agent_id": spec.agent_id,
+                "mode": spec.mode,
+                "started_at": started_at_ts,
             }
         )
 
@@ -481,11 +524,14 @@ class SubrunLane:
             self._state_store.mark_failed(run_id=spec.run_id, error=notes)
 
         elapsed = round(max(0.0, monotonic() - started_at), 3)
+        ended_at_ts = datetime.now(timezone.utc).isoformat()
 
         await self._set_status(
             run_id=spec.run_id,
             status=status,
             details={
+                "started_at": started_at_ts,
+                "ended_at": ended_at_ts,
                 "duration_seconds": elapsed,
                 "notes": notes,
                 "result_chars": len(final_text),
@@ -501,6 +547,10 @@ class SubrunLane:
                 "child_session_id": spec.child_session_id,
                 "status": status,
                 "duration_seconds": elapsed,
+                "agent_id": spec.agent_id,
+                "mode": spec.mode,
+                "started_at": started_at_ts,
+                "ended_at": ended_at_ts,
             }
         )
 
@@ -517,10 +567,14 @@ class SubrunLane:
                 "result": (final_text or "(not available)")[:2000],
                 "notes": notes,
                 "stats": {
+                    "started_at": started_at_ts,
+                    "ended_at": ended_at_ts,
                     "duration_seconds": elapsed,
                     "result_chars": len(final_text),
                 },
                 "usage": None,
+                "agent_id": spec.agent_id,
+                "mode": spec.mode,
             },
         )
 
@@ -548,7 +602,7 @@ class SubrunLane:
 
             await send_event(forwarded)
 
-        return await self._orchestrator_api.run_user_message(
+        return await spec.orchestrator_api.run_user_message(
             user_message=spec.user_message,
             send_event=relay,
             request_context=RequestContext(
@@ -572,6 +626,12 @@ class SubrunLane:
     def _build_announce_idempotency_key(self, run_id: str) -> str:
         return f"subrun:{run_id}:announce:v1"
 
+    def _normalize_spawn_mode(self, mode: str | None) -> str:
+        normalized = (mode or "run").strip().lower()
+        if normalized not in {"run", "session"}:
+            raise GuardrailViolation(f"Unsupported subrun mode: {mode}")
+        return normalized
+
     async def _record_announce_delivery_event(
         self,
         *,
@@ -584,6 +644,7 @@ class SubrunLane:
         self._announce_status[run_id] = {
             "idempotency_key": idempotency_key,
             "status": status,
+            "legacy_status": self._to_legacy_announce_status(status),
             "attempt": attempt,
             "error": error,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -595,6 +656,7 @@ class SubrunLane:
                     "type": "announce_delivery",
                     "idempotency_key": idempotency_key,
                     "status": status,
+                    "legacy_status": self._to_legacy_announce_status(status),
                     "attempt": attempt,
                     "error": error,
                 },
@@ -605,7 +667,7 @@ class SubrunLane:
     async def _emit_announce_with_retry(self, *, spec: SubrunSpec, send_event: SendEvent, payload: dict) -> None:
         idempotency_key = self._build_announce_idempotency_key(spec.run_id)
         current = self._announce_status.get(spec.run_id)
-        if current and current.get("status") == "sent":
+        if current and current.get("status") == "announced":
             return
 
         base_delay = self._announce_retry_base_delay_ms / 1000.0
@@ -615,12 +677,14 @@ class SubrunLane:
             enriched = dict(payload)
             enriched["idempotency_key"] = idempotency_key
             enriched["attempt"] = attempt
+            enriched["announce_status"] = "announced"
+            enriched["announce_legacy_status"] = self._to_legacy_announce_status("announced")
             try:
                 await send_event(enriched)
                 await self._record_announce_delivery_event(
                     run_id=spec.run_id,
                     idempotency_key=idempotency_key,
-                    status="sent",
+                    status="announced",
                     attempt=attempt,
                     error=None,
                 )
@@ -629,7 +693,9 @@ class SubrunLane:
                 await self._record_announce_delivery_event(
                     run_id=spec.run_id,
                     idempotency_key=idempotency_key,
-                    status="retrying" if attempt < self._announce_retry_max_attempts else "dead_letter",
+                    status=(
+                        "announce_retrying" if attempt < self._announce_retry_max_attempts else "announce_failed"
+                    ),
                     attempt=attempt,
                     error=str(exc),
                 )
@@ -640,3 +706,11 @@ class SubrunLane:
                 if self._announce_retry_jitter:
                     delay = delay * random.uniform(0.75, 1.25)
                 await asyncio.sleep(max(0.01, delay))
+
+    def _to_legacy_announce_status(self, status: str) -> str:
+        mapping = {
+            "announced": "sent",
+            "announce_retrying": "retrying",
+            "announce_failed": "dead_letter",
+        }
+        return mapping.get(status, status)

@@ -30,6 +30,9 @@ class AgentContract(ABC):
     def configure_runtime(self, base_url: str, model: str) -> None:
         raise NotImplementedError
 
+    def normalize_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+        return tool_policy
+
     @abstractmethod
     async def run(
         self,

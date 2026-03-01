@@ -13,6 +13,7 @@ import uuid
 
 from app.config import settings
 from app.errors import ToolExecutionError
+from app.tool_catalog import TOOL_NAMES
 
 
 class AgentTooling:
@@ -383,20 +384,6 @@ class AgentTooling:
             "workspace_root": str(self.workspace_root),
             "workspace_ok": workspace_ok,
             "shell_ok": shell_ok,
-            "tools": [
-                "list_dir",
-                "read_file",
-                "write_file",
-                "run_command",
-                "apply_patch",
-                "file_search",
-                "grep_search",
-                "list_code_usages",
-                "get_changed_files",
-                "start_background_command",
-                "get_background_output",
-                "kill_background_process",
-                "web_fetch",
-            ],
+            "tools": list(TOOL_NAMES),
         }
         return ok, details

@@ -213,6 +213,42 @@ def test_subrun_lane_rejects_child_limit(tmp_path) -> None:
     asyncio.run(run_case())
 
 
+def test_subrun_lane_rejects_leaf_spawn_when_guard_enabled(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=2,
+        max_spawn_depth=3,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=5,
+        announce_retry_base_delay_ms=500,
+        announce_retry_max_delay_ms=10_000,
+        announce_retry_jitter=True,
+        leaf_spawn_depth_guard_enabled=True,
+        orchestrator_agent_ids=["head-agent"],
+    )
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> None:
+        with pytest.raises(GuardrailViolation, match="Subrun depth policy blocked request"):
+            await lane.spawn(
+                parent_request_id="root-request",
+                parent_session_id="sess-parent",
+                user_message="leaf spawn",
+                runtime="local",
+                model="llama",
+                timeout_seconds=5,
+                tool_policy=None,
+                send_event=send_event,
+                agent_id="coder-agent",
+            )
+
+    asyncio.run(run_case())
+
+
 def test_subrun_lane_kill_cascade_cancels_descendants(tmp_path) -> None:
     store = StateStore(persist_dir=str(tmp_path / "state"))
     lane = SubrunLane(
@@ -306,6 +342,18 @@ def test_subrun_lane_announce_retries_and_marks_sent(tmp_path) -> None:
     info = lane.get_info(run_id)
     assert info is not None
     delivery = info.get("announce_delivery") or {}
-    assert delivery.get("status") == "sent"
+    assert delivery.get("status") == "announced"
+    assert delivery.get("legacy_status") == "sent"
     assert delivery.get("attempt") == 2
     assert calls["announce"] == 2
+
+    log = lane.get_log(run_id) or []
+    announce_delivery_events = [event for event in log if event.get("type") == "announce_delivery"]
+    assert any(
+        event.get("status") == "announce_retrying" and event.get("legacy_status") == "retrying"
+        for event in announce_delivery_events
+    )
+    assert any(
+        event.get("status") == "announced" and event.get("legacy_status") == "sent"
+        for event in announce_delivery_events
+    )

@@ -5,23 +5,10 @@ from collections.abc import Awaitable, Callable
 
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import ToolSelectorInput, ToolSelectorOutput
+from app.tool_catalog import TOOL_NAME_SET
 
 ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str]], Awaitable[str]]
-DEFAULT_ALLOWED_TOOLS = {
-    "list_dir",
-    "read_file",
-    "write_file",
-    "run_command",
-    "apply_patch",
-    "file_search",
-    "grep_search",
-    "list_code_usages",
-    "get_changed_files",
-    "start_background_command",
-    "get_background_output",
-    "kill_background_process",
-    "web_fetch",
-}
+DEFAULT_ALLOWED_TOOLS = set(TOOL_NAME_SET)
 
 
 class ToolSelectorAgent(AgentContract):

@@ -138,6 +138,9 @@ class ReviewAgentAdapter(AgentContract):
     def configure_runtime(self, base_url: str, model: str) -> None:
         self._delegate.configure_runtime(base_url=base_url, model=model)
 
+    def normalize_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+        return self._build_read_only_policy(tool_policy)
+
     async def run(
         self,
         user_message: str,
@@ -160,7 +163,7 @@ class ReviewAgentAdapter(AgentContract):
             session_id=session_id,
             request_id=request_id,
             model=model,
-            tool_policy=self._build_read_only_policy(tool_policy),
+            tool_policy=self.normalize_tool_policy(tool_policy),
         )
         final_text = await self._delegate.run(
             payload.user_message,

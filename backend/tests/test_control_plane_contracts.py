@@ -59,6 +59,9 @@ def test_control_run_start_and_wait_contract(monkeypatch) -> None:
     assert payload["schema"] == "run.wait.v1"
     assert payload["status"] == "ok"
     assert payload["runStatus"] == "completed"
+    assert payload["run_status"] == "completed"
+    assert isinstance(payload.get("startedAt"), str)
+    assert isinstance(payload.get("endedAt"), str)
     assert payload["final"] == "echo:hello"
 
 
@@ -101,6 +104,9 @@ def test_control_agent_run_and_wait_contract(monkeypatch) -> None:
     assert payload["schema"] == "agent.wait.v1"
     assert payload["status"] == "ok"
     assert payload["runStatus"] == "completed"
+    assert payload["run_status"] == "completed"
+    assert isinstance(payload.get("startedAt"), str)
+    assert isinstance(payload.get("endedAt"), str)
     assert payload["final"] == "echo:hello-agent"
 
 
@@ -418,6 +424,15 @@ def test_control_tools_policy_matrix_contract() -> None:
     assert "presets" in payload
     assert "by_provider" in payload
     assert "by_model" in payload
+    assert payload["resolution_order"] == [
+        "global",
+        "profile",
+        "preset",
+        "provider",
+        "model",
+        "agent_depth",
+        "request",
+    ]
 
 
 def test_control_tools_policy_matrix_rejects_unknown_agent() -> None:
@@ -929,6 +944,11 @@ def test_control_tools_policy_preview_applies_preset_and_deny() -> None:
     assert "run_command" not in payload["effective_allow"]
     assert "run_command" in payload["effective_deny"]
     assert "grep_search" in payload["effective_deny"]
+    conflict = payload["explain"]["conflict_resolution"]
+    assert conflict["strategy"] == "deny_overrides_allow"
+    assert "run_command" in conflict["conflicted_tools"]
+    assert "run_command" not in conflict["effective_allow_after_conflicts"]
+    assert "run_command" in conflict["effective_deny_after_conflicts"]
 
 
 def test_control_tools_policy_preview_supports_profile_and_also_allow() -> None:
@@ -982,6 +1002,138 @@ def test_control_tools_policy_preview_supports_provider_and_model_scopes() -> No
     assert "start_background_command" in payload["effective_deny"]
     assert "start_background_command" not in payload["effective_allow"]
     assert "read_file" in payload["effective_allow"]
+    assert payload["explain"]["order"] == [
+        "global",
+        "profile",
+        "preset",
+        "provider",
+        "model",
+        "agent_depth",
+        "request",
+    ]
+    assert isinstance(payload["explain"].get("layers"), list)
+    assert isinstance(payload["explain"].get("final_allow"), list)
+    assert isinstance(payload["explain"].get("final_deny"), list)
+    assert payload["explain"]["conflict_resolution"]["strategy"] == "deny_overrides_allow"
+
+
+def test_control_tools_policy_preview_explain_is_deterministic() -> None:
+    client = TestClient(app)
+
+    body = {
+        "agent_id": "head-agent",
+        "profile": "minimal",
+        "preset": "research",
+        "provider": "api",
+        "model": "minimax-m2:cloud",
+        "tool_policy": {
+            "allow": ["read_file", "web_fetch"],
+            "deny": ["grep_search"],
+        },
+        "also_allow": ["web_fetch"],
+    }
+
+    first = client.post("/api/control/tools.policy.preview", json=body)
+    second = client.post("/api/control/tools.policy.preview", json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_payload = first.json()
+    second_payload = second.json()
+    assert first_payload["explain"] == second_payload["explain"]
+
+
+def test_control_tools_policy_preview_conflict_snapshot_payload() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/control/tools.policy.preview",
+        json={
+            "agent_id": "head-agent",
+            "tool_policy": {
+                "allow": ["read_file", "web_fetch"],
+                "deny": ["grep_search", "web_fetch"],
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    explain = payload["explain"]
+    assert explain["order"] == [
+        "global",
+        "profile",
+        "preset",
+        "provider",
+        "model",
+        "agent_depth",
+        "request",
+    ]
+    assert explain["final_allow"] == ["read_file", "web_fetch"]
+    assert explain["final_deny"] == ["grep_search", "web_fetch"]
+    assert explain["conflict_resolution"] == {
+        "strategy": "deny_overrides_allow",
+        "conflicted_tools": ["web_fetch"],
+        "effective_allow_after_conflicts": ["read_file"],
+        "effective_deny_after_conflicts": ["grep_search", "web_fetch"],
+    }
+
+    layers = explain["layers"]
+    layer_names = [item.get("layer") for item in layers]
+    assert layer_names == [
+        "global",
+        "profile",
+        "preset",
+        "provider",
+        "model",
+        "agent_depth",
+        "request",
+    ]
+    request_layer = next(item for item in layers if item.get("layer") == "request")
+    assert request_layer["toolPolicy"] == {
+        "allow": ["read_file", "web_fetch"],
+        "deny": ["grep_search", "web_fetch"],
+    }
+
+
+def test_control_tools_policy_preview_layer_ids_and_scopes_are_stable() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/control/tools.policy.preview",
+        json={
+            "agent_id": "head-agent",
+            "profile": "minimal",
+            "preset": "research",
+            "provider": "api",
+            "model": "minimax-m2:cloud",
+            "tool_policy": {
+                "allow": ["read_file"],
+                "deny": ["grep_search"],
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    layers = payload["explain"]["layers"]
+    layer_by_name = {item["layer"]: item for item in layers}
+    assert layer_by_name["profile"]["id"] == "minimal"
+    assert layer_by_name["preset"]["id"] == "research"
+    assert layer_by_name["provider"]["id"] == "api"
+    assert layer_by_name["model"]["id"] == "minimax-m2:cloud"
+    assert layer_by_name["agent_depth"]["id"] == "head-agent:0"
+    assert layer_by_name["request"]["toolPolicy"] == {
+        "allow": ["read_file"],
+        "deny": ["grep_search"],
+    }
+
+    assert payload["scoped"]["provider"] == {
+        "deny": ["start_background_command", "kill_background_process"],
+    }
+    assert payload["scoped"]["model"] == {
+        "deny": ["start_background_command", "kill_background_process"],
+    }
 
 
 def test_control_tools_policy_preview_rejects_unknown_provider() -> None:
@@ -1350,6 +1502,8 @@ def test_control_runs_audit_returns_telemetry(monkeypatch) -> None:
     assert isinstance(payload["telemetry"]["event_count"], int)
     assert isinstance(payload["telemetry"]["lifecycle_count"], int)
     assert isinstance(payload["telemetry"]["lifecycle_stages"], dict)
+    assert isinstance(payload["telemetry"]["guardrail_summary"], dict)
+    assert isinstance(payload["telemetry"]["guardrail_summary"]["tool_audit"], dict)
 
 
 def test_control_runs_audit_includes_blocked_with_reason_details(monkeypatch) -> None:
@@ -1407,6 +1561,82 @@ def test_control_runs_audit_includes_blocked_with_reason_details(monkeypatch) ->
     telemetry = payload["telemetry"]
     assert telemetry["blocked_with_reason"].get("run_command_not_allowed", 0) >= 1
     assert telemetry["tool_selection_empty_reasons"].get("policy_block", 0) >= 1
+    assert telemetry["guardrail_summary"]["loop_warn_count"] >= 0
+    assert telemetry["guardrail_summary"]["loop_blocked_count"] >= 0
+    assert telemetry["guardrail_summary"]["budget_exceeded_count"] >= 0
+
+
+def test_control_runs_audit_guardrail_summary_from_tool_audit_event(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "lifecycle",
+                "stage": "tool_audit_summary",
+                "request_id": request_id,
+                "session_id": session_id,
+                "details": {
+                    "tool_calls": 3,
+                    "tool_errors": 1,
+                    "loop_blocked": 1,
+                    "budget_blocked": 2,
+                    "elapsed_ms": 1234,
+                    "call_cap": 8,
+                    "time_cap_seconds": 90.0,
+                    "loop_warn_threshold": 2,
+                    "loop_critical_threshold": 3,
+                },
+            }
+        )
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "audit-summary",
+                "request_id": request_id,
+                "session_id": session_id,
+            }
+        )
+        return "audit-summary"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    client = TestClient(app)
+
+    start = client.post(
+        "/api/control/run.start",
+        json={"session_id": "runs-audit-summary", "message": "collect guardrail summary"},
+    )
+    assert start.status_code == 200
+    run_id = start.json()["runId"]
+
+    wait = client.post(
+        "/api/control/run.wait",
+        json={"run_id": run_id, "timeout_ms": 3000, "poll_interval_ms": 50},
+    )
+    assert wait.status_code == 200
+
+    response = client.post("/api/control/runs.audit", json={"run_id": run_id})
+    assert response.status_code == 200
+    payload = response.json()
+
+    guardrail = payload["telemetry"]["guardrail_summary"]
+    assert guardrail["tool_audit"] == {
+        "tool_calls": 3,
+        "tool_errors": 1,
+        "loop_blocked": 1,
+        "budget_blocked": 2,
+        "elapsed_ms": 1234,
+        "call_cap": 8,
+        "time_cap_seconds": 90.0,
+        "loop_warn_threshold": 2,
+        "loop_critical_threshold": 3,
+    }
 
 
 def test_control_runs_audit_unknown_run_returns_404() -> None:
