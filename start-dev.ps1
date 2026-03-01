@@ -3,13 +3,10 @@ param(
     [int]$BackendPort = 8000,
     [int]$FrontendPort = 4200,
     [ValidateSet('local', 'api', '')]
-    [string]$RuntimeMode = '',
-    [ValidateSet('', 'minimax-m2:cloud', 'gpt-oss:20b-cloud', 'qwen3-coder:480b-cloud')]
-    [string]$ApiModel = ''
+    [string]$RuntimeMode = ''
 )
 
 $ErrorActionPreference = 'Stop'
-$SupportedApiModels = @('minimax-m2:cloud', 'gpt-oss:20b-cloud', 'qwen3-coder:480b-cloud')
 
 $cleanupScript = Join-Path $PSScriptRoot 'clean-dev.ps1'
 if (Test-Path $cleanupScript) {
@@ -26,9 +23,16 @@ function Resolve-RuntimeMode {
         return $RuntimeMode
     }
 
-    Write-Host "Select runtime mode:" -ForegroundColor Cyan
-    Write-Host "1) local (70B)"
-    Write-Host "2) api (cloud model selection)"
+    Write-Host ""
+    Write-Host "=== Runtime Mode Selection ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1) LOCAL   - Run a local Llama model via Ollama"
+    Write-Host "               Requires sufficient GPU VRAM. No internet needed after pull."
+    Write-Host ""
+    Write-Host "  2) API     - Use Ollama Pro cloud model (minimax-m2:cloud)"
+    Write-Host "               Requires an active Ollama Pro plan and 'ollama signin'."
+    Write-Host "               No API keys needed - authentication via Ollama account login." -ForegroundColor DarkGray
+    Write-Host ""
     $choice = Read-Host "Enter 1 or 2"
     if ($choice -eq '2') {
         return 'api'
@@ -36,29 +40,28 @@ function Resolve-RuntimeMode {
     return 'local'
 }
 
-function Resolve-ApiModel([string]$CurrentApiModel) {
-    if ($ApiModel -and ($ApiModel -in $SupportedApiModels)) {
-        return $ApiModel
+function Resolve-LocalModel {
+    $envFilePath = Join-Path $PSScriptRoot 'backend\.env'
+    $existing = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue ''
+
+    Write-Host ""
+    Write-Host "=== Local Model Selection ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  1) llama3.2:3b                       ~2 GB   (small, fast, low VRAM)"
+    Write-Host "  2) llama3.1:8b                       ~5 GB   (balanced)"
+    Write-Host "  3) qwen2.5-coder:32b                ~18 GB   (strong coder, mid VRAM)"
+    Write-Host "  4) llama3.3:70b-instruct-q4_K_M     ~40 GB   (best quality, high VRAM)"
+    if ($existing) {
+        Write-Host ""
+        Write-Host "  Current: $existing" -ForegroundColor DarkGray
     }
-
-    $defaultModel = if ($CurrentApiModel -in $SupportedApiModels) { $CurrentApiModel } else { 'minimax-m2:cloud' }
-
-    Write-Host "Select API model:" -ForegroundColor Cyan
-    Write-Host "1) minimax-m2:cloud (small - very low cost)"
-    Write-Host "2) gpt-oss:20b-cloud (mid - mid cost)"
-    Write-Host "3) qwen3-coder:480b-cloud (high - high cost)"
-    Write-Host "Press Enter for default: $defaultModel"
-
-    $choice = Read-Host "Enter 1, 2 or 3"
+    Write-Host ""
+    $choice = Read-Host "Enter 1-4 (default: 4)"
     switch ($choice) {
-        '1' { return 'minimax-m2:cloud' }
-        '2' { return 'gpt-oss:20b-cloud' }
-        '3' { return 'qwen3-coder:480b-cloud' }
-        '' { return $defaultModel }
-        default {
-            Write-Host "Invalid choice. Using default: $defaultModel" -ForegroundColor Yellow
-            return $defaultModel
-        }
+        '1' { return 'llama3.2:3b' }
+        '2' { return 'llama3.1:8b' }
+        '3' { return 'qwen2.5-coder:32b' }
+        default { return 'llama3.3:70b-instruct-q4_K_M' }
     }
 }
 
@@ -130,49 +133,18 @@ function Get-OllamaBinaryPath {
 }
 
 function Ensure-Python {
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        try {
-            & py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" | Out-Null
-            return
-        }
-        catch {
-        }
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        return
     }
 
-    Write-Step "Python 3.12 not found, trying install via winget"
+    Write-Step "Python not found, trying install via winget"
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
     }
 
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        try {
-            & py -3.12 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" | Out-Null
-            return
-        }
-        catch {
-        }
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        throw "Python install failed. Please install Python 3.11+ and rerun script."
     }
-
-    throw "Python 3.12 install failed. Please install Python 3.12 and rerun script."
-}
-
-function Ensure-BackendVenv312([string]$BackendDirPath) {
-    $venvDir = Join-Path $BackendDirPath '.venv'
-    $venvPython = Join-Path $venvDir 'Scripts\python.exe'
-
-    if (Test-Path $venvPython) {
-        $version = (& $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
-        if ($version -ne '3.12') {
-            Write-Step "Recreating backend/.venv (found Python $version, expected 3.12)"
-            Remove-Item -Recurse -Force $venvDir
-        }
-    }
-
-    if (-not (Test-Path $venvDir)) {
-        & py -3.12 -m venv $venvDir
-    }
-
-    return (Join-Path $venvDir 'Scripts\python.exe')
 }
 
 function Ensure-Node {
@@ -237,7 +209,7 @@ function Ensure-CloudLogin([string]$OllamaBin, [string]$ModelName) {
         return
     }
 
-    Write-Step "Checking Ollama Cloud login"
+    Write-Step "Checking Ollama Pro login (no API key - uses 'ollama signin')"
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
@@ -486,7 +458,7 @@ if ($selectedRuntime -eq 'local') {
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 else {
-    Write-Step "API runtime selected - using local Ollama API with selected cloud model"
+    Write-Step "API runtime selected - cloud model via Ollama Pro (no API key)"
     $ollamaBinary = Ensure-Ollama-Running -Port $LlmPort
 }
 
@@ -496,16 +468,19 @@ $backendDir = Join-Path $PSScriptRoot 'backend'
 $envFilePath = Join-Path $backendDir '.env'
 Ensure-BackendEnv -Port $LlmPort
 Upsert-EnvVar -FilePath $envFilePath -Name 'OLLAMA_BIN' -Value $ollamaBinary
-if ($selectedRuntime -eq 'api') {
-    $existingApiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
-    $selectedApiModel = Resolve-ApiModel -CurrentApiModel $existingApiModel
+
+if ($selectedRuntime -eq 'local') {
+    $selectedModel = Resolve-LocalModel
+    Upsert-EnvVar -FilePath $envFilePath -Name 'LOCAL_MODEL' -Value $selectedModel
+    Write-Host "Local model: $selectedModel" -ForegroundColor Green
+}
+else {
     Upsert-EnvVar -FilePath $envFilePath -Name 'API_BASE_URL' -Value "http://localhost:$LlmPort/api"
-    Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value $selectedApiModel
+    Upsert-EnvVar -FilePath $envFilePath -Name 'API_MODEL' -Value 'minimax-m2:cloud'
+    $selectedModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
+    Write-Host "API model: $selectedModel (Ollama Pro)" -ForegroundColor Green
 }
 
-$localModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'LOCAL_MODEL' -DefaultValue 'llama3.3:70b-instruct-q4_K_M'
-$apiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
-$selectedModel = if ($selectedRuntime -eq 'api') { $apiModel } else { $localModel }
 if ($selectedRuntime -eq 'api') {
     Ensure-CloudLogin -OllamaBin $ollamaBinary -ModelName $selectedModel
 }
@@ -515,7 +490,11 @@ Ensure-SelectedModelRunnable -Port $LlmPort -ModelName $selectedModel -RuntimeMo
 Set-RuntimeState -Mode $selectedRuntime -Port $LlmPort
 Set-Location $backendDir
 
-$venvPython = Ensure-BackendVenv312 -BackendDirPath $backendDir
+if (-not (Test-Path '.venv')) {
+    python -m venv .venv
+}
+
+$venvPython = Join-Path $backendDir '.venv\Scripts\python.exe'
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '--upgrade', 'pip') -StepName 'upgrade-pip'
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '-r', 'requirements.txt') -StepName 'install-requirements'
 
