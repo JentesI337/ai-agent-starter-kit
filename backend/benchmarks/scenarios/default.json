@@ -1,0 +1,141 @@
+{
+  "name": "default-agent-benchmark-v2",
+  "description": "Balanced benchmark with gated reasoning quality and non-gated tool diagnostics.",
+  "cases": [
+    {
+      "case_id": "easy_ping_ok",
+      "level": "easy",
+      "description": "Simple deterministic response check",
+      "prompt": "Antworte exakt mit OK.",
+      "gate": true,
+      "timeout_ms": 45000,
+      "min_final_chars": 2,
+      "min_event_count": 4,
+      "required_substrings": [
+        "OK"
+      ],
+      "required_lifecycle_stages": [
+        "request_received",
+        "request_completed"
+      ]
+    },
+    {
+      "case_id": "mid_architecture_plan",
+      "level": "mid",
+      "description": "Structured planning over backend architecture",
+      "prompt": "Analysiere das Backend-Architekturmodell und liefere einen strukturierten Verbesserungsplan mit genau 5 nummerierten Punkten zu Observability, Testbarkeit, Runtime-Stabilität, Tool-Policy und Skalierung. Schreibe kompakt aber konkret.",
+      "gate": true,
+      "timeout_ms": 90000,
+      "min_final_chars": 300,
+      "min_event_count": 6,
+      "required_substrings": [
+        "1.",
+        "5"
+      ],
+      "regex_min_match_counts": {
+        "(?m)^\\s*[1-5]\\.": 5
+      },
+      "required_lifecycle_stages": [
+        "planning_completed",
+        "request_completed"
+      ]
+    },
+    {
+      "case_id": "mid_orchestration_subrun",
+      "level": "mid",
+      "description": "Head agent should orchestrate and spawn subrun for research workflow",
+      "prompt": "Führe eine ausführliche Recherche durch. Orchestriere dafür explizit einen Unteragenten-Run (Subrun) und liefere danach eine kurze zusammengeführte Zusammenfassung.",
+      "gate": true,
+      "tool_policy": {
+        "deny": [
+          "run_command",
+          "start_background_command",
+          "kill_background_process"
+        ]
+      },
+      "timeout_ms": 120000,
+      "min_final_chars": 120,
+      "min_event_count": 10,
+      "required_event_types": [
+        "subrun_status",
+        "final"
+      ],
+      "required_event_statuses": {
+        "subrun_status": [
+          "accepted",
+          "running"
+        ]
+      },
+      "required_event_field_equals": {
+        "subrun_status": {
+          "agent_id": "head-agent",
+          "mode": "run"
+        }
+      },
+      "allow_errors": true,
+      "required_lifecycle_stages": [
+        "planning_completed",
+        "request_completed"
+      ]
+    },
+    {
+      "case_id": "hard_reasoning_research",
+      "level": "hard",
+      "description": "Long-form deep reasoning response without shell/tool side effects",
+      "prompt": "Erstelle eine umfangreiche technische Research-Analyse für das Backend-Agent-Framework rein textuell aus deinem Wissen. Verwende KEINE Tools, KEINE Shell/Systemkommandos, KEINE Dateizugriffe und fordere keine Policy-Freigabe an. Antworte ausschließlich als strukturierte Analyse mit den Abschnitten: Architektur-Risiken, Performance-Hotspots, Guardrail-Lücken, Priorisierte Maßnahmen (Top 10), Messbare KPIs und Rollout-Plan in 3 Phasen.",
+      "gate": true,
+      "tool_policy": {
+        "deny": [
+          "run_command",
+          "start_background_command",
+          "kill_background_process",
+          "spawn_subrun",
+          "web_fetch",
+          "get_background_output"
+        ]
+      },
+      "timeout_ms": 180000,
+      "min_final_chars": 1200,
+      "min_event_count": 8,
+      "required_substrings": [
+        "Top 10",
+        "KPI",
+        "Phase"
+      ],
+      "required_regex_patterns": [
+        "(?i)architektur-risiken",
+        "(?i)performance-hotspots",
+        "(?i)guardrail-l\\u00fccken",
+        "(?i)priorisierte ma\\u00dfnahmen",
+        "(?i)messbare kpis",
+        "(?i)rollout-plan"
+      ],
+      "regex_min_match_counts": {
+        "(?m)^\\s*([1-9]|10)\\.": 8,
+        "(?im)^\\s*phase\\s*[1-3]\\b": 3,
+        "(?i)kpi[^\\n]{0,80}\\b(\\d+\\s*%|\\d+\\s*ms|\\d+\\s*s)": 2
+      },
+      "required_lifecycle_stages": [
+        "planning_completed",
+        "request_completed"
+      ]
+    },
+    {
+      "case_id": "hard_tools_diagnostic",
+      "level": "hard",
+      "description": "Diagnostic tool-heavy orchestration run (does not gate overall benchmark pass/fail)",
+      "prompt": "Orchestriere eine tool-lastige Analyse und nutze, falls sinnvoll, verfügbare Tools zur Erhebung von Architektur-, Performance- und Observability-Hinweisen. Fasse die Grenzen der Umgebung transparent zusammen.",
+      "gate": false,
+      "timeout_ms": 180000,
+      "min_final_chars": 0,
+      "min_event_count": 8,
+      "completion_stages": [
+        "request_completed",
+        "request_failed_llm"
+      ],
+      "allow_errors": true,
+      "required_substrings": [],
+      "required_lifecycle_stages": []
+    }
+  ]
+}

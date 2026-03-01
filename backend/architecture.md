@@ -265,14 +265,25 @@ Teststatus (Kernsuiten):
 
 Aktueller Stand: relevante Kern-/Regressionssuiten grün (zuletzt lokal validiert).
 
-## 10. Bekannte Grenzen / technische Schulden
+## 10. Benchmarking-Strategie (neu)
+
+Zusätzlich zu Smoke-/E2E-Tests existiert eine szenariobasierte Benchmark-Pipeline für den produktionsnahen WS-Pfad:
+
+- Runner: `benchmarks/run_benchmark.py`
+- Levels: `easy`, `mid`, `hard`
+- Szenarioquelle: `benchmarks/scenarios/default.json`
+- Artefakte: `monitoring/benchmarks/<timestamp-uuid>/` mit `summary.md`, `results.json`, `*.events.jsonl`
+
+Die Pipeline misst nicht nur Pass/Fail, sondern auch Laufzeit-/Event-Metriken (z. B. `duration_ms`, `first_token_ms`, Lifecycle-Stages) und ist auf Erweiterbarkeit über zusätzliche Cases ausgelegt.
+
+## 11. Bekannte Grenzen / technische Schulden
 
 1) Idempotency-Registries sind weiterhin in-memory (jetzt bounded via TTL/Eviction, aber ohne Persistenz über Restart).  
 2) Session/Run-Queries bleiben dateibasiert; Index-Optimierung reduziert Hot-Path-Kosten, ersetzt aber keine persistente Query-Schicht.  
 3) `RuntimeManager` vereint weiterhin mehrere Verantwortungen (State, Process, Model-Katalog, Auth-Gating).  
 4) `HeadAgent` bleibt ein großer, leistungsfähiger Kernbaustein mit hoher Komplexität.
 
-## 11. Architekturprinzipien für weitere Änderungen
+## 12. Architekturprinzipien für weitere Änderungen
 
 - Keine API-Breaks an bestehenden REST-/WS-Verträgen.
 - Strukturverbesserung vor Feature-Ausbau, wenn Risiko sinkt.

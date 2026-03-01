@@ -136,6 +136,37 @@ Optional timeout tuning:
 Emergency opt-out (explicit only):
 - `SKIP_REAL_OLLAMA_API_E2E=1`
 
+## Agent Benchmarking (easy/mid/hard)
+
+Repository-Root Startskripte:
+- Windows: `./start-benchmark.ps1`
+- Linux/macOS: `./start-benchmark.sh`
+
+Direkt im Backend:
+
+```powershell
+cd backend
+./.venv/Scripts/python.exe benchmarks/run_benchmark.py --base-url http://127.0.0.1:8000 --levels easy,mid,hard --runs-per-case 1
+```
+
+Benchmark-Szenarien liegen in:
+- `benchmarks/scenarios/default.json`
+
+Szenario-Override über Root-Startskript (Windows Beispiel):
+- `./start-benchmark.ps1 -ScenarioFile backend/benchmarks/scenarios/default.json`
+
+Output-Artefakte:
+- `monitoring/benchmarks/<timestamp-uuid>/summary.md`
+- `monitoring/benchmarks/<timestamp-uuid>/results.json`
+- `monitoring/benchmarks/<timestamp-uuid>/*.events.jsonl`
+
+Bewertung v2:
+- Cases mit `gate=true` bestimmen den Exit-Code des Benchmarks.
+- Cases mit `gate=false` sind diagnostisch und fließen nur in die Gesamtstatistik ein.
+
+Strategie-Dokument:
+- `BENCHMARK_STRATEGY.md`
+
 GitHub Actions (manual):
 - Workflow: `.github/workflows/backend-real-api-e2e.yml`
 - Trigger via `workflow_dispatch` and set:

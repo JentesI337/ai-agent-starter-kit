@@ -94,6 +94,32 @@ Optional fast rerun (skip install):
 - Windows: `./start-test.ps1 -SkipInstall`
 - Linux/macOS: `SKIP_INSTALL=1 ./start-test.sh`
 
+## Backend benchmarks (easy/mid/hard)
+
+Windows (PowerShell):
+
+```powershell
+./start-benchmark.ps1
+```
+
+Linux/macOS:
+
+```bash
+chmod +x ./start-benchmark.sh
+./start-benchmark.sh
+```
+
+Optional:
+- Level einschränken: `./start-benchmark.ps1 -Levels easy,mid`
+- Mehrfache Runs pro Case: `./start-benchmark.ps1 -RunsPerCase 3`
+- Modell-Override: `./start-benchmark.ps1 -Model qwen3-coder:480b-cloud`
+- Eigenes Szenario: `./start-benchmark.ps1 -ScenarioFile backend/benchmarks/scenarios/default.json`
+
+Benchmark-Artefakte werden in `backend/monitoring/benchmarks/<timestamp-uuid>/` erzeugt:
+- `summary.md` (menschenlesbar)
+- `results.json` (maschinenlesbar)
+- `*.events.jsonl` (Roh-Event-Logs pro Run)
+
 Smoke checks after setup/deploy:
 - See `backend/SMOKE_RUNBOOK.md`
 

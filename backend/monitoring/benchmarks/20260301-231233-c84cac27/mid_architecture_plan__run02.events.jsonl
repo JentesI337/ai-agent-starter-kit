@@ -1,0 +1,244 @@
+{"t_ms": 10, "seq": 2, "event": {"type": "status", "agent": "head-agent", "message": "Head agent delegated this request to coder-agent.", "routing_reason": "coding_intent", "requested_agent_id": "head-agent", "effective_agent_id": "coder-agent", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 412, "seq": 3, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "6c11f4bb-6d26-4420-97eb-43daeb0fcc41", "phase": "start", "stage": "request_received", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.101228+00:00", "details": {"chars": 234, "requested_agent_id": "head-agent", "effective_agent_id": "coder-agent", "routing_reason": "coding_intent", "preset": null}, "agent": "coder-agent", "status": "accepted", "run_status": "accepted", "started_at": "2026-03-01T22:14:18.101228+00:00"}}
+{"t_ms": 412, "seq": 4, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "585b66e2-cb17-459b-8ab1-d6f47810ac3c", "phase": "progress", "stage": "request_dispatched", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.113783+00:00", "details": {"model": null, "requested_agent_id": "head-agent", "effective_agent_id": "coder-agent", "routing_reason": "coding_intent", "preset": null}, "agent": "coder-agent", "status": "running", "run_status": "running"}}
+{"t_ms": 412, "seq": 5, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "2fa63de0-a92a-4b2c-a27b-57547160b66f", "phase": "progress", "stage": "queued", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.125656+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 6, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "0a196b0d-2469-4f50-a0d6-f56340230efa", "phase": "progress", "stage": "lane_acquired", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.126656+00:00", "details": {"queue_wait_ms": 0, "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 7, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "b7b7dece-ccd6-427f-b067-60ac869caad9", "phase": "progress", "stage": "tool_policy_decision", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.126656+00:00", "details": {"preset": null, "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process", "spawn_subrun"]}, "agent_id": "coder-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud"}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 8, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "9a2480c6-3d01-48b6-ba01-5bad4ac69294", "phase": "progress", "stage": "agent_depth_policy_applied", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.126656+00:00", "details": {"agent_id": "coder-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process", "spawn_subrun"]}, "depth_layer": {"layer": "agent_depth", "id": "coder-agent:0", "toolPolicy": {"deny": ["spawn_subrun"]}}}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 9, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "94636665-adc2-4afb-a9fa-fad0febab2f9", "phase": "progress", "stage": "model_route_selected", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.195849+00:00", "details": {"primary": "qwen3-coder:480b-cloud", "fallbacks": ["llama3.3:70b-instruct-q4_K_M"], "max_context": 16000, "reasoning_depth": 3, "health_score": 0.88, "expected_latency_ms": 700, "cost_score": 0.75, "scores": {"qwen3-coder:480b-cloud": 79.5, "llama3.3:70b-instruct-q4_K_M": 81.0}}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 10, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "9106eef3-7cb5-4f66-87de-2031f2f36c89", "phase": "start", "stage": "run_started", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.196849+00:00", "details": {"model": "qwen3-coder:480b-cloud"}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 11, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "7649a38c-c8cb-4af3-a956-71d08ca89c95", "phase": "progress", "stage": "guardrails_passed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.197851+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 12, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "afa3a213-59b3-4dc6-953d-87913238394a", "phase": "progress", "stage": "tool_policy_resolved", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.197851+00:00", "details": {"allowed": ["get_background_output", "run_command", "web_fetch"], "requested_allow": ["get_background_output", "kill_background_process", "run_command", "spawn_subrun", "start_background_command", "web_fetch"], "requested_deny": ["kill_background_process", "spawn_subrun", "start_background_command"]}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 13, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "6c3c7255-90cf-48f8-888e-5deec9acfdc3", "phase": "progress", "stage": "toolchain_checked", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.198850+00:00", "details": {"workspace_root": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend", "workspace_ok": true, "shell_ok": true, "tools": ["list_dir", "read_file", "write_file", "run_command", "apply_patch", "file_search", "grep_search", "list_code_usages", "get_changed_files", "start_background_command", "get_background_output", "kill_background_process", "web_fetch", "spawn_subrun"]}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 14, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d0ddab6a-a9bf-46f1-a9aa-b99a13ed8bb5", "phase": "progress", "stage": "memory_updated", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.200850+00:00", "details": {"memory_items": 1, "memory_chars": 500}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 15, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "1e1a4a9a-960c-4a50-ad42-e2c2d9bca02a", "phase": "progress", "stage": "context_reduced", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.201952+00:00", "details": {"model": "qwen3-coder:480b-cloud", "max_context": 16000, "plan_budget": 4000, "tool_budget": 4800, "final_budget": 7200, "plan_used": 78}, "agent": "coder-agent"}}
+{"t_ms": 412, "seq": 16, "event": {"type": "status", "agent": "coder-agent", "message": "Analyzing your request and planning execution.", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 412, "seq": 17, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "2aa2d6d5-8478-49ec-b24d-9e337036ca42", "phase": "start", "stage": "planning_started", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:14:18.201952+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 51860, "seq": 18, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "825535dd-f3e3-4f20-988a-cb6ec03be937", "phase": "end", "stage": "planning_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:09.937625+00:00", "details": {"plan_chars": 849}, "agent": "coder-agent"}}
+{"t_ms": 52170, "seq": 19, "event": {"type": "agent_step", "agent": "coder-agent", "step": "Plan ready: 1. **Observability**: Implement zentrales Logging (ELK/Fluentd), verteiltes Tracing (OpenTelemetry/Jaeger) und Business-Metrics (Prometheus/Grafana) mit strukturierter Log-Korrelierung\n\n2. **Testbarkeit**: Einführung von", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 52170, "seq": 20, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "18018804-59f0-465c-acad-e55e47cf7e6b", "phase": "start", "stage": "tool_selection_started", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:09.950197+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 53295, "seq": 21, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "c32517b5-4b17-4548-a4fa-e340ff7f8b9c", "phase": "end", "stage": "tool_selection_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:11.371970+00:00", "details": {"actions": 0}, "agent": "coder-agent"}}
+{"t_ms": 53555, "seq": 22, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "72450b80-07cd-49f1-8115-5a9c41dfa90f", "phase": "progress", "stage": "tool_selection_empty", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:11.371970+00:00", "details": {"intent": null, "confidence": "low", "rejected_actions": 0, "reason": "ambiguous_input"}, "agent": "coder-agent"}}
+{"t_ms": 53555, "seq": 23, "event": {"type": "agent_step", "agent": "coder-agent", "step": "Reviewing results and building final response", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 53555, "seq": 24, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "abc5df95-5dae-45e9-872d-f87e6c1a0bba", "phase": "start", "stage": "streaming_started", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:11.373115+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 54288, "seq": 25, "event": {"type": "token", "agent": "coder-agent", "token": "**", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54373, "seq": 26, "event": {"type": "token", "agent": "coder-agent", "token": "Final", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54460, "seq": 27, "event": {"type": "token", "agent": "coder-agent", "token": " Answer:**\n\n1.", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54547, "seq": 28, "event": {"type": "token", "agent": "coder-agent", "token": " **Observ", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54633, "seq": 29, "event": {"type": "token", "agent": "coder-agent", "token": "ability**: Set", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54719, "seq": 30, "event": {"type": "token", "agent": "coder-agent", "token": "ze", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54804, "seq": 31, "event": {"type": "token", "agent": "coder-agent", "token": " ein", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54890, "seq": 32, "event": {"type": "token", "agent": "coder-agent", "token": " z", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 54976, "seq": 33, "event": {"type": "token", "agent": "coder-agent", "token": "entrales Logging mit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55064, "seq": 34, "event": {"type": "token", "agent": "coder-agent", "token": " EL", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55149, "seq": 35, "event": {"type": "token", "agent": "coder-agent", "token": "K oder", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55234, "seq": 36, "event": {"type": "token", "agent": "coder-agent", "token": " Fluent", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55318, "seq": 37, "event": {"type": "token", "agent": "coder-agent", "token": "d um", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55403, "seq": 38, "event": {"type": "token", "agent": "coder-agent", "token": ",", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55488, "seq": 39, "event": {"type": "token", "agent": "coder-agent", "token": " integ", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55572, "seq": 40, "event": {"type": "token", "agent": "coder-agent", "token": "riere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55656, "seq": 41, "event": {"type": "token", "agent": "coder-agent", "token": " vert", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55740, "seq": 42, "event": {"type": "token", "agent": "coder-agent", "token": "eil", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55824, "seq": 43, "event": {"type": "token", "agent": "coder-agent", "token": "tes", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55907, "seq": 44, "event": {"type": "token", "agent": "coder-agent", "token": " Tracing via", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 55993, "seq": 45, "event": {"type": "token", "agent": "coder-agent", "token": " OpenTe", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56078, "seq": 46, "event": {"type": "token", "agent": "coder-agent", "token": "lemetry", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56162, "seq": 47, "event": {"type": "token", "agent": "coder-agent", "token": "/Jaeger", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56249, "seq": 48, "event": {"type": "token", "agent": "coder-agent", "token": " und", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56333, "seq": 49, "event": {"type": "token", "agent": "coder-agent", "token": " nut", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56417, "seq": 50, "event": {"type": "token", "agent": "coder-agent", "token": "ze", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56503, "seq": 51, "event": {"type": "token", "agent": "coder-agent", "token": " Prometheus", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56683, "seq": 52, "event": {"type": "token", "agent": "coder-agent", "token": "/Graf", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56771, "seq": 53, "event": {"type": "token", "agent": "coder-agent", "token": "ana für", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56860, "seq": 54, "event": {"type": "token", "agent": "coder-agent", "token": " Business-Metrics", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 56944, "seq": 55, "event": {"type": "token", "agent": "coder-agent", "token": ".", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57029, "seq": 56, "event": {"type": "token", "agent": "coder-agent", "token": " St", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57114, "seq": 57, "event": {"type": "token", "agent": "coder-agent", "token": "elle", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57200, "seq": 58, "event": {"type": "token", "agent": "coder-agent", "token": " eine", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57284, "seq": 59, "event": {"type": "token", "agent": "coder-agent", "token": " str", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57368, "seq": 60, "event": {"type": "token", "agent": "coder-agent", "token": "ukt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57453, "seq": 61, "event": {"type": "token", "agent": "coder-agent", "token": "uri", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57542, "seq": 62, "event": {"type": "token", "agent": "coder-agent", "token": "erte", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57622, "seq": 63, "event": {"type": "token", "agent": "coder-agent", "token": " Kor", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57707, "seq": 64, "event": {"type": "token", "agent": "coder-agent", "token": "relation", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57791, "seq": 65, "event": {"type": "token", "agent": "coder-agent", "token": " von", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57881, "seq": 66, "event": {"type": "token", "agent": "coder-agent", "token": " Logs", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 57966, "seq": 67, "event": {"type": "token", "agent": "coder-agent", "token": " sicher", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58053, "seq": 68, "event": {"type": "token", "agent": "coder-agent", "token": ".\n\n2. **Test", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58137, "seq": 69, "event": {"type": "token", "agent": "coder-agent", "token": "barkeit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58222, "seq": 70, "event": {"type": "token", "agent": "coder-agent", "token": "**: Ver", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58304, "seq": 71, "event": {"type": "token", "agent": "coder-agent", "token": "w", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58390, "seq": 72, "event": {"type": "token", "agent": "coder-agent", "token": "ende", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58476, "seq": 73, "event": {"type": "token", "agent": "coder-agent", "token": " Pact", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 58921, "seq": 74, "event": {"type": "token", "agent": "coder-agent", "token": " für", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 59396, "seq": 75, "event": {"type": "token", "agent": "coder-agent", "token": " Contract", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 59888, "seq": 76, "event": {"type": "token", "agent": "coder-agent", "token": "-Tests, Test", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 60409, "seq": 77, "event": {"type": "token", "agent": "coder-agent", "token": "containers für", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 60968, "seq": 78, "event": {"type": "token", "agent": "coder-agent", "token": " isol", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 61560, "seq": 79, "event": {"type": "token", "agent": "coder-agent", "token": "ierte", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 62187, "seq": 80, "event": {"type": "token", "agent": "coder-agent", "token": " Integrationstests und", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 62849, "seq": 81, "event": {"type": "token", "agent": "coder-agent", "token": " et", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 63549, "seq": 82, "event": {"type": "token", "agent": "coder-agent", "token": "ab", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 64291, "seq": 83, "event": {"type": "token", "agent": "coder-agent", "token": "li", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 65072, "seq": 84, "event": {"type": "token", "agent": "coder-agent", "token": "ere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 65646, "seq": 85, "event": {"type": "token", "agent": "coder-agent", "token": " CI/CD-g", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 66013, "seq": 86, "event": {"type": "token", "agent": "coder-agent", "token": "este", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 66418, "seq": 87, "event": {"type": "token", "agent": "coder-agent", "token": "uertes", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 66855, "seq": 88, "event": {"type": "token", "agent": "coder-agent", "token": " Monitoring der", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 67329, "seq": 89, "event": {"type": "token", "agent": "coder-agent", "token": " Testpyramide", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 67842, "seq": 90, "event": {"type": "token", "agent": "coder-agent", "token": " zur", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 68383, "seq": 91, "event": {"type": "token", "agent": "coder-agent", "token": " Qualität", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 68962, "seq": 92, "event": {"type": "token", "agent": "coder-agent", "token": "ss", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 69579, "seq": 93, "event": {"type": "token", "agent": "coder-agent", "token": "icher", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 70124, "seq": 94, "event": {"type": "token", "agent": "coder-agent", "token": "ung", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 70480, "seq": 95, "event": {"type": "token", "agent": "coder-agent", "token": ".\n\n3. **Runtime", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 70849, "seq": 96, "event": {"type": "token", "agent": "coder-agent", "token": "-St", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 71216, "seq": 97, "event": {"type": "token", "agent": "coder-agent", "token": "abilit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 71612, "seq": 98, "event": {"type": "token", "agent": "coder-agent", "token": "ät", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 72040, "seq": 99, "event": {"type": "token", "agent": "coder-agent", "token": "**: Standardisi", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 72506, "seq": 100, "event": {"type": "token", "agent": "coder-agent", "token": "ere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 72872, "seq": 101, "event": {"type": "token", "agent": "coder-agent", "token": " Health", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 72971, "seq": 102, "event": {"type": "token", "agent": "coder-agent", "token": " Checks, implement", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 73073, "seq": 103, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 73172, "seq": 104, "event": {"type": "token", "agent": "coder-agent", "token": " Circuit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 73271, "seq": 105, "event": {"type": "token", "agent": "coder-agent", "token": " Breaker,", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 73372, "seq": 106, "event": {"type": "token", "agent": "coder-agent", "token": " optim", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 73753, "seq": 107, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74162, "seq": 108, "event": {"type": "token", "agent": "coder-agent", "token": " Graceful Shutdown", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74318, "seq": 109, "event": {"type": "token", "agent": "coder-agent", "token": " und", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74418, "seq": 110, "event": {"type": "token", "agent": "coder-agent", "token": " set", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74520, "seq": 111, "event": {"type": "token", "agent": "coder-agent", "token": "ze", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74621, "seq": 112, "event": {"type": "token", "agent": "coder-agent", "token": " Retry", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74721, "seq": 113, "event": {"type": "token", "agent": "coder-agent", "token": "-", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74822, "seq": 114, "event": {"type": "token", "agent": "coder-agent", "token": "Logik", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 74924, "seq": 115, "event": {"type": "token", "agent": "coder-agent", "token": " mit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75010, "seq": 116, "event": {"type": "token", "agent": "coder-agent", "token": " exponentiel", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75096, "seq": 117, "event": {"type": "token", "agent": "coder-agent", "token": "lem", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75181, "seq": 118, "event": {"type": "token", "agent": "coder-agent", "token": " Backoff um", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75267, "seq": 119, "event": {"type": "token", "agent": "coder-agent", "token": " Aus", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75352, "seq": 120, "event": {"type": "token", "agent": "coder-agent", "token": "fälle", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75438, "seq": 121, "event": {"type": "token", "agent": "coder-agent", "token": " ab", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75523, "seq": 122, "event": {"type": "token", "agent": "coder-agent", "token": "z", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75609, "seq": 123, "event": {"type": "token", "agent": "coder-agent", "token": "uf", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 75976, "seq": 124, "event": {"type": "token", "agent": "coder-agent", "token": "ed", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 76372, "seq": 125, "event": {"type": "token", "agent": "coder-agent", "token": "ern", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 76801, "seq": 126, "event": {"type": "token", "agent": "coder-agent", "token": ".\n\n4", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 77261, "seq": 127, "event": {"type": "token", "agent": "coder-agent", "token": ". **Tool-Policy", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 77647, "seq": 128, "event": {"type": "token", "agent": "coder-agent", "token": "**: Red", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 77739, "seq": 129, "event": {"type": "token", "agent": "coder-agent", "token": "uz", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 77827, "seq": 130, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 77915, "seq": 131, "event": {"type": "token", "agent": "coder-agent", "token": " den", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78002, "seq": 132, "event": {"type": "token", "agent": "coder-agent", "token": " Techn", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78090, "seq": 133, "event": {"type": "token", "agent": "coder-agent", "token": "ologie", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78178, "seq": 134, "event": {"type": "token", "agent": "coder-agent", "token": "-", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78266, "seq": 135, "event": {"type": "token", "agent": "coder-agent", "token": "Stack auf", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78354, "seq": 136, "event": {"type": "token", "agent": "coder-agent", "token": " max", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78439, "seq": 137, "event": {"type": "token", "agent": "coder-agent", "token": ". 2 Tools", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78524, "seq": 138, "event": {"type": "token", "agent": "coder-agent", "token": " pro", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78615, "seq": 139, "event": {"type": "token", "agent": "coder-agent", "token": " Layer, autom", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78695, "seq": 140, "event": {"type": "token", "agent": "coder-agent", "token": "atis", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78781, "seq": 141, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78865, "seq": 142, "event": {"type": "token", "agent": "coder-agent", "token": " Dependency", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 78951, "seq": 143, "event": {"type": "token", "agent": "coder-agent", "token": "-Scanning und", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79039, "seq": 144, "event": {"type": "token", "agent": "coder-agent", "token": " def", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79124, "seq": 145, "event": {"type": "token", "agent": "coder-agent", "token": "ini", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79210, "seq": 146, "event": {"type": "token", "agent": "coder-agent", "token": "ere eine", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79381, "seq": 147, "event": {"type": "token", "agent": "coder-agent", "token": " kl", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79463, "seq": 148, "event": {"type": "token", "agent": "coder-agent", "token": "are", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79550, "seq": 149, "event": {"type": "token", "agent": "coder-agent", "token": " Richt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79636, "seq": 150, "event": {"type": "token", "agent": "coder-agent", "token": "linie für", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79721, "seq": 151, "event": {"type": "token", "agent": "coder-agent", "token": " Versions", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79808, "seq": 152, "event": {"type": "token", "agent": "coder-agent", "token": "-Up", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79889, "seq": 153, "event": {"type": "token", "agent": "coder-agent", "token": "grades", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 79975, "seq": 154, "event": {"type": "token", "agent": "coder-agent", "token": ".\n\n5", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80061, "seq": 155, "event": {"type": "token", "agent": "coder-agent", "token": ". **Skalierung", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80146, "seq": 156, "event": {"type": "token", "agent": "coder-agent", "token": "**: M", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80236, "seq": 157, "event": {"type": "token", "agent": "coder-agent", "token": "ache", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80315, "seq": 158, "event": {"type": "token", "agent": "coder-agent", "token": " alle", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80401, "seq": 159, "event": {"type": "token", "agent": "coder-agent", "token": " Services", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80489, "seq": 160, "event": {"type": "token", "agent": "coder-agent", "token": " state", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80569, "seq": 161, "event": {"type": "token", "agent": "coder-agent", "token": "less, kon", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80642, "seq": 162, "event": {"type": "token", "agent": "coder-agent", "token": "figuri", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80717, "seq": 163, "event": {"type": "token", "agent": "coder-agent", "token": "ere Horizontal", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80791, "seq": 164, "event": {"type": "token", "agent": "coder-agent", "token": " Pod Autos", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80865, "seq": 165, "event": {"type": "token", "agent": "coder-agent", "token": "caler, optim", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 80935, "seq": 166, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81010, "seq": 167, "event": {"type": "token", "agent": "coder-agent", "token": " Connection", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81083, "seq": 168, "event": {"type": "token", "agent": "coder-agent", "token": " Pooling und", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81161, "seq": 169, "event": {"type": "token", "agent": "coder-agent", "token": " implement", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81238, "seq": 170, "event": {"type": "token", "agent": "coder-agent", "token": "iere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81301, "seq": 171, "event": {"type": "token", "agent": "coder-agent", "token": " Redis-b", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81371, "seq": 172, "event": {"type": "token", "agent": "coder-agent", "token": "asi", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81443, "seq": 173, "event": {"type": "token", "agent": "coder-agent", "token": "ert", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81791, "seq": 174, "event": {"type": "token", "agent": "coder-agent", "token": "es", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81874, "seq": 175, "event": {"type": "token", "agent": "coder-agent", "token": " Caching.\n\n**Next", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 81945, "seq": 176, "event": {"type": "token", "agent": "coder-agent", "token": " Steps:", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82016, "seq": 177, "event": {"type": "token", "agent": "coder-agent", "token": "**\n- Prior", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82087, "seq": 178, "event": {"type": "token", "agent": "coder-agent", "token": "isi", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82158, "seq": 179, "event": {"type": "token", "agent": "coder-agent", "token": "ere", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82231, "seq": 180, "event": {"type": "token", "agent": "coder-agent", "token": " P", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82312, "seq": 181, "event": {"type": "token", "agent": "coder-agent", "token": "unkt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82385, "seq": 182, "event": {"type": "token", "agent": "coder-agent", "token": " 1 für", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82456, "seq": 183, "event": {"type": "token", "agent": "coder-agent", "token": " Sof", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82530, "seq": 184, "event": {"type": "token", "agent": "coder-agent", "token": "ort", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82600, "seq": 185, "event": {"type": "token", "agent": "coder-agent", "token": "ma", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82673, "seq": 186, "event": {"type": "token", "agent": "coder-agent", "token": "ß", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82744, "seq": 187, "event": {"type": "token", "agent": "coder-agent", "token": "nah", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82815, "seq": 188, "event": {"type": "token", "agent": "coder-agent", "token": "men", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82889, "seq": 189, "event": {"type": "token", "agent": "coder-agent", "token": " zur", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 82962, "seq": 190, "event": {"type": "token", "agent": "coder-agent", "token": " Trans", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83032, "seq": 191, "event": {"type": "token", "agent": "coder-agent", "token": "paren", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83104, "seq": 192, "event": {"type": "token", "agent": "coder-agent", "token": "z", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83177, "seq": 193, "event": {"type": "token", "agent": "coder-agent", "token": "ste", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83252, "seq": 194, "event": {"type": "token", "agent": "coder-agent", "token": "iger", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83324, "seq": 195, "event": {"type": "token", "agent": "coder-agent", "token": "ung", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83398, "seq": 196, "event": {"type": "token", "agent": "coder-agent", "token": "\n- Begin", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83469, "seq": 197, "event": {"type": "token", "agent": "coder-agent", "token": "ne", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83543, "seq": 198, "event": {"type": "token", "agent": "coder-agent", "token": " mit", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83621, "seq": 199, "event": {"type": "token", "agent": "coder-agent", "token": " P", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83688, "seq": 200, "event": {"type": "token", "agent": "coder-agent", "token": "unkt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83760, "seq": 201, "event": {"type": "token", "agent": "coder-agent", "token": " 3", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 83948, "seq": 202, "event": {"type": "token", "agent": "coder-agent", "token": " zur", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84021, "seq": 203, "event": {"type": "token", "agent": "coder-agent", "token": " St", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84099, "seq": 204, "event": {"type": "token", "agent": "coder-agent", "token": "abil", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84168, "seq": 205, "event": {"type": "token", "agent": "coder-agent", "token": "is", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84244, "seq": 206, "event": {"type": "token", "agent": "coder-agent", "token": "ierung", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84318, "seq": 207, "event": {"type": "token", "agent": "coder-agent", "token": " des", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84390, "seq": 208, "event": {"type": "token", "agent": "coder-agent", "token": " Produkt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84460, "seq": 209, "event": {"type": "token", "agent": "coder-agent", "token": "iv", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84533, "seq": 210, "event": {"type": "token", "agent": "coder-agent", "token": "bet", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84604, "seq": 211, "event": {"type": "token", "agent": "coder-agent", "token": "rie", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84678, "seq": 212, "event": {"type": "token", "agent": "coder-agent", "token": "bs", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84751, "seq": 213, "event": {"type": "token", "agent": "coder-agent", "token": "\n- Plane", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84824, "seq": 214, "event": {"type": "token", "agent": "coder-agent", "token": " die", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84894, "seq": 215, "event": {"type": "token", "agent": "coder-agent", "token": " Um", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 84967, "seq": 216, "event": {"type": "token", "agent": "coder-agent", "token": "set", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85040, "seq": 217, "event": {"type": "token", "agent": "coder-agent", "token": "zung", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85113, "seq": 218, "event": {"type": "token", "agent": "coder-agent", "token": " der", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85186, "seq": 219, "event": {"type": "token", "agent": "coder-agent", "token": " Tool-Policy", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85258, "seq": 220, "event": {"type": "token", "agent": "coder-agent", "token": " (", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85375, "seq": 221, "event": {"type": "token", "agent": "coder-agent", "token": "Punkt", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85449, "seq": 222, "event": {"type": "token", "agent": "coder-agent", "token": " 4) parallel", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85524, "seq": 223, "event": {"type": "token", "agent": "coder-agent", "token": " zur", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85597, "seq": 224, "event": {"type": "token", "agent": "coder-agent", "token": " Sk", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85672, "seq": 225, "event": {"type": "token", "agent": "coder-agent", "token": "alier", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85748, "seq": 226, "event": {"type": "token", "agent": "coder-agent", "token": "ungs", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85820, "seq": 227, "event": {"type": "token", "agent": "coder-agent", "token": "an", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85895, "seq": 228, "event": {"type": "token", "agent": "coder-agent", "token": "pass", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 85970, "seq": 229, "event": {"type": "token", "agent": "coder-agent", "token": "ung (", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86043, "seq": 230, "event": {"type": "token", "agent": "coder-agent", "token": "Punkt 5)", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86116, "seq": 231, "event": {"type": "token", "agent": "coder-agent", "token": "\n\nKe", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86187, "seq": 232, "event": {"type": "token", "agent": "coder-agent", "token": "ine", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86261, "seq": 233, "event": {"type": "token", "agent": "coder-agent", "token": " extern", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86330, "seq": 234, "event": {"type": "token", "agent": "coder-agent", "token": "en", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86404, "seq": 235, "event": {"type": "token", "agent": "coder-agent", "token": " Qu", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86475, "seq": 236, "event": {"type": "token", "agent": "coder-agent", "token": "ellen", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86546, "seq": 237, "event": {"type": "token", "agent": "coder-agent", "token": " verwendet", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86619, "seq": 238, "event": {"type": "token", "agent": "coder-agent", "token": ".", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86830, "seq": 239, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "535d46d5-ceee-490a-b6cc-299666074390", "phase": "end", "stage": "streaming_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.906659+00:00", "details": {"output_chars": 1242}, "agent": "coder-agent"}}
+{"t_ms": 86895, "seq": 240, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4075ea8c-403d-4bc3-bfb2-af1901c005b3", "phase": "start", "stage": "reply_shaping_started", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.907704+00:00", "details": {"input_chars": 1242}, "agent": "coder-agent"}}
+{"t_ms": 86896, "seq": 241, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "76a7958c-d040-4238-8319-e9b7e0a3bbe3", "phase": "end", "stage": "reply_shaping_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.910322+00:00", "details": {"original_chars": 1242, "shaped_chars": 1235, "suppressed": false, "reason": null, "removed_tokens": [], "deduped_lines": 0}, "agent": "coder-agent"}}
+{"t_ms": 86896, "seq": 242, "event": {"type": "final", "agent": "coder-agent", "message": "**Final Answer:**\n1. **Observability**: Setze ein zentrales Logging mit ELK oder Fluentd um, integriere verteiltes Tracing via OpenTelemetry/Jaeger und nutze Prometheus/Grafana für Business-Metrics. Stelle eine strukturierte Korrelation von Logs sicher.\n2. **Testbarkeit**: Verwende Pact für Contract-Tests, Testcontainers für isolierte Integrationstests und etabliere CI/CD-gesteuertes Monitoring der Testpyramide zur Qualitätssicherung.\n3. **Runtime-Stabilität**: Standardisiere Health Checks, implementiere Circuit Breaker, optimiere Graceful Shutdown und setze Retry-Logik mit exponentiellem Backoff um Ausfälle abzufedern.\n4. **Tool-Policy**: Reduziere den Technologie-Stack auf max. 2 Tools pro Layer, automatisiere Dependency-Scanning und definiere eine klare Richtlinie für Versions-Upgrades.\n5. **Skalierung**: Mache alle Services stateless, konfiguriere Horizontal Pod Autoscaler, optimiere Connection Pooling und implementiere Redis-basiertes Caching.\n**Next Steps:**\n- Priorisiere Punkt 1 für Sofortmaßnahmen zur Transparenzsteigerung\n- Beginne mit Punkt 3 zur Stabilisierung des Produktivbetriebs\n- Plane die Umsetzung der Tool-Policy (Punkt 4) parallel zur Skalierungsanpassung (Punkt 5)\nKeine externen Quellen verwendet.", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}}
+{"t_ms": 86896, "seq": 243, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "e407d67a-9010-4a7b-8ec5-ee012ebb9ab1", "phase": "end", "stage": "run_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.920461+00:00", "details": {}, "agent": "coder-agent"}}
+{"t_ms": 86896, "seq": 244, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4eb21a52-9faa-4bb9-9ec7-e6a439d8c39f", "phase": "progress", "stage": "lane_released", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.954114+00:00", "details": {"queue_wait_ms": 0, "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da"}, "agent": "coder-agent"}}
+{"t_ms": 86896, "seq": 245, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "446e5235-6934-4327-807a-24fb446a030a", "phase": "end", "stage": "request_completed", "request_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "run_id": "fc419199-8a31-4adb-9e0d-1532d293097e", "session_id": "cf9b3c33-d448-4b9a-a6c3-002b4149f7da", "ts": "2026-03-01T22:15:44.955200+00:00", "details": {}, "agent": "coder-agent", "status": "completed", "run_status": "completed", "ended_at": "2026-03-01T22:15:44.955200+00:00"}}
