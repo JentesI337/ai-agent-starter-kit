@@ -1352,6 +1352,63 @@ def test_control_runs_audit_returns_telemetry(monkeypatch) -> None:
     assert isinstance(payload["telemetry"]["lifecycle_stages"], dict)
 
 
+def test_control_runs_audit_includes_blocked_with_reason_details(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+        await send_event(
+            {
+                "type": "lifecycle",
+                "stage": "tool_selection_empty",
+                "request_id": request_id,
+                "session_id": session_id,
+                "details": {
+                    "reason": "policy_block",
+                    "blocked_with_reason": "run_command_not_allowed",
+                },
+            }
+        )
+        await send_event(
+            {
+                "type": "final",
+                "agent": "head-agent",
+                "message": "blocked",
+                "request_id": request_id,
+                "session_id": session_id,
+            }
+        )
+        return "blocked"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent, "run", fake_run)
+
+    client = TestClient(app)
+
+    start = client.post(
+        "/api/control/run.start",
+        json={"session_id": "runs-audit-blocked", "message": "run blocked command"},
+    )
+    assert start.status_code == 200
+    run_id = start.json()["runId"]
+
+    wait = client.post(
+        "/api/control/run.wait",
+        json={"run_id": run_id, "timeout_ms": 3000, "poll_interval_ms": 50},
+    )
+    assert wait.status_code == 200
+
+    response = client.post("/api/control/runs.audit", json={"run_id": run_id})
+    assert response.status_code == 200
+    payload = response.json()
+
+    telemetry = payload["telemetry"]
+    assert telemetry["blocked_with_reason"].get("run_command_not_allowed", 0) >= 1
+    assert telemetry["tool_selection_empty_reasons"].get("policy_block", 0) >= 1
+
+
 def test_control_runs_audit_unknown_run_returns_404() -> None:
     client = TestClient(app)
 

@@ -7,8 +7,9 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
-from app.main import app, agent, agent_registry, runtime_manager, settings, subrun_lane
+from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.errors import GuardrailViolation
+from app.orchestrator.step_executors import PlannerStepExecutor
 from app.runtime_manager import RuntimeState
 
 
@@ -170,6 +171,110 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
     assert seq_values == sorted(seq_values)
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_received" for evt in events)
     assert any(evt.get("type") == "final" and evt.get("message") == "echo:hi" for evt in events)
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
+
+
+def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    async def fake_plan_execute(payload, model=None):
+        return "execute requested command"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "run",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(24):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_empty"
+        and evt.get("details", {}).get("reason") == "missing_slots"
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "final"
+        and "exakten befehl" in str(evt.get("message", "")).lower()
+        for evt in events
+    )
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
+
+
+def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    async def fake_plan_execute(payload, model=None):
+        return "execute requested command"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "run `echo hello`",
+                "agent_id": "head-agent",
+                "tool_policy": {"deny": ["run_command"]},
+            }
+        )
+
+        events = []
+        for _ in range(24):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_empty"
+        and evt.get("details", {}).get("reason") == "policy_block"
+        and evt.get("details", {}).get("blocked_with_reason") == "run_command_not_allowed"
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "final"
+        and "currently blocked by the active tool policy" in str(evt.get("message", ""))
+        for evt in events
+    )
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
 
 
@@ -639,7 +744,6 @@ def test_custom_agent_can_run_via_websocket(monkeypatch) -> None:
 
 def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) -> None:
     _set_local_runtime()
-    monkeypatch.setattr(settings, "agent_no_agency", False)
 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
@@ -682,53 +786,6 @@ def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) 
         for evt in events
     )
     assert any(evt.get("type") == "final" and evt.get("agent") == "review-agent" for evt in events)
-
-
-def test_websocket_head_agent_no_agency_disables_intent_delegation(monkeypatch) -> None:
-    _set_local_runtime()
-    monkeypatch.setattr(settings, "agent_no_agency", True)
-
-    async def fake_ensure_model_ready(send_event, session_id, model_name):
-        return model_name
-
-    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
-        await send_event(
-            {
-                "type": "final",
-                "agent": "head-agent",
-                "message": "head-no-agency",
-            }
-        )
-        return "head-no-agency"
-
-    async def fail_coder_run(*args, **kwargs):
-        raise AssertionError("coder-agent must not be auto-selected in no-agency mode")
-
-    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
-    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_head_run)
-    monkeypatch.setattr(agent_registry["coder-agent"], "run", fail_coder_run)
-
-    client = TestClient(app)
-
-    with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
-        ws.send_json(
-            {
-                "type": "user_message",
-                "content": "please implement a python function for fibonacci",
-                "agent_id": "head-agent",
-            }
-        )
-
-        events = []
-        for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
-            events.append(evt)
-            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
-                break
-
-    assert any(evt.get("type") == "final" and evt.get("agent") == "head-agent" for evt in events)
-    assert not any(evt.get("routing_reason") == "coding_intent" for evt in events)
 
 
 def test_review_agent_enforces_read_only_policy(monkeypatch) -> None:

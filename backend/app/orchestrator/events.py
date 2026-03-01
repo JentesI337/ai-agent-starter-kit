@@ -21,6 +21,7 @@ class LifecycleStage(StrEnum):
     TOOL_SELECTION_REPAIR_STARTED = "tool_selection_repair_started"
     TOOL_SELECTION_REPAIR_COMPLETED = "tool_selection_repair_completed"
     TOOL_SELECTION_REPAIR_FAILED = "tool_selection_repair_failed"
+    TOOL_SELECTION_EMPTY = "tool_selection_empty"
     TOOL_STARTED = "tool_started"
     TOOL_COMPLETED = "tool_completed"
     TOOL_FAILED = "tool_failed"

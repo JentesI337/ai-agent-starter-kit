@@ -87,10 +87,28 @@ class ReplyShapeResult:
     deduped_lines: int
 
 
+@dataclass(frozen=True)
+class IntentGateDecision:
+    intent: str | None
+    confidence: str
+    extracted_command: str | None
+    missing_slots: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PromptProfile:
+    system_prompt: str
+    plan_prompt: str
+    tool_selector_prompt: str
+    tool_repair_prompt: str
+    final_prompt: str
+
+
 class HeadAgent:
     def __init__(self, name: str | None = None, role: str = "head-agent"):
         self.name = name or settings.agent_name
         self.role = role
+        self.prompt_profile = self._resolve_prompt_profile(role)
         self.client = LlmClient(
             base_url=settings.llm_base_url,
             model=settings.llm_model,
@@ -116,16 +134,35 @@ class HeadAgent:
         self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
-        self.planner_agent = PlannerAgent(client=self.client)
+        self.planner_agent = PlannerAgent(client=self.client, system_prompt=self.prompt_profile.plan_prompt)
         self.tool_selector_agent = ToolSelectorAgent(execute_tools_fn=self._execute_tools)
         self.synthesizer_agent = SynthesizerAgent(
             client=self.client,
             agent_name=self.name,
             emit_lifecycle_fn=self._emit_lifecycle,
+            system_prompt=self.prompt_profile.final_prompt,
         )
         self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
         self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
         self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
+
+    def _resolve_prompt_profile(self, role: str) -> PromptProfile:
+        normalized_role = (role or "").strip().lower()
+        if normalized_role == "coding-agent":
+            return PromptProfile(
+                system_prompt=settings.coder_agent_system_prompt,
+                plan_prompt=settings.coder_agent_plan_prompt,
+                tool_selector_prompt=settings.coder_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.coder_agent_tool_repair_prompt,
+                final_prompt=settings.coder_agent_final_prompt,
+            )
+        return PromptProfile(
+            system_prompt=settings.head_agent_system_prompt,
+            plan_prompt=settings.head_agent_plan_prompt,
+            tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+            tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+            final_prompt=settings.head_agent_final_prompt,
+        )
 
     def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(
@@ -293,6 +330,31 @@ class HeadAgent:
                 model,
                 effective_allowed_tools,
             )
+
+            blocked_payload = self._parse_blocked_tool_result(tool_results)
+            if blocked_payload is not None:
+                final_text = blocked_payload.get("message") or "I need one required detail before I can continue."
+                await send_event(
+                    {
+                        "type": "final",
+                        "agent": self.name,
+                        "message": final_text,
+                    }
+                )
+                self.memory.add(session_id, "assistant", final_text)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "response_chars": len(final_text),
+                        "fallback": "blocked_with_reason",
+                        "blocked_with_reason": blocked_payload.get("blocked_with_reason", "blocked"),
+                    },
+                )
+                status = "completed"
+                return final_text
 
             if self._is_web_research_task(user_message) and not self._has_successful_web_fetch(tool_results or ""):
                 web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_fetch")
@@ -534,9 +596,6 @@ class HeadAgent:
         return normalized
 
     def _resolve_effective_allowed_tools(self, tool_policy: dict[str, list[str]] | None) -> set[str]:
-        if settings.agent_no_agency:
-            return set()
-
         base_allowed = set(ALLOWED_TOOLS)
 
         config_allow = self._normalize_tool_set(settings.agent_tools_allow)
@@ -573,6 +632,13 @@ class HeadAgent:
             session_id=session_id,
         )
         if not allowed_tools:
+            await self._emit_tool_selection_empty(
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                reason="policy_block",
+                details={"blocked_with_reason": "no_tools_allowed"},
+            )
             await self._emit_lifecycle(
                 send_event,
                 stage="tool_selection_skipped",
@@ -581,6 +647,64 @@ class HeadAgent:
                 details={"reason": "no_tools_allowed"},
             )
             return ""
+
+        intent_decision = self._detect_intent_gate(user_message)
+        if intent_decision.intent == "execute_command" and "run_command" not in allowed_tools:
+            blocked_message = (
+                "I can execute commands for you, but command execution is currently blocked by the active tool policy. "
+                "Please allow `run_command` (or switch to a coding-capable profile) and retry."
+            )
+            await self._emit_tool_selection_empty(
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                reason="policy_block",
+                details={
+                    "intent": intent_decision.intent,
+                    "confidence": intent_decision.confidence,
+                    "blocked_with_reason": "run_command_not_allowed",
+                },
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="tool_selection_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"actions": 0, "blocked_with_reason": "run_command_not_allowed"},
+            )
+            return self._encode_blocked_tool_result(
+                blocked_with_reason="run_command_not_allowed",
+                message=blocked_message,
+            )
+
+        if intent_decision.intent == "execute_command" and intent_decision.missing_slots:
+            blocked_message = (
+                "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
+                "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
+            )
+            await self._emit_tool_selection_empty(
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                reason="missing_slots",
+                details={
+                    "intent": intent_decision.intent,
+                    "confidence": intent_decision.confidence,
+                    "missing_slots": list(intent_decision.missing_slots),
+                    "blocked_with_reason": "missing_command",
+                },
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="tool_selection_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"actions": 0, "blocked_with_reason": "missing_command"},
+            )
+            return self._encode_blocked_tool_result(
+                blocked_with_reason="missing_command",
+                message=blocked_message,
+            )
 
         await self._invoke_hooks(
             hook_name="before_prompt_build",
@@ -621,7 +745,7 @@ class HeadAgent:
         )
 
         raw = await self.client.complete_chat(
-            settings.agent_tool_selector_prompt,
+            self.prompt_profile.tool_selector_prompt,
             tool_selector_prompt,
             model=model,
         )
@@ -697,6 +821,53 @@ class HeadAgent:
             allowed_tools=allowed_tools,
         )
 
+        if not actions and intent_decision.intent == "execute_command" and intent_decision.confidence == "high":
+            if intent_decision.extracted_command:
+                actions = [
+                    {
+                        "tool": "run_command",
+                        "args": {"command": intent_decision.extracted_command},
+                    }
+                ]
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_selection_followup_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "reason": "intent_execute_command_forced_action",
+                        "added_tool": "run_command",
+                    },
+                )
+            else:
+                blocked_message = (
+                    "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
+                    "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
+                )
+                await self._emit_tool_selection_empty(
+                    send_event=send_event,
+                    request_id=request_id,
+                    session_id=session_id,
+                    reason="missing_slots",
+                    details={
+                        "intent": intent_decision.intent,
+                        "confidence": intent_decision.confidence,
+                        "missing_slots": ["command"],
+                        "blocked_with_reason": "missing_command",
+                    },
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_selection_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"actions": 0, "blocked_with_reason": "missing_command"},
+                )
+                return self._encode_blocked_tool_result(
+                    blocked_with_reason="missing_command",
+                    message=blocked_message,
+                )
+
         if rejected_count > 0:
             await self._emit_lifecycle(
                 send_event,
@@ -713,6 +884,20 @@ class HeadAgent:
             details={"actions": len(actions)},
         )
         if not actions:
+            empty_reason = "ambiguous_input"
+            if intent_decision.intent is not None and intent_decision.confidence == "low":
+                empty_reason = "low_confidence"
+            await self._emit_tool_selection_empty(
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                reason=empty_reason,
+                details={
+                    "intent": intent_decision.intent,
+                    "confidence": intent_decision.confidence,
+                    "rejected_actions": rejected_count,
+                },
+            )
             return ""
 
         results: list[str] = []
@@ -886,7 +1071,108 @@ class HeadAgent:
                     },
                 )
             except ToolExecutionError as exc:
-                tool_call_count += 1
+                attempt_calls = 1
+                retried_successfully = False
+                if (
+                    tool == "web_fetch"
+                    and self._should_retry_web_fetch_on_404(exc)
+                    and (self._is_web_research_task(user_message) or self._is_weather_lookup_task(user_message))
+                ):
+                    fallback_url = self._build_web_research_url(user_message)
+                    primary_url = str(evaluated_args.get("url", "")).strip()
+                    if fallback_url and fallback_url != primary_url:
+                        await send_event(
+                            {
+                                "type": "agent_step",
+                                "agent": self.name,
+                                "step": f"Tool {idx}: web_fetch retry with fallback source",
+                            }
+                        )
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="tool_retry_started",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "tool": tool,
+                                "index": idx,
+                                "reason": "http_404",
+                                "from_url": primary_url,
+                                "to_url": fallback_url,
+                            },
+                        )
+                        retry_args = dict(evaluated_args)
+                        retry_args["url"] = fallback_url
+                        attempt_calls += 1
+                        try:
+                            retry_started = monotonic()
+                            retry_result = await self._run_tool_with_policy(tool=tool, args=retry_args, policy=policy)
+                            retry_elapsed_ms = int((monotonic() - retry_started) * 1000)
+                            clipped = retry_result[:6000]
+                            self.memory.add(session_id, f"tool:{tool}", clipped)
+                            results.append(f"[{tool}]\n{clipped}")
+                            await self._emit_lifecycle(
+                                send_event,
+                                stage="tool_completed",
+                                request_id=request_id,
+                                session_id=session_id,
+                                details={
+                                    "tool": tool,
+                                    "index": idx,
+                                    "result_chars": len(clipped),
+                                    "elapsed_ms": retry_elapsed_ms,
+                                    "retried": True,
+                                },
+                            )
+                            await self._emit_lifecycle(
+                                send_event,
+                                stage="tool_retry_completed",
+                                request_id=request_id,
+                                session_id=session_id,
+                                details={
+                                    "tool": tool,
+                                    "index": idx,
+                                    "reason": "http_404",
+                                    "from_url": primary_url,
+                                    "to_url": fallback_url,
+                                },
+                            )
+                            await self._invoke_hooks(
+                                hook_name="after_tool_call",
+                                send_event=send_event,
+                                request_id=request_id,
+                                session_id=session_id,
+                                payload={
+                                    "tool": tool,
+                                    "args": dict(retry_args),
+                                    "index": idx,
+                                    "status": "ok",
+                                    "result_chars": len(clipped),
+                                    "retried": True,
+                                },
+                            )
+                            retried_successfully = True
+                        except ToolExecutionError as retry_exc:
+                            exc = ToolExecutionError(f"{exc} | retry_failed: {retry_exc}")
+                            await self._emit_lifecycle(
+                                send_event,
+                                stage="tool_retry_failed",
+                                request_id=request_id,
+                                session_id=session_id,
+                                details={
+                                    "tool": tool,
+                                    "index": idx,
+                                    "reason": "http_404",
+                                    "from_url": primary_url,
+                                    "to_url": fallback_url,
+                                    "error": str(retry_exc),
+                                },
+                            )
+
+                tool_call_count += attempt_calls
+                if retried_successfully:
+                    continue
+
                 tool_error_count += 1
                 results.append(f"[{tool}] ERROR: {exc}")
                 await send_event(
@@ -937,6 +1223,135 @@ class HeadAgent:
         )
 
         return "\n\n".join(results)
+
+    def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
+        text = (user_message or "").strip()
+        lowered = text.lower()
+        if not text:
+            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
+
+        command_markers = (
+            "run",
+            "execute",
+            "start",
+            "launch",
+            "build",
+            "test",
+            "compile",
+            "führe",
+            "starte",
+            "baue",
+            "teste",
+        )
+        has_command_intent = bool(re.match(r"^\s*(please\s+)?(run|execute|start|launch|build|test|compile)\b", lowered))
+        has_command_intent = has_command_intent or "run command" in lowered or "execute command" in lowered
+        has_command_intent = has_command_intent or any(lowered.startswith(f"{marker} ") for marker in command_markers)
+        if not has_command_intent:
+            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
+
+        extracted_command = self._extract_explicit_command(text)
+        if extracted_command:
+            return IntentGateDecision(
+                intent="execute_command",
+                confidence="high",
+                extracted_command=extracted_command,
+                missing_slots=(),
+            )
+
+        return IntentGateDecision(
+            intent="execute_command",
+            confidence="high",
+            extracted_command=None,
+            missing_slots=("command",),
+        )
+
+    def _extract_explicit_command(self, user_message: str) -> str | None:
+        text = (user_message or "").strip()
+        if not text:
+            return None
+
+        fenced_match = re.search(r"`([^`\n]{1,400})`", text)
+        if fenced_match:
+            candidate = fenced_match.group(1).strip()
+            if candidate:
+                return candidate
+
+        quoted_match = re.search(r"\"([^\"\n]{1,400})\"", text)
+        if quoted_match:
+            candidate = quoted_match.group(1).strip()
+            if candidate:
+                return candidate
+
+        lowered = text.lower()
+        prefixes = (
+            "run ",
+            "execute ",
+            "start ",
+            "launch ",
+            "build ",
+            "test ",
+            "compile ",
+            "please run ",
+            "please execute ",
+            "führe ",
+            "starte ",
+            "baue ",
+            "teste ",
+        )
+        for prefix in prefixes:
+            if lowered.startswith(prefix):
+                candidate = text[len(prefix) :].strip()
+                if not candidate:
+                    return None
+                if candidate.lower() in {"it", "this", "that", "command", "den command", "befehl"}:
+                    return None
+                return candidate
+
+        command_after_colon = re.search(r"(?:command|befehl)\s*:\s*(.+)$", text, flags=re.IGNORECASE)
+        if command_after_colon:
+            candidate = command_after_colon.group(1).strip()
+            if candidate:
+                return candidate
+        return None
+
+    async def _emit_tool_selection_empty(
+        self,
+        *,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+        reason: str,
+        details: dict | None = None,
+    ) -> None:
+        payload = dict(details or {})
+        payload["reason"] = reason
+        await self._emit_lifecycle(
+            send_event,
+            stage="tool_selection_empty",
+            request_id=request_id,
+            session_id=session_id,
+            details=payload,
+        )
+
+    def _encode_blocked_tool_result(self, *, blocked_with_reason: str, message: str) -> str:
+        return f"__BLOCKED_WITH_REASON__:{json.dumps({'blocked_with_reason': blocked_with_reason, 'message': message}, ensure_ascii=False)}"
+
+    def _parse_blocked_tool_result(self, tool_results: str | None) -> dict | None:
+        if not tool_results:
+            return None
+        prefix = "__BLOCKED_WITH_REASON__:"
+        if not tool_results.startswith(prefix):
+            return None
+        payload_text = tool_results[len(prefix) :].strip()
+        if not payload_text:
+            return None
+        try:
+            parsed = json.loads(payload_text)
+        except Exception:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     async def _augment_actions_if_needed(
         self,
@@ -1055,6 +1470,25 @@ class HeadAgent:
             "internet",
         )
         return any(marker in text for marker in markers)
+
+    def _is_weather_lookup_task(self, user_message: str) -> bool:
+        text = (user_message or "").lower()
+        markers = (
+            "weather",
+            "forecast",
+            "temperature",
+            "humidity",
+            "wind",
+            "precipitation",
+            "wetter",
+            "temperatur",
+            "niederschlag",
+        )
+        return any(marker in text for marker in markers)
+
+    def _should_retry_web_fetch_on_404(self, error: ToolExecutionError) -> bool:
+        text = str(error).lower()
+        return "http error 404" in text or " 404" in text
 
     def _has_successful_web_fetch(self, tool_results: str) -> bool:
         if not tool_results:
@@ -1246,7 +1680,7 @@ class HeadAgent:
             f"{raw_block}"
         )
         return await self.client.complete_chat(
-            settings.agent_tool_repair_prompt,
+            self.prompt_profile.tool_repair_prompt,
             repair_prompt,
             model=model,
         )

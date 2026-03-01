@@ -51,6 +51,79 @@ class Settings(BaseModel):
     agent_name: str = os.getenv("AGENT_NAME", "head-agent")
     coder_agent_name: str = os.getenv("CODER_AGENT_NAME", "coder-agent")
     review_agent_name: str = os.getenv("REVIEW_AGENT_NAME", "review-agent")
+    head_agent_system_prompt: str = os.getenv(
+        "HEAD_AGENT_SYSTEM_PROMPT",
+        os.getenv(
+            "AGENT_SYSTEM_PROMPT",
+            "You are a neutral head agent. Be concise, factual, and adapt naturally to user intent.",
+        ),
+    )
+    head_agent_plan_prompt: str = os.getenv(
+        "HEAD_AGENT_PLAN_PROMPT",
+        os.getenv(
+            "HEAD_AGENT_SYSTEM_PROMPT",
+            os.getenv(
+                "AGENT_PLAN_PROMPT",
+                os.getenv(
+                    "AGENT_SYSTEM_PROMPT",
+                    "You are a neutral head agent. Return a minimal, context-appropriate plan only when needed.",
+                ),
+            ),
+        ),
+    )
+    head_agent_tool_selector_prompt: str = os.getenv(
+        "HEAD_AGENT_TOOL_SELECTOR_PROMPT",
+        os.getenv(
+            "AGENT_TOOL_SELECTOR_PROMPT",
+            os.getenv(
+                "HEAD_AGENT_SYSTEM_PROMPT",
+                "You select tools for user tasks. Strictly follow output format requirements.",
+            ),
+        ),
+    )
+    head_agent_tool_repair_prompt: str = os.getenv(
+        "HEAD_AGENT_TOOL_REPAIR_PROMPT",
+        os.getenv(
+            "AGENT_TOOL_REPAIR_PROMPT",
+            os.getenv(
+                "HEAD_AGENT_SYSTEM_PROMPT",
+                "You repair malformed tool selection output into strict JSON only.",
+            ),
+        ),
+    )
+    head_agent_final_prompt: str = os.getenv(
+        "HEAD_AGENT_FINAL_PROMPT",
+        os.getenv(
+            "HEAD_AGENT_SYSTEM_PROMPT",
+            os.getenv(
+                "AGENT_FINAL_PROMPT",
+                os.getenv(
+                    "AGENT_SYSTEM_PROMPT",
+                    "You are a neutral head agent. Return a concise, directly helpful final answer.",
+                ),
+            ),
+        ),
+    )
+    coder_agent_system_prompt: str = os.getenv(
+        "CODER_AGENT_SYSTEM_PROMPT",
+        "You are a senior coding agent. Think step-by-step, break tasks into actionable implementation steps, and produce precise developer output.",
+    )
+    coder_agent_plan_prompt: str = os.getenv(
+        "CODER_AGENT_PLAN_PROMPT",
+        os.getenv("CODER_AGENT_SYSTEM_PROMPT", "You are a senior coding agent. Return a short actionable implementation plan."),
+    )
+    coder_agent_tool_selector_prompt: str = os.getenv(
+        "CODER_AGENT_TOOL_SELECTOR_PROMPT",
+        os.getenv("AGENT_TOOL_SELECTOR_PROMPT", "You select tools for a coding task. Strictly follow output format requirements."),
+    )
+    coder_agent_tool_repair_prompt: str = os.getenv(
+        "CODER_AGENT_TOOL_REPAIR_PROMPT",
+        os.getenv("AGENT_TOOL_REPAIR_PROMPT", "You repair malformed tool selection output into strict JSON only."),
+    )
+    coder_agent_final_prompt: str = os.getenv(
+        "CODER_AGENT_FINAL_PROMPT",
+        os.getenv("CODER_AGENT_SYSTEM_PROMPT", "You are a senior coding agent. Return a concise final answer with practical next steps."),
+    )
     agent_system_prompt: str = os.getenv(
         "AGENT_SYSTEM_PROMPT",
         "You are a senior head agent. Think step-by-step and return practical plans.",
@@ -83,7 +156,6 @@ class Settings(BaseModel):
             "You are a senior head agent. Think step-by-step and return practical plans.",
         ),
     )
-    agent_no_agency: bool = _parse_bool_env("AGENT_NO_AGENCY", False)
     workspace_root: str = _resolve_workspace_root(os.getenv("WORKSPACE_ROOT"))
     memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
     memory_persist_dir: str = _resolve_path_from_workspace(

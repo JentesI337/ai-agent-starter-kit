@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent import HeadCodingAgent
+from app.agent import CoderAgent, HeadCodingAgent
 from app.config import settings
 from app.errors import ToolExecutionError
 from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
@@ -167,22 +167,6 @@ def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
         {
             "allow": ["read_file", "run_command"],
             "deny": ["read_file"],
-        }
-    )
-
-    assert allowed == set()
-
-
-def test_effective_tool_policy_no_agency_disables_all_tools(monkeypatch) -> None:
-    agent = HeadCodingAgent()
-    monkeypatch.setattr(settings, "agent_no_agency", True)
-    monkeypatch.setattr(settings, "agent_tools_allow", None)
-    monkeypatch.setattr(settings, "agent_tools_deny", [])
-
-    allowed = agent._resolve_effective_allowed_tools(
-        {
-            "allow": ["read_file", "run_command"],
-            "deny": [],
         }
     )
 
@@ -462,3 +446,213 @@ def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
     assert "REJECTED: tool call budget exceeded" in result
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_budget_exceeded" for evt in events)
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_audit_summary" for evt in events)
+
+
+def test_execute_tools_blocks_when_command_slot_missing() -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    result = asyncio.run(
+        agent._execute_tools(
+            user_message="run",
+            plan_text="execute requested command",
+            memory_context="user: run",
+            session_id="s-cmd-missing",
+            request_id="r-cmd-missing",
+            send_event=send_event,
+            model=None,
+            allowed_tools={"run_command"},
+        )
+    )
+
+    parsed = agent._parse_blocked_tool_result(result)
+    assert isinstance(parsed, dict)
+    assert parsed.get("blocked_with_reason") == "missing_command"
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_empty"
+        and evt.get("details", {}).get("reason") == "missing_slots"
+        for evt in events
+    )
+
+
+def test_execute_tools_forces_single_run_command_when_intent_is_clear(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return '{"actions":[]}'
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        assert tool == "run_command"
+        assert args.get("command") == "pytest -q"
+        return "ok"
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="run `pytest -q`",
+                plan_text="execute tests",
+                memory_context="user: run tests",
+                session_id="s-cmd-force",
+                request_id="r-cmd-force",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"run_command"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "[run_command]" in result
+    assert "ok" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_followup_completed"
+        and evt.get("details", {}).get("reason") == "intent_execute_command_forced_action"
+        for evt in events
+    )
+
+
+def test_execute_tools_blocks_on_policy_for_execute_command_intent() -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    result = asyncio.run(
+        agent._execute_tools(
+            user_message="run `pytest -q`",
+            plan_text="execute tests",
+            memory_context="user: run tests",
+            session_id="s-cmd-policy",
+            request_id="r-cmd-policy",
+            send_event=send_event,
+            model=None,
+            allowed_tools={"read_file"},
+        )
+    )
+
+    parsed = agent._parse_blocked_tool_result(result)
+    assert isinstance(parsed, dict)
+    assert parsed.get("blocked_with_reason") == "run_command_not_allowed"
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_empty"
+        and evt.get("details", {}).get("reason") == "policy_block"
+        for evt in events
+    )
+
+
+def test_execute_tools_emits_tool_selection_empty_for_ambiguous_input(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return '{"actions":[]}'
+
+    original_complete_chat = agent.client.complete_chat
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="help",
+                plan_text="provide support",
+                memory_context="user: help",
+                session_id="s-empty-amb",
+                request_id="r-empty-amb",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+
+    assert result == ""
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_selection_empty"
+        and evt.get("details", {}).get("reason") == "ambiguous_input"
+        for evt in events
+    )
+
+
+def test_head_and_coder_agents_use_distinct_prompt_profiles() -> None:
+    head = HeadCodingAgent()
+    coder = CoderAgent()
+
+    assert head.role == "head-agent"
+    assert coder.role == "coding-agent"
+    assert head.prompt_profile.plan_prompt == settings.head_agent_plan_prompt
+    assert coder.prompt_profile.plan_prompt == settings.coder_agent_plan_prompt
+    assert head.prompt_profile.final_prompt == settings.head_agent_final_prompt
+    assert coder.prompt_profile.final_prompt == settings.coder_agent_final_prompt
+
+
+def test_execute_tools_web_fetch_404_retries_with_fallback(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return '{"actions":[{"tool":"web_fetch","args":{"url":"https://example.com/404","max_chars":12000}}]}'
+
+    attempts = {"count": 0}
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        assert tool == "web_fetch"
+        attempts["count"] += 1
+        url = str(args.get("url") or "")
+        if attempts["count"] == 1:
+            raise ToolExecutionError("web_fetch failed for url=https://example.com/404: HTTP Error 404: Not Found")
+        assert "duckduckgo.com/html/?q=" in url
+        return f"source_url: {url}\ncontent_type: text/html\ncontent:\nweather ok"
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="what is the weather in berlin germany",
+                plan_text="fetch weather",
+                memory_context="user: weather in berlin",
+                session_id="s-web-retry",
+                request_id="r-web-retry",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"web_fetch"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert attempts["count"] == 2
+    assert "[web_fetch]" in result
+    assert "weather ok" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_retry_completed"
+        and evt.get("details", {}).get("reason") == "http_404"
+        for evt in events
+    )

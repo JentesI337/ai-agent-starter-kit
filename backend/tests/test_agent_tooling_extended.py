@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from urllib.error import HTTPError
 
 from app.tools import AgentTooling
 
@@ -85,3 +86,20 @@ def test_web_fetch_rejects_non_http_scheme(tmp_path: Path) -> None:
         assert False, "Expected ToolExecutionError"
     except Exception as exc:
         assert "http/https" in str(exc)
+
+
+def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    def _raise_http_error(*_args, **_kwargs):
+        raise HTTPError(url="https://example.com/missing", code=404, msg="Not Found", hdrs=None, fp=None)
+
+    monkeypatch.setattr("app.tools.urlopen", _raise_http_error)
+
+    try:
+        tooling.web_fetch("https://example.com/missing")
+        assert False, "Expected ToolExecutionError"
+    except Exception as exc:
+        text = str(exc)
+        assert "web_fetch failed for url=https://example.com/missing" in text
+        assert "404" in text

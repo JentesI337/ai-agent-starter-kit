@@ -269,6 +269,13 @@ textarea {
   gap: 6px;
 }
 
+.audit-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .tool-chip {
   border: 1px solid rgba(255, 206, 72, 0.4);
   border-radius: 999px;

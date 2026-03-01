@@ -2085,11 +2085,28 @@ def _get_run_audit_minimal(*, run_id: str) -> dict:
     events = list(run_state.get("events") or [])
     lifecycle_events = [event for event in events if event.get("type") == "lifecycle"]
     lifecycle_stage_counts: dict[str, int] = {}
+    blocked_with_reason_counts: dict[str, int] = {}
+    tool_selection_empty_reason_counts: dict[str, int] = {}
     for event in lifecycle_events:
         stage = str(event.get("stage") or "").strip()
         if not stage:
             continue
         lifecycle_stage_counts[stage] = lifecycle_stage_counts.get(stage, 0) + 1
+
+        details = event.get("details")
+        if not isinstance(details, dict):
+            details = {}
+
+        blocked_with_reason = details.get("blocked_with_reason")
+        if isinstance(blocked_with_reason, str) and blocked_with_reason.strip():
+            key = blocked_with_reason.strip()
+            blocked_with_reason_counts[key] = blocked_with_reason_counts.get(key, 0) + 1
+
+        if stage == "tool_selection_empty":
+            reason = details.get("reason")
+            if isinstance(reason, str) and reason.strip():
+                key = reason.strip()
+                tool_selection_empty_reason_counts[key] = tool_selection_empty_reason_counts.get(key, 0) + 1
 
     return {
         "schema": "runs.audit.v1",
@@ -2104,6 +2121,8 @@ def _get_run_audit_minimal(*, run_id: str) -> dict:
             "event_count": len(events),
             "lifecycle_count": len(lifecycle_events),
             "lifecycle_stages": lifecycle_stage_counts,
+            "blocked_with_reason": blocked_with_reason_counts,
+            "tool_selection_empty_reasons": tool_selection_empty_reason_counts,
             "tool_started": lifecycle_stage_counts.get("tool_started", 0),
             "tool_completed": lifecycle_stage_counts.get("tool_completed", 0),
             "tool_failed": lifecycle_stage_counts.get("tool_failed", 0),
@@ -3020,10 +3039,10 @@ async def agent_socket(websocket: WebSocket):
                     if applied_preset == "review":
                         effective_agent_id = REVIEW_AGENT_ID
                         routing_reason = "preset_review"
-                    elif (not settings.agent_no_agency) and _looks_like_review_request(data.content or ""):
+                    elif _looks_like_review_request(data.content or ""):
                         effective_agent_id = REVIEW_AGENT_ID
                         routing_reason = "review_intent"
-                    elif (not settings.agent_no_agency) and _looks_like_coding_request(data.content or ""):
+                    elif _looks_like_coding_request(data.content or ""):
                         effective_agent_id = CODER_AGENT_ID
                         routing_reason = "coding_intent"
 

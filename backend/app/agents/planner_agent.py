@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import PlannerInput, PlannerOutput
 from app.llm_client import LlmClient
@@ -20,8 +19,9 @@ class PlannerAgent(AgentContract):
         combine_steps=False,
     )
 
-    def __init__(self, client: LlmClient):
+    def __init__(self, client: LlmClient, system_prompt: str):
         self.client = client
+        self.system_prompt = system_prompt
 
     @property
     def name(self) -> str:
@@ -41,7 +41,7 @@ class PlannerAgent(AgentContract):
             f"{payload.user_message}"
         )
         plan = await self.client.complete_chat(
-            settings.agent_plan_prompt,
+            self.system_prompt,
             planner_prompt,
             model=model,
         )

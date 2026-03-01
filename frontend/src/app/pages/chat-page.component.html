@@ -78,6 +78,43 @@
         <span>{{ item.toolEvents }}</span>
       </div>
 
+      <h2>Run Audit Snapshot</h2>
+      <div class="composer-actions">
+        <button class="secondary" (click)="refreshRunAudit()" [disabled]="runAuditLoading || !effectiveRunAuditId">
+          {{ runAuditLoading ? 'Loading audit...' : 'Refresh Audit' }}
+        </button>
+        <span class="hint" *ngIf="effectiveRunAuditId">run_id: {{ effectiveRunAuditId }}</span>
+      </div>
+      <p class="trace-note" *ngIf="runAuditError">{{ runAuditError }}</p>
+      <div class="table-row" *ngIf="runAudit as audit">
+        <span>status: {{ audit.run.status || '-' }}</span>
+        <span>events: {{ audit.telemetry.event_count }}</span>
+        <span>lifecycle: {{ audit.telemetry.lifecycle_count }}</span>
+        <span>tool_started: {{ audit.telemetry.tool_started }}</span>
+        <span>tool_failed: {{ audit.telemetry.tool_failed }}</span>
+      </div>
+      <div class="audit-highlights" *ngIf="runAudit as audit">
+        <span class="tool-chip" *ngIf="topBlockedReason as topBlocked">
+          top blocked_with_reason: {{ topBlocked.key }} ({{ topBlocked.count }})
+        </span>
+        <span class="tool-chip" *ngIf="topEmptyReason as topEmpty">
+          top tool_selection_empty: {{ topEmpty.key }} ({{ topEmpty.count }})
+        </span>
+        <span class="trace-note" *ngIf="!topBlockedReason && !topEmptyReason">
+          no blocked/empty reasons recorded for this run
+        </span>
+      </div>
+      <div class="event-stream" *ngIf="runAudit as audit">
+        <div class="event">
+          <div class="meta">blocked_with_reason</div>
+          <div class="text">{{ audit.telemetry.blocked_with_reason | json }}</div>
+        </div>
+        <div class="event">
+          <div class="meta">tool_selection_empty_reasons</div>
+          <div class="text">{{ audit.telemetry.tool_selection_empty_reasons | json }}</div>
+        </div>
+      </div>
+
       <h2>Observable Reasoning Trace</h2>
       <p class="trace-note">Shows lifecycle + tool decisions + agent steps emitted by backend. No hidden chain-of-thought content.</p>
       <div class="event-stream">

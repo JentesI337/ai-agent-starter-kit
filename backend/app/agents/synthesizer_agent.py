@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 
-from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import SynthesizerInput, SynthesizerOutput
 from app.llm_client import LlmClient
@@ -23,10 +22,11 @@ class SynthesizerAgent(AgentContract):
         combine_steps=True,
     )
 
-    def __init__(self, *, client: LlmClient, agent_name: str, emit_lifecycle_fn: EmitLifecycleFn):
+    def __init__(self, *, client: LlmClient, agent_name: str, emit_lifecycle_fn: EmitLifecycleFn, system_prompt: str):
         self.client = client
         self.agent_name = agent_name
         self._emit_lifecycle_fn = emit_lifecycle_fn
+        self.system_prompt = system_prompt
 
     @property
     def name(self) -> str:
@@ -73,7 +73,7 @@ class SynthesizerAgent(AgentContract):
 
         output_parts: list[str] = []
         async for token in self.client.stream_chat_completion(
-            settings.agent_final_prompt,
+            self.system_prompt,
             final_prompt,
             model=model,
         ):

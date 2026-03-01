@@ -42,6 +42,31 @@ export interface MonitoringSchema {
   }>;
 }
 
+export interface RunsAuditResponse {
+  schema: 'runs.audit.v1';
+  run: {
+    run_id: string;
+    session_id: string;
+    status: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  telemetry: {
+    event_count: number;
+    lifecycle_count: number;
+    lifecycle_stages: Record<string, number>;
+    blocked_with_reason: Record<string, number>;
+    tool_selection_empty_reasons: Record<string, number>;
+    tool_started: number;
+    tool_completed: number;
+    tool_failed: number;
+    tool_loop_warn: number;
+    tool_loop_blocked: number;
+    tool_budget_exceeded: number;
+    tool_audit_summary: number;
+  };
+}
+
 export interface CustomAgentDefinition {
   id: string;
   name: string;
@@ -86,6 +111,10 @@ export class AgentsService {
 
   getMonitoringSchema() {
     return this.http.get<MonitoringSchema>(`${this.apiBase}/api/monitoring/schema`);
+  }
+
+  getRunAudit(runId: string) {
+    return this.http.post<RunsAuditResponse>(`${this.apiBase}/api/control/runs.audit`, { run_id: runId });
   }
 
   getCustomAgents() {

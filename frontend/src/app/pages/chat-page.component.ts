@@ -11,6 +11,7 @@ import {
   CreateCustomAgentPayload,
   MonitoringSchema,
   PresetDescriptor,
+  RunsAuditResponse,
 } from '../services/agents.service';
 
 interface ChatLine {
@@ -48,6 +49,11 @@ interface RequestActivity {
   error: string;
 }
 
+interface ReasonEntry {
+  key: string;
+  count: number;
+}
+
 @Component({
   selector: 'app-chat-page',
   standalone: true,
@@ -82,6 +88,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   availablePresets: PresetDescriptor[] = [];
   customAgents: CustomAgentDefinition[] = [];
   monitoringSchema: MonitoringSchema | null = null;
+  runAudit: RunsAuditResponse | null = null;
+  runAuditLoading = false;
+  runAuditError = '';
+  runAuditLastRunId = '';
   agentActivities: AgentActivity[] = [];
   requestActivities: RequestActivity[] = [];
   monitorAgentFilter = 'all';
@@ -264,11 +274,48 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     return this.lifecycleLines.filter((item) => `${item.type} ${item.text}`.toLowerCase().includes(query));
   }
 
+  get effectiveRunAuditId(): string {
+    const explicit = this.monitorRequestFilter.trim();
+    if (explicit) {
+      return explicit;
+    }
+    return this.filteredRequestActivities[0]?.requestId ?? '';
+  }
+
+  get blockedReasonEntries(): ReasonEntry[] {
+    const source = this.runAudit?.telemetry.blocked_with_reason ?? {};
+    return this.toSortedReasonEntries(source);
+  }
+
+  get emptyReasonEntries(): ReasonEntry[] {
+    const source = this.runAudit?.telemetry.tool_selection_empty_reasons ?? {};
+    return this.toSortedReasonEntries(source);
+  }
+
+  get topBlockedReason(): ReasonEntry | null {
+    return this.blockedReasonEntries[0] ?? null;
+  }
+
+  get topEmptyReason(): ReasonEntry | null {
+    return this.emptyReasonEntries[0] ?? null;
+  }
+
   resetMonitoringFilters(): void {
     this.monitorAgentFilter = 'all';
     this.monitorStatusFilter = 'all';
     this.monitorRequestFilter = '';
     this.monitorSearch = '';
+  }
+
+  refreshRunAudit(): void {
+    const runId = this.effectiveRunAuditId;
+    if (!runId) {
+      this.runAuditError = 'No request ID available yet.';
+      this.runAudit = null;
+      this.runAuditLastRunId = '';
+      return;
+    }
+    this.fetchRunAudit(runId);
   }
 
   send(): void {
@@ -459,6 +506,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.requestActivityMap.clear();
     this.agentActivities = [];
     this.requestActivities = [];
+    this.runAudit = null;
+    this.runAuditError = '';
+    this.runAuditLastRunId = '';
+    this.runAuditLoading = false;
     this.resetMonitoringFilters();
 
     this.lines.push({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
@@ -656,6 +707,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
 
       this.requestActivityMap.set(event.request_id, existingRequest);
+
+      if (event.stage === 'request_completed' || (event.stage || '').startsWith('request_failed')) {
+        this.fetchRunAudit(event.request_id, true);
+      }
     }
 
     if (
@@ -775,6 +830,34 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     return event.type;
   }
 
+  private fetchRunAudit(runId: string, silent = false): void {
+    if (!runId) {
+      return;
+    }
+    if (this.runAuditLoading && this.runAuditLastRunId === runId) {
+      return;
+    }
+
+    this.runAuditLoading = true;
+    this.runAuditError = '';
+    this.runAuditLastRunId = runId;
+
+    this.agentsService.getRunAudit(runId).subscribe({
+      next: (payload) => {
+        this.runAudit = payload;
+        this.runAuditLoading = false;
+      },
+      error: (error) => {
+        this.runAuditLoading = false;
+        this.runAudit = null;
+        this.runAuditError = error?.error?.detail ?? error?.message ?? 'Failed to load run audit.';
+        if (!silent) {
+          this.lines.push({ role: 'system', text: `Run audit load failed: ${this.runAuditError}` });
+        }
+      },
+    });
+  }
+
   private pushLifecycle(type: string, text: string, details?: Record<string, unknown>, ts?: string): void {
     const time = ts ? new Date(ts).toLocaleTimeString() : new Date().toLocaleTimeString();
     const detailText = details ? ` ${JSON.stringify(details)}` : '';
@@ -786,5 +869,17 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     if (this.lifecycleLines.length > 500) {
       this.lifecycleLines = this.lifecycleLines.slice(0, 500);
     }
+  }
+
+  private toSortedReasonEntries(source: Record<string, number>): ReasonEntry[] {
+    return Object.entries(source)
+      .filter((entry) => Number.isFinite(entry[1]) && entry[1] > 0)
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        return a.key.localeCompare(b.key);
+      });
   }
 }

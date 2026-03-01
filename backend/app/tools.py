@@ -225,7 +225,7 @@ class AgentTooling:
                 data = response.read(limit + 1)
                 text = data.decode("utf-8", errors="replace")
         except Exception as exc:
-            raise ToolExecutionError(f"web_fetch failed: {exc}") from exc
+            raise ToolExecutionError(f"web_fetch failed for url={url}: {exc}") from exc
 
         normalized_text = self._normalize_web_text(text=text, max_chars=limit)
         if not normalized_text:
