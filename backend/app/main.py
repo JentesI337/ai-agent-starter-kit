@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.app_state import LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
-from app.config import settings
+from app.config import resolved_prompt_settings, settings
 from app.contracts.agent_contract import AgentContract
 from app.custom_agents import (
     CustomAgentAdapter,
@@ -30,10 +30,13 @@ from app.models import WsInboundMessage
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event, classify_error
 from app.orchestrator.subrun_lane import SubrunLane
 from app.routers import (
+    build_agents_router,
     build_control_runs_router,
     build_control_sessions_router,
     build_control_tools_router,
     build_control_workflows_router,
+    build_runtime_debug_router,
+    build_subruns_router,
 )
 from app.runtime_manager import RuntimeManager
 from app.services import (
@@ -43,6 +46,12 @@ from app.services import (
     TOOL_POLICY_RESOLUTION_ORDER,
     TOOL_PROFILES,
     SessionQueryService,
+    build_run_start_fingerprint as _build_run_start_fingerprint,
+    build_session_patch_fingerprint as _build_session_patch_fingerprint,
+    build_session_reset_fingerprint as _build_session_reset_fingerprint,
+    build_workflow_create_fingerprint as _build_workflow_create_fingerprint,
+    build_workflow_delete_fingerprint as _build_workflow_delete_fingerprint,
+    build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
     idempotency_lookup_or_raise,
     idempotency_register,
     merge_tool_policy,
@@ -643,24 +652,11 @@ def _normalize_idempotency_key(value: str | None) -> str | None:
     return key
 
 
-def _build_run_start_fingerprint(
-    *,
-    message: str,
-    session_id: str | None,
-    model: str | None,
-    preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
-    runtime: str,
-) -> str:
-    payload = {
-        "message": message,
-        "session_id": session_id,
-        "model": model,
-        "preset": preset,
-        "tool_policy": tool_policy,
-        "runtime": runtime,
+def _idempotency_registry_limits() -> dict[str, int]:
+    return {
+        "ttl_seconds": settings.idempotency_registry_ttl_seconds,
+        "max_entries": settings.idempotency_registry_max_entries,
     }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
 def _find_idempotent_run_or_raise(
@@ -674,6 +670,7 @@ def _find_idempotent_run_or_raise(
         registry=idempotency_registry,
         lock=idempotency_lock,
         conflict_message="Idempotency key replayed with a different request payload.",
+        **_idempotency_registry_limits(),
         replay_builder=lambda key, existing: {
             "status": "accepted",
             "runId": existing.get("run_id"),
@@ -702,6 +699,7 @@ def _register_idempotent_run(
         },
         registry=idempotency_registry,
         lock=idempotency_lock,
+        **_idempotency_registry_limits(),
     )
 
 
@@ -1038,14 +1036,6 @@ def _get_session_minimal(*, session_id: str) -> dict:
     }
 
 
-def _build_session_patch_fingerprint(*, session_id: str, meta: dict[str, object]) -> str:
-    payload = {
-        "session_id": session_id,
-        "meta": meta,
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
 def _find_idempotent_session_patch_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
     return idempotency_lookup_or_raise(
         idempotency_key=idempotency_key,
@@ -1053,6 +1043,7 @@ def _find_idempotent_session_patch_or_raise(*, idempotency_key: str | None, fing
         registry=session_patch_idempotency_registry,
         lock=session_patch_idempotency_lock,
         conflict_message="Idempotency key replayed with a different session patch payload.",
+        **_idempotency_registry_limits(),
         replay_builder=lambda key, existing: {
             **dict(existing.get("response") or {}),
             "idempotency": {
@@ -1070,6 +1061,7 @@ def _register_idempotent_session_patch(*, idempotency_key: str | None, fingerpri
         value={"response": response},
         registry=session_patch_idempotency_registry,
         lock=session_patch_idempotency_lock,
+        **_idempotency_registry_limits(),
     )
 
 
@@ -1112,50 +1104,33 @@ def _patch_session_minimal(*, request: ControlSessionsPatchRequest, idempotency_
     return response
 
 
-def _build_session_reset_fingerprint(*, session_id: str) -> str:
-    payload = {
-        "session_id": session_id,
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
 def _find_idempotent_session_reset_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
-    if not idempotency_key:
-        return None
-
-    with session_reset_idempotency_lock:
-        existing = session_reset_idempotency_registry.get(idempotency_key)
-
-    if existing is None:
-        return None
-
-    if existing.get("fingerprint") != fingerprint:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Idempotency key replayed with a different session reset payload.",
-                "idempotency_key": idempotency_key,
+    return idempotency_lookup_or_raise(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        registry=session_reset_idempotency_registry,
+        lock=session_reset_idempotency_lock,
+        conflict_message="Idempotency key replayed with a different session reset payload.",
+        **_idempotency_registry_limits(),
+        replay_builder=lambda key, existing: {
+            **dict(existing.get("response") or {}),
+            "idempotency": {
+                "key": key,
+                "reused": True,
             },
-        )
-
-    payload = dict(existing.get("response") or {})
-    payload["idempotency"] = {
-        "key": idempotency_key,
-        "reused": True,
-    }
-    return payload
+        },
+    )
 
 
 def _register_idempotent_session_reset(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
-    if not idempotency_key:
-        return
-
-    with session_reset_idempotency_lock:
-        session_reset_idempotency_registry[idempotency_key] = {
-            "fingerprint": fingerprint,
-            "response": response,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    idempotency_register(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        value={"response": response},
+        registry=session_reset_idempotency_registry,
+        lock=session_reset_idempotency_lock,
+        **_idempotency_registry_limits(),
+    )
 
 
 def _reset_session_minimal(*, request: ControlSessionsResetRequest, idempotency_key_header: str | None) -> dict:
@@ -1445,64 +1420,33 @@ def _delete_workflow_version(workflow_id: str) -> None:
         workflow_version_registry.pop(normalized, None)
 
 
-def _build_workflow_create_fingerprint(
-    *,
-    operation: str,
-    workflow_id: str | None,
-    name: str,
-    description: str,
-    base_agent_id: str,
-    steps: list[str],
-    tool_policy: dict[str, list[str]] | None,
-) -> str:
-    payload = {
-        "operation": operation,
-        "id": workflow_id,
-        "name": name,
-        "description": description,
-        "base_agent_id": base_agent_id,
-        "steps": steps,
-        "tool_policy": tool_policy,
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
 def _find_idempotent_workflow_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
-    if not idempotency_key:
-        return None
-
-    with workflow_idempotency_lock:
-        existing = workflow_idempotency_registry.get(idempotency_key)
-
-    if existing is None:
-        return None
-
-    if existing.get("fingerprint") != fingerprint:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Idempotency key replayed with a different workflow payload.",
-                "idempotency_key": idempotency_key,
+    return idempotency_lookup_or_raise(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        registry=workflow_idempotency_registry,
+        lock=workflow_idempotency_lock,
+        conflict_message="Idempotency key replayed with a different workflow payload.",
+        **_idempotency_registry_limits(),
+        replay_builder=lambda key, existing: {
+            **dict(existing.get("response") or {}),
+            "idempotency": {
+                "key": key,
+                "reused": True,
             },
-        )
-
-    payload = dict(existing.get("response") or {})
-    payload["idempotency"] = {
-        "key": idempotency_key,
-        "reused": True,
-    }
-    return payload
+        },
+    )
 
 
 def _register_idempotent_workflow(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
-    if not idempotency_key:
-        return
-    with workflow_idempotency_lock:
-        workflow_idempotency_registry[idempotency_key] = {
-            "fingerprint": fingerprint,
-            "response": response,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    idempotency_register(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        value={"response": response},
+        registry=workflow_idempotency_registry,
+        lock=workflow_idempotency_lock,
+        **_idempotency_registry_limits(),
+    )
 
 
 def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
@@ -1659,65 +1603,33 @@ def _find_workflow_or_404(workflow_id: str) -> CustomAgentDefinition:
     return match
 
 
-def _build_workflow_execute_fingerprint(
-    *,
-    workflow_id: str,
-    message: str,
-    session_id: str | None,
-    model: str | None,
-    preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
-    runtime: str,
-) -> str:
-    payload = {
-        "operation": "execute",
-        "workflow_id": workflow_id,
-        "message": message,
-        "session_id": session_id,
-        "model": model,
-        "preset": preset,
-        "tool_policy": tool_policy,
-        "runtime": runtime,
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
 def _find_idempotent_workflow_execute_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
-    if not idempotency_key:
-        return None
-
-    with workflow_execute_idempotency_lock:
-        existing = workflow_execute_idempotency_registry.get(idempotency_key)
-
-    if existing is None:
-        return None
-
-    if existing.get("fingerprint") != fingerprint:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Idempotency key replayed with a different workflow execute payload.",
-                "idempotency_key": idempotency_key,
+    return idempotency_lookup_or_raise(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        registry=workflow_execute_idempotency_registry,
+        lock=workflow_execute_idempotency_lock,
+        conflict_message="Idempotency key replayed with a different workflow execute payload.",
+        **_idempotency_registry_limits(),
+        replay_builder=lambda key, existing: {
+            **dict(existing.get("response") or {}),
+            "idempotency": {
+                "key": key,
+                "reused": True,
             },
-        )
-
-    payload = dict(existing.get("response") or {})
-    payload["idempotency"] = {
-        "key": idempotency_key,
-        "reused": True,
-    }
-    return payload
+        },
+    )
 
 
 def _register_idempotent_workflow_execute(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
-    if not idempotency_key:
-        return
-    with workflow_execute_idempotency_lock:
-        workflow_execute_idempotency_registry[idempotency_key] = {
-            "fingerprint": fingerprint,
-            "response": response,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    idempotency_register(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        value={"response": response},
+        registry=workflow_execute_idempotency_registry,
+        lock=workflow_execute_idempotency_lock,
+        **_idempotency_registry_limits(),
+    )
 
 
 async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) -> dict:
@@ -1870,50 +1782,33 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
     return response
 
 
-def _build_workflow_delete_fingerprint(*, workflow_id: str) -> str:
-    payload = {
-        "operation": "delete",
-        "workflow_id": workflow_id,
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
-
-
 def _find_idempotent_workflow_delete_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
-    if not idempotency_key:
-        return None
-
-    with workflow_delete_idempotency_lock:
-        existing = workflow_delete_idempotency_registry.get(idempotency_key)
-
-    if existing is None:
-        return None
-
-    if existing.get("fingerprint") != fingerprint:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Idempotency key replayed with a different workflow delete payload.",
-                "idempotency_key": idempotency_key,
+    return idempotency_lookup_or_raise(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        registry=workflow_delete_idempotency_registry,
+        lock=workflow_delete_idempotency_lock,
+        conflict_message="Idempotency key replayed with a different workflow delete payload.",
+        **_idempotency_registry_limits(),
+        replay_builder=lambda key, existing: {
+            **dict(existing.get("response") or {}),
+            "idempotency": {
+                "key": key,
+                "reused": True,
             },
-        )
-
-    payload = dict(existing.get("response") or {})
-    payload["idempotency"] = {
-        "key": idempotency_key,
-        "reused": True,
-    }
-    return payload
+        },
+    )
 
 
 def _register_idempotent_workflow_delete(*, idempotency_key: str | None, fingerprint: str, response: dict) -> None:
-    if not idempotency_key:
-        return
-    with workflow_delete_idempotency_lock:
-        workflow_delete_idempotency_registry[idempotency_key] = {
-            "fingerprint": fingerprint,
-            "response": response,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    idempotency_register(
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        value={"response": response},
+        registry=workflow_delete_idempotency_registry,
+        lock=workflow_delete_idempotency_lock,
+        **_idempotency_registry_limits(),
+    )
 
 
 def _delete_workflow_minimal(*, request: ControlWorkflowsDeleteRequest) -> dict:
@@ -2320,11 +2215,10 @@ async def _run_background_message(
         _remove_active_task(run_id)
 
 
-@app.get("/api/agents")
-async def get_agents():
+def _api_agents_list() -> list[dict]:
     _sync_custom_agents()
     active = runtime_manager.get_state()
-    items = []
+    items: list[dict] = []
     for agent_id, agent_instance in agent_registry.items():
         items.append(
             {
@@ -2339,9 +2233,8 @@ async def get_agents():
     return items
 
 
-@app.get("/api/presets")
-async def get_presets():
-    items = []
+def _api_presets_list() -> list[dict]:
+    items: list[dict] = []
     for preset_id in sorted(PRESET_TOOL_POLICIES.keys()):
         policy = PRESET_TOOL_POLICIES[preset_id]
         items.append(
@@ -2356,13 +2249,12 @@ async def get_presets():
     return items
 
 
-@app.get("/api/custom-agents")
-async def get_custom_agents() -> list[CustomAgentDefinition]:
+def _api_custom_agents_list() -> list[CustomAgentDefinition]:
     return custom_agent_store.list()
 
 
-@app.post("/api/custom-agents")
-async def create_custom_agent(request: CustomAgentCreateRequest):
+def _api_custom_agents_create(request_data: dict) -> CustomAgentDefinition:
+    request = CustomAgentCreateRequest.model_validate(request_data)
     base_agent_id = _normalize_agent_id(request.base_agent_id)
     if base_agent_id not in agent_registry:
         raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
@@ -2375,8 +2267,7 @@ async def create_custom_agent(request: CustomAgentCreateRequest):
     return created
 
 
-@app.delete("/api/custom-agents/{agent_id}")
-async def delete_custom_agent(agent_id: str):
+def _api_custom_agents_delete(agent_id: str) -> dict:
     normalized = _normalize_agent_id(agent_id)
     if normalized in {PRIMARY_AGENT_ID, CODER_AGENT_ID, REVIEW_AGENT_ID}:
         raise HTTPException(status_code=400, detail="Built-in agents cannot be deleted")
@@ -2389,8 +2280,7 @@ async def delete_custom_agent(agent_id: str):
     return {"ok": True, "deletedId": normalized}
 
 
-@app.get("/api/monitoring/schema")
-async def get_monitoring_schema():
+def _api_monitoring_schema() -> dict:
     _sync_custom_agents()
     return {
         "lifecycleStages": [stage.value for stage in LifecycleStage],
@@ -2422,32 +2312,16 @@ async def get_monitoring_schema():
     }
 
 
-@app.get("/api/runtime/status")
-async def get_runtime_status():
-    state = runtime_manager.get_state()
-    api_models = await runtime_manager.get_api_models_summary()
-    return {
-        "runtime": state.runtime,
-        "baseUrl": state.base_url,
-        "model": state.model,
-        "authenticated": runtime_manager.is_runtime_authenticated(),
-        "apiSupportedModels": settings.api_supported_models,
-        "apiModelsAvailable": api_models["available"],
-        "apiModelsCount": api_models["count"],
-        "apiModelsError": api_models["error"],
-    }
-
-
-@app.get("/api/test/ping")
-async def test_ping():
-    state = runtime_manager.get_state()
-    return {
-        "ok": True,
-        "service": "backend",
-        "runtime": state.runtime,
-        "model": state.model,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }
+app.include_router(
+    build_agents_router(
+        agents_list_handler=_api_agents_list,
+        presets_list_handler=_api_presets_list,
+        custom_agents_list_handler=_api_custom_agents_list,
+        custom_agents_create_handler=_api_custom_agents_create,
+        custom_agents_delete_handler=_api_custom_agents_delete,
+        monitoring_schema_handler=_api_monitoring_schema,
+    )
+)
 
 
 @app.post("/api/test/agent")
@@ -2831,14 +2705,54 @@ app.include_router(
 )
 
 
-@app.get("/api/subruns")
-async def list_subruns(
-    parent_session_id: str | None = None,
-    parent_request_id: str | None = None,
-    requester_session_id: str | None = None,
-    visibility_scope: str | None = None,
-    limit: int = 100,
-):
+async def _api_runtime_status() -> dict:
+    state = runtime_manager.get_state()
+    api_models = await runtime_manager.get_api_models_summary()
+    return {
+        "runtime": state.runtime,
+        "baseUrl": state.base_url,
+        "model": state.model,
+        "authenticated": runtime_manager.is_runtime_authenticated(),
+        "apiSupportedModels": settings.api_supported_models,
+        "apiModelsAvailable": api_models["available"],
+        "apiModelsCount": api_models["count"],
+        "apiModelsError": api_models["error"],
+    }
+
+
+def _api_resolved_prompt_settings() -> dict:
+    return {
+        "prompts": resolved_prompt_settings(settings),
+    }
+
+
+def _api_test_ping() -> dict:
+    state = runtime_manager.get_state()
+    return {
+        "ok": True,
+        "service": "backend",
+        "runtime": state.runtime,
+        "model": state.model,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+app.include_router(
+    build_runtime_debug_router(
+        runtime_status_handler=_api_runtime_status,
+        resolved_prompts_handler=_api_resolved_prompt_settings,
+        ping_handler=_api_test_ping,
+    )
+)
+
+
+def _api_subruns_list(
+    parent_session_id: str | None,
+    parent_request_id: str | None,
+    requester_session_id: str | None,
+    visibility_scope: str | None,
+    limit: int,
+) -> dict:
     scope = _normalize_visibility_scope(visibility_scope)
     return {
         "items": subrun_lane.list_runs(
@@ -2853,8 +2767,7 @@ async def list_subruns(
     }
 
 
-@app.get("/api/subruns/{run_id}")
-async def get_subrun_info(run_id: str, requester_session_id: str, visibility_scope: str | None = None):
+def _api_subruns_get(run_id: str, requester_session_id: str, visibility_scope: str | None) -> dict:
     decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
     info = subrun_lane.get_info(run_id)
     if info is None:
@@ -2863,8 +2776,7 @@ async def get_subrun_info(run_id: str, requester_session_id: str, visibility_sco
     return info
 
 
-@app.get("/api/subruns/{run_id}/log")
-async def get_subrun_log(run_id: str, requester_session_id: str, visibility_scope: str | None = None):
+def _api_subruns_log(run_id: str, requester_session_id: str, visibility_scope: str | None) -> dict:
     decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
     log = subrun_lane.get_log(run_id)
     if log is None:
@@ -2872,13 +2784,7 @@ async def get_subrun_log(run_id: str, requester_session_id: str, visibility_scop
     return {"runId": run_id, "events": log, "visibility_decision": decision}
 
 
-@app.post("/api/subruns/{run_id}/kill")
-async def kill_subrun(
-    run_id: str,
-    requester_session_id: str,
-    visibility_scope: str | None = None,
-    cascade: bool = True,
-):
+async def _api_subruns_kill(run_id: str, requester_session_id: str, visibility_scope: str | None, cascade: bool) -> dict:
     decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
     killed = await subrun_lane.kill(run_id, cascade=cascade)
     if not killed:
@@ -2886,8 +2792,8 @@ async def kill_subrun(
     return {"runId": run_id, "killed": True, "cascade": cascade, "visibility_decision": decision}
 
 
-@app.post("/api/subruns/kill-all")
-async def kill_all_subruns(request: KillAllSubrunsRequest):
+async def _api_subruns_kill_all_async(request_data: dict) -> dict:
+    request = KillAllSubrunsRequest.model_validate(request_data)
     scope = _normalize_visibility_scope(request.visibility_scope)
     killed_count = await subrun_lane.kill_all(
         parent_session_id=request.parent_session_id,
@@ -2902,6 +2808,17 @@ async def kill_all_subruns(request: KillAllSubrunsRequest):
         "requester_session_id": request.requester_session_id,
         "visibility_scope": scope,
     }
+
+
+app.include_router(
+    build_subruns_router(
+        subruns_list_handler=_api_subruns_list,
+        subrun_get_handler=_api_subruns_get,
+        subrun_log_handler=_api_subruns_log,
+        subrun_kill_handler=_api_subruns_kill,
+        subrun_kill_all_handler=_api_subruns_kill_all_async,
+    )
+)
 
 
 ws_handler_dependencies = WsHandlerDependencies(

@@ -26,7 +26,7 @@ Dieses Backend ist ein Agent-Framework-Server mit einem Head-Agent als zentralem
 Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 
 1) Transport/API
-- REST-Endpunkte in `app.main` + modulare Control-Router in `app.routers/*`.
+- REST-Endpunkte über Router-Builder in `app.routers/*` (inkl. Control-Plane, Agents, Runtime-Debug, Subruns), eingebunden in `app.main`.
 - WebSocket-Endpunkt `/ws/agent` mit ausgelagerter Handler-Logik in `app.ws_handler`.
 
 2) Agenten- und Orchestrierungs-Schicht
@@ -36,12 +36,14 @@ Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 
 3) Laufzeit- und Modell-Schicht
 - `RuntimeManager` steuert Runtime-Wechsel (`local`/`api`), Modellverfügbarkeit und Persistenz des aktiven Runtime-Zustands.
+- Optionaler API-Auth-Guard über `API_AUTH_REQUIRED` + `API_AUTH_TOKEN`/`OLLAMA_API_KEY`.
 - `ModelRouter` + `ModelRegistry` wählen Primär-/Fallback-Modelle auf Basis von Profilen.
 
 4) Persistenz- und Zustands-Schicht
 - `StateStore`: Run-States + Event-Historie + Summary-Snapshots auf Dateisystem.
 - `MemoryStore`: Session-Kontext als JSONL, begrenzt pro Session.
 - `CustomAgentStore`: Workflow-/Agent-Definitionen als JSON-Dateien.
+- Idempotency-Registries bleiben In-Memory, sind aber per TTL + Max-Entries begrenzt.
 
 5) Policy- und Guardrail-Schicht
 - Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service`.
@@ -67,8 +69,15 @@ Zentrale API-Wiring-Datei mit:
 
 - FastAPI-App, CORS, Lifespan.
 - DI/Wiring für Runtime-Komponenten über `app.app_state`.
-- REST-Endpunkte (Runtime, Monitoring, Test, Runs, Subruns, Custom Agents, Presets, Agents).
-- Einbindung der modularen Control-Plane-Router.
+- Handler-Funktionen für API-Operationen und Einbindung der Router-Builder.
+- Einbindung der modularen Router:
+	- `build_control_runs_router`
+	- `build_control_sessions_router`
+	- `build_control_workflows_router`
+	- `build_control_tools_router`
+	- `build_agents_router`
+	- `build_runtime_debug_router`
+	- `build_subruns_router`
 - Registrierung des WebSocket-Endpunkts, Delegation an `handle_ws_agent`.
 
 ### 4.2 `app.ws_handler`
@@ -81,6 +90,7 @@ Verantwortungen:
 - Policy-Auflösung und Lifecycle-Event-Emission.
 - Runtime-Switch-Requests.
 - Subrun-Spawn + Fehler-Mapping (`GuardrailViolation`, Tool/LLM/Runtime-Fehler).
+- Dependency-Schnittstelle ist über typed Protocols modelliert (`WsHandlerDependencies` ohne `Any`-Bag für Kernabhängigkeiten).
 
 ### 4.3 `app.agent` (`HeadAgent`)
 
@@ -92,6 +102,10 @@ Kern-Agent mit deterministischem Ablauf:
 - Tool-Selection/Tool-Execution (`ToolSelectorAgent`, `ToolStepExecutor`).
 - Synthese (`SynthesizerAgent`).
 - Lifecycle- und Telemetrie-Events über den gesamten Run.
+
+Aktueller Refactor-Stand:
+- Konstruktor unterstützt optionale Dependency Injection (`LlmClient`, `MemoryStore`, `AgentTooling`, `ModelRegistry`, `ContextReducer`).
+- `configure_runtime()` re-konfiguriert Sub-Agents in-place statt vollständigem Rebuild.
 
 ### 4.4 `app.interfaces.orchestrator_api` + `app.orchestrator.pipeline_runner`
 
@@ -115,13 +129,21 @@ Verwaltet Child-Execution-Lanes inklusive:
 - Schaltet zwischen `local` und `api` um (mit Retry/Rollback).
 - Startet lokale Gateway-Prozesse bei Bedarf.
 - Validiert/verfügbar macht Modelle (`ensure_model_ready`, API-Modelauflösung).
+- Erzwingt bei Bedarf Authentifizierung für API-Runtime (`ensure_api_runtime_authenticated`).
 
 ### 4.7 Persistenz (`app.state.state_store`, `app.memory`, `app.custom_agents`)
 
 - `StateStore`: pro Run JSON + Summary-Snapshot, Thread-Lock, atomarer Replace mit Retry.
+- `StateStore.list_runs()` nutzt einen lazy In-Memory-mtime-Index (statt Vollsortierung jedes Mal über alle Dateien).
 - Persistenz-Transform: optionale Secret-Redaction + String-Truncation.
 - `MemoryStore`: JSONL-basiertes Session-Memory mit Max-Items.
 - `CustomAgentStore`: CRUD für benutzerdefinierte Agenten/Workflows als Dateien.
+
+### 4.8 Konfiguration (`app.config`)
+
+- Prompt-Fallbacks werden zentral über `_resolve_prompt(...)` aufgelöst.
+- Aufgelöste Prompt-Werte sind über `resolved_prompt_settings(...)` verfügbar.
+- Debug-Endpoint für effective Prompt-Werte: `GET /api/debug/prompts/resolved`.
 
 ## 5. API-Oberfläche (Backend)
 
@@ -142,6 +164,7 @@ Outbound-Eventklassen (Auszug):
 ## REST (Core)
 
 - `GET /api/runtime/status`
+- `GET /api/debug/prompts/resolved`
 - `GET /api/monitoring/schema`
 - `GET /api/test/ping`
 - `POST /api/test/agent`
@@ -168,6 +191,7 @@ Gruppen:
 
 Idempotency:
 - Relevante write-/execute-Endpoints unterstützen `Idempotency-Key` (Header + Payload-Konventionen).
+- Registries verwenden TTL- und Capacity-Pruning (`IDEMPOTENCY_REGISTRY_TTL_SECONDS`, `IDEMPOTENCY_REGISTRY_MAX_ENTRIES`).
 
 ## 6. Policy-, Sicherheits- und Guardrail-Modell
 
@@ -190,6 +214,7 @@ Weitere Schutzmechanismen:
 - Tool-Allowlist für Kommandoausführung.
 - Subrun-Depth- und Child-Limits.
 - Secret-Redaction in persisted state payloads.
+- API-Runtime-Auth-Guard (konfigurierbar, expliziter Fehlerpfad bei fehlender Auth im API-Mode).
 
 ## 7. Datenhaltung und Artefakte
 
@@ -202,7 +227,7 @@ Standardpfade (konfigurierbar via Env):
 - Custom Agents: `CUSTOM_AGENTS_DIR/*.json`
 
 Hinweis:
-- Run-/Session-Abfragen basieren aktuell teilweise auf dateibasierten Vollscans (`list_runs(limit=...)`).
+- Datenhaltung bleibt dateibasiert; `list_runs(limit=...)` ist durch In-Memory-Index optimiert, aber nicht DB-backed.
 
 ## 8. Modell- und Runtime-Strategie
 
@@ -226,14 +251,18 @@ Teststatus (Kernsuiten):
 - `tests/test_backend_e2e.py`
 - `tests/test_subrun_lane.py`
 - `tests/test_ws_handler.py`
+- `tests/test_runtime_manager_auth.py`
+- `tests/test_idempotency_service.py`
+- `tests/test_state_store_list_runs_index.py`
+- `tests/test_head_agent_adapter_constraints.py`
 
-Aktueller Stand: grün (95 passed).
+Aktueller Stand: relevante Kern-/Regressionssuiten grün (zuletzt lokal validiert).
 
 ## 10. Bekannte Grenzen / technische Schulden
 
-1) Idempotency-Registries sind aktuell in-memory und unbounded (TTL/Eviction/Persistenz fehlt).  
-2) Session/Run-Queries sind dateibasiert und bei hoher Last begrenzt skalierbar.  
-3) `RuntimeManager` vereint weiterhin mehrere Verantwortungen (State, Process, Model-Katalog).  
+1) Idempotency-Registries sind weiterhin in-memory (jetzt bounded via TTL/Eviction, aber ohne Persistenz über Restart).  
+2) Session/Run-Queries bleiben dateibasiert; Index-Optimierung reduziert Hot-Path-Kosten, ersetzt aber keine persistente Query-Schicht.  
+3) `RuntimeManager` vereint weiterhin mehrere Verantwortungen (State, Process, Model-Katalog, Auth-Gating).  
 4) `HeadAgent` bleibt ein großer, leistungsfähiger Kernbaustein mit hoher Komplexität.
 
 ## 11. Architekturprinzipien für weitere Änderungen

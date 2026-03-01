@@ -37,6 +37,9 @@ def _upstream_is_transient(text: str) -> bool:
 
 
 def _ensure_real_api_available() -> dict[str, Any]:
+    if not _env_flag("REAL_API_ENABLED", "0"):
+        pytest.skip("Real API E2E skipped by REAL_API_ENABLED!=1.")
+
     if _env_flag("SKIP_REAL_OLLAMA_API_E2E", "0"):
         pytest.skip("Real API E2E skipped by SKIP_REAL_OLLAMA_API_E2E=1.")
 
@@ -178,7 +181,7 @@ def test_real_api_subrun_spawn_and_agent_workflow_smoke() -> None:
             raise AssertionError("Subrun did not finish in time (timeout).")
 
         run_status = wait_payload.get("runStatus")
-        assert run_status in {"completed", "failed"}
+        assert run_status in {"completed", "error"}
 
         log_response = client.get(
             f"/api/subruns/{run_id}/log",

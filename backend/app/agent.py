@@ -76,27 +76,41 @@ class PromptProfile:
 
 
 class HeadAgent:
-    def __init__(self, name: str | None = None, role: str = "head-agent"):
+    def __init__(
+        self,
+        name: str | None = None,
+        role: str = "head-agent",
+        client: LlmClient | None = None,
+        memory: MemoryStore | None = None,
+        tools: AgentTooling | None = None,
+        model_registry: ModelRegistry | None = None,
+        context_reducer: ContextReducer | None = None,
+    ):
         self.name = name or settings.agent_name
         self.role = role
         self.prompt_profile = self._resolve_prompt_profile(role)
-        self.client = LlmClient(
+        self.client = client or LlmClient(
             base_url=settings.llm_base_url,
             model=settings.llm_model,
         )
-        persist_dir = Path(settings.memory_persist_dir)
-        if not persist_dir.is_absolute():
-            persist_dir = (Path(settings.workspace_root) / persist_dir).resolve()
-        self.memory = MemoryStore(
-            max_items_per_session=settings.memory_max_items,
-            persist_dir=str(persist_dir),
-        )
-        self.tools = AgentTooling(
+
+        if memory is not None:
+            self.memory = memory
+        else:
+            persist_dir = Path(settings.memory_persist_dir)
+            if not persist_dir.is_absolute():
+                persist_dir = (Path(settings.workspace_root) / persist_dir).resolve()
+            self.memory = MemoryStore(
+                max_items_per_session=settings.memory_max_items,
+                persist_dir=str(persist_dir),
+            )
+
+        self.tools = tools or AgentTooling(
             workspace_root=settings.workspace_root,
             command_timeout_seconds=settings.command_timeout_seconds,
         )
-        self.model_registry = ModelRegistry()
-        self.context_reducer = ContextReducer()
+        self.model_registry = model_registry or ModelRegistry()
+        self.context_reducer = context_reducer or ContextReducer()
         self.tool_registry = self._build_tool_registry()
         self._hooks: list[object] = []
         self._build_sub_agents()
@@ -140,7 +154,9 @@ class HeadAgent:
             base_url=base_url,
             model=model,
         )
-        self._build_sub_agents()
+        self.planner_agent.configure_runtime(base_url=base_url, model=model)
+        self.tool_selector_agent.configure_runtime(base_url=base_url, model=model)
+        self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
 
     async def run(
         self,

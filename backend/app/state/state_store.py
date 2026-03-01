@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import heapq
 import json
 import re
 import time
@@ -21,6 +22,8 @@ class StateStore:
         self.snapshots_dir = self.persist_dir / "snapshots"
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
+        self._run_index: dict[str, float] = {}
+        self._run_index_dirty = True
 
     def init_run(
         self,
@@ -64,15 +67,30 @@ class StateStore:
                 return None
 
     def list_runs(self, limit: int = 200) -> list[dict]:
-        items: list[dict] = []
-        for run_file in sorted(self.runs_dir.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True):
-            if len(items) >= max(1, limit):
-                break
-            try:
-                items.append(json.loads(run_file.read_text(encoding="utf-8")))
-            except Exception:
-                continue
-        return items
+        with self._lock:
+            if self._run_index_dirty:
+                self._rebuild_run_index()
+
+            cap = max(1, limit)
+            ordered_ids = [
+                run_id
+                for run_id, _ in heapq.nlargest(cap, self._run_index.items(), key=lambda item: item[1])
+            ]
+
+            items: list[dict] = []
+            stale_ids: list[str] = []
+            for run_id in ordered_ids:
+                try:
+                    items.append(self._read_run(run_id))
+                except FileNotFoundError:
+                    stale_ids.append(run_id)
+                except Exception:
+                    continue
+
+            for run_id in stale_ids:
+                self._run_index.pop(run_id, None)
+
+            return items
 
     def append_event(self, run_id: str, event: dict) -> dict:
         with self._lock:
@@ -163,6 +181,8 @@ class StateStore:
                     snapshot_file.unlink(missing_ok=True)
                 except Exception:
                     continue
+            self._run_index.clear()
+            self._run_index_dirty = True
 
     def _transform_value(self, value, key: str | None = None):
         if isinstance(value, str):
@@ -225,6 +245,17 @@ class StateStore:
         tmp = file_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         self._replace_with_retry(tmp, file_path)
+        self._run_index_dirty = True
+
+    def _rebuild_run_index(self) -> None:
+        index: dict[str, float] = {}
+        for run_file in self.runs_dir.glob("*.json"):
+            try:
+                index[run_file.stem] = run_file.stat().st_mtime
+            except Exception:
+                continue
+        self._run_index = index
+        self._run_index_dirty = False
 
     def _write_snapshot(self, run_id: str, state: dict) -> None:
         snapshot = build_summary_snapshot(state)

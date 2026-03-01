@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 import httpx
 import json
 
+from app.config import settings
 from app.errors import LlmClientError
 
 logger = logging.getLogger("app.llm_client")
@@ -21,9 +22,13 @@ class LlmClient:
         self.model = model
 
     def _build_headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Content-Type": "application/json",
         }
+        auth_token = (settings.api_auth_token or "").strip()
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        return headers
 
     def _is_native_ollama_api(self) -> bool:
         base = self.base_url.lower().rstrip("/")

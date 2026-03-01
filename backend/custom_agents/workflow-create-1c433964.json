@@ -1,0 +1,12 @@
+{
+  "id": "workflow-create-1c433964",
+  "name": "Workflow Create 1c433964",
+  "description": "create contract",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "plan",
+    "implement",
+    "verify"
+  ],
+  "tool_policy": null
+}

@@ -43,6 +43,33 @@ def _default_reset_on_startup(app_env: str) -> bool:
     return app_env != "production"
 
 
+def _resolve_prompt(default: str, *env_keys: str) -> str:
+    for env_key in env_keys:
+        value = os.getenv(env_key)
+        if value is not None:
+            return value
+    return default
+
+
+PROMPT_SETTING_KEYS: tuple[str, ...] = (
+    "head_agent_system_prompt",
+    "head_agent_plan_prompt",
+    "head_agent_tool_selector_prompt",
+    "head_agent_tool_repair_prompt",
+    "head_agent_final_prompt",
+    "coder_agent_system_prompt",
+    "coder_agent_plan_prompt",
+    "coder_agent_tool_selector_prompt",
+    "coder_agent_tool_repair_prompt",
+    "coder_agent_final_prompt",
+    "agent_system_prompt",
+    "agent_plan_prompt",
+    "agent_tool_selector_prompt",
+    "agent_tool_repair_prompt",
+    "agent_final_prompt",
+)
+
+
 class Settings(BaseModel):
     app_env: str = os.getenv("APP_ENV", "development").strip().lower()
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -51,110 +78,84 @@ class Settings(BaseModel):
     agent_name: str = os.getenv("AGENT_NAME", "head-agent")
     coder_agent_name: str = os.getenv("CODER_AGENT_NAME", "coder-agent")
     review_agent_name: str = os.getenv("REVIEW_AGENT_NAME", "review-agent")
-    head_agent_system_prompt: str = os.getenv(
+    head_agent_system_prompt: str = _resolve_prompt(
+        "You are a neutral head agent. Be concise, factual, and adapt naturally to user intent.",
         "HEAD_AGENT_SYSTEM_PROMPT",
-        os.getenv(
-            "AGENT_SYSTEM_PROMPT",
-            "You are a neutral head agent. Be concise, factual, and adapt naturally to user intent.",
-        ),
-    )
-    head_agent_plan_prompt: str = os.getenv(
-        "HEAD_AGENT_PLAN_PROMPT",
-        os.getenv(
-            "HEAD_AGENT_SYSTEM_PROMPT",
-            os.getenv(
-                "AGENT_PLAN_PROMPT",
-                os.getenv(
-                    "AGENT_SYSTEM_PROMPT",
-                    "You are a neutral head agent. Return a minimal, context-appropriate plan only when needed.",
-                ),
-            ),
-        ),
-    )
-    head_agent_tool_selector_prompt: str = os.getenv(
-        "HEAD_AGENT_TOOL_SELECTOR_PROMPT",
-        os.getenv(
-            "AGENT_TOOL_SELECTOR_PROMPT",
-            os.getenv(
-                "HEAD_AGENT_SYSTEM_PROMPT",
-                "You select tools for user tasks. Strictly follow output format requirements.",
-            ),
-        ),
-    )
-    head_agent_tool_repair_prompt: str = os.getenv(
-        "HEAD_AGENT_TOOL_REPAIR_PROMPT",
-        os.getenv(
-            "AGENT_TOOL_REPAIR_PROMPT",
-            os.getenv(
-                "HEAD_AGENT_SYSTEM_PROMPT",
-                "You repair malformed tool selection output into strict JSON only.",
-            ),
-        ),
-    )
-    head_agent_final_prompt: str = os.getenv(
-        "HEAD_AGENT_FINAL_PROMPT",
-        os.getenv(
-            "HEAD_AGENT_SYSTEM_PROMPT",
-            os.getenv(
-                "AGENT_FINAL_PROMPT",
-                os.getenv(
-                    "AGENT_SYSTEM_PROMPT",
-                    "You are a neutral head agent. Return a concise, directly helpful final answer.",
-                ),
-            ),
-        ),
-    )
-    coder_agent_system_prompt: str = os.getenv(
-        "CODER_AGENT_SYSTEM_PROMPT",
-        "You are a senior coding agent. Think step-by-step, break tasks into actionable implementation steps, and produce precise developer output.",
-    )
-    coder_agent_plan_prompt: str = os.getenv(
-        "CODER_AGENT_PLAN_PROMPT",
-        os.getenv("CODER_AGENT_SYSTEM_PROMPT", "You are a senior coding agent. Return a short actionable implementation plan."),
-    )
-    coder_agent_tool_selector_prompt: str = os.getenv(
-        "CODER_AGENT_TOOL_SELECTOR_PROMPT",
-        os.getenv("AGENT_TOOL_SELECTOR_PROMPT", "You select tools for a coding task. Strictly follow output format requirements."),
-    )
-    coder_agent_tool_repair_prompt: str = os.getenv(
-        "CODER_AGENT_TOOL_REPAIR_PROMPT",
-        os.getenv("AGENT_TOOL_REPAIR_PROMPT", "You repair malformed tool selection output into strict JSON only."),
-    )
-    coder_agent_final_prompt: str = os.getenv(
-        "CODER_AGENT_FINAL_PROMPT",
-        os.getenv("CODER_AGENT_SYSTEM_PROMPT", "You are a senior coding agent. Return a concise final answer with practical next steps."),
-    )
-    agent_system_prompt: str = os.getenv(
         "AGENT_SYSTEM_PROMPT",
-        "You are a senior head agent. Think step-by-step and return practical plans.",
     )
-    agent_plan_prompt: str = os.getenv(
+    head_agent_plan_prompt: str = _resolve_prompt(
+        "You are a neutral head agent. Return a minimal, context-appropriate plan only when needed.",
+        "HEAD_AGENT_PLAN_PROMPT",
+        "HEAD_AGENT_SYSTEM_PROMPT",
         "AGENT_PLAN_PROMPT",
-        os.getenv(
-            "AGENT_SYSTEM_PROMPT",
-            "You are a senior head agent. Think step-by-step and return practical plans.",
-        ),
+        "AGENT_SYSTEM_PROMPT",
     )
-    agent_tool_selector_prompt: str = os.getenv(
+    head_agent_tool_selector_prompt: str = _resolve_prompt(
+        "You select tools for user tasks. Strictly follow output format requirements.",
+        "HEAD_AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_TOOL_SELECTOR_PROMPT",
-        os.getenv(
-            "AGENT_SYSTEM_PROMPT",
-            "You are a senior head agent. Think step-by-step and return practical plans.",
-        ),
+        "HEAD_AGENT_SYSTEM_PROMPT",
     )
-    agent_tool_repair_prompt: str = os.getenv(
+    head_agent_tool_repair_prompt: str = _resolve_prompt(
+        "You repair malformed tool selection output into strict JSON only.",
+        "HEAD_AGENT_TOOL_REPAIR_PROMPT",
         "AGENT_TOOL_REPAIR_PROMPT",
-        os.getenv(
-            "AGENT_SYSTEM_PROMPT",
-            "You are a senior head agent. Think step-by-step and return practical plans.",
-        ),
+        "HEAD_AGENT_SYSTEM_PROMPT",
     )
-    agent_final_prompt: str = os.getenv(
+    head_agent_final_prompt: str = _resolve_prompt(
+        "You are a neutral head agent. Return a concise, directly helpful final answer.",
+        "HEAD_AGENT_FINAL_PROMPT",
+        "HEAD_AGENT_SYSTEM_PROMPT",
         "AGENT_FINAL_PROMPT",
-        os.getenv(
-            "AGENT_SYSTEM_PROMPT",
-            "You are a senior head agent. Think step-by-step and return practical plans.",
-        ),
+        "AGENT_SYSTEM_PROMPT",
+    )
+    coder_agent_system_prompt: str = _resolve_prompt(
+        "You are a senior coding agent. Think step-by-step, break tasks into actionable implementation steps, and produce precise developer output.",
+        "CODER_AGENT_SYSTEM_PROMPT",
+    )
+    coder_agent_plan_prompt: str = _resolve_prompt(
+        "You are a senior coding agent. Return a short actionable implementation plan.",
+        "CODER_AGENT_PLAN_PROMPT",
+        "CODER_AGENT_SYSTEM_PROMPT",
+    )
+    coder_agent_tool_selector_prompt: str = _resolve_prompt(
+        "You select tools for a coding task. Strictly follow output format requirements.",
+        "CODER_AGENT_TOOL_SELECTOR_PROMPT",
+        "AGENT_TOOL_SELECTOR_PROMPT",
+    )
+    coder_agent_tool_repair_prompt: str = _resolve_prompt(
+        "You repair malformed tool selection output into strict JSON only.",
+        "CODER_AGENT_TOOL_REPAIR_PROMPT",
+        "AGENT_TOOL_REPAIR_PROMPT",
+    )
+    coder_agent_final_prompt: str = _resolve_prompt(
+        "You are a senior coding agent. Return a concise final answer with practical next steps.",
+        "CODER_AGENT_FINAL_PROMPT",
+        "CODER_AGENT_SYSTEM_PROMPT",
+    )
+    agent_system_prompt: str = _resolve_prompt(
+        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "AGENT_SYSTEM_PROMPT",
+    )
+    agent_plan_prompt: str = _resolve_prompt(
+        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "AGENT_PLAN_PROMPT",
+        "AGENT_SYSTEM_PROMPT",
+    )
+    agent_tool_selector_prompt: str = _resolve_prompt(
+        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "AGENT_TOOL_SELECTOR_PROMPT",
+        "AGENT_SYSTEM_PROMPT",
+    )
+    agent_tool_repair_prompt: str = _resolve_prompt(
+        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "AGENT_TOOL_REPAIR_PROMPT",
+        "AGENT_SYSTEM_PROMPT",
+    )
+    agent_final_prompt: str = _resolve_prompt(
+        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "AGENT_FINAL_PROMPT",
+        "AGENT_SYSTEM_PROMPT",
     )
     workspace_root: str = _resolve_workspace_root(os.getenv("WORKSPACE_ROOT"))
     memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
@@ -315,11 +316,15 @@ class Settings(BaseModel):
     session_lane_global_max_concurrent: int = int(os.getenv("SESSION_LANE_GLOBAL_MAX_CONCURRENT", "8"))
     run_wait_default_timeout_ms: int = int(os.getenv("RUN_WAIT_DEFAULT_TIMEOUT_MS", "30000"))
     run_wait_poll_interval_ms: int = int(os.getenv("RUN_WAIT_POLL_INTERVAL_MS", "200"))
+    idempotency_registry_ttl_seconds: int = int(os.getenv("IDEMPOTENCY_REGISTRY_TTL_SECONDS", "86400"))
+    idempotency_registry_max_entries: int = int(os.getenv("IDEMPOTENCY_REGISTRY_MAX_ENTRIES", "5000"))
     run_tool_call_cap: int = int(os.getenv("RUN_TOOL_CALL_CAP", "8"))
     run_tool_time_cap_seconds: float = float(os.getenv("RUN_TOOL_TIME_CAP_SECONDS", "90"))
     tool_loop_warn_threshold: int = int(os.getenv("TOOL_LOOP_WARN_THRESHOLD", "2"))
     tool_loop_critical_threshold: int = int(os.getenv("TOOL_LOOP_CRITICAL_THRESHOLD", "3"))
     session_visibility_default: str = os.getenv("SESSION_VISIBILITY_DEFAULT", "tree")
+    api_auth_required: bool = _parse_bool_env("API_AUTH_REQUIRED", False)
+    api_auth_token: str = os.getenv("API_AUTH_TOKEN", os.getenv("OLLAMA_API_KEY", ""))
     persist_transform_max_string_chars: int = int(os.getenv("PERSIST_TRANSFORM_MAX_STRING_CHARS", "8000"))
     persist_transform_redact_secrets: bool = os.getenv("PERSIST_TRANSFORM_REDACT_SECRETS", "true").strip().lower() in {
         "1",
@@ -330,3 +335,7 @@ class Settings(BaseModel):
 
 
 settings = Settings()
+
+
+def resolved_prompt_settings(current_settings: Settings) -> dict[str, str]:
+    return {key: str(getattr(current_settings, key)) for key in PROMPT_SETTING_KEYS}

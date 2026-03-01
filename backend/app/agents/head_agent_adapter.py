@@ -8,20 +8,24 @@ from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEv
 from app.contracts.schemas import CoderAgentInput, CoderAgentOutput, HeadAgentInput, HeadAgentOutput
 
 
+def _build_constraints(*, temperature: float, reflection_passes: int) -> AgentConstraints:
+    return AgentConstraints(
+        max_context=settings.max_user_message_length,
+        temperature=temperature,
+        reasoning_depth=2,
+        reflection_passes=reflection_passes,
+        combine_steps=False,
+    )
+
+
 class HeadAgentAdapter(AgentContract):
     role = "head-agent"
     input_schema = HeadAgentInput
     output_schema = HeadAgentOutput
-    constraints = AgentConstraints(
-        max_context=settings.max_user_message_length,
-        temperature=0.3,
-        reasoning_depth=2,
-        reflection_passes=0,
-        combine_steps=False,
-    )
 
     def __init__(self, delegate: HeadAgent | None = None):
         self._delegate = delegate or HeadAgent()
+        self.constraints = _build_constraints(temperature=0.3, reflection_passes=0)
 
     @property
     def name(self) -> str:
@@ -62,16 +66,10 @@ class CoderAgentAdapter(AgentContract):
     role = "coding-agent"
     input_schema = CoderAgentInput
     output_schema = CoderAgentOutput
-    constraints = AgentConstraints(
-        max_context=settings.max_user_message_length,
-        temperature=0.3,
-        reasoning_depth=2,
-        reflection_passes=0,
-        combine_steps=False,
-    )
 
     def __init__(self, delegate: CoderAgent | None = None):
         self._delegate = delegate or CoderAgent()
+        self.constraints = _build_constraints(temperature=0.3, reflection_passes=0)
 
     @property
     def name(self) -> str:
@@ -112,13 +110,6 @@ class ReviewAgentAdapter(AgentContract):
     role = "review-agent"
     input_schema = HeadAgentInput
     output_schema = HeadAgentOutput
-    constraints = AgentConstraints(
-        max_context=settings.max_user_message_length,
-        temperature=0.2,
-        reasoning_depth=2,
-        reflection_passes=1,
-        combine_steps=False,
-    )
 
     _MANDATORY_DENY = {
         "write_file",
@@ -130,6 +121,7 @@ class ReviewAgentAdapter(AgentContract):
 
     def __init__(self, delegate: ReviewAgent | None = None):
         self._delegate = delegate or ReviewAgent()
+        self.constraints = _build_constraints(temperature=0.2, reflection_passes=1)
 
     @property
     def name(self) -> str:

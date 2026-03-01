@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -14,22 +14,103 @@ from app.models import WsInboundMessage
 from app.orchestrator.events import build_lifecycle_event, classify_error
 
 
+ToolPolicy = dict[str, list[str]]
+EventPayload = dict[str, Any]
+AsyncSendEvent = Callable[[EventPayload], Awaitable[None]]
+
+
+class RuntimeStateLike(Protocol):
+    runtime: str
+    base_url: str
+    model: str
+
+
+class LoggerLike(Protocol):
+    def info(self, msg: str, *args: object) -> None: ...
+
+    def debug(self, msg: str, *args: object) -> None: ...
+
+    def exception(self, msg: str, *args: object) -> None: ...
+
+
+class RuntimeManagerLike(Protocol):
+    def get_state(self) -> RuntimeStateLike: ...
+
+    async def switch_runtime(self, target: str, send_event: AsyncSendEvent, session_id: str) -> RuntimeStateLike: ...
+
+    async def ensure_model_ready(self, send_event: AsyncSendEvent, session_id: str, selected_model: str) -> str: ...
+
+    async def resolve_api_request_model(self, selected_model: str) -> str: ...
+
+    def set_active_model(self, model_name: str) -> None: ...
+
+
+class StateStoreLike(Protocol):
+    def init_run(
+        self,
+        run_id: str,
+        session_id: str,
+        request_id: str,
+        user_message: str,
+        runtime: str,
+        model: str,
+    ) -> None: ...
+
+    def set_task_status(self, run_id: str, task_id: str, label: str, status: str) -> None: ...
+
+
+class AgentLike(Protocol):
+    name: str
+
+    def configure_runtime(self, base_url: str, model: str) -> None: ...
+
+
+class OrchestratorLike(Protocol):
+    async def run_user_message(
+        self,
+        user_message: str,
+        send_event: AsyncSendEvent,
+        request_context: RequestContext,
+    ) -> None: ...
+
+
+class SubrunLaneLike(Protocol):
+    async def spawn(
+        self,
+        parent_request_id: str,
+        parent_session_id: str,
+        user_message: str,
+        runtime: str,
+        model: str,
+        timeout_seconds: float,
+        tool_policy: ToolPolicy | None,
+        send_event: AsyncSendEvent,
+        agent_id: str,
+        mode: str,
+        orchestrator_api: OrchestratorLike,
+    ) -> str: ...
+
+
+class SettingsLike(Protocol):
+    subrun_timeout_seconds: float
+
+
 @dataclass
 class WsHandlerDependencies:
-    logger: Any
-    settings: Any
-    agent: Any
-    agent_registry: dict[str, Any]
-    runtime_manager: Any
-    state_store: Any
-    subrun_lane: Any
+    logger: LoggerLike
+    settings: SettingsLike
+    agent: AgentLike
+    agent_registry: dict[str, AgentLike]
+    runtime_manager: RuntimeManagerLike
+    state_store: StateStoreLike
+    subrun_lane: SubrunLaneLike
     sync_custom_agents: Callable[[], None]
     normalize_agent_id: Callable[[str | None], str]
-    resolve_tool_policy_with_preset: Callable[[str | None, dict[str, list[str]] | None], tuple[dict[str, list[str]] | None, str | None]]
+    resolve_tool_policy_with_preset: Callable[[str | None, ToolPolicy | None], tuple[ToolPolicy | None, str | None]]
     looks_like_review_request: Callable[[str], bool]
     looks_like_coding_request: Callable[[str], bool]
-    resolve_agent: Callable[[str | None], tuple[str, Any, Any]]
-    state_append_event_safe: Callable[[str, dict], None]
+    resolve_agent: Callable[[str | None], tuple[str, AgentLike, OrchestratorLike]]
+    state_append_event_safe: Callable[[str, EventPayload], None]
     state_mark_failed_safe: Callable[[str, str], None]
     state_mark_completed_safe: Callable[[str], None]
     lifecycle_status_from_stage: Callable[[str], str | None]

@@ -1,4 +1,12 @@
-from app.services.idempotency_service import idempotency_lookup_or_raise, idempotency_register
+from app.services.idempotency_service import idempotency_lookup_or_raise, idempotency_register, prune_idempotency_registry
+from app.services.control_fingerprints import (
+    build_run_start_fingerprint,
+    build_session_patch_fingerprint,
+    build_session_reset_fingerprint,
+    build_workflow_create_fingerprint,
+    build_workflow_execute_fingerprint,
+    build_workflow_delete_fingerprint,
+)
 from app.services.session_query_service import SessionQueryService
 from app.services.tool_policy_service import (
     PRESET_TOOL_POLICIES,
@@ -16,6 +24,13 @@ from app.services.tool_policy_service import (
 __all__ = [
     "idempotency_lookup_or_raise",
     "idempotency_register",
+    "prune_idempotency_registry",
+    "build_run_start_fingerprint",
+    "build_session_patch_fingerprint",
+    "build_session_reset_fingerprint",
+    "build_workflow_create_fingerprint",
+    "build_workflow_execute_fingerprint",
+    "build_workflow_delete_fingerprint",
     "SessionQueryService",
     "PRESET_TOOL_POLICIES",
     "TOOL_PROFILES",

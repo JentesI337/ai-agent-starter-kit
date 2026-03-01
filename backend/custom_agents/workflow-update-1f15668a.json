@@ -1,0 +1,11 @@
+{
+  "id": "workflow-update-1f15668a",
+  "name": "Workflow Update 1f15668a",
+  "description": "",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "a",
+    "b"
+  ],
+  "tool_policy": null
+}

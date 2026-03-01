@@ -49,6 +49,21 @@ def test_runtime_status_endpoint_includes_api_model_health_fields() -> None:
     assert "apiModelsError" in payload
 
 
+def test_resolved_prompt_debug_endpoint_returns_prompt_map() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    response = client.get("/api/debug/prompts/resolved")
+
+    assert response.status_code == 200
+    payload = response.json()
+    prompts = payload.get("prompts")
+    assert isinstance(prompts, dict)
+    assert "head_agent_system_prompt" in prompts
+    assert "coder_agent_system_prompt" in prompts
+    assert "agent_system_prompt" in prompts
+
+
 def test_rest_ping_endpoint_without_agent() -> None:
     _set_local_runtime()
     client = TestClient(app)
