@@ -6,6 +6,7 @@ from app.agent import CoderAgent, HeadAgent, ReviewAgent
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import CoderAgentInput, CoderAgentOutput, HeadAgentInput, HeadAgentOutput
+from app.tool_policy import ToolPolicyDict
 
 
 def _build_constraints(*, temperature: float, reflection_passes: int) -> AgentConstraints:
@@ -47,7 +48,7 @@ class HeadAgentAdapter(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         payload = self.input_schema(
             user_message=user_message,
@@ -97,7 +98,7 @@ class CoderAgentAdapter(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         payload = self.input_schema(
             user_message=user_message,
@@ -148,7 +149,7 @@ class ReviewAgentAdapter(AgentContract):
     def set_policy_approval_handler(self, handler) -> None:
         self._delegate.set_policy_approval_handler(handler)
 
-    def normalize_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+    def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
 
     async def run(
@@ -158,7 +159,7 @@ class ReviewAgentAdapter(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         if not self._has_review_evidence(user_message):
             message = (
@@ -186,7 +187,7 @@ class ReviewAgentAdapter(AgentContract):
         output = self.output_schema(final_text=final_text)
         return output.final_text
 
-    def _build_read_only_policy(self, incoming: dict[str, list[str]] | None) -> dict[str, list[str]]:
+    def _build_read_only_policy(self, incoming: ToolPolicyDict | None) -> ToolPolicyDict:
         requested_allow = []
         requested_deny = []
 
@@ -201,7 +202,7 @@ class ReviewAgentAdapter(AgentContract):
         deny = set(requested_deny)
         deny |= self._MANDATORY_DENY
 
-        payload: dict[str, list[str]] = {"deny": sorted(deny)}
+        payload: ToolPolicyDict = {"deny": sorted(deny)}
         if requested_allow:
             payload["allow"] = requested_allow
         return payload

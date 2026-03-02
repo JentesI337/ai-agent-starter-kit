@@ -145,3 +145,28 @@ def test_ws_handler_disconnect_is_graceful_and_reconnects() -> None:
     with client.websocket_connect("/ws/agent") as ws:
         second = _unwrap_event(ws.receive_json())
         assert second.get("type") == "status"
+
+
+def test_ws_handler_unsupported_type_emits_rejection_lifecycle() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json({"type": "unknown_type", "content": "hello", "agent_id": "head-agent"})
+
+        events = []
+        for _ in range(12):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_unsupported_type":
+                break
+
+    assert any(
+        evt.get("type") == "status" and "unsupported message type" in str(evt.get("message", "")).lower()
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_unsupported_type"
+        for evt in events
+    )

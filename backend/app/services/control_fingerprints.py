@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from app.tool_policy import ToolPolicyDict
+
 
 def build_run_start_fingerprint(
     *,
@@ -9,7 +11,7 @@ def build_run_start_fingerprint(
     session_id: str | None,
     model: str | None,
     preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
     runtime: str,
 ) -> str:
     payload = {
@@ -46,7 +48,7 @@ def build_workflow_create_fingerprint(
     description: str,
     base_agent_id: str,
     steps: list[str],
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
     allow_subrun_delegation: bool,
 ) -> str:
     payload = {
@@ -69,7 +71,7 @@ def build_workflow_execute_fingerprint(
     session_id: str | None,
     model: str | None,
     preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
     allow_subrun_delegation: bool,
     runtime: str,
 ) -> str:

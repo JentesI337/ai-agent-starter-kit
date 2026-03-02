@@ -34,6 +34,7 @@ from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
+from app.tool_policy import ToolPolicyDict
 from app.tools import AgentTooling
 
 SendEvent = Callable[[dict], Awaitable[None]]
@@ -133,6 +134,8 @@ class HeadAgent:
             )
         )
         self.tool_registry = self._build_tool_registry()
+        self._tool_arg_validators = self._build_tool_arg_validators()
+        self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
         self._build_sub_agents()
 
@@ -246,7 +249,7 @@ class HeadAgent:
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         status = "failed"
         error_text: str | None = None
@@ -636,7 +639,7 @@ class HeadAgent:
         if model and len(model) > 120:
             raise GuardrailViolation("model name too long.")
 
-    def _validate_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> None:
+    def _validate_tool_policy(self, tool_policy: ToolPolicyDict | None) -> None:
         if tool_policy is None:
             return
         for key in ("allow", "deny", "also_allow"):
@@ -678,7 +681,7 @@ class HeadAgent:
     def _build_tool_policy_resolution_details(
         self,
         *,
-        tool_policy: dict[str, list[str]] | None,
+        tool_policy: ToolPolicyDict | None,
         effective_allowed_tools: set[str],
     ) -> dict[str, object]:
         requested_allow_values = [
@@ -714,7 +717,7 @@ class HeadAgent:
             "warnings": warnings,
         }
 
-    def _resolve_effective_allowed_tools(self, tool_policy: dict[str, list[str]] | None) -> set[str]:
+    def _resolve_effective_allowed_tools(self, tool_policy: ToolPolicyDict | None) -> set[str]:
         base_allowed = set(ALLOWED_TOOLS)
 
         config_allow = self._normalize_tool_set(settings.agent_tools_allow)
@@ -1726,7 +1729,7 @@ class HeadAgent:
         )
 
         followup_raw = await self.client.complete_chat(
-            settings.agent_tool_selector_prompt,
+            self.prompt_profile.tool_selector_prompt,
             followup_prompt,
             model=model,
         )
@@ -2229,6 +2232,46 @@ class HeadAgent:
             ),
         }
 
+    def _validate_tool_registry_dispatch(self) -> None:
+        missing_tooling_methods = [
+            tool_name
+            for tool_name in self.tool_registry
+            if tool_name != "spawn_subrun" and not hasattr(self.tools, tool_name)
+        ]
+        missing_arg_validators = [
+            tool_name
+            for tool_name in self.tool_registry
+            if tool_name not in self._tool_arg_validators
+        ]
+        if missing_tooling_methods:
+            raise RuntimeError(
+                "Tool registry contains tools without AgentTooling implementation: "
+                + ", ".join(sorted(missing_tooling_methods))
+            )
+        if missing_arg_validators:
+            raise RuntimeError(
+                "Tool registry contains tools without argument validator: "
+                + ", ".join(sorted(missing_arg_validators))
+            )
+
+    def _build_tool_arg_validators(self) -> dict[str, Callable[[dict[str, object]], str | None]]:
+        return {
+            "list_dir": self._validate_path_only_tool_args,
+            "read_file": self._validate_path_only_tool_args,
+            "write_file": self._validate_write_file_args,
+            "run_command": self._validate_command_tool_args,
+            "apply_patch": self._validate_apply_patch_args,
+            "file_search": self._validate_file_search_args,
+            "grep_search": self._validate_grep_search_args,
+            "list_code_usages": self._validate_list_code_usages_args,
+            "get_changed_files": self._validate_noop_tool_args,
+            "start_background_command": self._validate_command_tool_args,
+            "get_background_output": self._validate_get_background_output_args,
+            "kill_background_process": self._validate_kill_background_process_args,
+            "web_fetch": self._validate_web_fetch_args,
+            "spawn_subrun": self._validate_spawn_subrun_args,
+        }
+
     def _normalize_tool_name(self, tool_name: str) -> str:
         normalized = tool_name.strip()
         if not normalized:
@@ -2237,6 +2280,271 @@ class HeadAgent:
         if lowered in TOOL_NAME_ALIASES:
             return TOOL_NAME_ALIASES[lowered]
         return normalized
+
+    def _require_str_arg(
+        self,
+        args: dict[str, object],
+        name: str,
+        *,
+        non_empty: bool = True,
+        max_len: int = 4000,
+    ) -> tuple[str | None, str | None]:
+        value = args.get(name)
+        if not isinstance(value, str):
+            return None, f"argument '{name}' must be a string"
+        if non_empty and not value.strip():
+            return None, f"argument '{name}' must not be empty"
+        if len(value) > max_len:
+            return None, f"argument '{name}' too long"
+        return value, None
+
+    def _require_bool_arg(self, args: dict[str, object], name: str, *, default: bool = False) -> tuple[bool, str | None]:
+        if name not in args:
+            return default, None
+        value = args[name]
+        if not isinstance(value, bool):
+            return default, f"argument '{name}' must be a boolean"
+        return value, None
+
+    def _optional_int_arg(
+        self,
+        args: dict[str, object],
+        name: str,
+        *,
+        default: int,
+        min_value: int,
+        max_value: int,
+    ) -> tuple[int, str | None]:
+        if name not in args:
+            return default, None
+        value = args[name]
+        if not isinstance(value, int):
+            return default, f"argument '{name}' must be an integer"
+        if value < min_value or value > max_value:
+            return default, f"argument '{name}' out of range"
+        return value, None
+
+    def _validate_path_only_tool_args(self, normalized_args: dict[str, object]) -> str | None:
+        if "path" not in normalized_args:
+            return None
+        path_value, err = self._require_str_arg(normalized_args, "path", max_len=400)
+        if err:
+            return err
+        if path_value is not None and "\x00" in path_value:
+            return "path is not plausible"
+        normalized_args["path"] = path_value
+        return None
+
+    def _validate_write_file_args(self, normalized_args: dict[str, object]) -> str | None:
+        path_error = self._validate_path_only_tool_args(normalized_args)
+        if path_error:
+            return path_error
+        content, err = self._require_str_arg(normalized_args, "content", non_empty=False, max_len=350000)
+        if err:
+            return err
+        normalized_args["content"] = content
+        return None
+
+    def _validate_command_tool_args(self, normalized_args: dict[str, object]) -> str | None:
+        command, err = self._require_str_arg(normalized_args, "command", max_len=1000)
+        if err:
+            return err
+        if command is not None and self._violates_command_policy(command):
+            return "command blocked by policy"
+        normalized_args["command"] = command
+        if "cwd" in normalized_args:
+            cwd, err = self._require_str_arg(normalized_args, "cwd", max_len=400)
+            if err:
+                return err
+            normalized_args["cwd"] = cwd
+        return None
+
+    def _validate_apply_patch_args(self, normalized_args: dict[str, object]) -> str | None:
+        path_error = self._validate_path_only_tool_args(normalized_args)
+        if path_error:
+            return path_error
+        search, err = self._require_str_arg(normalized_args, "search", max_len=50000)
+        if err:
+            return err
+        replace, err = self._require_str_arg(normalized_args, "replace", non_empty=False, max_len=50000)
+        if err:
+            return err
+        replace_all, err = self._require_bool_arg(normalized_args, "replace_all", default=False)
+        if err:
+            return err
+        normalized_args["search"] = search
+        normalized_args["replace"] = replace
+        normalized_args["replace_all"] = replace_all
+        return None
+
+    def _validate_file_search_args(self, normalized_args: dict[str, object]) -> str | None:
+        pattern, err = self._require_str_arg(normalized_args, "pattern", max_len=300)
+        if err:
+            return err
+        max_results, err = self._optional_int_arg(
+            normalized_args,
+            "max_results",
+            default=100,
+            min_value=1,
+            max_value=500,
+        )
+        if err:
+            return err
+        normalized_args["pattern"] = pattern
+        normalized_args["max_results"] = max_results
+        return None
+
+    def _validate_grep_search_args(self, normalized_args: dict[str, object]) -> str | None:
+        query, err = self._require_str_arg(normalized_args, "query", max_len=500)
+        if err:
+            return err
+        if "include_pattern" in normalized_args:
+            include_pattern, err = self._require_str_arg(normalized_args, "include_pattern", max_len=300)
+            if err:
+                return err
+            normalized_args["include_pattern"] = include_pattern
+        is_regexp, err = self._require_bool_arg(normalized_args, "is_regexp", default=False)
+        if err:
+            return err
+        max_results, err = self._optional_int_arg(
+            normalized_args,
+            "max_results",
+            default=100,
+            min_value=1,
+            max_value=500,
+        )
+        if err:
+            return err
+        normalized_args["query"] = query
+        normalized_args["is_regexp"] = is_regexp
+        normalized_args["max_results"] = max_results
+        return None
+
+    def _validate_list_code_usages_args(self, normalized_args: dict[str, object]) -> str | None:
+        symbol, err = self._require_str_arg(normalized_args, "symbol", max_len=160)
+        if err:
+            return err
+        if "include_pattern" in normalized_args:
+            include_pattern, err = self._require_str_arg(normalized_args, "include_pattern", max_len=300)
+            if err:
+                return err
+            normalized_args["include_pattern"] = include_pattern
+        max_results, err = self._optional_int_arg(
+            normalized_args,
+            "max_results",
+            default=100,
+            min_value=1,
+            max_value=500,
+        )
+        if err:
+            return err
+        normalized_args["symbol"] = symbol
+        normalized_args["max_results"] = max_results
+        return None
+
+    def _validate_get_background_output_args(self, normalized_args: dict[str, object]) -> str | None:
+        job_id, err = self._require_str_arg(normalized_args, "job_id", max_len=80)
+        if err:
+            return err
+        tail_lines, err = self._optional_int_arg(
+            normalized_args,
+            "tail_lines",
+            default=200,
+            min_value=1,
+            max_value=1000,
+        )
+        if err:
+            return err
+        normalized_args["job_id"] = job_id
+        normalized_args["tail_lines"] = tail_lines
+        return None
+
+    def _validate_kill_background_process_args(self, normalized_args: dict[str, object]) -> str | None:
+        job_id, err = self._require_str_arg(normalized_args, "job_id", max_len=80)
+        if err:
+            return err
+        normalized_args["job_id"] = job_id
+        return None
+
+    def _validate_web_fetch_args(self, normalized_args: dict[str, object]) -> str | None:
+        url, err = self._require_str_arg(normalized_args, "url", max_len=1000)
+        if err:
+            return err
+        max_chars, err = self._optional_int_arg(
+            normalized_args,
+            "max_chars",
+            default=12000,
+            min_value=1000,
+            max_value=100000,
+        )
+        if err:
+            return err
+        normalized_args["url"] = url
+        normalized_args["max_chars"] = max_chars
+        return None
+
+    def _validate_spawn_subrun_args(self, normalized_args: dict[str, object]) -> str | None:
+        message, err = self._require_str_arg(normalized_args, "message", max_len=4000)
+        if err:
+            return err
+        normalized_args["message"] = message
+
+        if "mode" in normalized_args:
+            mode, err = self._require_str_arg(normalized_args, "mode", max_len=20)
+            if err:
+                return err
+            normalized_mode = (mode or "").strip().lower()
+            if normalized_mode not in {"run", "session"}:
+                return "argument 'mode' must be 'run' or 'session'"
+            normalized_args["mode"] = normalized_mode
+
+        if "agent_id" in normalized_args:
+            agent_id, err = self._require_str_arg(normalized_args, "agent_id", max_len=120)
+            if err:
+                return err
+            normalized_args["agent_id"] = agent_id
+
+        if "model" in normalized_args:
+            model_name, err = self._require_str_arg(normalized_args, "model", max_len=120)
+            if err:
+                return err
+            normalized_args["model"] = model_name
+
+        timeout_seconds, err = self._optional_int_arg(
+            normalized_args,
+            "timeout_seconds",
+            default=0,
+            min_value=0,
+            max_value=3600,
+        )
+        if err:
+            return err
+        normalized_args["timeout_seconds"] = timeout_seconds
+
+        tool_policy = normalized_args.get("tool_policy")
+        if tool_policy is not None:
+            if not isinstance(tool_policy, dict):
+                return "argument 'tool_policy' must be an object"
+            normalized_policy: ToolPolicyDict = {}
+            for policy_key in ("allow", "deny"):
+                policy_values = tool_policy.get(policy_key)
+                if policy_values is None:
+                    continue
+                if not isinstance(policy_values, list):
+                    return f"argument 'tool_policy.{policy_key}' must be a list"
+                if len(policy_values) > 20:
+                    return f"argument 'tool_policy.{policy_key}' too large"
+                normalized_values: list[str] = []
+                for policy_value in policy_values:
+                    if not isinstance(policy_value, str) or not policy_value.strip() or len(policy_value) > 80:
+                        return f"argument 'tool_policy.{policy_key}' contains invalid tool name"
+                    normalized_values.append(policy_value.strip())
+                normalized_policy[policy_key] = normalized_values
+            normalized_args["tool_policy"] = normalized_policy
+        return None
+
+    def _validate_noop_tool_args(self, normalized_args: dict[str, object]) -> str | None:
+        return None
 
     def _evaluate_action(self, tool: str, args: dict, allowed_tools: set[str]) -> tuple[dict, str | None]:
         if tool not in allowed_tools:
@@ -2260,197 +2568,12 @@ class HeadAgent:
             if optional_name in args:
                 normalized_args[optional_name] = args[optional_name]
 
-        def _require_str(name: str, *, non_empty: bool = True, max_len: int = 4000) -> tuple[str | None, str | None]:
-            value = normalized_args.get(name)
-            if not isinstance(value, str):
-                return None, f"argument '{name}' must be a string"
-            if non_empty and not value.strip():
-                return None, f"argument '{name}' must not be empty"
-            if len(value) > max_len:
-                return None, f"argument '{name}' too long"
-            return value, None
-
-        def _require_bool(name: str, default: bool = False) -> tuple[bool, str | None]:
-            if name not in normalized_args:
-                return default, None
-            value = normalized_args[name]
-            if not isinstance(value, bool):
-                return default, f"argument '{name}' must be a boolean"
-            return value, None
-
-        def _optional_int(name: str, default: int, min_value: int, max_value: int) -> tuple[int, str | None]:
-            if name not in normalized_args:
-                return default, None
-            value = normalized_args[name]
-            if not isinstance(value, int):
-                return default, f"argument '{name}' must be an integer"
-            if value < min_value or value > max_value:
-                return default, f"argument '{name}' out of range"
-            return value, None
-
-        if tool in {"list_dir", "read_file", "write_file", "apply_patch"}:
-            if "path" in normalized_args:
-                path_value, err = _require_str("path", max_len=400)
-                if err:
-                    return {}, err
-                if path_value is not None and "\x00" in path_value:
-                    return {}, "path is not plausible"
-
-        if tool == "write_file":
-            content, err = _require_str("content", non_empty=False, max_len=350000)
-            if err:
-                return {}, err
-            normalized_args["content"] = content
-
-        if tool == "run_command" or tool == "start_background_command":
-            command, err = _require_str("command", max_len=1000)
-            if err:
-                return {}, err
-            if command is not None and self._violates_command_policy(command):
-                return {}, "command blocked by policy"
-            normalized_args["command"] = command
-            if "cwd" in normalized_args:
-                cwd, err = _require_str("cwd", max_len=400)
-                if err:
-                    return {}, err
-                normalized_args["cwd"] = cwd
-
-        if tool == "apply_patch":
-            search, err = _require_str("search", max_len=50000)
-            if err:
-                return {}, err
-            replace, err = _require_str("replace", non_empty=False, max_len=50000)
-            if err:
-                return {}, err
-            replace_all, err = _require_bool("replace_all", default=False)
-            if err:
-                return {}, err
-            normalized_args["search"] = search
-            normalized_args["replace"] = replace
-            normalized_args["replace_all"] = replace_all
-
-        if tool == "file_search":
-            pattern, err = _require_str("pattern", max_len=300)
-            if err:
-                return {}, err
-            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
-            if err:
-                return {}, err
-            normalized_args["pattern"] = pattern
-            normalized_args["max_results"] = max_results
-
-        if tool == "grep_search":
-            query, err = _require_str("query", max_len=500)
-            if err:
-                return {}, err
-            if "include_pattern" in normalized_args:
-                include_pattern, err = _require_str("include_pattern", max_len=300)
-                if err:
-                    return {}, err
-                normalized_args["include_pattern"] = include_pattern
-            is_regexp, err = _require_bool("is_regexp", default=False)
-            if err:
-                return {}, err
-            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
-            if err:
-                return {}, err
-            normalized_args["query"] = query
-            normalized_args["is_regexp"] = is_regexp
-            normalized_args["max_results"] = max_results
-
-        if tool == "list_code_usages":
-            symbol, err = _require_str("symbol", max_len=160)
-            if err:
-                return {}, err
-            if "include_pattern" in normalized_args:
-                include_pattern, err = _require_str("include_pattern", max_len=300)
-                if err:
-                    return {}, err
-                normalized_args["include_pattern"] = include_pattern
-            max_results, err = _optional_int("max_results", default=100, min_value=1, max_value=500)
-            if err:
-                return {}, err
-            normalized_args["symbol"] = symbol
-            normalized_args["max_results"] = max_results
-
-        if tool == "get_background_output":
-            job_id, err = _require_str("job_id", max_len=80)
-            if err:
-                return {}, err
-            tail_lines, err = _optional_int("tail_lines", default=200, min_value=1, max_value=1000)
-            if err:
-                return {}, err
-            normalized_args["job_id"] = job_id
-            normalized_args["tail_lines"] = tail_lines
-
-        if tool == "kill_background_process":
-            job_id, err = _require_str("job_id", max_len=80)
-            if err:
-                return {}, err
-            normalized_args["job_id"] = job_id
-
-        if tool == "web_fetch":
-            url, err = _require_str("url", max_len=1000)
-            if err:
-                return {}, err
-            max_chars, err = _optional_int("max_chars", default=12000, min_value=1000, max_value=100000)
-            if err:
-                return {}, err
-            normalized_args["url"] = url
-            normalized_args["max_chars"] = max_chars
-
-        if tool == "spawn_subrun":
-            message, err = _require_str("message", max_len=4000)
-            if err:
-                return {}, err
-            normalized_args["message"] = message
-
-            if "mode" in normalized_args:
-                mode, err = _require_str("mode", max_len=20)
-                if err:
-                    return {}, err
-                normalized_mode = (mode or "").strip().lower()
-                if normalized_mode not in {"run", "session"}:
-                    return {}, "argument 'mode' must be 'run' or 'session'"
-                normalized_args["mode"] = normalized_mode
-
-            if "agent_id" in normalized_args:
-                agent_id, err = _require_str("agent_id", max_len=120)
-                if err:
-                    return {}, err
-                normalized_args["agent_id"] = agent_id
-
-            if "model" in normalized_args:
-                model_name, err = _require_str("model", max_len=120)
-                if err:
-                    return {}, err
-                normalized_args["model"] = model_name
-
-            timeout_seconds, err = _optional_int("timeout_seconds", default=0, min_value=0, max_value=3600)
-            if err:
-                return {}, err
-            normalized_args["timeout_seconds"] = timeout_seconds
-
-            tool_policy = normalized_args.get("tool_policy")
-            if tool_policy is not None:
-                if not isinstance(tool_policy, dict):
-                    return {}, "argument 'tool_policy' must be an object"
-                normalized_policy: dict[str, list[str]] = {}
-                for policy_key in ("allow", "deny"):
-                    policy_values = tool_policy.get(policy_key)
-                    if policy_values is None:
-                        continue
-                    if not isinstance(policy_values, list):
-                        return {}, f"argument 'tool_policy.{policy_key}' must be a list"
-                    if len(policy_values) > 20:
-                        return {}, f"argument 'tool_policy.{policy_key}' too large"
-                    normalized_values: list[str] = []
-                    for policy_value in policy_values:
-                        if not isinstance(policy_value, str) or not policy_value.strip() or len(policy_value) > 80:
-                            return {}, f"argument 'tool_policy.{policy_key}' contains invalid tool name"
-                        normalized_values.append(policy_value.strip())
-                    normalized_policy[policy_key] = normalized_values
-                normalized_args["tool_policy"] = normalized_policy
+        tool_validator = self._tool_arg_validators.get(tool)
+        if tool_validator is None:
+            return {}, "tool validator missing"
+        validation_error = tool_validator(normalized_args)
+        if validation_error:
+            return {}, validation_error
 
         return normalized_args, None
 
@@ -2553,111 +2676,30 @@ class HeadAgent:
         return any(marker in text for marker in transient_markers)
 
     def _invoke_tool(self, tool: str, args: dict) -> str:
-        if tool == "list_dir":
-            return self.tools.list_dir(path=args.get("path"))
-        if tool == "read_file":
-            path = args.get("path")
-            if not isinstance(path, str):
-                raise ToolExecutionError("read_file requires 'path'.")
-            return self.tools.read_file(path=path)
-        if tool == "write_file":
-            path = args.get("path")
-            content = args.get("content")
-            if not isinstance(path, str) or not isinstance(content, str):
-                raise ToolExecutionError("write_file requires 'path' and 'content'.")
-            return self.tools.write_file(path=path, content=content)
-        if tool == "run_command":
-            command = args.get("command")
-            cwd = args.get("cwd")
-            if not isinstance(command, str):
-                raise ToolExecutionError("run_command requires 'command'.")
-            if cwd is not None and not isinstance(cwd, str):
-                raise ToolExecutionError("run_command 'cwd' must be string if provided.")
-            return self.tools.run_command(command=command, cwd=cwd)
-        if tool == "apply_patch":
-            path = args.get("path")
-            search = args.get("search")
-            replace = args.get("replace")
-            replace_all = args.get("replace_all", False)
-            if not isinstance(path, str) or not isinstance(search, str) or not isinstance(replace, str):
-                raise ToolExecutionError("apply_patch requires 'path', 'search' and 'replace'.")
-            if not isinstance(replace_all, bool):
-                raise ToolExecutionError("apply_patch 'replace_all' must be boolean if provided.")
-            return self.tools.apply_patch(path=path, search=search, replace=replace, replace_all=replace_all)
-        if tool == "file_search":
-            pattern = args.get("pattern")
-            max_results = args.get("max_results", 100)
-            if not isinstance(pattern, str):
-                raise ToolExecutionError("file_search requires 'pattern'.")
-            if not isinstance(max_results, int):
-                raise ToolExecutionError("file_search 'max_results' must be int if provided.")
-            return self.tools.file_search(pattern=pattern, max_results=max_results)
-        if tool == "grep_search":
-            query = args.get("query")
-            include_pattern = args.get("include_pattern")
-            is_regexp = args.get("is_regexp", False)
-            max_results = args.get("max_results", 100)
-            if not isinstance(query, str):
-                raise ToolExecutionError("grep_search requires 'query'.")
-            if include_pattern is not None and not isinstance(include_pattern, str):
-                raise ToolExecutionError("grep_search 'include_pattern' must be string if provided.")
-            if not isinstance(is_regexp, bool):
-                raise ToolExecutionError("grep_search 'is_regexp' must be boolean if provided.")
-            if not isinstance(max_results, int):
-                raise ToolExecutionError("grep_search 'max_results' must be int if provided.")
-            return self.tools.grep_search(
-                query=query,
-                include_pattern=include_pattern,
-                is_regexp=is_regexp,
-                max_results=max_results,
-            )
-        if tool == "list_code_usages":
-            symbol = args.get("symbol")
-            include_pattern = args.get("include_pattern")
-            max_results = args.get("max_results", 100)
-            if not isinstance(symbol, str):
-                raise ToolExecutionError("list_code_usages requires 'symbol'.")
-            if include_pattern is not None and not isinstance(include_pattern, str):
-                raise ToolExecutionError("list_code_usages 'include_pattern' must be string if provided.")
-            if not isinstance(max_results, int):
-                raise ToolExecutionError("list_code_usages 'max_results' must be int if provided.")
-            return self.tools.list_code_usages(
-                symbol=symbol,
-                include_pattern=include_pattern,
-                max_results=max_results,
-            )
-        if tool == "get_changed_files":
-            return self.tools.get_changed_files()
-        if tool == "start_background_command":
-            command = args.get("command")
-            cwd = args.get("cwd")
-            if not isinstance(command, str):
-                raise ToolExecutionError("start_background_command requires 'command'.")
-            if cwd is not None and not isinstance(cwd, str):
-                raise ToolExecutionError("start_background_command 'cwd' must be string if provided.")
-            return self.tools.start_background_command(command=command, cwd=cwd)
-        if tool == "get_background_output":
-            job_id = args.get("job_id")
-            tail_lines = args.get("tail_lines", 200)
-            if not isinstance(job_id, str):
-                raise ToolExecutionError("get_background_output requires 'job_id'.")
-            if not isinstance(tail_lines, int):
-                raise ToolExecutionError("get_background_output 'tail_lines' must be int if provided.")
-            return self.tools.get_background_output(job_id=job_id, tail_lines=tail_lines)
-        if tool == "kill_background_process":
-            job_id = args.get("job_id")
-            if not isinstance(job_id, str):
-                raise ToolExecutionError("kill_background_process requires 'job_id'.")
-            return self.tools.kill_background_process(job_id=job_id)
-        if tool == "web_fetch":
-            url = args.get("url")
-            max_chars = args.get("max_chars", 12000)
-            if not isinstance(url, str):
-                raise ToolExecutionError("web_fetch requires 'url'.")
-            if not isinstance(max_chars, int):
-                raise ToolExecutionError("web_fetch 'max_chars' must be int if provided.")
-            return self.tools.web_fetch(url=url, max_chars=max_chars)
-        raise ToolExecutionError(f"Unknown tool: {tool}")
+        if tool == "spawn_subrun":
+            raise ToolExecutionError("spawn_subrun must be handled by _invoke_spawn_subrun_tool.")
+
+        spec = self.tool_registry.get(tool)
+        if spec is None:
+            raise ToolExecutionError(f"Unknown tool: {tool}")
+
+        tool_method = getattr(self.tools, tool, None)
+        if tool_method is None:
+            raise ToolExecutionError(f"No AgentTooling method registered for tool: {tool}")
+
+        kwargs: dict[str, object] = {}
+        for required_name in spec.required_args:
+            if required_name not in args:
+                raise ToolExecutionError(f"{tool} requires '{required_name}'.")
+            kwargs[required_name] = args[required_name]
+        for optional_name in spec.optional_args:
+            if optional_name in args:
+                kwargs[optional_name] = args[optional_name]
+
+        try:
+            return tool_method(**kwargs)
+        except TypeError as exc:
+            raise ToolExecutionError(f"{tool} invocation failed: {exc}") from exc
 
     async def _emit_lifecycle(
         self,

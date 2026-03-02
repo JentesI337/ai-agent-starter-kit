@@ -8,6 +8,7 @@ from typing import Callable
 from pydantic import BaseModel, Field
 
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
+from app.tool_policy import ToolPolicyDict
 
 
 class CustomAgentDefinition(BaseModel):
@@ -16,7 +17,7 @@ class CustomAgentDefinition(BaseModel):
     description: str = Field(default="", max_length=500)
     base_agent_id: str = Field(default="head-agent", min_length=1, max_length=80)
     workflow_steps: list[str] = Field(default_factory=list)
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
 
 
@@ -26,7 +27,7 @@ class CustomAgentCreateRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     base_agent_id: str = Field(default="head-agent", min_length=1, max_length=80)
     workflow_steps: list[str] = Field(default_factory=list)
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
 
 
@@ -60,7 +61,7 @@ class CustomAgentAdapter(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         flow_instruction = self._build_flow_instruction()
         enriched_user_message = user_message.strip()
@@ -92,7 +93,7 @@ class CustomAgentAdapter(AgentContract):
             lines.append(f"{index}. {text}")
         return "\n".join(lines)
 
-    def _merge_tool_policy(self, incoming: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+    def _merge_tool_policy(self, incoming: ToolPolicyDict | None) -> ToolPolicyDict | None:
         base_policy = self.definition.tool_policy or {}
         request_policy = incoming or {}
 
@@ -110,7 +111,7 @@ class CustomAgentAdapter(AgentContract):
         if not allow_values and not deny_values:
             return None
 
-        payload: dict[str, list[str]] = {}
+        payload: ToolPolicyDict = {}
         if allow_values:
             payload["allow"] = allow_values
         if deny_values:

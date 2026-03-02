@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import SynthesizerInput, SynthesizerOutput
+from app.errors import LlmClientError
 from app.llm_client import LlmClient
+from app.tool_policy import ToolPolicyDict
 
 EmitLifecycleFn = Callable[[SendEvent, str, str, str, dict | None], Awaitable[None]]
 
@@ -22,11 +25,20 @@ class SynthesizerAgent(AgentContract):
         combine_steps=True,
     )
 
-    def __init__(self, *, client: LlmClient, agent_name: str, emit_lifecycle_fn: EmitLifecycleFn, system_prompt: str):
+    def __init__(
+        self,
+        *,
+        client: LlmClient,
+        agent_name: str,
+        emit_lifecycle_fn: EmitLifecycleFn,
+        system_prompt: str,
+        stream_timeout_seconds: float = 120.0,
+    ):
         self.client = client
         self.agent_name = agent_name
         self._emit_lifecycle_fn = emit_lifecycle_fn
         self.system_prompt = system_prompt
+        self.stream_timeout_seconds = max(0.01, float(stream_timeout_seconds))
 
     @property
     def name(self) -> str:
@@ -72,13 +84,34 @@ class SynthesizerAgent(AgentContract):
         )
 
         output_parts: list[str] = []
-        async for token in self.client.stream_chat_completion(
-            self.system_prompt,
-            final_prompt,
-            model=model,
-        ):
-            output_parts.append(token)
-            await send_event({"type": "token", "agent": self.agent_name, "token": token})
+
+        async def _consume_stream() -> None:
+            async for token in self.client.stream_chat_completion(
+                self.system_prompt,
+                final_prompt,
+                model=model,
+                temperature=self.constraints.temperature,
+            ):
+                output_parts.append(token)
+                await send_event({"type": "token", "agent": self.agent_name, "token": token})
+
+        try:
+            await asyncio.wait_for(_consume_stream(), timeout=self.stream_timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            partial_text = "".join(output_parts).strip()
+            await self._emit_lifecycle_fn(
+                send_event,
+                "streaming_timeout",
+                request_id,
+                session_id,
+                {
+                    "timeout_seconds": self.stream_timeout_seconds,
+                    "partial_output_chars": len(partial_text),
+                },
+            )
+            raise LlmClientError(
+                f"Synthesizer streaming timeout after {self.stream_timeout_seconds:.2f}s"
+            ) from exc
 
         final_text = "".join(output_parts).strip()
         await self._emit_lifecycle_fn(
@@ -98,7 +131,7 @@ class SynthesizerAgent(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         payload = SynthesizerInput.model_validate_json(user_message)
         result = await self.execute(

@@ -649,3 +649,48 @@ def test_subrun_lane_lifecycle_delivery_error_grace_can_be_disabled(tmp_path) ->
     assert status is not None
     assert status.get("status") == "failed"
     assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "failed" for evt in events)
+
+
+def test_subrun_lane_retention_prunes_terminal_status_maps(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=20,
+        announce_retry_max_attempts=2,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+        max_retained_terminal_runs=3,
+        max_retained_run_entries=3,
+    )
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> list[str]:
+        run_ids: list[str] = []
+        for idx in range(8):
+            run_id = await lane.spawn(
+                parent_request_id=f"req-{idx}",
+                parent_session_id="sess-parent",
+                user_message=f"task-{idx}",
+                runtime="local",
+                model="llama",
+                timeout_seconds=5,
+                tool_policy=None,
+                send_event=send_event,
+            )
+            await lane.wait_for_completion(run_id, timeout=5)
+            run_ids.append(run_id)
+            await asyncio.sleep(0.002)
+        return run_ids
+
+    run_ids = asyncio.run(run_case())
+
+    assert len(lane._run_status) <= 3
+    assert len(lane._announce_status) <= 3
+    assert run_ids[-1] in lane._run_status
+    assert run_ids[0] not in lane._run_status

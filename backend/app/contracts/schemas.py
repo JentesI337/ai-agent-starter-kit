@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.tool_policy import ToolPolicyDict
+
 
 class HeadAgentInput(BaseModel):
     user_message: str = Field(min_length=1)
     session_id: str = Field(min_length=1, max_length=120)
     request_id: str = Field(min_length=1)
     model: str | None = Field(default=None, max_length=120)
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyDict | None = None
 
 
 class HeadAgentOutput(BaseModel):
@@ -20,7 +22,7 @@ class CoderAgentInput(BaseModel):
     session_id: str = Field(min_length=1, max_length=120)
     request_id: str = Field(min_length=1)
     model: str | None = Field(default=None, max_length=120)
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyDict | None = None
 
 
 class CoderAgentOutput(BaseModel):

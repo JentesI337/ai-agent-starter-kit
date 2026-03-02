@@ -10,11 +10,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import RequestContext
-from app.models import WsInboundMessage
+from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestrator.events import build_lifecycle_event, classify_error
+from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
-
-ToolPolicy = dict[str, list[str]]
 EventPayload = dict[str, Any]
 AsyncSendEvent = Callable[[EventPayload], Awaitable[None]]
 
@@ -83,7 +82,7 @@ class SubrunLaneLike(Protocol):
         runtime: str,
         model: str,
         timeout_seconds: float,
-        tool_policy: ToolPolicy | None,
+        tool_policy: ToolPolicyDict | None,
         send_event: AsyncSendEvent,
         agent_id: str,
         mode: str,
@@ -205,7 +204,79 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             active_event_agent_name = deps.agent.name
             try:
                 raw = await websocket.receive_text()
-                data = WsInboundMessage.model_validate_json(raw)
+                inbound_type = peek_ws_inbound_type(raw)
+                if inbound_type not in SUPPORTED_WS_INBOUND_TYPES:
+                    envelope = WsInboundEnvelope.model_validate_json(raw)
+                    deps.sync_custom_agents()
+                    session_id = envelope.session_id or connection_session_id
+                    deps.logger.info(
+                        "ws_message_received request_id=%s session_id=%s type=%s agent_id=%s content_len=%s requested_model=%s",
+                        request_id,
+                        session_id,
+                        envelope.type,
+                        deps.normalize_agent_id(envelope.agent_id),
+                        len(envelope.content or ""),
+                        envelope.model,
+                    )
+                    requested_agent_id = deps.normalize_agent_id(envelope.agent_id)
+                    if requested_agent_id not in deps.agent_registry:
+                        await send_event(
+                            {
+                                "type": "status",
+                                "agent": deps.agent.name,
+                                "message": f"Unsupported agent: {envelope.agent_id}",
+                            }
+                        )
+                        await send_lifecycle(
+                            stage="request_rejected_unsupported_agent",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"agent_id": envelope.agent_id},
+                        )
+                        continue
+
+                    deps.state_store.init_run(
+                        run_id=request_id,
+                        session_id=session_id,
+                        request_id=request_id,
+                        user_message=envelope.content or "",
+                        runtime=deps.runtime_manager.get_state().runtime,
+                        model=envelope.model or deps.runtime_manager.get_state().model,
+                    )
+                    deps.state_store.set_task_status(
+                        run_id=request_id,
+                        task_id="request",
+                        label="request",
+                        status="active",
+                    )
+                    await send_lifecycle(
+                        stage="request_received",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "chars": len(envelope.content),
+                            "requested_agent_id": requested_agent_id,
+                            "effective_agent_id": requested_agent_id,
+                            "routing_reason": None,
+                            "preset": (envelope.preset or "").strip().lower() or None,
+                        },
+                    )
+                    await send_event(
+                        {
+                            "type": "status",
+                            "agent": deps.agent.name,
+                            "message": f"Unsupported message type: {envelope.type}",
+                        }
+                    )
+                    await send_lifecycle(
+                        stage="request_rejected_unsupported_type",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"type": envelope.type},
+                    )
+                    continue
+
+                data = parse_ws_inbound_message(raw)
                 deps.sync_custom_agents()
                 session_id = data.session_id or connection_session_id
                 deps.logger.info(
@@ -234,7 +305,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     )
                     continue
 
-                incoming_tool_policy = data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None
+                incoming_tool_policy = tool_policy_to_dict(data.tool_policy, include_also_allow=True)
                 incoming_also_allow = None
                 if isinstance(incoming_tool_policy, dict):
                     raw_also_allow = incoming_tool_policy.get("also_allow")
@@ -409,22 +480,6 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         details={"spawned_subrun_id": run_id},
                     )
                     deps.state_mark_completed_safe(run_id=request_id)
-                    continue
-
-                if data.type != "user_message":
-                    await send_event(
-                        {
-                            "type": "status",
-                            "agent": deps.agent.name,
-                            "message": f"Unsupported message type: {data.type}",
-                        }
-                    )
-                    await send_lifecycle(
-                        stage="request_rejected_unsupported_type",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={"type": data.type},
-                    )
                     continue
 
                 await send_lifecycle(

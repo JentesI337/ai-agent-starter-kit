@@ -16,6 +16,7 @@ from app.errors import GuardrailViolation
 from app.interfaces.orchestrator_api import OrchestratorApi
 from app.interfaces.request_context import RequestContext
 from app.state import StateStore
+from app.tool_policy import ToolPolicyDict
 
 
 TERMINAL_STATUSES = {"completed", "failed", "timed_out", "cancelled"}
@@ -30,7 +31,7 @@ class SubrunSpec:
     user_message: str
     runtime: str
     model: str
-    tool_policy: dict[str, list[str]] | None
+    tool_policy: ToolPolicyDict | None
     preset: str | None
     timeout_seconds: int
     depth: int
@@ -60,6 +61,8 @@ class SubrunLane:
         restore_orphan_reconcile_enabled: bool = True,
         restore_orphan_grace_seconds: int = 0,
         lifecycle_delivery_error_grace_enabled: bool = True,
+        max_retained_terminal_runs: int = 2000,
+        max_retained_run_entries: int = 4000,
     ):
         self._orchestrator_api = orchestrator_api
         self._state_store = state_store
@@ -73,6 +76,8 @@ class SubrunLane:
         self._restore_orphan_reconcile_enabled = bool(restore_orphan_reconcile_enabled)
         self._restore_orphan_grace_seconds = max(0, int(restore_orphan_grace_seconds))
         self._lifecycle_delivery_error_grace_enabled = bool(lifecycle_delivery_error_grace_enabled)
+        self._max_retained_terminal_runs = max(1, int(max_retained_terminal_runs))
+        self._max_retained_run_entries = max(self._max_retained_terminal_runs, int(max_retained_run_entries))
         self._leaf_spawn_depth_guard_enabled = bool(leaf_spawn_depth_guard_enabled)
         self._orchestrator_agent_ids = {
             str(item).strip().lower()
@@ -99,7 +104,7 @@ class SubrunLane:
         runtime: str,
         model: str,
         timeout_seconds: int,
-        tool_policy: dict[str, list[str]] | None,
+        tool_policy: ToolPolicyDict | None,
         send_event: SendEvent,
         agent_id: str | None = None,
         mode: str | None = None,
@@ -222,9 +227,13 @@ class SubrunLane:
         async with self._lock:
             task = self._run_tasks.get(run_id)
         if task is None:
+            self._prune_retained_statuses()
+            self._persist_registry_safe()
             return self._run_status.get(run_id)
 
         await asyncio.wait_for(task, timeout=timeout)
+        self._prune_retained_statuses()
+        self._persist_registry_safe()
         return self._run_status.get(run_id)
 
     def get_status(self, run_id: str) -> dict | None:
@@ -597,6 +606,8 @@ class SubrunLane:
 
         async with self._lock:
             self._run_tasks.pop(spec.run_id, None)
+        self._prune_retained_statuses()
+        self._persist_registry_safe()
 
     async def _run_subrun(self, *, spec: SubrunSpec, send_event: SendEvent) -> str:
         async def relay(payload: dict) -> None:
@@ -647,7 +658,82 @@ class SubrunLane:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._run_status[run_id] = snapshot
+        self._prune_retained_statuses()
         self._persist_registry_safe()
+
+    def _prune_retained_statuses(self) -> None:
+        if not self._run_status:
+            return
+
+        active_run_ids = {
+            run_id
+            for run_id, task in self._run_tasks.items()
+            if task is not None and not task.done()
+        }
+        terminal_candidates: list[tuple[str, str]] = []
+        terminal_count = 0
+        for run_id, snapshot in self._run_status.items():
+            status = str(snapshot.get("status") or "").strip().lower()
+            if status not in TERMINAL_STATUSES:
+                continue
+            terminal_count += 1
+            if run_id in active_run_ids:
+                continue
+            if not self._can_evict_run(run_id, active_run_ids=active_run_ids):
+                continue
+            terminal_candidates.append((str(snapshot.get("updated_at") or ""), run_id))
+
+        total_overflow = max(0, len(self._run_status) - self._max_retained_run_entries)
+        terminal_overflow = max(0, terminal_count - self._max_retained_terminal_runs)
+        evict_count = max(total_overflow, terminal_overflow)
+        if evict_count <= 0:
+            return
+
+        for _, run_id in sorted(terminal_candidates)[:evict_count]:
+            self._evict_retained_run(run_id)
+
+    def _can_evict_run(self, run_id: str, *, active_run_ids: set[str]) -> bool:
+        if run_id in active_run_ids:
+            return False
+        snapshot = self._run_status.get(run_id)
+        if not isinstance(snapshot, dict):
+            return False
+        status = str(snapshot.get("status") or "").strip().lower()
+        if status not in TERMINAL_STATUSES:
+            return False
+
+        children = self._children_by_parent.get(run_id, set())
+        for child_id in children:
+            child_snapshot = self._run_status.get(child_id)
+            child_status = str((child_snapshot or {}).get("status") or "").strip().lower()
+            if child_id in active_run_ids:
+                return False
+            if child_status and child_status not in TERMINAL_STATUSES:
+                return False
+        return True
+
+    def _evict_retained_run(self, run_id: str) -> None:
+        self._run_status.pop(run_id, None)
+        self._announce_status.pop(run_id, None)
+
+        spec = self._run_specs.pop(run_id, None)
+        if spec is None:
+            return
+
+        parent_id = self._parent_by_child.pop(run_id, None)
+        if parent_id:
+            siblings = self._children_by_parent.get(parent_id)
+            if siblings is not None:
+                siblings.discard(run_id)
+                if not siblings:
+                    self._children_by_parent.pop(parent_id, None)
+
+        if spec.child_session_id != spec.parent_session_id:
+            sessions = self._children_by_session.get(spec.parent_session_id)
+            if sessions is not None:
+                sessions.discard(spec.child_session_id)
+                if not sessions:
+                    self._children_by_session.pop(spec.parent_session_id, None)
 
     async def _send_with_lifecycle_error_grace(self, *, run_id: str, send_event: SendEvent, payload: dict) -> None:
         is_lifecycle = str(payload.get("type") or "") == "lifecycle"
@@ -700,6 +786,7 @@ class SubrunLane:
             "error": error,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        self._prune_retained_statuses()
         self._persist_registry_safe()
         try:
             self._state_store.append_event(
@@ -874,6 +961,8 @@ class SubrunLane:
                 self._children_by_session[spec.parent_session_id].add(spec.child_session_id)
 
         self._reconcile_orphaned_runs_after_restore()
+        self._prune_retained_statuses()
+        self._persist_registry_safe()
 
     def _reconcile_orphaned_runs_after_restore(self) -> None:
         if not self._restore_orphan_reconcile_enabled:

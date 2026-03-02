@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import ToolSelectorInput, ToolSelectorOutput
 from app.tool_catalog import TOOL_NAME_SET
+from app.tool_policy import ToolPolicyDict
 
 ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str]], Awaitable[str]]
 DEFAULT_ALLOWED_TOOLS = set(TOOL_NAME_SET)
@@ -62,7 +63,7 @@ class ToolSelectorAgent(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         payload = ToolSelectorInput.model_validate_json(user_message)
         result = await self.execute(

@@ -26,7 +26,7 @@ Dieses Backend ist ein Agent-Framework-Server mit einem Head-Agent als zentralem
 Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 
 1) Transport/API
-- REST-Endpunkte über Router-Builder in `app.routers/*` (inkl. Control-Plane, Agents, Runtime-Debug, Subruns), eingebunden in `app.main`.
+- REST-Endpunkte über Router-Builder in `app.routers/*` (inkl. Control-Plane, Agents, Run-API, Runtime-Debug, Subruns), eingebunden in `app.main`.
 - WebSocket-Endpunkt `/ws/agent` mit ausgelagerter Handler-Logik in `app.ws_handler`.
 
 2) Agenten- und Orchestrierungs-Schicht
@@ -46,7 +46,7 @@ Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 - Idempotency-Registries bleiben In-Memory, sind aber per TTL + Max-Entries begrenzt.
 
 5) Policy- und Guardrail-Schicht
-- Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service`.
+- Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service` mit einheitlicher Transport-/Boundary-Repräsentation in `app.tool_policy`.
 - Persistente Policy-Approvals über `app.services.policy_approval_service` (allow-once/allow-always/deny, scope-fähig).
 - Guardrails auf Input, Tool-Nutzung, Context-Window, Subrun-Depth, Idempotency-Konflikte.
 
@@ -77,13 +77,16 @@ Zentrale API-Wiring-Datei mit:
 - DI/Wiring für Runtime-Komponenten über `app.app_state`.
 - Handler-Funktionen für API-Operationen und Einbindung der Router-Builder.
 - Einbindung der modularen Router:
+	- `build_run_api_router`
 	- `build_control_runs_router`
+	- `build_control_policy_approvals_router`
 	- `build_control_sessions_router`
 	- `build_control_workflows_router`
 	- `build_control_tools_router`
 	- `build_agents_router`
 	- `build_runtime_debug_router`
 	- `build_subruns_router`
+	- `build_ws_agent_router`
 - Registrierung des WebSocket-Endpunkts, Delegation an `handle_ws_agent`.
 
 ### 4.2 `app.ws_handler`
@@ -92,6 +95,8 @@ Enthält den kompletten `/ws/agent`-Nachrichtenfluss.
 
 Verantwortungen:
 - Session/Sequencing (`seq`-Envelope).
+- Typisiertes Inbound-Parsing als discriminated union (`user_message`, `runtime_switch_request`, `subrun_spawn`) über `app.models`.
+- Kompatibler Fallback-Pfad für unbekannte `type`-Werte mit explizitem Rejection-Lifecycle (`request_rejected_unsupported_type`).
 - Routing des gewünschten Agenten (inkl. Head-Agent-Delegation auf Coder/Review).
 - Policy-Auflösung und Lifecycle-Event-Emission.
 - Runtime-Switch-Requests.
@@ -122,6 +127,7 @@ Aktueller Refactor-Stand:
 - `OrchestratorApi` serialisiert/koordiniert pro Session über `SessionLaneManager`.
 - `OrchestratorApi` löst Tool-Policy kontextsensitiv (provider/model/agent/depth/request/also_allow) auf und emittiert u. a. `agent_depth_policy_applied` sowie `tool_policy_layers_logged`.
 - `PipelineRunner` setzt Task-Status je Pipeline-Schritt, routed Modelle, führt kontextfenster-basierte Guardrails (`context_window_warn`/`context_window_blocked`) und reason-klassifizierte Fallbacks aus.
+- Recovery-Entscheidungslogik ist in eine dedizierte Strategy-Methode (`_resolve_recovery_strategy`) ausgelagert; der Hauptpfad nutzt ein strukturiertes Ergebnisobjekt (`RecoveryStrategyResolution`).
 
 ### 4.5 `app.orchestrator.subrun_lane`
 
@@ -258,6 +264,10 @@ Regel bei Konflikten:
 - `deny` überschreibt `allow`.
 - Additives `also_allow` wird unterstützt; unbekannte Allow-Einträge werden als Warnungen im Explain-Teil ausgegeben.
 
+Tool-Policy-Typisierung:
+- `ToolPolicyPayload` (`allow`/`deny`/`also_allow`) ist die zentrale Boundary-Repräsentation.
+- Normalisierung auf `ToolPolicyDict` erfolgt an API/WS-Grenzen über `tool_policy_to_dict(...)`.
+
 Weitere Schutzmechanismen:
 - Input-/Model-/Session-Guardrails in Agent- und API-Flows.
 - Tool-Allowlist für Kommandoausführung.
@@ -308,17 +318,31 @@ Beobachtbarkeit:
 - Skills-Lifecycle-Events für Rollout/Diagnose (`skills_discovered`, `skills_truncated`, `skills_skipped_canary`).
 - Strukturierte Sync-Audit-Logs (`skills_sync_audit`) inkl. Modus, Plan-/Apply-Zählern und Laufzeit.
 
+Qualitätsgates:
+- CI-Workflow `backend-tests.yml` führt Tests mit Coverage-Gate aus (`pytest-cov`).
+- Globales Minimum: `70%`.
+- Kritische Modulschwellen:
+	- `backend/app/llm_client.py` >= `60%`
+	- `backend/app/tools.py` >= `70%`
+	- `backend/app/orchestrator/pipeline_runner.py` >= `80%`
+- Zusätzliche Schwellenprüfung erfolgt über `backend/scripts/check_coverage_thresholds.py` (unterstützt CI- und lokale Pfadformate).
+
 Teststatus (Kernsuiten):
 - `tests/test_control_plane_contracts.py`
 - `tests/test_backend_e2e.py`
 - `tests/test_subrun_lane.py`
 - `tests/test_ws_handler.py`
 - `tests/test_runtime_manager_auth.py`
+- `tests/test_llm_client.py`
+- `tests/test_synthesizer_agent.py`
+- `tests/test_session_lane_manager.py`
+- `tests/test_tools_web_fetch_security.py`
+- `tests/test_tools_command_security.py`
 - `tests/test_idempotency_service.py`
 - `tests/test_state_store_list_runs_index.py`
 - `tests/test_head_agent_adapter_constraints.py`
 
-Aktueller Stand: Vollsuite lokal unter Python 3.12 grün (`194 passed, 3 skipped`).
+Aktueller Stand: Vollsuite lokal unter Python 3.12 grün (`262 passed, 3 skipped`) mit globalem Coverage-Gate bestanden (zuletzt `82.52%`).
 
 ## 10. Benchmarking-Strategie (neu)
 

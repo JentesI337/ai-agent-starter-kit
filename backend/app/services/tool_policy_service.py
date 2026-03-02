@@ -5,8 +5,9 @@ from fastapi import HTTPException
 from app.config import settings
 from app.errors import GuardrailViolation
 from app.tool_catalog import TOOL_NAME_SET
+from app.tool_policy import ToolPolicyDict
 
-PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
+PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {
     "research": {
         "allow": [
             "web_fetch",
@@ -47,7 +48,7 @@ PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
     },
 }
 
-TOOL_PROFILES: dict[str, dict[str, list[str]]] = {
+TOOL_PROFILES: dict[str, ToolPolicyDict] = {
     "minimal": {
         "allow": [
             "list_dir",
@@ -106,7 +107,7 @@ TOOL_PROFILES: dict[str, dict[str, list[str]]] = {
     },
 }
 
-TOOL_POLICY_BY_PROVIDER: dict[str, dict[str, list[str]]] = {
+TOOL_POLICY_BY_PROVIDER: dict[str, ToolPolicyDict] = {
     "local": {
         "allow": [
             "run_command",
@@ -125,7 +126,7 @@ TOOL_POLICY_BY_PROVIDER: dict[str, dict[str, list[str]]] = {
     },
 }
 
-TOOL_POLICY_BY_MODEL: dict[str, dict[str, list[str]]] = {
+TOOL_POLICY_BY_MODEL: dict[str, ToolPolicyDict] = {
     "minimax-m2:cloud": {
         "allow": [],
         "deny": [
@@ -163,9 +164,9 @@ def _normalize_preset(value: str | None) -> str | None:
 
 
 def merge_tool_policy(
-    base: dict[str, list[str]] | None,
-    incoming: dict[str, list[str]] | None,
-) -> dict[str, list[str]] | None:
+    base: ToolPolicyDict | None,
+    incoming: ToolPolicyDict | None,
+) -> ToolPolicyDict | None:
     allow_values: list[str] = []
     deny_values: list[str] = []
 
@@ -184,7 +185,7 @@ def merge_tool_policy(
     if not allow_values and not deny_values:
         return None
 
-    payload: dict[str, list[str]] = {}
+    payload: ToolPolicyDict = {}
     if allow_values:
         payload["allow"] = allow_values
     if deny_values:
@@ -192,10 +193,10 @@ def merge_tool_policy(
     return payload
 
 
-def policy_payload(policy: dict[str, list[str]] | None) -> dict[str, list[str]]:
+def policy_payload(policy: ToolPolicyDict | None) -> ToolPolicyDict:
     if not policy:
         return {}
-    payload: dict[str, list[str]] = {}
+    payload: ToolPolicyDict = {}
     allow_values = [item for item in (policy.get("allow") or []) if isinstance(item, str) and item.strip()]
     deny_values = [item for item in (policy.get("deny") or []) if isinstance(item, str) and item.strip()]
     if allow_values:
@@ -211,7 +212,7 @@ def resolve_tool_policy(
     preset: str | None = None,
     provider: str | None = None,
     model: str | None = None,
-    request_policy: dict[str, list[str]] | None = None,
+    request_policy: ToolPolicyDict | None = None,
     also_allow: list[str] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
@@ -260,7 +261,7 @@ def resolve_tool_policy(
 
     known_tool_names = {item.strip().lower() for item in TOOL_NAME_SET}
 
-    merge_chain: list[tuple[str, str | None, dict[str, list[str]] | None]] = [
+    merge_chain: list[tuple[str, str | None, ToolPolicyDict | None]] = [
         (
             "global",
             "settings",
@@ -383,8 +384,8 @@ def resolve_tool_policy(
 
 def resolve_tool_policy_with_preset(
     preset: str | None,
-    incoming: dict[str, list[str]] | None,
-) -> tuple[dict[str, list[str]] | None, str | None]:
+    incoming: ToolPolicyDict | None,
+) -> tuple[ToolPolicyDict | None, str | None]:
     resolved = resolve_tool_policy(
         preset=preset,
         request_policy=incoming,

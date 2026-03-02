@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import json
 import logging
 import re
@@ -12,12 +11,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import MutableMapping
-from fastapi import FastAPI, Header, HTTPException, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
+from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
+from app.control_router_wiring import include_control_routers
 from app.config import resolved_prompt_settings, settings
 from app.contracts.agent_contract import AgentContract
 from app.custom_agents import (
@@ -28,22 +28,42 @@ from app.custom_agents import (
 )
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import OrchestratorApi, RequestContext
-from app.models import WsInboundMessage
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event, classify_error
 from app.orchestrator.subrun_lane import SubrunLane
+from app.run_endpoints import (
+    AgentTestDependencies,
+    RunEndpointsDependencies,
+    run_agent_test,
+    start_run as run_endpoint_start,
+    wait_run as run_endpoint_wait,
+)
 from app.routers import (
     build_agents_router,
-    build_control_runs_router,
-    build_control_sessions_router,
-    build_control_tools_router,
-    build_control_workflows_router,
+    build_run_api_router,
     build_runtime_debug_router,
     build_subruns_router,
+    build_ws_agent_router,
+)
+from app.routers.run_api import RunApiRouterHandlers
+from app.runtime_debug_endpoints import (
+    RuntimeDebugDependencies,
+    api_resolved_prompt_settings,
+    api_runtime_status,
+    api_test_ping,
 )
 from app.runtime_manager import RuntimeManager
 from app.skills.discovery import discover_skills
 from app.skills.eligibility import filter_eligible_skills
 from app.skills.snapshot import build_skill_snapshot
+from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
+from app.subrun_endpoints import (
+    SubrunEndpointsDependencies,
+    api_subruns_get,
+    api_subruns_kill,
+    api_subruns_kill_all_async,
+    api_subruns_list,
+    api_subruns_log,
+)
 from app.services import (
     PRESET_TOOL_POLICIES,
     PolicyApprovalService,
@@ -66,7 +86,8 @@ from app.services import (
     resolve_tool_policy,
 )
 from app.state import StateStore
-from app.ws_handler import WsHandlerDependencies, handle_ws_agent
+from app.tool_policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
+from app.ws_handler import WsHandlerDependencies
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -74,23 +95,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app.main")
 
-app = FastAPI(title="AI Agent Starter Kit")
-
-cors_origins = list(settings.cors_allow_origins)
-if settings.app_env != "production" and not cors_origins:
-    cors_origins = ["*"]
-
-cors_allow_credentials = settings.cors_allow_credentials
-if "*" in cors_origins:
-    cors_allow_credentials = False
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=cors_allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 
 PRIMARY_AGENT_ID = "head-agent"
 CODER_AGENT_ID = "coder-agent"
@@ -98,87 +103,22 @@ REVIEW_AGENT_ID = "review-agent"
 LEGACY_AGENT_ALIASES = {"head-coder": PRIMARY_AGENT_ID}
 
 
-def _resolve_persist_dir(path_value: str) -> Path:
-    candidate = Path(path_value)
-    if not candidate.is_absolute():
-        candidate = (Path(settings.workspace_root) / candidate).resolve()
-    return candidate
-
-
-def _clear_startup_persistence() -> None:
-    if settings.memory_reset_on_startup:
-        memory_dir = _resolve_persist_dir(settings.memory_persist_dir)
-        memory_dir.mkdir(parents=True, exist_ok=True)
-        removed_files = 0
-        for file_path in memory_dir.glob("*.jsonl"):
-            try:
-                file_path.unlink(missing_ok=True)
-                removed_files += 1
-            except Exception:
-                logger.debug("memory_file_cleanup_failed file=%s", file_path, exc_info=True)
-        logger.info("startup_memory_reset enabled=%s removed_files=%s", settings.memory_reset_on_startup, removed_files)
-
-    if settings.orchestrator_state_reset_on_startup:
-        state_dir = _resolve_persist_dir(settings.orchestrator_state_dir)
-        runs_dir = state_dir / "runs"
-        snapshots_dir = state_dir / "snapshots"
-        runs_dir.mkdir(parents=True, exist_ok=True)
-        snapshots_dir.mkdir(parents=True, exist_ok=True)
-        removed_runs = 0
-        removed_snapshots = 0
-        for file_path in runs_dir.glob("*.json"):
-            try:
-                file_path.unlink(missing_ok=True)
-                removed_runs += 1
-            except Exception:
-                logger.debug("state_run_cleanup_failed file=%s", file_path, exc_info=True)
-        for file_path in snapshots_dir.glob("*.json"):
-            try:
-                file_path.unlink(missing_ok=True)
-                removed_snapshots += 1
-            except Exception:
-                logger.debug("state_snapshot_cleanup_failed file=%s", file_path, exc_info=True)
-        logger.info(
-            "startup_state_reset enabled=%s removed_runs=%s removed_snapshots=%s",
-            settings.orchestrator_state_reset_on_startup,
-            removed_runs,
-            removed_snapshots,
-        )
-
-
-def _log_startup_paths() -> None:
-    runtime_file = Path(settings.runtime_state_file)
-    if not runtime_file.is_absolute():
-        runtime_file = (Path(settings.workspace_root) / runtime_file).resolve()
-
-    logger.info(
-        "startup_paths workspace_root=%s memory_dir=%s orchestrator_state_dir=%s runtime_state_file=%s",
-        Path(settings.workspace_root).resolve(),
-        _resolve_persist_dir(settings.memory_persist_dir),
-        _resolve_persist_dir(settings.orchestrator_state_dir),
-        runtime_file,
+def _startup_sequence() -> None:
+    run_startup_sequence(
+        settings=settings,
+        logger=logger,
+        ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
 
 
-@asynccontextmanager
-async def _app_lifespan(_: FastAPI):
-    _log_startup_paths()
-    _clear_startup_persistence()
-    _ensure_runtime_components_initialized()
-    try:
-        yield
-    finally:
-        cancelled = 0
-        for run_id, task in list(active_run_tasks.items()):
-            if task.done():
-                continue
-            task.cancel()
-            cancelled += 1
-        active_run_tasks.clear()
-        logger.info("shutdown_cleanup cancelled_active_runs=%s", cancelled)
+def _shutdown_sequence() -> None:
+    run_shutdown_sequence(active_run_tasks=active_run_tasks, logger=logger)
 
 
-app.router.lifespan_context = _app_lifespan
+app.router.lifespan_context = build_lifespan_context(
+    on_startup=_startup_sequence,
+    on_shutdown=_shutdown_sequence,
+)
 
 def _build_runtime_components() -> RuntimeComponents:
     base_agent_registry: dict[str, AgentContract] = {
@@ -234,7 +174,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         user_message: str,
         model: str | None,
         timeout_seconds: int,
-        tool_policy: dict[str, list[str]] | None,
+        tool_policy: ToolPolicyDict | None,
         send_event,
         agent_id: str,
         mode: str,
@@ -619,7 +559,7 @@ class AgentTestRequest(BaseModel):
     message: str = "hi"
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
 
 
 class RunStartRequest(BaseModel):
@@ -627,7 +567,7 @@ class RunStartRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
 
 
 class ControlRunStartRequest(BaseModel):
@@ -635,7 +575,7 @@ class ControlRunStartRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
 
@@ -665,7 +605,7 @@ class ControlSessionsSendRequest(BaseModel):
     message: str
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
 
@@ -674,7 +614,7 @@ class ControlSessionsSpawnRequest(BaseModel):
     message: str
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
 
@@ -750,7 +690,7 @@ class ControlWorkflowsCreateRequest(BaseModel):
     description: str = ""
     base_agent_id: str = PRIMARY_AGENT_ID
     steps: list[str] = Field(default_factory=list)
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     allow_subrun_delegation: bool = False
     idempotency_key: str | None = None
 
@@ -761,7 +701,7 @@ class ControlWorkflowsUpdateRequest(BaseModel):
     description: str | None = None
     base_agent_id: str | None = None
     steps: list[str] | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     allow_subrun_delegation: bool | None = None
     idempotency_key: str | None = None
 
@@ -772,7 +712,7 @@ class ControlWorkflowsExecuteRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
 
@@ -805,7 +745,7 @@ class ControlToolsPolicyPreviewRequest(BaseModel):
     preset: str | None = None
     provider: str | None = None
     model: str | None = None
-    tool_policy: dict[str, list[str]] | None = None
+    tool_policy: ToolPolicyPayload | None = None
     also_allow: list[str] | None = None
 
 
@@ -897,7 +837,7 @@ def _start_run_background(
     session_id: str,
     model: str | None,
     preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
     meta: dict | None = None,
 ) -> str:
     runtime_state = runtime_manager.get_state()
@@ -1085,13 +1025,15 @@ def _send_session_minimal(*, request: ControlSessionsSendRequest, idempotency_ke
     if not session_id:
         raise HTTPException(status_code=400, detail="Session id must not be empty")
 
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
+
     idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
     fingerprint = _build_run_start_fingerprint(
         message=request.message,
         session_id=session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
     existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -1107,7 +1049,7 @@ def _send_session_minimal(*, request: ControlSessionsSendRequest, idempotency_ke
         session_id=session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
     )
     _register_idempotent_run(
         idempotency_key=idempotency_key,
@@ -1134,13 +1076,15 @@ def _spawn_session_minimal(*, request: ControlSessionsSpawnRequest, idempotency_
     if not parent_session_id:
         raise HTTPException(status_code=400, detail="Parent session id must not be empty")
 
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
+
     idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
     fingerprint = _build_run_start_fingerprint(
         message=request.message,
         session_id=parent_session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
     existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -1161,7 +1105,7 @@ def _spawn_session_minimal(*, request: ControlSessionsSpawnRequest, idempotency_
         session_id=child_session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         meta={
             "source": "control.sessions.spawn",
             "parent_session_id": parent_session_id,
@@ -1359,13 +1303,13 @@ def _reset_session_minimal(*, request: ControlSessionsResetRequest, idempotency_
 
 
 def _merge_tool_policy(
-    base: dict[str, list[str]] | None,
-    incoming: dict[str, list[str]] | None,
-) -> dict[str, list[str]] | None:
+    base: ToolPolicyDict | None,
+    incoming: ToolPolicyDict | None,
+) -> ToolPolicyDict | None:
     return merge_tool_policy(base=base, incoming=incoming)
 
 
-def _policy_payload(policy: dict[str, list[str]] | None) -> dict[str, list[str]]:
+def _policy_payload(policy: ToolPolicyDict | None) -> ToolPolicyDict:
     return policy_payload(policy)
 
 
@@ -1375,7 +1319,7 @@ def _resolve_tool_policy(
     preset: str | None = None,
     provider: str | None = None,
     model: str | None = None,
-    request_policy: dict[str, list[str]] | None = None,
+    request_policy: ToolPolicyDict | None = None,
     also_allow: list[str] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
@@ -1398,7 +1342,7 @@ def _normalize_policy_values(values: list[str] | None, allowed_universe: set[str
     return normalize_policy_values(values=values, allowed_universe=allowed_universe)
 
 
-def _extract_also_allow(tool_policy: dict[str, list[str]] | None) -> list[str] | None:
+def _extract_also_allow(tool_policy: ToolPolicyDict | None) -> list[str] | None:
     if not isinstance(tool_policy, dict):
         return None
     raw = tool_policy.get("also_allow")
@@ -1406,6 +1350,10 @@ def _extract_also_allow(tool_policy: dict[str, list[str]] | None) -> list[str] |
         return None
     values = [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
     return values or None
+
+
+def _normalize_tool_policy_payload(value: ToolPolicyPayload | ToolPolicyDict | None) -> ToolPolicyDict | None:
+    return tool_policy_to_dict(value, include_also_allow=True)
 
 
 def _build_tools_catalog(*, agent_id: str | None = None) -> dict:
@@ -1947,6 +1895,8 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
     if not name:
         raise GuardrailViolation("Workflow name must not be empty.")
 
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
+
     idempotency_key = _normalize_idempotency_key(request.idempotency_key)
     fingerprint = _build_workflow_create_fingerprint(
         operation="create",
@@ -1955,7 +1905,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         description=description,
         base_agent_id=normalized_base_agent,
         steps=steps,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         allow_subrun_delegation=bool(request.allow_subrun_delegation),
     )
     existing = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -1969,7 +1919,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
             description=description,
             base_agent_id=normalized_base_agent,
             workflow_steps=steps,
-            tool_policy=request.tool_policy,
+            tool_policy=normalized_tool_policy,
             allow_subrun_delegation=bool(request.allow_subrun_delegation),
         ),
         id_factory=lambda base_name: f"workflow-{base_name}-{str(uuid.uuid4())[:8]}",
@@ -2032,7 +1982,9 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
     else:
         resolved_steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
 
-    resolved_tool_policy = existing.tool_policy if request.tool_policy is None else request.tool_policy
+    resolved_tool_policy = (
+        existing.tool_policy if request.tool_policy is None else _normalize_tool_policy_payload(request.tool_policy)
+    )
     resolved_allow_subrun_delegation = (
         bool(getattr(existing, "allow_subrun_delegation", False))
         if request.allow_subrun_delegation is None
@@ -2134,6 +2086,8 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
     workflow_agent_id = _normalize_agent_id(workflow.id)
     _, _, workflow_orchestrator = _resolve_agent(workflow_agent_id)
 
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
+
     runtime_state = runtime_manager.get_state()
     idempotency_key = _normalize_idempotency_key(request.idempotency_key)
     fingerprint = _build_workflow_execute_fingerprint(
@@ -2142,7 +2096,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         session_id=request.session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         allow_subrun_delegation=bool(getattr(workflow, "allow_subrun_delegation", False)),
         runtime=runtime_state.runtime,
     )
@@ -2157,7 +2111,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         session_id=session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         meta={
             "workflow_execute": True,
             "workflow_id": workflow_agent_id,
@@ -2189,7 +2143,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
                 runtime=runtime_state.runtime,
                 model=request.model or runtime_state.model,
                 timeout_seconds=settings.subrun_timeout_seconds,
-                tool_policy=request.tool_policy,
+                tool_policy=normalized_tool_policy,
                 send_event=_noop_send_event,
                 agent_id=workflow_agent_id,
                 mode="run",
@@ -2508,7 +2462,7 @@ def _build_tools_policy_preview(
     preset: str | None,
     provider: str | None,
     model: str | None,
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
     also_allow: list[str] | None,
 ) -> dict:
     try:
@@ -2576,42 +2530,6 @@ def _build_tools_policy_preview(
     }
 
 
-class KillAllSubrunsRequest(BaseModel):
-    parent_session_id: str | None = None
-    parent_request_id: str | None = None
-    cascade: bool = True
-    requester_session_id: str | None = None
-    visibility_scope: str | None = None
-
-
-def _normalize_visibility_scope(value: str | None) -> str:
-    scope = (value or settings.session_visibility_default or "tree").strip().lower()
-    if scope not in {"self", "tree", "agent", "all"}:
-        return "tree"
-    return scope
-
-
-def _enforce_subrun_visibility_or_403(run_id: str, requester_session_id: str | None, visibility_scope: str | None) -> dict:
-    scope = _normalize_visibility_scope(visibility_scope)
-    allowed, decision = subrun_lane.evaluate_visibility(
-        run_id,
-        requester_session_id=(requester_session_id or ""),
-        visibility_scope=scope,
-    )
-
-    _state_append_event_safe(
-        run_id=run_id,
-        event={
-            "type": "visibility_decision",
-            "decision": decision,
-        },
-    )
-
-    if not allowed:
-        raise HTTPException(status_code=403, detail={"message": "Subrun visibility denied", "decision": decision})
-    return decision
-
-
 def _extract_final_message(run_state: dict) -> str | None:
     events = run_state.get("events") or []
     for event in reversed(events):
@@ -2628,7 +2546,7 @@ async def _run_background_message(
     message: str,
     model: str | None,
     preset: str | None,
-    tool_policy: dict[str, list[str]] | None,
+    tool_policy: ToolPolicyDict | None,
 ) -> None:
     async def collect_event(payload: dict) -> None:
         _state_append_event_safe(run_id=run_id, event=payload)
@@ -2813,135 +2731,63 @@ app.include_router(
     )
 )
 
+_agent_test_dependencies = AgentTestDependencies(
+    logger=logger,
+    runtime_manager=runtime_manager,
+    state_store=state_store,
+    agent=agent,
+    orchestrator_api=orchestrator_api,
+    normalize_preset=_normalize_preset,
+    extract_also_allow=_extract_also_allow,
+    effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
+    mark_completed=_state_mark_completed_safe,
+    mark_failed=_state_mark_failed_safe,
+    primary_agent_id=PRIMARY_AGENT_ID,
+)
 
-@app.post("/api/test/agent")
-async def test_agent(request: AgentTestRequest):
-    runtime_state = runtime_manager.get_state()
-    session_id = str(uuid.uuid4())
-    request_id = str(uuid.uuid4())
-    events: list[dict] = []
-    logger.info(
-        "agent_test_start request_id=%s session_id=%s runtime=%s model=%s message_len=%s",
-        request_id,
-        session_id,
-        runtime_state.runtime,
-        request.model or runtime_state.model,
-        len(request.message or ""),
-    )
-    state_store.init_run(
-        run_id=request_id,
-        session_id=session_id,
-        request_id=request_id,
-        user_message=request.message or "",
-        runtime=runtime_state.runtime,
-        model=request.model or runtime_state.model,
-    )
-    state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
+_run_endpoint_dependencies = RunEndpointsDependencies(
+    start_run_background=_start_run_background,
+    wait_for_run_result=_wait_for_run_result,
+)
 
-    async def collect_event(payload: dict):
-        events.append(payload)
+_runtime_debug_dependencies = RuntimeDebugDependencies(
+    runtime_manager=runtime_manager,
+    settings=settings,
+    resolved_prompt_settings=resolved_prompt_settings,
+)
 
-    agent.configure_runtime(
-        base_url=runtime_state.base_url,
-        model=runtime_state.model,
-    )
+_subrun_endpoint_dependencies = SubrunEndpointsDependencies(
+    subrun_lane=subrun_lane,
+    session_visibility_default=settings.session_visibility_default,
+    state_append_event_safe=_state_append_event_safe,
+)
 
-    selected_model = (request.model or "").strip() or runtime_state.model
-    if runtime_state.runtime == "local":
-        selected_model = await runtime_manager.ensure_model_ready(collect_event, session_id, selected_model)
-    else:
-        selected_model = await runtime_manager.resolve_api_request_model(selected_model)
-
-    try:
-        applied_preset = _normalize_preset(request.preset)
-        await orchestrator_api.run_user_message(
-            user_message=request.message,
-            send_event=collect_event,
-            request_context=RequestContext(
-                session_id=session_id,
-                request_id=request_id,
-                runtime=runtime_state.runtime,
-                model=selected_model,
-                tool_policy=request.tool_policy,
-                also_allow=_extract_also_allow(request.tool_policy),
-                agent_id=PRIMARY_AGENT_ID,
-                depth=0,
-                preset=applied_preset,
-                orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
+app.include_router(
+    build_run_api_router(
+        handlers=RunApiRouterHandlers(
+            agent_test_handler=lambda request_data: run_agent_test(
+                request=AgentTestRequest.model_validate(request_data),
+                deps=_agent_test_dependencies,
+            ),
+            start_run_handler=lambda request_data: run_endpoint_start(
+                request=RunStartRequest.model_validate(request_data),
+                deps=_run_endpoint_dependencies,
+            ),
+            wait_run_handler=lambda run_id, timeout_ms, poll_interval_ms: run_endpoint_wait(
+                run_id=run_id,
+                timeout_ms=timeout_ms,
+                poll_interval_ms=poll_interval_ms,
+                deps=_run_endpoint_dependencies,
             ),
         )
-        _state_mark_completed_safe(run_id=request_id)
-    except (GuardrailViolation, ToolExecutionError, RuntimeSwitchError) as exc:
-        _state_mark_failed_safe(run_id=request_id, error=str(exc))
-        logger.warning(
-            "agent_test_client_error request_id=%s session_id=%s error=%s",
-            request_id,
-            session_id,
-            exc,
-        )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except LlmClientError as exc:
-        _state_mark_failed_safe(run_id=request_id, error=str(exc))
-        logger.warning(
-            "agent_test_llm_error request_id=%s session_id=%s error=%s",
-            request_id,
-            session_id,
-            exc,
-        )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:
-        _state_mark_failed_safe(run_id=request_id, error=str(exc))
-        logger.exception(
-            "agent_test_unhandled request_id=%s session_id=%s",
-            request_id,
-            session_id,
-        )
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    final_event = next((item for item in reversed(events) if item.get("type") == "final"), None)
-    return {
-        "ok": True,
-        "runtime": runtime_state.runtime,
-        "model": selected_model,
-        "preset": applied_preset,
-        "sessionId": session_id,
-        "requestId": request_id,
-        "eventCount": len(events),
-        "final": final_event.get("message") if final_event else None,
-    }
-
-
-@app.post("/api/runs/start")
-async def start_run(request: RunStartRequest):
-    session_id = request.session_id or str(uuid.uuid4())
-    run_id = _start_run_background(
-        agent_id=None,
-        message=request.message,
-        session_id=session_id,
-        model=request.model,
-        preset=request.preset,
-        tool_policy=request.tool_policy,
     )
-
-    return {
-        "status": "accepted",
-        "runId": run_id,
-        "sessionId": session_id,
-    }
-
-
-@app.get("/api/runs/{run_id}/wait")
-async def wait_run(run_id: str, timeout_ms: int | None = None, poll_interval_ms: int | None = None):
-    return await _wait_for_run_result(
-        run_id,
-        timeout_ms=timeout_ms,
-        poll_interval_ms=poll_interval_ms,
-    )
+)
 
 
 async def _api_control_run_start(request_data: dict, idempotency_key_header: str | None) -> dict:
     request = ControlRunStartRequest.model_validate(request_data)
     runtime_state = runtime_manager.get_state()
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
     idempotency_key = _normalize_idempotency_key(request.idempotency_key or idempotency_key_header)
     session_id = request.session_id or str(uuid.uuid4())
 
@@ -2950,7 +2796,7 @@ async def _api_control_run_start(request_data: dict, idempotency_key_header: str
         session_id=request.session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
     existing = _find_idempotent_run_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -2966,7 +2812,7 @@ async def _api_control_run_start(request_data: dict, idempotency_key_header: str
         session_id=session_id,
         model=request.model,
         preset=request.preset,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
     )
     _register_idempotent_run(
         idempotency_key=idempotency_key,
@@ -3179,13 +3025,14 @@ def _api_control_runs_audit(request_data: dict) -> dict:
 
 def _api_control_tools_policy_preview(request_data: dict) -> dict:
     request = ControlToolsPolicyPreviewRequest.model_validate(request_data)
+    normalized_tool_policy = _normalize_tool_policy_payload(request.tool_policy)
     return _build_tools_policy_preview(
         agent_id=request.agent_id,
         profile=request.profile,
         preset=request.preset,
         provider=request.provider,
         model=request.model,
-        tool_policy=request.tool_policy,
+        tool_policy=normalized_tool_policy,
         also_allow=request.also_allow,
     )
 
@@ -3238,185 +3085,87 @@ async def _api_control_policy_approvals_decide(request_data: dict) -> dict:
     }
 
 
-@app.post("/api/control/policy-approvals.pending")
-async def control_policy_approvals_pending(request: dict) -> dict:
-    return await _api_control_policy_approvals_pending(request)
-
-
-@app.post("/api/control/policy-approvals.allow")
-async def control_policy_approvals_allow(request: dict) -> dict:
-    return await _api_control_policy_approvals_allow(request)
-
-
-@app.post("/api/control/policy-approvals.decide")
-async def control_policy_approvals_decide(request: dict) -> dict:
-    return await _api_control_policy_approvals_decide(request)
-
-
-app.include_router(
-    build_control_runs_router(
-        run_start_handler=_api_control_run_start,
-        run_wait_handler=_api_control_run_wait,
-        agent_run_handler=_api_control_agent_run,
-        agent_wait_handler=_api_control_agent_wait,
-        runs_get_handler=_api_control_runs_get,
-        runs_list_handler=_api_control_runs_list,
-        runs_events_handler=_api_control_runs_events,
-        runs_audit_handler=_api_control_runs_audit,
-    )
+include_control_routers(
+    app,
+    run_start_handler=_api_control_run_start,
+    run_wait_handler=_api_control_run_wait,
+    agent_run_handler=_api_control_agent_run,
+    agent_wait_handler=_api_control_agent_wait,
+    runs_get_handler=_api_control_runs_get,
+    runs_list_handler=_api_control_runs_list,
+    runs_events_handler=_api_control_runs_events,
+    runs_audit_handler=_api_control_runs_audit,
+    policy_approvals_pending_handler=_api_control_policy_approvals_pending,
+    policy_approvals_allow_handler=_api_control_policy_approvals_allow,
+    policy_approvals_decide_handler=_api_control_policy_approvals_decide,
+    sessions_list_handler=_api_control_sessions_list,
+    sessions_resolve_handler=_api_control_sessions_resolve,
+    sessions_history_handler=_api_control_sessions_history,
+    sessions_send_handler=_api_control_sessions_send,
+    sessions_spawn_handler=_api_control_sessions_spawn,
+    sessions_status_handler=_api_control_sessions_status,
+    sessions_get_handler=_api_control_sessions_get,
+    sessions_patch_handler=_api_control_sessions_patch,
+    sessions_reset_handler=_api_control_sessions_reset,
+    workflows_list_handler=_api_control_workflows_list,
+    workflows_get_handler=_api_control_workflows_get,
+    workflows_create_handler=_api_control_workflows_create,
+    workflows_update_handler=_api_control_workflows_update,
+    workflows_execute_handler=_api_control_workflows_execute,
+    workflows_delete_handler=_api_control_workflows_delete,
+    tools_catalog_handler=_api_control_tools_catalog,
+    tools_profile_handler=_api_control_tools_profile,
+    tools_policy_matrix_handler=_api_control_tools_policy_matrix,
+    tools_policy_preview_handler=_api_control_tools_policy_preview,
+    skills_list_handler=_api_control_skills_list,
+    skills_preview_handler=_api_control_skills_preview,
+    skills_check_handler=_api_control_skills_check,
+    skills_sync_handler=_api_control_skills_sync,
 )
-
-app.include_router(
-    build_control_sessions_router(
-        sessions_list_handler=_api_control_sessions_list,
-        sessions_resolve_handler=_api_control_sessions_resolve,
-        sessions_history_handler=_api_control_sessions_history,
-        sessions_send_handler=_api_control_sessions_send,
-        sessions_spawn_handler=_api_control_sessions_spawn,
-        sessions_status_handler=_api_control_sessions_status,
-        sessions_get_handler=_api_control_sessions_get,
-        sessions_patch_handler=_api_control_sessions_patch,
-        sessions_reset_handler=_api_control_sessions_reset,
-    )
-)
-
-app.include_router(
-    build_control_workflows_router(
-        workflows_list_handler=_api_control_workflows_list,
-        workflows_get_handler=_api_control_workflows_get,
-        workflows_create_handler=_api_control_workflows_create,
-        workflows_update_handler=_api_control_workflows_update,
-        workflows_execute_handler=_api_control_workflows_execute,
-        workflows_delete_handler=_api_control_workflows_delete,
-    )
-)
-
-app.include_router(
-    build_control_tools_router(
-        tools_catalog_handler=_api_control_tools_catalog,
-        tools_profile_handler=_api_control_tools_profile,
-        tools_policy_matrix_handler=_api_control_tools_policy_matrix,
-        tools_policy_preview_handler=_api_control_tools_policy_preview,
-        skills_list_handler=_api_control_skills_list,
-        skills_preview_handler=_api_control_skills_preview,
-        skills_check_handler=_api_control_skills_check,
-        skills_sync_handler=_api_control_skills_sync,
-    )
-)
-
-
-async def _api_runtime_status() -> dict:
-    state = runtime_manager.get_state()
-    api_models = await runtime_manager.get_api_models_summary()
-    return {
-        "runtime": state.runtime,
-        "baseUrl": state.base_url,
-        "model": state.model,
-        "authenticated": runtime_manager.is_runtime_authenticated(),
-        "apiSupportedModels": settings.api_supported_models,
-        "apiModelsAvailable": api_models["available"],
-        "apiModelsCount": api_models["count"],
-        "apiModelsError": api_models["error"],
-    }
-
-
-def _api_resolved_prompt_settings() -> dict:
-    return {
-        "prompts": resolved_prompt_settings(settings),
-    }
-
-
-def _api_test_ping() -> dict:
-    state = runtime_manager.get_state()
-    return {
-        "ok": True,
-        "service": "backend",
-        "runtime": state.runtime,
-        "model": state.model,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 app.include_router(
     build_runtime_debug_router(
-        runtime_status_handler=_api_runtime_status,
-        resolved_prompts_handler=_api_resolved_prompt_settings,
-        ping_handler=_api_test_ping,
+        runtime_status_handler=lambda: api_runtime_status(_runtime_debug_dependencies),
+        resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
+        ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
     )
 )
 
 
-def _api_subruns_list(
-    parent_session_id: str | None,
-    parent_request_id: str | None,
-    requester_session_id: str | None,
-    visibility_scope: str | None,
-    limit: int,
-) -> dict:
-    scope = _normalize_visibility_scope(visibility_scope)
-    return {
-        "items": subrun_lane.list_runs(
+app.include_router(
+    build_subruns_router(
+        subruns_list_handler=lambda parent_session_id, parent_request_id, requester_session_id, visibility_scope, limit: api_subruns_list(
             parent_session_id=parent_session_id,
             parent_request_id=parent_request_id,
             requester_session_id=requester_session_id,
-            visibility_scope=scope,
+            visibility_scope=visibility_scope,
             limit=limit,
+            deps=_subrun_endpoint_dependencies,
         ),
-        "visibility_scope": scope,
-        "requester_session_id": requester_session_id,
-    }
-
-
-def _api_subruns_get(run_id: str, requester_session_id: str, visibility_scope: str | None) -> dict:
-    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
-    info = subrun_lane.get_info(run_id)
-    if info is None:
-        raise HTTPException(status_code=404, detail="Subrun not found")
-    info["visibility_decision"] = decision
-    return info
-
-
-def _api_subruns_log(run_id: str, requester_session_id: str, visibility_scope: str | None) -> dict:
-    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
-    log = subrun_lane.get_log(run_id)
-    if log is None:
-        raise HTTPException(status_code=404, detail="Subrun not found")
-    return {"runId": run_id, "events": log, "visibility_decision": decision}
-
-
-async def _api_subruns_kill(run_id: str, requester_session_id: str, visibility_scope: str | None, cascade: bool) -> dict:
-    decision = _enforce_subrun_visibility_or_403(run_id, requester_session_id, visibility_scope)
-    killed = await subrun_lane.kill(run_id, cascade=cascade)
-    if not killed:
-        raise HTTPException(status_code=404, detail="Subrun not running or not found")
-    return {"runId": run_id, "killed": True, "cascade": cascade, "visibility_decision": decision}
-
-
-async def _api_subruns_kill_all_async(request_data: dict) -> dict:
-    request = KillAllSubrunsRequest.model_validate(request_data)
-    scope = _normalize_visibility_scope(request.visibility_scope)
-    killed_count = await subrun_lane.kill_all(
-        parent_session_id=request.parent_session_id,
-        parent_request_id=request.parent_request_id,
-        cascade=request.cascade,
-    )
-    return {
-        "killed": killed_count,
-        "parent_session_id": request.parent_session_id,
-        "parent_request_id": request.parent_request_id,
-        "cascade": request.cascade,
-        "requester_session_id": request.requester_session_id,
-        "visibility_scope": scope,
-    }
-
-
-app.include_router(
-    build_subruns_router(
-        subruns_list_handler=_api_subruns_list,
-        subrun_get_handler=_api_subruns_get,
-        subrun_log_handler=_api_subruns_log,
-        subrun_kill_handler=_api_subruns_kill,
-        subrun_kill_all_handler=_api_subruns_kill_all_async,
+        subrun_get_handler=lambda run_id, requester_session_id, visibility_scope: api_subruns_get(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_log_handler=lambda run_id, requester_session_id, visibility_scope: api_subruns_log(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_kill_handler=lambda run_id, requester_session_id, visibility_scope, cascade: api_subruns_kill(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            cascade=cascade,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_kill_all_handler=lambda request_data: api_subruns_kill_all_async(
+            request_data,
+            _subrun_endpoint_dependencies,
+        ),
     )
 )
 
@@ -3444,7 +3193,4 @@ ws_handler_dependencies = WsHandlerDependencies(
     review_agent_id=REVIEW_AGENT_ID,
 )
 
-
-@app.websocket("/ws/agent")
-async def agent_socket(websocket: WebSocket):
-    await handle_ws_agent(websocket, ws_handler_dependencies)
+app.include_router(build_ws_agent_router(dependencies=ws_handler_dependencies))

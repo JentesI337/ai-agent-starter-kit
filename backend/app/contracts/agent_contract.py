@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from pydantic import BaseModel, Field
 
+from app.tool_policy import ToolPolicyDict
+
 SendEvent = Callable[[dict], Awaitable[None]]
 
 
@@ -30,7 +32,7 @@ class AgentContract(ABC):
     def configure_runtime(self, base_url: str, model: str) -> None:
         raise NotImplementedError
 
-    def normalize_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+    def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return tool_policy
 
     @abstractmethod
@@ -41,6 +43,6 @@ class AgentContract(ABC):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         raise NotImplementedError

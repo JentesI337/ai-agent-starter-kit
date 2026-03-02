@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import fnmatch
 from html import unescape
+import ipaddress
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import threading
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.parse import urljoin, urlparse
 import uuid
+
+import httpx
 
 from app.config import settings
 from app.errors import ToolExecutionError
@@ -24,6 +27,10 @@ class AgentTooling:
         self._command_allowlist = self._build_command_allowlist()
         self._background_jobs: dict[str, dict] = {}
         self._bg_lock = threading.Lock()
+        self._web_fetch_max_redirects = 3
+        self._read_file_max_bytes = 1_000_000
+        self._grep_max_file_bytes = 1_000_000
+        self._grep_max_total_scan_bytes = 8_000_000
 
     def list_dir(self, path: str | None = None) -> str:
         target = self._resolve_workspace_path(path or ".")
@@ -36,6 +43,10 @@ class AgentTooling:
         target = self._resolve_workspace_path(path)
         if not target.exists() or not target.is_file():
             raise ToolExecutionError(f"File not found: {target}")
+        if target.stat().st_size > self._read_file_max_bytes:
+            raise ToolExecutionError(
+                f"File too large for read_file tool (max {self._read_file_max_bytes} bytes): {target}"
+            )
         return target.read_text(encoding="utf-8")
 
     def write_file(self, path: str, content: str) -> str:
@@ -89,6 +100,7 @@ class AgentTooling:
         cap = max(1, min(int(max_results), 500))
         include = (include_pattern or "**/*").strip() or "**/*"
         matches: list[str] = []
+        total_scanned_bytes = 0
 
         compiled = re.compile(pattern, re.IGNORECASE) if is_regexp else None
         for candidate in self.workspace_root.rglob("*"):
@@ -97,6 +109,15 @@ class AgentTooling:
             rel = candidate.relative_to(self.workspace_root).as_posix()
             if not fnmatch.fnmatch(rel, include):
                 continue
+            try:
+                file_size = candidate.stat().st_size
+            except Exception:
+                continue
+            if file_size > self._grep_max_file_bytes:
+                continue
+            total_scanned_bytes += file_size
+            if total_scanned_bytes > self._grep_max_total_scan_bytes:
+                break
             try:
                 text = candidate.read_text(encoding="utf-8")
             except Exception:
@@ -214,29 +235,139 @@ class AgentTooling:
         return f"Killed background job: {job_id}"
 
     def web_fetch(self, url: str, max_chars: int = 12000) -> str:
-        parsed = urlparse((url or "").strip())
-        if parsed.scheme not in {"http", "https"}:
-            raise ToolExecutionError("web_fetch only supports http/https URLs.")
+        requested_url = (url or "").strip()
+        if not requested_url:
+            raise ToolExecutionError("web_fetch requires non-empty URL.")
 
         limit = max(1000, min(int(max_chars), 100000))
-        request = Request(url, headers={"User-Agent": "ai-agent-starter-kit/1.0"})
+        current_url = requested_url
+        redirects = 0
+        content_type = "unknown"
+        text = ""
+
         try:
-            with urlopen(request, timeout=15) as response:
-                content_type = str(response.headers.get("Content-Type", "")).strip() or "unknown"
-                data = response.read(limit + 1)
-                text = data.decode("utf-8", errors="replace")
+            with httpx.Client(
+                timeout=15.0,
+                follow_redirects=False,
+                headers={"User-Agent": "ai-agent-starter-kit/1.0"},
+            ) as client:
+                while True:
+                    self._enforce_safe_web_target(current_url)
+
+                    with client.stream("GET", current_url) as response:
+                        status = int(response.status_code)
+
+                        if 300 <= status < 400:
+                            location = str(response.headers.get("location", "")).strip()
+                            if not location:
+                                raise ToolExecutionError(
+                                    f"web_fetch redirect without location (status={status})"
+                                )
+                            redirects += 1
+                            if redirects > self._web_fetch_max_redirects:
+                                raise ToolExecutionError(
+                                    f"web_fetch redirect limit exceeded ({self._web_fetch_max_redirects})"
+                                )
+                            current_url = urljoin(current_url, location)
+                            continue
+
+                        if status >= 400:
+                            raise ToolExecutionError(f"web_fetch failed with HTTP {status} for url={current_url}")
+
+                        content_type = str(response.headers.get("Content-Type", "")).strip() or "unknown"
+                        chunks: list[bytes] = []
+                        total = 0
+                        for chunk in response.iter_bytes():
+                            if not chunk:
+                                continue
+                            remaining = (limit + 1) - total
+                            if remaining <= 0:
+                                break
+                            chunks.append(chunk[:remaining])
+                            total += len(chunks[-1])
+                            if total >= (limit + 1):
+                                break
+                        raw = b"".join(chunks)
+                        encoding = response.encoding or "utf-8"
+                        text = raw.decode(encoding, errors="replace")
+                        break
+        except ToolExecutionError:
+            raise
         except Exception as exc:
-            raise ToolExecutionError(f"web_fetch failed for url={url}: {exc}") from exc
+            raise ToolExecutionError(f"web_fetch failed for url={requested_url}: {exc}") from exc
 
         normalized_text = self._normalize_web_text(text=text, max_chars=limit)
         if not normalized_text:
             normalized_text = "(empty response)"
 
         return (
-            f"source_url: {url}\n"
+            f"source_url: {current_url}\n"
             f"content_type: {content_type}\n"
             f"content:\n{normalized_text}"
         )
+
+    def _enforce_safe_web_target(self, url: str) -> None:
+        parsed = urlparse((url or "").strip())
+        if parsed.scheme not in {"http", "https"}:
+            raise ToolExecutionError("web_fetch only supports http/https URLs.")
+
+        if parsed.username or parsed.password:
+            raise ToolExecutionError("web_fetch blocks URLs containing credentials.")
+
+        host = (parsed.hostname or "").strip()
+        if not host:
+            raise ToolExecutionError("web_fetch requires a valid hostname.")
+
+        lowered_host = host.lower()
+        blocked_hostnames = {
+            "localhost",
+            "metadata.google.internal",
+            "169.254.169.254",
+            "[::1]",
+        }
+        if lowered_host in blocked_hostnames:
+            raise ToolExecutionError(f"web_fetch blocked hostname: {host}")
+
+        literal_ip = self._parse_ip_literal(host)
+        if literal_ip is not None:
+            if not literal_ip.is_global:
+                raise ToolExecutionError(f"web_fetch blocked non-public target IP: {literal_ip}")
+            return
+
+        resolved_ips = self._resolve_hostname_ips(host, parsed.port)
+        if not resolved_ips:
+            raise ToolExecutionError(f"web_fetch could not resolve hostname: {host}")
+        for resolved in resolved_ips:
+            if not resolved.is_global:
+                raise ToolExecutionError(f"web_fetch blocked non-public resolved IP: {resolved}")
+
+    def _parse_ip_literal(self, host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+        try:
+            return ipaddress.ip_address(host)
+        except ValueError:
+            return None
+
+    def _resolve_hostname_ips(
+        self,
+        host: str,
+        port: int | None,
+    ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+        target_port = int(port or 443)
+        try:
+            infos = socket.getaddrinfo(host, target_port, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ToolExecutionError(f"web_fetch hostname resolution failed for {host}: {exc}") from exc
+
+        addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+        for info in infos:
+            sockaddr = info[4]
+            if not sockaddr:
+                continue
+            ip_text = str(sockaddr[0]).strip()
+            parsed = self._parse_ip_literal(ip_text)
+            if parsed is not None:
+                addresses.add(parsed)
+        return addresses
 
     def _normalize_web_text(self, text: str, max_chars: int) -> str:
         if not text:
@@ -320,11 +451,32 @@ class AgentTooling:
         if leader in blocked_leaders:
             raise ToolExecutionError(f"Command '{leader}' is blocked by safety policy.")
 
+        self._enforce_command_safety(command=command, leader=leader)
+
         if leader not in self._command_allowlist:
             raise ToolExecutionError(
                 f"Command '{leader}' is not allowed by command allowlist. "
                 "Set COMMAND_ALLOWLIST_EXTRA to permit it in development."
             )
+
+    def _enforce_command_safety(self, *, command: str, leader: str) -> None:
+        lowered = (command or "").strip().lower()
+        if not lowered:
+            raise ToolExecutionError("Command must not be empty.")
+
+        blocked_patterns: tuple[tuple[str, str], ...] = (
+            (r"\b(?:curl|wget)\b[^\n]*\b(?:metadata\.google\.internal|169\.254\.169\.254)\b", "metadata endpoints are blocked"),
+            (r"\bnc\b[^\n]*\s-l\b", "netcat listen mode is blocked"),
+            (r"\bpowershell(?:\.exe)?\b[^\n]*\s-(?:enc|encodedcommand)\b", "encoded PowerShell commands are blocked"),
+            (r"\bcmd(?:\.exe)?\b[^\n]*\s/c\s+del\b", "destructive cmd /c del is blocked"),
+            (r"\bpython(?:3)?\b[^\n]*\s-c\b[^\n]*\b(?:eval|exec|os\.system|subprocess)\b", "dangerous python -c payload is blocked"),
+            (r"\becho\b[^\n]*\|\s*(?:bash|sh|pwsh|powershell|cmd)\b", "pipe-to-shell execution is blocked"),
+            (r"\|\|?|&&|;|`|\$\(", "shell chaining and command substitution are blocked"),
+        )
+
+        for pattern, reason in blocked_patterns:
+            if re.search(pattern, lowered, flags=re.IGNORECASE):
+                raise ToolExecutionError(f"Command blocked by safety policy: {reason}.")
 
     def _extract_command_leader(self, command: str) -> str:
         text = (command or "").strip()

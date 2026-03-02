@@ -33,5 +33,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -r backend/requirements-test.txt
 
-      - name: Run backend tests
-        run: pytest backend/tests -q
+      - name: Run backend tests with coverage gate
+        run: |
+          pytest backend/tests -q \
+            --cov=backend/app \
+            --cov-report=term-missing \
+            --cov-report=json:backend/coverage.json \
+            --cov-fail-under=70
+          python backend/scripts/check_coverage_thresholds.py \
+            --coverage-json backend/coverage.json \
+            --global-min 70 \
+            --module-min backend/app/llm_client.py:60 \
+            --module-min backend/app/tools.py:70 \
+            --module-min backend/app/orchestrator/pipeline_runner.py:80

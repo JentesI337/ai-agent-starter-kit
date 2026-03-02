@@ -38,4 +38,15 @@ if [[ "$SKIP_INSTALL" != "1" ]]; then
 fi
 
 step "Running backend end-to-end tests"
-OLLAMA_BIN=python ./.venv/bin/python -m pytest tests -q
+OLLAMA_BIN=python ./.venv/bin/python -m pytest tests -q \
+  --cov=app \
+  --cov-report=term-missing \
+  --cov-report=json:coverage.json \
+  --cov-fail-under=70
+
+./.venv/bin/python scripts/check_coverage_thresholds.py \
+  --coverage-json coverage.json \
+  --global-min 70 \
+  --module-min app/llm_client.py:60 \
+  --module-min app/tools.py:70 \
+  --module-min app/orchestrator/pipeline_runner.py:80

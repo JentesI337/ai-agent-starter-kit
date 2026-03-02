@@ -227,6 +227,44 @@ def test_augment_actions_adds_followup_for_file_task() -> None:
     assert any(action.get("tool") == "write_file" for action in result_actions)
 
 
+def test_augment_actions_followup_uses_prompt_profile_tool_selector_prompt(monkeypatch) -> None:
+    agent = CoderAgent()
+    monkeypatch.setattr(settings, "agent_tool_selector_prompt", "GLOBAL_SENTINEL_PROMPT_SHOULD_NOT_BE_USED")
+    captured_system_prompts: list[str] = []
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> list[dict]:
+        original = agent.client.complete_chat
+
+        async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+            captured_system_prompts.append(system_prompt)
+            return '{"actions":[{"tool":"write_file","args":{"path":"x.txt","content":"ok"}}]}'
+
+        agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+        try:
+            return await agent._augment_actions_if_needed(
+                actions=[],
+                user_message="create a file with content",
+                plan_text="create file",
+                memory_context="- user: create a file",
+                send_event=send_event,
+                request_id="r-prompt",
+                session_id="s-prompt",
+                model=None,
+                allowed_tools=FULL_TOOLS,
+            )
+        finally:
+            agent.client.complete_chat = original  # type: ignore[method-assign]
+
+    result_actions = asyncio.run(run_case())
+
+    assert any(action.get("tool") == "write_file" for action in result_actions)
+    assert captured_system_prompts == [agent.prompt_profile.tool_selector_prompt]
+    assert captured_system_prompts[0] != "GLOBAL_SENTINEL_PROMPT_SHOULD_NOT_BE_USED"
+
+
 def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
     agent = HeadCodingAgent()
     monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "run_command", "write_file"])

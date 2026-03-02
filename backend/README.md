@@ -32,6 +32,22 @@ uvicorn app.main:app --reload --port 8000
 
 Quick operational checks are documented in `SMOKE_RUNBOOK.md`.
 
+## Test & Coverage Gate
+
+- Root helper scripts `start-test.ps1` / `start-test.sh` now run backend tests with coverage gates enabled.
+- Global minimum coverage: `70%`.
+- Critical module minimum coverage:
+	- `app/llm_client.py` >= `60%`
+	- `app/tools.py` >= `70%`
+	- `app/orchestrator/pipeline_runner.py` >= `80%`
+
+Direct run from `backend`:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests -q --cov=app --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=70
+./.venv/Scripts/python.exe scripts/check_coverage_thresholds.py --coverage-json coverage.json --global-min 70 --module-min app/llm_client.py:60 --module-min app/tools.py:70 --module-min app/orchestrator/pipeline_runner.py:80
+```
+
 ## WebSocket
 
 - Endpoint: `ws://localhost:8000/ws/agent`

@@ -5,6 +5,7 @@ import json
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import PlannerInput, PlannerOutput
 from app.llm_client import LlmClient
+from app.tool_policy import ToolPolicyDict
 
 
 class PlannerAgent(AgentContract):
@@ -44,6 +45,7 @@ class PlannerAgent(AgentContract):
             self.system_prompt,
             planner_prompt,
             model=model,
+            temperature=self.constraints.temperature,
         )
         return PlannerOutput(plan_text=plan)
 
@@ -54,7 +56,7 @@ class PlannerAgent(AgentContract):
         session_id: str,
         request_id: str,
         model: str | None = None,
-        tool_policy: dict[str, list[str]] | None = None,
+        tool_policy: ToolPolicyDict | None = None,
     ) -> str:
         payload = PlannerInput.model_validate_json(user_message)
         result = await self.execute(payload, model=model)

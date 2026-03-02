@@ -34,10 +34,32 @@ class LlmClient:
         base = self.base_url.lower().rstrip("/")
         return base.endswith("/api")
 
+    def _require_non_empty_completion(self, *, content: str, model: str, endpoint: str) -> str:
+        text = (content or "").strip()
+        if text:
+            return text
+        raise LlmClientError(
+            f"LLM returned empty completion content (model={model}, endpoint={endpoint})."
+        )
+
+    def _normalize_temperature(self, temperature: float | None) -> float | None:
+        if temperature is None:
+            return None
+        try:
+            value = float(temperature)
+        except (TypeError, ValueError):
+            return None
+        return min(2.0, max(0.0, value))
+
     async def stream_chat_completion(
-        self, system_prompt: str, user_prompt: str, model: str | None = None
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
     ) -> AsyncGenerator[str, None]:
         active_model = model or self.model
+        normalized_temperature = self._normalize_temperature(temperature)
         logger.info(
             "llm_stream_start base_url=%s model=%s native_api=%s prompt_len=%s",
             self.base_url,
@@ -46,7 +68,12 @@ class LlmClient:
             len(user_prompt or ""),
         )
         if self._is_native_ollama_api():
-            async for token in self._stream_chat_completion_ollama(system_prompt, user_prompt, model):
+            async for token in self._stream_chat_completion_ollama(
+                system_prompt,
+                user_prompt,
+                model,
+                temperature=normalized_temperature,
+            ):
                 yield token
             return
 
@@ -58,6 +85,8 @@ class LlmClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        if normalized_temperature is not None:
+            payload["temperature"] = normalized_temperature
 
         headers = self._build_headers()
 
@@ -109,7 +138,11 @@ class LlmClient:
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
 
     async def _stream_chat_completion_ollama(
-        self, system_prompt: str, user_prompt: str, model: str | None = None
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
     ) -> AsyncGenerator[str, None]:
         active_model = model or self.model
         payload = {
@@ -120,6 +153,9 @@ class LlmClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        normalized_temperature = self._normalize_temperature(temperature)
+        if normalized_temperature is not None:
+            payload["options"] = {"temperature": normalized_temperature}
         headers = self._build_headers()
         url = f"{self.base_url}/chat"
 
@@ -166,11 +202,21 @@ class LlmClient:
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
 
     async def complete_chat(
-        self, system_prompt: str, user_prompt: str, model: str | None = None
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         active_model = model or self.model
+        normalized_temperature = self._normalize_temperature(temperature)
         if self._is_native_ollama_api():
-            return await self._complete_chat_ollama(system_prompt, user_prompt, model)
+            return await self._complete_chat_ollama(
+                system_prompt,
+                user_prompt,
+                model,
+                temperature=normalized_temperature,
+            )
 
         payload = {
             "model": active_model,
@@ -180,6 +226,8 @@ class LlmClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        if normalized_temperature is not None:
+            payload["temperature"] = normalized_temperature
 
         headers = self._build_headers()
 
@@ -205,11 +253,15 @@ class LlmClient:
                             f"LLM request failed ({response.status_code}): {response.text[:600]}"
                         )
                     data = response.json()
-                    return (
+                    content = (
                         data.get("choices", [{}])[0]
                         .get("message", {})
                         .get("content", "")
-                        .strip()
+                    )
+                    return self._require_non_empty_completion(
+                        content=content,
+                        model=active_model,
+                        endpoint="chat/completions",
                     )
         except httpx.TimeoutException as exc:
             logger.warning("llm_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
@@ -219,7 +271,11 @@ class LlmClient:
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
 
     async def _complete_chat_ollama(
-        self, system_prompt: str, user_prompt: str, model: str | None = None
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         active_model = model or self.model
         payload = {
@@ -230,6 +286,9 @@ class LlmClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        normalized_temperature = self._normalize_temperature(temperature)
+        if normalized_temperature is not None:
+            payload["options"] = {"temperature": normalized_temperature}
         headers = self._build_headers()
         url = f"{self.base_url}/chat"
 
@@ -253,7 +312,12 @@ class LlmClient:
                             f"LLM request failed ({response.status_code}): {response.text[:600]}"
                         )
                     data = response.json()
-                    return ((data.get("message") or {}).get("content") or "").strip()
+                    content = ((data.get("message") or {}).get("content") or "")
+                    return self._require_non_empty_completion(
+                        content=content,
+                        model=active_model,
+                        endpoint="chat",
+                    )
         except httpx.TimeoutException as exc:
             logger.warning("llm_native_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM timeout: {exc}") from exc

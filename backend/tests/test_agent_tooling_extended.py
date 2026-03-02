@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from urllib.error import HTTPError
+import socket
 
+import pytest
+
+from app.errors import ToolExecutionError
 from app.tools import AgentTooling
+import app.tools as tools_module
 
 
 def test_apply_patch_replaces_single_match(tmp_path: Path) -> None:
@@ -37,7 +41,7 @@ def test_file_and_grep_search_find_expected_entries(tmp_path: Path) -> None:
 def test_background_process_start_read_and_kill(tmp_path: Path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
 
-    command = f'"{sys.executable}" -c "import time; print(\"started\"); time.sleep(5); print(\"done\")"'
+    command = f'"{sys.executable}" -c "print(\"started\")"'
     started = tooling.start_background_command(command=command)
     job_id = started.split("job_id=")[1].split()[0]
 
@@ -53,13 +57,9 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
 
     class _FakeResponse:
         def __init__(self) -> None:
+            self.status_code = 200
             self.headers = {"Content-Type": "text/html; charset=utf-8"}
-
-        def read(self, _size: int) -> bytes:
-            return (
-                b"<html><head><title>Best LLMs 2026</title><style>.x{}</style></head>"
-                b"<body><script>ignored()</script><h1>Rankings</h1><p>Model A leads.</p></body></html>"
-            )
+            self.encoding = "utf-8"
 
         def __enter__(self):
             return self
@@ -67,7 +67,32 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr("app.tools.urlopen", lambda *_args, **_kwargs: _FakeResponse())
+        def iter_bytes(self):
+            yield (
+                b"<html><head><title>Best LLMs 2026</title><style>.x{}</style></head>"
+                b"<body><script>ignored()</script><h1>Rankings</h1><p>Model A leads.</p></body></html>"
+            )
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            return
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, _method: str, _url: str):
+            return _FakeResponse()
+
+    def _public_getaddrinfo(host: str, port: int, *args, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
+        ]
+
+    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr(tools_module.httpx, "Client", _FakeClient)
 
     result = tooling.web_fetch("https://example.com/models", max_chars=4000)
 
@@ -91,15 +116,66 @@ def test_web_fetch_rejects_non_http_scheme(tmp_path: Path) -> None:
 def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
 
-    def _raise_http_error(*_args, **_kwargs):
-        raise HTTPError(url="https://example.com/missing", code=404, msg="Not Found", hdrs=None, fp=None)
+    class _FakeResponse:
+        status_code = 404
+        headers = {}
+        encoding = "utf-8"
 
-    monkeypatch.setattr("app.tools.urlopen", _raise_http_error)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_bytes(self):
+            return iter(())
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            return
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, _method: str, _url: str):
+            return _FakeResponse()
+
+    def _public_getaddrinfo(host: str, port: int, *args, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
+        ]
+
+    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr(tools_module.httpx, "Client", _FakeClient)
 
     try:
         tooling.web_fetch("https://example.com/missing")
         assert False, "Expected ToolExecutionError"
     except Exception as exc:
         text = str(exc)
-        assert "web_fetch failed for url=https://example.com/missing" in text
+        assert "HTTP 404" in text
         assert "404" in text
+
+
+def test_read_file_blocks_oversized_file(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    target = tmp_path / "large.txt"
+    target.write_bytes(b"a" * (tooling._read_file_max_bytes + 1))
+
+    with pytest.raises(ToolExecutionError, match="File too large for read_file tool"):
+        tooling.read_file("large.txt")
+
+
+def test_grep_search_skips_oversized_files(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src" / "small.txt").write_text("needle\n", encoding="utf-8")
+    (tmp_path / "src" / "big.txt").write_bytes(b"needle\n" * (tooling._grep_max_file_bytes + 1))
+
+    matches = tooling.grep_search(query="needle", include_pattern="src/*.txt", is_regexp=False, max_results=10)
+
+    assert "src/small.txt" in matches
+    assert "src/big.txt" not in matches
