@@ -173,6 +173,7 @@ class Settings(BaseModel):
         workspace_root,
         "state_store",
     )
+    orchestrator_state_backend: str = os.getenv("ORCHESTRATOR_STATE_BACKEND", "file").strip().lower()
     custom_agents_dir: str = _resolve_path_from_workspace(
         os.getenv("CUSTOM_AGENTS_DIR"),
         workspace_root,
@@ -201,6 +202,21 @@ class Settings(BaseModel):
         _default_reset_on_startup(app_env),
     )
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
+    web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
+    web_fetch_blocked_content_types: list[str] = _parse_csv_env(
+        os.getenv(
+            "WEB_FETCH_BLOCKED_CONTENT_TYPES",
+            "application/octet-stream,application/x-executable,application/x-sharedlib,application/zip,application/gzip,application/x-tar",
+        ),
+        [
+            "application/octet-stream",
+            "application/x-executable",
+            "application/x-sharedlib",
+            "application/zip",
+            "application/gzip",
+            "application/x-tar",
+        ],
+    )
     cors_allow_origins: list[str] = _parse_csv_env(
         os.getenv(
             "CORS_ALLOW_ORIGINS",
@@ -348,8 +364,20 @@ class Settings(BaseModel):
     idempotency_registry_max_entries: int = int(os.getenv("IDEMPOTENCY_REGISTRY_MAX_ENTRIES", "5000"))
     run_tool_call_cap: int = int(os.getenv("RUN_TOOL_CALL_CAP", "8"))
     run_tool_time_cap_seconds: float = float(os.getenv("RUN_TOOL_TIME_CAP_SECONDS", "90"))
+    tool_result_max_chars: int = int(os.getenv("TOOL_RESULT_MAX_CHARS", "6000"))
+    tool_result_smart_truncate_enabled: bool = _parse_bool_env("TOOL_RESULT_SMART_TRUNCATE_ENABLED", True)
+    tool_execution_parallel_read_only_enabled: bool = _parse_bool_env(
+        "TOOL_EXECUTION_PARALLEL_READ_ONLY_ENABLED",
+        False,
+    )
+    tool_selection_function_calling_enabled: bool = _parse_bool_env(
+        "TOOL_SELECTION_FUNCTION_CALLING_ENABLED",
+        True,
+    )
+    run_max_replan_iterations: int = int(os.getenv("RUN_MAX_REPLAN_ITERATIONS", "1"))
     tool_loop_warn_threshold: int = int(os.getenv("TOOL_LOOP_WARN_THRESHOLD", "2"))
     tool_loop_critical_threshold: int = int(os.getenv("TOOL_LOOP_CRITICAL_THRESHOLD", "3"))
+    tool_loop_circuit_breaker_threshold: int = int(os.getenv("TOOL_LOOP_CIRCUIT_BREAKER_THRESHOLD", "6"))
     tool_loop_detector_generic_repeat_enabled: bool = _parse_bool_env("TOOL_LOOP_DETECTOR_GENERIC_REPEAT_ENABLED", True)
     tool_loop_detector_ping_pong_enabled: bool = _parse_bool_env("TOOL_LOOP_DETECTOR_PING_PONG_ENABLED", True)
     tool_loop_detector_poll_no_progress_enabled: bool = _parse_bool_env(

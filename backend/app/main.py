@@ -85,7 +85,7 @@ from app.services import (
     policy_payload,
     resolve_tool_policy,
 )
-from app.state import StateStore
+from app.state import SqliteStateStore, StateStore
 from app.tool_policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
 from app.ws_handler import WsHandlerDependencies
 
@@ -127,7 +127,10 @@ def _build_runtime_components() -> RuntimeComponents:
         REVIEW_AGENT_ID: ReviewAgentAdapter(),
     }
     runtime = RuntimeManager()
-    store = StateStore(persist_dir=settings.orchestrator_state_dir)
+    if settings.orchestrator_state_backend == "sqlite":
+        store = SqliteStateStore(persist_dir=settings.orchestrator_state_dir)
+    else:
+        store = StateStore(persist_dir=settings.orchestrator_state_dir)
     query_service = SessionQueryService(state_store=store)
     policy_approval_service = PolicyApprovalService()
     orchestrators: dict[str, OrchestratorApi] = {

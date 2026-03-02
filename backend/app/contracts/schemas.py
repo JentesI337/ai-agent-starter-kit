@@ -5,24 +5,22 @@ from pydantic import BaseModel, Field
 from app.tool_policy import ToolPolicyDict
 
 
-class HeadAgentInput(BaseModel):
+class AgentInput(BaseModel):
     user_message: str = Field(min_length=1)
     session_id: str = Field(min_length=1, max_length=120)
     request_id: str = Field(min_length=1)
     model: str | None = Field(default=None, max_length=120)
     tool_policy: ToolPolicyDict | None = None
+
+
+HeadAgentInput = AgentInput
 
 
 class HeadAgentOutput(BaseModel):
     final_text: str
 
 
-class CoderAgentInput(BaseModel):
-    user_message: str = Field(min_length=1)
-    session_id: str = Field(min_length=1, max_length=120)
-    request_id: str = Field(min_length=1)
-    model: str | None = Field(default=None, max_length=120)
-    tool_policy: ToolPolicyDict | None = None
+CoderAgentInput = AgentInput
 
 
 class CoderAgentOutput(BaseModel):
@@ -59,5 +57,5 @@ class SynthesizerOutput(BaseModel):
     final_text: str
 
 
-HeadCoderInput = HeadAgentInput
+HeadCoderInput = AgentInput
 HeadCoderOutput = HeadAgentOutput

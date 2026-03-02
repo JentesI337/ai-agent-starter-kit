@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -10,39 +9,17 @@ from app.config import settings
 from app.errors import GuardrailViolation, LlmClientError
 from app.model_routing.context_window_guard import evaluate_context_window_guard
 from app.model_routing import ModelRouter
+from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
+from app.orchestrator.recovery_strategy import (
+    PriorityRecoveryMetadata,
+    RecoveryContext,
+    RecoveryStrategyResolution,
+    RecoveryStrategyResolver,
+)
 from app.orchestrator.step_types import PipelineStep
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
-
-
-@dataclass
-class RecoveryStrategyResolution:
-    retryable: bool
-    recovery_branch: str
-    recovery_strategy: str
-    current_user_message: str
-    overflow_fallback_retry_attempts: int
-    compaction_failure_recovery_attempts: int
-    truncation_recovery_attempts: int
-    prompt_compaction_attempts: int
-    payload_truncation_attempts: int
-    overflow_retry_applied: bool = False
-    compaction_recovery_applied: bool = False
-    truncation_recovery_applied: bool = False
-    prompt_compaction_applied: bool = False
-    payload_truncation_applied: bool = False
-    recovery_priority_overridden: bool = False
-    signal_priority_applied: bool = False
-    signal_priority_reason: str = "none"
-    strategy_feedback_applied: bool = False
-    strategy_feedback_reason: str = "none"
-    persistent_priority_applied: bool = False
-    persistent_priority_reason: str = "none"
-    prompt_compaction_previous_chars: int = 0
-    prompt_compaction_new_chars: int = 0
-    payload_truncation_previous_chars: int = 0
-    payload_truncation_new_chars: int = 0
 
 
 class PipelineRunner:
@@ -52,6 +29,7 @@ class PipelineRunner:
         self.model_router = ModelRouter()
         self._recovery_metrics_file = Path(self.state_store.persist_dir) / "pipeline_recovery_metrics.json"
         self._recovery_metrics = self._load_recovery_metrics()
+        self._recovery_strategy_resolver = RecoveryStrategyResolver(self)
 
     async def run(
         self,
@@ -170,459 +148,77 @@ class PipelineRunner:
         route,
         tool_policy: ToolPolicyDict | None,
     ) -> str:
-        models = [route.primary_model, *route.fallback_models]
-        current_user_message = user_message
-        last_error: Exception | None = None
-        last_reason = "unknown"
-        max_attempts = max(1, int(getattr(settings, "pipeline_runner_max_attempts", 16)))
-        attempts = 0
-        overflow_fallback_retry_enabled = bool(
-            getattr(settings, "pipeline_runner_context_overflow_fallback_retry_enabled", False)
+        max_attempts = max(1, int(settings.pipeline_runner_max_attempts))
+        machine = FallbackStateMachine(
+            hooks=self,
+            route=route,
+            runtime=runtime,
+            user_message=user_message,
+            send_event=send_event,
+            session_id=session_id,
+            request_id=request_id,
+            tool_policy=tool_policy,
+            max_attempts=max_attempts,
+            config=FallbackRuntimeConfig(
+                overflow_fallback_retry_enabled=bool(settings.pipeline_runner_context_overflow_fallback_retry_enabled),
+                overflow_fallback_retry_max_attempts=max(
+                    0,
+                    int(settings.pipeline_runner_context_overflow_fallback_retry_max_attempts),
+                ),
+                compaction_failure_recovery_enabled=bool(settings.pipeline_runner_compaction_failure_recovery_enabled),
+                compaction_failure_recovery_max_attempts=max(
+                    0,
+                    int(settings.pipeline_runner_compaction_failure_recovery_max_attempts),
+                ),
+                truncation_recovery_enabled=bool(settings.pipeline_runner_truncation_recovery_enabled),
+                truncation_recovery_max_attempts=max(
+                    0,
+                    int(settings.pipeline_runner_truncation_recovery_max_attempts),
+                ),
+                prompt_compaction_enabled=bool(settings.pipeline_runner_prompt_compaction_enabled),
+                prompt_compaction_max_attempts=max(
+                    0,
+                    int(settings.pipeline_runner_prompt_compaction_max_attempts),
+                ),
+                prompt_compaction_ratio=float(settings.pipeline_runner_prompt_compaction_ratio),
+                prompt_compaction_min_chars=max(
+                    64,
+                    int(settings.pipeline_runner_prompt_compaction_min_chars),
+                ),
+                payload_truncation_enabled=bool(settings.pipeline_runner_payload_truncation_enabled),
+                payload_truncation_max_attempts=max(
+                    0,
+                    int(settings.pipeline_runner_payload_truncation_max_attempts),
+                ),
+                payload_truncation_target_chars=max(
+                    64,
+                    int(settings.pipeline_runner_payload_truncation_target_chars),
+                ),
+                payload_truncation_min_chars=max(
+                    32,
+                    int(settings.pipeline_runner_payload_truncation_min_chars),
+                ),
+                recovery_priority_flip_enabled=bool(settings.pipeline_runner_recovery_priority_flip_enabled),
+                recovery_priority_flip_threshold=max(
+                    2,
+                    int(settings.pipeline_runner_recovery_priority_flip_threshold),
+                ),
+                signal_priority_enabled=bool(settings.pipeline_runner_signal_priority_enabled),
+                signal_low_health_threshold=float(settings.pipeline_runner_signal_low_health_threshold),
+                signal_high_latency_ms=max(
+                    1,
+                    int(settings.pipeline_runner_signal_high_latency_ms),
+                ),
+                signal_high_cost_threshold=float(settings.pipeline_runner_signal_high_cost_threshold),
+                strategy_feedback_enabled=bool(settings.pipeline_runner_strategy_feedback_enabled),
+                persistent_priority_enabled=bool(settings.pipeline_runner_persistent_priority_enabled),
+                persistent_priority_min_samples=max(
+                    1,
+                    int(settings.pipeline_runner_persistent_priority_min_samples),
+                ),
+            ),
         )
-        overflow_fallback_retry_max_attempts = max(
-            0,
-            int(getattr(settings, "pipeline_runner_context_overflow_fallback_retry_max_attempts", 1)),
-        )
-        overflow_fallback_retry_attempts = 0
-        compaction_failure_recovery_enabled = bool(
-            getattr(settings, "pipeline_runner_compaction_failure_recovery_enabled", False)
-        )
-        compaction_failure_recovery_max_attempts = max(
-            0,
-            int(getattr(settings, "pipeline_runner_compaction_failure_recovery_max_attempts", 1)),
-        )
-        compaction_failure_recovery_attempts = 0
-        truncation_recovery_enabled = bool(
-            getattr(settings, "pipeline_runner_truncation_recovery_enabled", False)
-        )
-        truncation_recovery_max_attempts = max(
-            0,
-            int(getattr(settings, "pipeline_runner_truncation_recovery_max_attempts", 1)),
-        )
-        truncation_recovery_attempts = 0
-        prompt_compaction_enabled = bool(
-            getattr(settings, "pipeline_runner_prompt_compaction_enabled", False)
-        )
-        prompt_compaction_max_attempts = max(
-            0,
-            int(getattr(settings, "pipeline_runner_prompt_compaction_max_attempts", 1)),
-        )
-        prompt_compaction_attempts = 0
-        prompt_compaction_ratio = float(
-            getattr(settings, "pipeline_runner_prompt_compaction_ratio", 0.7)
-        )
-        prompt_compaction_min_chars = max(
-            64,
-            int(getattr(settings, "pipeline_runner_prompt_compaction_min_chars", 200)),
-        )
-        payload_truncation_enabled = bool(
-            getattr(settings, "pipeline_runner_payload_truncation_enabled", False)
-        )
-        payload_truncation_max_attempts = max(
-            0,
-            int(getattr(settings, "pipeline_runner_payload_truncation_max_attempts", 1)),
-        )
-        payload_truncation_attempts = 0
-        payload_truncation_target_chars = max(
-            64,
-            int(getattr(settings, "pipeline_runner_payload_truncation_target_chars", 1200)),
-        )
-        payload_truncation_min_chars = max(
-            32,
-            int(getattr(settings, "pipeline_runner_payload_truncation_min_chars", 120)),
-        )
-        recovery_priority_flip_enabled = bool(
-            getattr(settings, "pipeline_runner_recovery_priority_flip_enabled", True)
-        )
-        recovery_priority_flip_threshold = max(
-            2,
-            int(getattr(settings, "pipeline_runner_recovery_priority_flip_threshold", 2)),
-        )
-        signal_priority_enabled = bool(
-            getattr(settings, "pipeline_runner_signal_priority_enabled", True)
-        )
-        signal_low_health_threshold = float(
-            getattr(settings, "pipeline_runner_signal_low_health_threshold", 0.55)
-        )
-        signal_high_latency_ms = max(
-            1,
-            int(getattr(settings, "pipeline_runner_signal_high_latency_ms", 2500)),
-        )
-        signal_high_cost_threshold = float(
-            getattr(settings, "pipeline_runner_signal_high_cost_threshold", 0.75)
-        )
-        strategy_feedback_enabled = bool(
-            getattr(settings, "pipeline_runner_strategy_feedback_enabled", True)
-        )
-        persistent_priority_enabled = bool(
-            getattr(settings, "pipeline_runner_persistent_priority_enabled", True)
-        )
-        persistent_priority_min_samples = max(
-            1,
-            int(getattr(settings, "pipeline_runner_persistent_priority_min_samples", 3)),
-        )
-        reason_streak = 0
-        previous_reason = ""
-        last_failed_strategy_by_reason: dict[str, str] = {}
-        pending_recovery_outcome: tuple[str, str, str] | None = None
-        recovery_failures_total = 0
-        recovery_reason_counts: dict[str, int] = {}
-        recovery_branch_counts: dict[str, int] = {}
-        recovery_strategy_counts: dict[str, int] = {}
-        recovery_strategy_applied_total = 0
-        recovery_signal_priority_applied_total = 0
-        recovery_strategy_feedback_applied_total = 0
-        recovery_persistent_priority_applied_total = 0
-        recovery_overflow_retry_applied_total = 0
-        recovery_compaction_recovery_applied_total = 0
-        recovery_truncation_recovery_applied_total = 0
-        recovery_prompt_compaction_applied_total = 0
-        recovery_payload_truncation_applied_total = 0
-
-        async def emit_recovery_summary(final_outcome: str, final_model: str, final_reason: str) -> None:
-            if recovery_failures_total <= 0:
-                return
-            await send_event(
-                build_lifecycle_event(
-                    request_id=request_id,
-                    session_id=session_id,
-                    stage="model_recovery_summary",
-                    details={
-                        "attempts": attempts,
-                        "max_attempts": max_attempts,
-                        "failures_total": recovery_failures_total,
-                        "unique_reasons": len(recovery_reason_counts),
-                        "reason_counts": recovery_reason_counts,
-                        "branch_counts": recovery_branch_counts,
-                        "strategy_counts": recovery_strategy_counts,
-                        "recovery_strategy_applied_total": recovery_strategy_applied_total,
-                        "signal_priority_applied_total": recovery_signal_priority_applied_total,
-                        "strategy_feedback_applied_total": recovery_strategy_feedback_applied_total,
-                        "persistent_priority_applied_total": recovery_persistent_priority_applied_total,
-                        "overflow_retry_applied_total": recovery_overflow_retry_applied_total,
-                        "compaction_recovery_applied_total": recovery_compaction_recovery_applied_total,
-                        "truncation_recovery_applied_total": recovery_truncation_recovery_applied_total,
-                        "prompt_compaction_applied_total": recovery_prompt_compaction_applied_total,
-                        "payload_truncation_applied_total": recovery_payload_truncation_applied_total,
-                        "final_outcome": final_outcome,
-                        "final_model": final_model,
-                        "final_reason": final_reason,
-                    },
-                    agent=self.agent.name,
-                )
-            )
-
-        for index, candidate_model in enumerate(models):
-            if attempts >= max_attempts:
-                await emit_recovery_summary("failure", models[min(index, len(models) - 1)], last_reason)
-                await send_event(
-                    build_lifecycle_event(
-                        request_id=request_id,
-                        session_id=session_id,
-                        stage="model_fallback_retry_limit_reached",
-                        details={
-                            "attempts": attempts,
-                            "max_attempts": max_attempts,
-                            "last_reason": last_reason,
-                        },
-                        agent=self.agent.name,
-                    )
-                )
-                if isinstance(last_error, LlmClientError):
-                    raise last_error
-                raise LlmClientError(
-                    f"Model fallback retry limit reached ({attempts}/{max_attempts})."
-                )
-
-            try:
-                attempts += 1
-                if index > 0:
-                    await send_event(
-                        {
-                            "type": "status",
-                            "agent": self.agent.name,
-                            "message": f"Retrying with fallback model '{candidate_model}'.",
-                        }
-                    )
-                    await send_event(
-                        build_lifecycle_event(
-                            request_id=request_id,
-                            session_id=session_id,
-                            stage=LifecycleStage.MODEL_FALLBACK_RETRY,
-                            details={
-                                "to": candidate_model,
-                                "reason": last_reason,
-                                "attempt": attempts,
-                                "max_attempts": max_attempts,
-                            },
-                            agent=self.agent.name,
-                        )
-                    )
-
-                result = await self.agent.run(
-                    user_message=current_user_message,
-                    send_event=send_event,
-                    session_id=session_id,
-                    request_id=request_id,
-                    model=candidate_model,
-                    tool_policy=tool_policy,
-                )
-                if pending_recovery_outcome is not None:
-                    model_id, recorded_reason, recorded_strategy = pending_recovery_outcome
-                    self._record_recovery_metric(
-                        model_id=model_id,
-                        reason=recorded_reason,
-                        strategy=recorded_strategy,
-                        outcome="success",
-                    )
-                    pending_recovery_outcome = None
-                await emit_recovery_summary("success", candidate_model, last_reason)
-                return result
-            except LlmClientError as exc:
-                if pending_recovery_outcome is not None:
-                    model_id, recorded_reason, recorded_strategy = pending_recovery_outcome
-                    self._record_recovery_metric(
-                        model_id=model_id,
-                        reason=recorded_reason,
-                        strategy=recorded_strategy,
-                        outcome="failure",
-                    )
-                    pending_recovery_outcome = None
-                last_error = exc
-                reason = self._classify_failover_reason(str(exc))
-                last_reason = reason
-                if reason == previous_reason:
-                    reason_streak += 1
-                else:
-                    reason_streak = 1
-                    previous_reason = reason
-                has_fallback = index < len(models) - 1
-                retryable = self._is_retryable_failover_reason(reason)
-                recovery_branch = self._resolve_recovery_branch(reason)
-                recovery_resolution = self._resolve_recovery_strategy(
-                    reason=reason,
-                    runtime=runtime,
-                    candidate_model=candidate_model,
-                    has_fallback=has_fallback,
-                    reason_streak=reason_streak,
-                    current_user_message=current_user_message,
-                    retryable=retryable,
-                    recovery_branch=recovery_branch,
-                    overflow_fallback_retry_enabled=overflow_fallback_retry_enabled,
-                    overflow_fallback_retry_max_attempts=overflow_fallback_retry_max_attempts,
-                    overflow_fallback_retry_attempts=overflow_fallback_retry_attempts,
-                    compaction_failure_recovery_enabled=compaction_failure_recovery_enabled,
-                    compaction_failure_recovery_max_attempts=compaction_failure_recovery_max_attempts,
-                    compaction_failure_recovery_attempts=compaction_failure_recovery_attempts,
-                    truncation_recovery_enabled=truncation_recovery_enabled,
-                    truncation_recovery_max_attempts=truncation_recovery_max_attempts,
-                    truncation_recovery_attempts=truncation_recovery_attempts,
-                    prompt_compaction_enabled=prompt_compaction_enabled,
-                    prompt_compaction_max_attempts=prompt_compaction_max_attempts,
-                    prompt_compaction_attempts=prompt_compaction_attempts,
-                    prompt_compaction_ratio=prompt_compaction_ratio,
-                    prompt_compaction_min_chars=prompt_compaction_min_chars,
-                    payload_truncation_enabled=payload_truncation_enabled,
-                    payload_truncation_max_attempts=payload_truncation_max_attempts,
-                    payload_truncation_attempts=payload_truncation_attempts,
-                    payload_truncation_target_chars=payload_truncation_target_chars,
-                    payload_truncation_min_chars=payload_truncation_min_chars,
-                    recovery_priority_flip_enabled=recovery_priority_flip_enabled,
-                    recovery_priority_flip_threshold=recovery_priority_flip_threshold,
-                    signal_priority_enabled=signal_priority_enabled,
-                    signal_low_health_threshold=signal_low_health_threshold,
-                    signal_high_latency_ms=signal_high_latency_ms,
-                    signal_high_cost_threshold=signal_high_cost_threshold,
-                    strategy_feedback_enabled=strategy_feedback_enabled,
-                    persistent_priority_enabled=persistent_priority_enabled,
-                    persistent_priority_min_samples=persistent_priority_min_samples,
-                    last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-                    health_score=float(getattr(route.profile, "health_score", 0.0) or 0.0),
-                    expected_latency_ms=int(getattr(route.profile, "expected_latency_ms", 0) or 0),
-                    cost_score=float(getattr(route.profile, "cost_score", 0.0) or 0.0),
-                )
-
-                retryable = recovery_resolution.retryable
-                recovery_branch = recovery_resolution.recovery_branch
-                recovery_strategy = recovery_resolution.recovery_strategy
-                current_user_message = recovery_resolution.current_user_message
-                overflow_fallback_retry_attempts = recovery_resolution.overflow_fallback_retry_attempts
-                compaction_failure_recovery_attempts = recovery_resolution.compaction_failure_recovery_attempts
-                truncation_recovery_attempts = recovery_resolution.truncation_recovery_attempts
-                prompt_compaction_attempts = recovery_resolution.prompt_compaction_attempts
-                payload_truncation_attempts = recovery_resolution.payload_truncation_attempts
-
-                overflow_retry_applied = recovery_resolution.overflow_retry_applied
-                compaction_recovery_applied = recovery_resolution.compaction_recovery_applied
-                truncation_recovery_applied = recovery_resolution.truncation_recovery_applied
-                prompt_compaction_applied = recovery_resolution.prompt_compaction_applied
-                payload_truncation_applied = recovery_resolution.payload_truncation_applied
-                recovery_priority_overridden = recovery_resolution.recovery_priority_overridden
-                signal_priority_applied = recovery_resolution.signal_priority_applied
-                signal_priority_reason = recovery_resolution.signal_priority_reason
-                strategy_feedback_applied = recovery_resolution.strategy_feedback_applied
-                strategy_feedback_reason = recovery_resolution.strategy_feedback_reason
-                persistent_priority_applied = recovery_resolution.persistent_priority_applied
-                persistent_priority_reason = recovery_resolution.persistent_priority_reason
-                prompt_compaction_previous_chars = recovery_resolution.prompt_compaction_previous_chars
-                prompt_compaction_new_chars = recovery_resolution.prompt_compaction_new_chars
-                payload_truncation_previous_chars = recovery_resolution.payload_truncation_previous_chars
-                payload_truncation_new_chars = recovery_resolution.payload_truncation_new_chars
-
-                recovery_failures_total += 1
-                recovery_reason_counts[reason] = int(recovery_reason_counts.get(reason, 0) or 0) + 1
-                recovery_branch_counts[recovery_branch] = int(recovery_branch_counts.get(recovery_branch, 0) or 0) + 1
-                if ":" in recovery_strategy:
-                    strategy_name = recovery_strategy.split(":", 1)[1]
-                    recovery_strategy_counts[strategy_name] = int(recovery_strategy_counts.get(strategy_name, 0) or 0) + 1
-                    recovery_strategy_applied_total += 1
-                if signal_priority_applied:
-                    recovery_signal_priority_applied_total += 1
-                if strategy_feedback_applied:
-                    recovery_strategy_feedback_applied_total += 1
-                if persistent_priority_applied:
-                    recovery_persistent_priority_applied_total += 1
-                if overflow_retry_applied:
-                    recovery_overflow_retry_applied_total += 1
-                if compaction_recovery_applied:
-                    recovery_compaction_recovery_applied_total += 1
-                if truncation_recovery_applied:
-                    recovery_truncation_recovery_applied_total += 1
-                if prompt_compaction_applied:
-                    recovery_prompt_compaction_applied_total += 1
-                if payload_truncation_applied:
-                    recovery_payload_truncation_applied_total += 1
-
-                await send_event(
-                    build_lifecycle_event(
-                        request_id=request_id,
-                        session_id=session_id,
-                        stage="model_fallback_classified",
-                        details={
-                            "model": candidate_model,
-                            "reason": reason,
-                            "retryable": retryable,
-                            "has_fallback": has_fallback,
-                        },
-                        agent=self.agent.name,
-                    )
-                )
-
-                await send_event(
-                    build_lifecycle_event(
-                        request_id=request_id,
-                        session_id=session_id,
-                        stage="model_recovery_branch_selected",
-                        details={
-                            "model": candidate_model,
-                            "reason": reason,
-                            "branch": recovery_branch,
-                            "retryable": retryable,
-                            "has_fallback": has_fallback,
-                            "overflow_retry_applied": overflow_retry_applied,
-                            "overflow_retry_attempts": overflow_fallback_retry_attempts,
-                            "overflow_retry_max_attempts": overflow_fallback_retry_max_attempts,
-                            "compaction_recovery_applied": compaction_recovery_applied,
-                            "compaction_recovery_attempts": compaction_failure_recovery_attempts,
-                            "compaction_recovery_max_attempts": compaction_failure_recovery_max_attempts,
-                            "truncation_recovery_applied": truncation_recovery_applied,
-                            "truncation_recovery_attempts": truncation_recovery_attempts,
-                            "truncation_recovery_max_attempts": truncation_recovery_max_attempts,
-                            "prompt_compaction_applied": prompt_compaction_applied,
-                            "prompt_compaction_attempts": prompt_compaction_attempts,
-                            "prompt_compaction_max_attempts": prompt_compaction_max_attempts,
-                            "prompt_compaction_previous_chars": prompt_compaction_previous_chars,
-                            "prompt_compaction_new_chars": prompt_compaction_new_chars,
-                            "payload_truncation_applied": payload_truncation_applied,
-                            "payload_truncation_attempts": payload_truncation_attempts,
-                            "payload_truncation_max_attempts": payload_truncation_max_attempts,
-                            "payload_truncation_previous_chars": payload_truncation_previous_chars,
-                            "payload_truncation_new_chars": payload_truncation_new_chars,
-                            "recovery_strategy": recovery_strategy,
-                            "reason_streak": reason_streak,
-                            "recovery_priority_overridden": recovery_priority_overridden,
-                            "signal_priority_applied": signal_priority_applied,
-                            "signal_priority_reason": signal_priority_reason,
-                            "strategy_feedback_applied": strategy_feedback_applied,
-                            "strategy_feedback_reason": strategy_feedback_reason,
-                            "persistent_priority_applied": persistent_priority_applied,
-                            "persistent_priority_reason": persistent_priority_reason,
-                        },
-                        agent=self.agent.name,
-                    )
-                )
-
-                await send_event(
-                    build_lifecycle_event(
-                        request_id=request_id,
-                        session_id=session_id,
-                        stage="model_recovery_action",
-                        details={
-                            "model": candidate_model,
-                            "reason": reason,
-                            "branch": recovery_branch,
-                            "action": "retry_fallback" if (retryable and has_fallback) else "fail_fast",
-                            "overflow_retry_applied": overflow_retry_applied,
-                            "compaction_recovery_applied": compaction_recovery_applied,
-                            "truncation_recovery_applied": truncation_recovery_applied,
-                            "prompt_compaction_applied": prompt_compaction_applied,
-                            "payload_truncation_applied": payload_truncation_applied,
-                            "recovery_strategy": recovery_strategy,
-                            "reason_streak": reason_streak,
-                            "recovery_priority_overridden": recovery_priority_overridden,
-                            "signal_priority_applied": signal_priority_applied,
-                            "signal_priority_reason": signal_priority_reason,
-                            "strategy_feedback_applied": strategy_feedback_applied,
-                            "strategy_feedback_reason": strategy_feedback_reason,
-                            "persistent_priority_applied": persistent_priority_applied,
-                            "persistent_priority_reason": persistent_priority_reason,
-                        },
-                        agent=self.agent.name,
-                    )
-                )
-
-                if ":" in recovery_strategy:
-                    strategy_name = recovery_strategy.split(":", 1)[1]
-                    last_failed_strategy_by_reason[reason] = strategy_name
-                    if retryable and has_fallback:
-                        pending_recovery_outcome = (candidate_model, reason, strategy_name)
-
-                if index >= len(models) - 1:
-                    await emit_recovery_summary("failure", candidate_model, reason)
-                    await send_event(
-                        build_lifecycle_event(
-                            request_id=request_id,
-                            session_id=session_id,
-                            stage="model_fallback_exhausted",
-                            details={
-                                "model": candidate_model,
-                                "reason": reason,
-                            },
-                            agent=self.agent.name,
-                        )
-                    )
-                    raise
-
-                if not retryable:
-                    await emit_recovery_summary("failure", candidate_model, reason)
-                    await send_event(
-                        build_lifecycle_event(
-                            request_id=request_id,
-                            session_id=session_id,
-                            stage="model_fallback_not_retryable",
-                            details={
-                                "model": candidate_model,
-                                "reason": reason,
-                            },
-                            agent=self.agent.name,
-                        )
-                    )
-                    raise
-
-        if isinstance(last_error, LlmClientError):
-            await emit_recovery_summary("failure", models[-1], last_reason)
-            raise last_error
-        raise LlmClientError("Model routing failed before execution.")
+        return await machine.run()
 
     def _classify_failover_reason(self, message: str) -> str:
         text = (message or "").lower()
@@ -679,6 +275,120 @@ class PipelineRunner:
             return "retry_with_fallback"
         return "fail_fast_non_retryable"
 
+    async def _emit_recovery_summary_event(
+        self,
+        *,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+        attempts: int,
+        max_attempts: int,
+        recovery_failures_total: int,
+        recovery_reason_counts: dict[str, int],
+        recovery_branch_counts: dict[str, int],
+        recovery_strategy_counts: dict[str, int],
+        recovery_strategy_applied_total: int,
+        recovery_signal_priority_applied_total: int,
+        recovery_strategy_feedback_applied_total: int,
+        recovery_persistent_priority_applied_total: int,
+        recovery_overflow_retry_applied_total: int,
+        recovery_compaction_recovery_applied_total: int,
+        recovery_truncation_recovery_applied_total: int,
+        recovery_prompt_compaction_applied_total: int,
+        recovery_payload_truncation_applied_total: int,
+        final_outcome: str,
+        final_model: str,
+        final_reason: str,
+    ) -> None:
+        if recovery_failures_total <= 0:
+            return
+        await send_event(
+            build_lifecycle_event(
+                request_id=request_id,
+                session_id=session_id,
+                stage="model_recovery_summary",
+                details={
+                    "attempts": attempts,
+                    "max_attempts": max_attempts,
+                    "failures_total": recovery_failures_total,
+                    "unique_reasons": len(recovery_reason_counts),
+                    "reason_counts": recovery_reason_counts,
+                    "branch_counts": recovery_branch_counts,
+                    "strategy_counts": recovery_strategy_counts,
+                    "recovery_strategy_applied_total": recovery_strategy_applied_total,
+                    "signal_priority_applied_total": recovery_signal_priority_applied_total,
+                    "strategy_feedback_applied_total": recovery_strategy_feedback_applied_total,
+                    "persistent_priority_applied_total": recovery_persistent_priority_applied_total,
+                    "overflow_retry_applied_total": recovery_overflow_retry_applied_total,
+                    "compaction_recovery_applied_total": recovery_compaction_recovery_applied_total,
+                    "truncation_recovery_applied_total": recovery_truncation_recovery_applied_total,
+                    "prompt_compaction_applied_total": recovery_prompt_compaction_applied_total,
+                    "payload_truncation_applied_total": recovery_payload_truncation_applied_total,
+                    "final_outcome": final_outcome,
+                    "final_model": final_model,
+                    "final_reason": final_reason,
+                },
+                agent=self.agent.name,
+            )
+        )
+
+    def _resolve_priority_recovery_metadata(self, *, ctx: RecoveryContext) -> PriorityRecoveryMetadata:
+        (
+            priority_steps,
+            recovery_priority_overridden,
+            persistent_priority_applied,
+            persistent_priority_reason,
+        ) = self._resolve_recovery_priority_steps(
+            reason=ctx.reason,
+            runtime=ctx.runtime,
+            model_id=ctx.candidate_model,
+            reason_streak=ctx.reason_streak,
+            flip_enabled=ctx.recovery_priority_flip_enabled,
+            flip_threshold=ctx.recovery_priority_flip_threshold,
+            signal_priority_enabled=ctx.signal_priority_enabled,
+            health_score=ctx.health_score,
+            expected_latency_ms=ctx.expected_latency_ms,
+            cost_score=ctx.cost_score,
+            low_health_threshold=ctx.signal_low_health_threshold,
+            high_latency_ms=ctx.signal_high_latency_ms,
+            high_cost_threshold=ctx.signal_high_cost_threshold,
+            strategy_feedback_enabled=ctx.strategy_feedback_enabled,
+            last_failed_strategy_by_reason=ctx.last_failed_strategy_by_reason,
+            persistent_priority_enabled=ctx.persistent_priority_enabled,
+            persistent_priority_min_samples=ctx.persistent_priority_min_samples,
+        )
+        signal_priority_reason = self._resolve_signal_priority_reason(
+            reason=ctx.reason,
+            health_score=ctx.health_score,
+            expected_latency_ms=ctx.expected_latency_ms,
+            cost_score=ctx.cost_score,
+            low_health_threshold=ctx.signal_low_health_threshold,
+            high_latency_ms=ctx.signal_high_latency_ms,
+            high_cost_threshold=ctx.signal_high_cost_threshold,
+            enabled=ctx.signal_priority_enabled,
+        )
+        signal_priority_applied = signal_priority_reason in {
+            "low_health_prefer_fallback",
+            "high_latency_prefer_transform",
+            "high_cost_prefer_transform",
+        }
+        strategy_feedback_reason = self._resolve_strategy_feedback_reason(
+            reason=ctx.reason,
+            last_failed_strategy_by_reason=ctx.last_failed_strategy_by_reason,
+            enabled=ctx.strategy_feedback_enabled,
+        )
+        strategy_feedback_applied = strategy_feedback_reason.startswith("demote:")
+        return PriorityRecoveryMetadata(
+            priority_steps=priority_steps,
+            recovery_priority_overridden=recovery_priority_overridden,
+            persistent_priority_applied=persistent_priority_applied,
+            persistent_priority_reason=persistent_priority_reason,
+            signal_priority_applied=signal_priority_applied,
+            signal_priority_reason=signal_priority_reason,
+            strategy_feedback_applied=strategy_feedback_applied,
+            strategy_feedback_reason=strategy_feedback_reason,
+        )
+
     def _compact_user_message(self, user_message: str, *, target_ratio: float, min_chars: int) -> str:
         text = (user_message or "").strip()
         if not text:
@@ -711,268 +421,8 @@ class PipelineRunner:
             return truncated
         return truncated + suffix
 
-    def _resolve_recovery_strategy(
-        self,
-        *,
-        reason: str,
-        runtime: str,
-        candidate_model: str,
-        has_fallback: bool,
-        reason_streak: int,
-        current_user_message: str,
-        retryable: bool,
-        recovery_branch: str,
-        overflow_fallback_retry_enabled: bool,
-        overflow_fallback_retry_max_attempts: int,
-        overflow_fallback_retry_attempts: int,
-        compaction_failure_recovery_enabled: bool,
-        compaction_failure_recovery_max_attempts: int,
-        compaction_failure_recovery_attempts: int,
-        truncation_recovery_enabled: bool,
-        truncation_recovery_max_attempts: int,
-        truncation_recovery_attempts: int,
-        prompt_compaction_enabled: bool,
-        prompt_compaction_max_attempts: int,
-        prompt_compaction_attempts: int,
-        prompt_compaction_ratio: float,
-        prompt_compaction_min_chars: int,
-        payload_truncation_enabled: bool,
-        payload_truncation_max_attempts: int,
-        payload_truncation_attempts: int,
-        payload_truncation_target_chars: int,
-        payload_truncation_min_chars: int,
-        recovery_priority_flip_enabled: bool,
-        recovery_priority_flip_threshold: int,
-        signal_priority_enabled: bool,
-        signal_low_health_threshold: float,
-        signal_high_latency_ms: int,
-        signal_high_cost_threshold: float,
-        strategy_feedback_enabled: bool,
-        persistent_priority_enabled: bool,
-        persistent_priority_min_samples: int,
-        last_failed_strategy_by_reason: dict[str, str],
-        health_score: float,
-        expected_latency_ms: int,
-        cost_score: float,
-    ) -> RecoveryStrategyResolution:
-        prompt_compaction_previous_chars = len(current_user_message or "")
-        prompt_compaction_new_chars = prompt_compaction_previous_chars
-        payload_truncation_previous_chars = len(current_user_message or "")
-        payload_truncation_new_chars = payload_truncation_previous_chars
-        recovery_strategy = "none"
-        recovery_priority_overridden = False
-        signal_priority_applied = False
-        signal_priority_reason = "none"
-        strategy_feedback_applied = False
-        strategy_feedback_reason = "none"
-        persistent_priority_applied = False
-        persistent_priority_reason = "none"
-        overflow_retry_applied = False
-        compaction_recovery_applied = False
-        truncation_recovery_applied = False
-        prompt_compaction_applied = False
-        payload_truncation_applied = False
-
-        if reason == "context_overflow" and has_fallback:
-            (
-                priority_steps,
-                recovery_priority_overridden,
-                persistent_priority_applied,
-                persistent_priority_reason,
-            ) = self._resolve_recovery_priority_steps(
-                reason=reason,
-                runtime=runtime,
-                model_id=candidate_model,
-                reason_streak=reason_streak,
-                flip_enabled=recovery_priority_flip_enabled,
-                flip_threshold=recovery_priority_flip_threshold,
-                signal_priority_enabled=signal_priority_enabled,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=signal_low_health_threshold,
-                high_latency_ms=signal_high_latency_ms,
-                high_cost_threshold=signal_high_cost_threshold,
-                strategy_feedback_enabled=strategy_feedback_enabled,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-                persistent_priority_enabled=persistent_priority_enabled,
-                persistent_priority_min_samples=persistent_priority_min_samples,
-            )
-            signal_priority_reason = self._resolve_signal_priority_reason(
-                reason=reason,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=signal_low_health_threshold,
-                high_latency_ms=signal_high_latency_ms,
-                high_cost_threshold=signal_high_cost_threshold,
-                enabled=signal_priority_enabled,
-            )
-            signal_priority_applied = signal_priority_reason in {
-                "low_health_prefer_fallback",
-                "high_latency_prefer_transform",
-                "high_cost_prefer_transform",
-            }
-            strategy_feedback_reason = self._resolve_strategy_feedback_reason(
-                reason=reason,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-                enabled=strategy_feedback_enabled,
-            )
-            strategy_feedback_applied = strategy_feedback_reason.startswith("demote:")
-
-            for step in priority_steps:
-                if step == "prompt_compaction":
-                    if not (
-                        prompt_compaction_enabled and prompt_compaction_attempts < prompt_compaction_max_attempts
-                    ):
-                        continue
-                    compacted_message = self._compact_user_message(
-                        current_user_message,
-                        target_ratio=prompt_compaction_ratio,
-                        min_chars=prompt_compaction_min_chars,
-                    )
-                    if compacted_message == current_user_message:
-                        continue
-                    prompt_compaction_attempts += 1
-                    current_user_message = compacted_message
-                    retryable = True
-                    prompt_compaction_applied = True
-                    prompt_compaction_new_chars = len(current_user_message)
-                    recovery_branch = "guarded_prompt_compaction_recovery"
-                    recovery_strategy = "context_overflow:prompt_compaction"
-                    break
-                if step == "overflow_fallback_retry":
-                    if not (
-                        overflow_fallback_retry_enabled
-                        and overflow_fallback_retry_attempts < overflow_fallback_retry_max_attempts
-                    ):
-                        continue
-                    overflow_fallback_retry_attempts += 1
-                    retryable = True
-                    overflow_retry_applied = True
-                    recovery_branch = "guarded_context_overflow_fallback_retry"
-                    recovery_strategy = "context_overflow:fallback_retry"
-                    break
-
-        elif (
-            reason == "compaction_failure"
-            and has_fallback
-            and compaction_failure_recovery_enabled
-            and compaction_failure_recovery_attempts < compaction_failure_recovery_max_attempts
-        ):
-            compaction_failure_recovery_attempts += 1
-            retryable = True
-            compaction_recovery_applied = True
-            recovery_branch = "guarded_compaction_failure_recovery"
-            recovery_strategy = "compaction_failure:fallback_retry"
-
-        elif reason == "truncation_required" and has_fallback:
-            (
-                priority_steps,
-                recovery_priority_overridden,
-                persistent_priority_applied,
-                persistent_priority_reason,
-            ) = self._resolve_recovery_priority_steps(
-                reason=reason,
-                runtime=runtime,
-                model_id=candidate_model,
-                reason_streak=reason_streak,
-                flip_enabled=recovery_priority_flip_enabled,
-                flip_threshold=recovery_priority_flip_threshold,
-                signal_priority_enabled=signal_priority_enabled,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=signal_low_health_threshold,
-                high_latency_ms=signal_high_latency_ms,
-                high_cost_threshold=signal_high_cost_threshold,
-                strategy_feedback_enabled=strategy_feedback_enabled,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-                persistent_priority_enabled=persistent_priority_enabled,
-                persistent_priority_min_samples=persistent_priority_min_samples,
-            )
-            signal_priority_reason = self._resolve_signal_priority_reason(
-                reason=reason,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=signal_low_health_threshold,
-                high_latency_ms=signal_high_latency_ms,
-                high_cost_threshold=signal_high_cost_threshold,
-                enabled=signal_priority_enabled,
-            )
-            signal_priority_applied = signal_priority_reason in {
-                "low_health_prefer_fallback",
-                "high_latency_prefer_transform",
-                "high_cost_prefer_transform",
-            }
-            strategy_feedback_reason = self._resolve_strategy_feedback_reason(
-                reason=reason,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-                enabled=strategy_feedback_enabled,
-            )
-            strategy_feedback_applied = strategy_feedback_reason.startswith("demote:")
-            for step in priority_steps:
-                if step == "payload_truncation":
-                    if not (
-                        payload_truncation_enabled
-                        and payload_truncation_attempts < payload_truncation_max_attempts
-                    ):
-                        continue
-                    truncated_message = self._truncate_payload_for_retry(
-                        current_user_message,
-                        target_chars=payload_truncation_target_chars,
-                        min_chars=payload_truncation_min_chars,
-                    )
-                    if truncated_message == current_user_message:
-                        continue
-                    payload_truncation_attempts += 1
-                    current_user_message = truncated_message
-                    retryable = True
-                    payload_truncation_applied = True
-                    payload_truncation_new_chars = len(current_user_message)
-                    recovery_branch = "guarded_payload_truncation_recovery"
-                    recovery_strategy = "truncation_required:payload_truncation"
-                    break
-                if step == "truncation_fallback_retry":
-                    if not (
-                        truncation_recovery_enabled and truncation_recovery_attempts < truncation_recovery_max_attempts
-                    ):
-                        continue
-                    truncation_recovery_attempts += 1
-                    retryable = True
-                    truncation_recovery_applied = True
-                    recovery_branch = "guarded_truncation_recovery"
-                    recovery_strategy = "truncation_required:fallback_retry"
-                    break
-
-        return RecoveryStrategyResolution(
-            retryable=retryable,
-            recovery_branch=recovery_branch,
-            recovery_strategy=recovery_strategy,
-            current_user_message=current_user_message,
-            overflow_fallback_retry_attempts=overflow_fallback_retry_attempts,
-            compaction_failure_recovery_attempts=compaction_failure_recovery_attempts,
-            truncation_recovery_attempts=truncation_recovery_attempts,
-            prompt_compaction_attempts=prompt_compaction_attempts,
-            payload_truncation_attempts=payload_truncation_attempts,
-            overflow_retry_applied=overflow_retry_applied,
-            compaction_recovery_applied=compaction_recovery_applied,
-            truncation_recovery_applied=truncation_recovery_applied,
-            prompt_compaction_applied=prompt_compaction_applied,
-            payload_truncation_applied=payload_truncation_applied,
-            recovery_priority_overridden=recovery_priority_overridden,
-            signal_priority_applied=signal_priority_applied,
-            signal_priority_reason=signal_priority_reason,
-            strategy_feedback_applied=strategy_feedback_applied,
-            strategy_feedback_reason=strategy_feedback_reason,
-            persistent_priority_applied=persistent_priority_applied,
-            persistent_priority_reason=persistent_priority_reason,
-            prompt_compaction_previous_chars=prompt_compaction_previous_chars,
-            prompt_compaction_new_chars=prompt_compaction_new_chars,
-            payload_truncation_previous_chars=payload_truncation_previous_chars,
-            payload_truncation_new_chars=payload_truncation_new_chars,
-        )
+    def _resolve_recovery_strategy(self, *, ctx: RecoveryContext) -> RecoveryStrategyResolution:
+        return self._recovery_strategy_resolver.resolve(ctx=ctx)
 
     def _resolve_recovery_priority_steps(
         self,
@@ -1000,9 +450,9 @@ class PipelineRunner:
 
         if reason == "context_overflow":
             raw_priority = (
-                getattr(settings, "pipeline_runner_context_overflow_priority_api", [])
+                settings.pipeline_runner_context_overflow_priority_api
                 if is_api
-                else getattr(settings, "pipeline_runner_context_overflow_priority_local", [])
+                else settings.pipeline_runner_context_overflow_priority_local
             )
             fallback = (
                 ("overflow_fallback_retry", "prompt_compaction")
@@ -1049,9 +499,9 @@ class PipelineRunner:
 
         if reason == "truncation_required":
             raw_priority = (
-                getattr(settings, "pipeline_runner_truncation_priority_api", [])
+                settings.pipeline_runner_truncation_priority_api
                 if is_api
-                else getattr(settings, "pipeline_runner_truncation_priority_local", [])
+                else settings.pipeline_runner_truncation_priority_local
             )
             fallback = (
                 ("truncation_fallback_retry", "payload_truncation")
@@ -1383,10 +833,10 @@ class PipelineRunner:
 
         weighted_success = float(success)
         weighted_failure = float(failure)
-        if getattr(settings, "pipeline_runner_persistent_priority_decay_enabled", True):
+        if settings.pipeline_runner_persistent_priority_decay_enabled:
             half_life = max(
                 1,
-                int(getattr(settings, "pipeline_runner_persistent_priority_decay_half_life_seconds", 86400)),
+                int(settings.pipeline_runner_persistent_priority_decay_half_life_seconds),
             )
             last_updated_raw = strategy_bucket.get("last_updated_ts", 0)
             try:
@@ -1407,11 +857,11 @@ class PipelineRunner:
 
         max_age_seconds = max(
             1,
-            int(getattr(settings, "pipeline_runner_persistent_priority_window_max_age_seconds", 604800)),
+            int(settings.pipeline_runner_persistent_priority_window_max_age_seconds),
         )
         window_size = max(
             1,
-            int(getattr(settings, "pipeline_runner_persistent_priority_window_size", 50)),
+            int(settings.pipeline_runner_persistent_priority_window_size),
         )
         now_ts = time.time()
         cutoff = now_ts - float(max_age_seconds)
@@ -1449,10 +899,10 @@ class PipelineRunner:
     def _compute_weighted_event_stats(self, events: list[dict[str, object]]) -> tuple[float, float]:
         weighted_success = 0.0
         weighted_failure = 0.0
-        decay_enabled = bool(getattr(settings, "pipeline_runner_persistent_priority_decay_enabled", True))
+        decay_enabled = bool(settings.pipeline_runner_persistent_priority_decay_enabled)
         half_life = max(
             1,
-            int(getattr(settings, "pipeline_runner_persistent_priority_decay_half_life_seconds", 86400)),
+            int(settings.pipeline_runner_persistent_priority_decay_half_life_seconds),
         )
         now_ts = time.time()
 

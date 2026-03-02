@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sys
 import socket
@@ -61,13 +62,13 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
             self.headers = {"Content-Type": "text/html; charset=utf-8"}
             self.encoding = "utf-8"
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def iter_bytes(self):
+        async def aiter_bytes(self):
             yield (
                 b"<html><head><title>Best LLMs 2026</title><style>.x{}</style></head>"
                 b"<body><script>ignored()</script><h1>Rankings</h1><p>Model A leads.</p></body></html>"
@@ -77,10 +78,10 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
         def __init__(self, *args, **kwargs):
             return
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        async def __aexit__(self, exc_type, exc, tb):
             return False
 
         def stream(self, _method: str, _url: str):
@@ -92,9 +93,9 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
         ]
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
-    monkeypatch.setattr(tools_module.httpx, "Client", _FakeClient)
+    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
 
-    result = tooling.web_fetch("https://example.com/models", max_chars=4000)
+    result = asyncio.run(tooling.web_fetch("https://example.com/models", max_chars=4000))
 
     assert "source_url: https://example.com/models" in result
     assert "content_type: text/html; charset=utf-8" in result
@@ -107,7 +108,7 @@ def test_web_fetch_rejects_non_http_scheme(tmp_path: Path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
 
     try:
-        tooling.web_fetch("file:///etc/passwd")
+        asyncio.run(tooling.web_fetch("file:///etc/passwd"))
         assert False, "Expected ToolExecutionError"
     except Exception as exc:
         assert "http/https" in str(exc)
@@ -121,23 +122,24 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
         headers = {}
         encoding = "utf-8"
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def iter_bytes(self):
-            return iter(())
+        async def aiter_bytes(self):
+            if False:
+                yield b""
 
     class _FakeClient:
         def __init__(self, *args, **kwargs):
             return
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        async def __aexit__(self, exc_type, exc, tb):
             return False
 
         def stream(self, _method: str, _url: str):
@@ -149,10 +151,10 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
         ]
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
-    monkeypatch.setattr(tools_module.httpx, "Client", _FakeClient)
+    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
 
     try:
-        tooling.web_fetch("https://example.com/missing")
+        asyncio.run(tooling.web_fetch("https://example.com/missing"))
         assert False, "Expected ToolExecutionError"
     except Exception as exc:
         text = str(exc)

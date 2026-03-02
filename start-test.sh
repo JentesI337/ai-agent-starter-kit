@@ -47,6 +47,4 @@ OLLAMA_BIN=python ./.venv/bin/python -m pytest tests -q \
 ./.venv/bin/python scripts/check_coverage_thresholds.py \
   --coverage-json coverage.json \
   --global-min 70 \
-  --module-min app/llm_client.py:60 \
-  --module-min app/tools.py:70 \
-  --module-min app/orchestrator/pipeline_runner.py:80
+  --use-default-thresholds

@@ -28,6 +28,10 @@ class AgentTooling:
         self._background_jobs: dict[str, dict] = {}
         self._bg_lock = threading.Lock()
         self._web_fetch_max_redirects = 3
+        self._web_fetch_max_download_bytes = max(1_000, int(settings.web_fetch_max_download_bytes))
+        self._web_fetch_blocked_content_types = tuple(
+            item.strip().lower() for item in settings.web_fetch_blocked_content_types if item.strip()
+        )
         self._read_file_max_bytes = 1_000_000
         self._grep_max_file_bytes = 1_000_000
         self._grep_max_total_scan_bytes = 8_000_000
@@ -234,7 +238,7 @@ class AgentTooling:
                 pass
         return f"Killed background job: {job_id}"
 
-    def web_fetch(self, url: str, max_chars: int = 12000) -> str:
+    async def web_fetch(self, url: str, max_chars: int = 12000) -> str:
         requested_url = (url or "").strip()
         if not requested_url:
             raise ToolExecutionError("web_fetch requires non-empty URL.")
@@ -246,7 +250,7 @@ class AgentTooling:
         text = ""
 
         try:
-            with httpx.Client(
+            async with httpx.AsyncClient(
                 timeout=15.0,
                 follow_redirects=False,
                 headers={"User-Agent": "ai-agent-starter-kit/1.0"},
@@ -254,7 +258,7 @@ class AgentTooling:
                 while True:
                     self._enforce_safe_web_target(current_url)
 
-                    with client.stream("GET", current_url) as response:
+                    async with client.stream("GET", current_url) as response:
                         status = int(response.status_code)
 
                         if 300 <= status < 400:
@@ -275,11 +279,35 @@ class AgentTooling:
                             raise ToolExecutionError(f"web_fetch failed with HTTP {status} for url={current_url}")
 
                         content_type = str(response.headers.get("Content-Type", "")).strip() or "unknown"
+                        lowered_content_type = content_type.lower()
+                        if any(blocked in lowered_content_type for blocked in self._web_fetch_blocked_content_types):
+                            raise ToolExecutionError(
+                                f"web_fetch blocked content-type: {content_type}"
+                            )
+
+                        content_length_header = str(response.headers.get("Content-Length", "")).strip()
+                        if content_length_header:
+                            try:
+                                content_length = int(content_length_header)
+                            except ValueError:
+                                content_length = 0
+                            if content_length > self._web_fetch_max_download_bytes:
+                                raise ToolExecutionError(
+                                    "web_fetch response too large: "
+                                    f"{content_length} bytes "
+                                    f"(max {self._web_fetch_max_download_bytes})"
+                                )
+
                         chunks: list[bytes] = []
                         total = 0
-                        for chunk in response.iter_bytes():
+                        async for chunk in response.aiter_bytes():
                             if not chunk:
                                 continue
+                            if total + len(chunk) > self._web_fetch_max_download_bytes:
+                                raise ToolExecutionError(
+                                    "web_fetch response exceeded max download size "
+                                    f"({self._web_fetch_max_download_bytes} bytes)"
+                                )
                             remaining = (limit + 1) - total
                             if remaining <= 0:
                                 break

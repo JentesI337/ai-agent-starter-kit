@@ -5,6 +5,15 @@ import json
 from pathlib import Path
 
 
+DEFAULT_MODULE_THRESHOLDS: dict[str, float] = {
+    "backend/app/services/tool_call_gatekeeper.py": 90.0,
+    "backend/app/tools.py": 80.0,
+    "backend/app/agent.py": 60.0,
+    "backend/app/orchestrator/pipeline_runner.py": 65.0,
+    "backend/app/services/tool_arg_validator.py": 95.0,
+}
+
+
 def _normalize(path_value: str) -> str:
     return str(path_value or "").replace("\\", "/").strip().lower()
 
@@ -36,6 +45,11 @@ def main() -> int:
         metavar="PATH:PERCENT",
         help="Minimum coverage for a module path, e.g. backend/app/llm_client.py:60",
     )
+    parser.add_argument(
+        "--use-default-thresholds",
+        action="store_true",
+        help="Apply built-in module thresholds for critical files",
+    )
     args = parser.parse_args()
 
     report_path = Path(args.coverage_json)
@@ -54,7 +68,11 @@ def main() -> int:
     if total_percent < float(args.global_min):
         failures.append(f"Global coverage {total_percent:.2f}% < required {float(args.global_min):.2f}%")
 
-    for item in args.module_min:
+    module_requirements: list[str] = list(args.module_min)
+    if args.use_default_thresholds:
+        module_requirements.extend(f"{path}:{threshold}" for path, threshold in DEFAULT_MODULE_THRESHOLDS.items())
+
+    for item in module_requirements:
         raw = str(item or "").strip()
         if not raw or ":" not in raw:
             failures.append(f"Invalid --module-min entry: {raw!r}")

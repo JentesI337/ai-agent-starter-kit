@@ -5,7 +5,7 @@ import re
 from app.agent import CoderAgent, HeadAgent, ReviewAgent
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
-from app.contracts.schemas import CoderAgentInput, CoderAgentOutput, HeadAgentInput, HeadAgentOutput
+from app.contracts.schemas import AgentInput, CoderAgentOutput, HeadAgentOutput
 from app.tool_policy import ToolPolicyDict
 
 
@@ -21,7 +21,7 @@ def _build_constraints(*, temperature: float, reflection_passes: int) -> AgentCo
 
 class HeadAgentAdapter(AgentContract):
     role = "head-agent"
-    input_schema = HeadAgentInput
+    input_schema = AgentInput
     output_schema = HeadAgentOutput
 
     def __init__(self, delegate: HeadAgent | None = None):
@@ -71,7 +71,7 @@ class HeadAgentAdapter(AgentContract):
 
 class CoderAgentAdapter(AgentContract):
     role = "coding-agent"
-    input_schema = CoderAgentInput
+    input_schema = AgentInput
     output_schema = CoderAgentOutput
 
     def __init__(self, delegate: CoderAgent | None = None):
@@ -121,7 +121,7 @@ class CoderAgentAdapter(AgentContract):
 
 class ReviewAgentAdapter(AgentContract):
     role = "review-agent"
-    input_schema = HeadAgentInput
+    input_schema = AgentInput
     output_schema = HeadAgentOutput
 
     _MANDATORY_DENY = {

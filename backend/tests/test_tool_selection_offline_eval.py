@@ -148,6 +148,29 @@ def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
     assert attempts["count"] == 2
 
 
+def test_run_tool_with_policy_accepts_sync_invoke_returning_awaitable(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+
+    async def _awaitable_result() -> str:
+        return "ok-awaitable"
+
+    def fake_invoke(tool: str, args: dict):
+        _ = (tool, args)
+        return _awaitable_result()
+
+    monkeypatch.setattr(agent, "_invoke_tool", fake_invoke)
+
+    result = asyncio.run(
+        agent._run_tool_with_policy(
+            tool="run_command",
+            args={"command": "echo hi"},
+            policy=agent._build_execution_policy("run_command"),
+        )
+    )
+
+    assert result == "ok-awaitable"
+
+
 def test_offline_tool_call_accuracy_curated_set() -> None:
     agent = HeadCodingAgent()
     cases = [
@@ -210,9 +233,9 @@ def test_augment_actions_adds_followup_for_file_task() -> None:
         try:
             return await agent._augment_actions_if_needed(
                 actions=[],
-                user_message="make a calculator with html css and javascript",
+                user_message="create a file for a calculator with html css and javascript",
                 plan_text="create files",
-                memory_context="- user: make calculator",
+                memory_context="- user: create a file for calculator",
                 send_event=send_event,
                 request_id="r1",
                 session_id="s1",
@@ -225,6 +248,13 @@ def test_augment_actions_adds_followup_for_file_task() -> None:
     result_actions = asyncio.run(run_case())
 
     assert any(action.get("tool") == "write_file" for action in result_actions)
+
+
+def test_is_file_creation_task_requires_explicit_file_phrase() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._is_file_creation_task("Please explain JavaScript closures") is False
+    assert agent._is_file_creation_task("create a file with hello world") is True
 
 
 def test_augment_actions_followup_uses_prompt_profile_tool_selector_prompt(monkeypatch) -> None:

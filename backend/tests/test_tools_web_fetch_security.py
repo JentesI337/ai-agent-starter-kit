@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import socket
 
 import pytest
@@ -16,13 +17,13 @@ class _FakeResponse:
         self._body = body
         self.encoding = "utf-8"
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    def iter_bytes(self):
+    async def aiter_bytes(self):
         if self._body:
             yield self._body
 
@@ -32,10 +33,10 @@ class _FakeClient:
         self._responses = responses
         self._called_urls = called_urls
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         return False
 
     def stream(self, method: str, url: str):
@@ -51,13 +52,13 @@ def _patch_client(monkeypatch, responses: dict[str, _FakeResponse], called_urls:
         def __init__(self, *args, **kwargs):
             self._client = _FakeClient(responses=responses, called_urls=called_urls)
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self._client
 
-        def __exit__(self, exc_type, exc, tb):
+        async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(tools_module.httpx, "Client", _ClientFactory)
+    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _ClientFactory)
 
 
 def _public_getaddrinfo(host: str, port: int, *args, **kwargs):
@@ -70,7 +71,7 @@ def test_web_fetch_blocks_localhost(tmp_path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
 
     with pytest.raises(ToolExecutionError, match="blocked hostname"):
-        tooling.web_fetch("http://localhost:8080/health")
+        asyncio.run(tooling.web_fetch("http://localhost:8080/health"))
 
 
 def test_web_fetch_blocks_private_dns_resolution(monkeypatch, tmp_path) -> None:
@@ -84,7 +85,7 @@ def test_web_fetch_blocks_private_dns_resolution(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _private_getaddrinfo)
 
     with pytest.raises(ToolExecutionError, match="blocked non-public resolved IP"):
-        tooling.web_fetch("https://example.com")
+        asyncio.run(tooling.web_fetch("https://example.com"))
 
 
 def test_web_fetch_enforces_redirect_limit(monkeypatch, tmp_path) -> None:
@@ -102,7 +103,7 @@ def test_web_fetch_enforces_redirect_limit(monkeypatch, tmp_path) -> None:
     _patch_client(monkeypatch, responses, called_urls)
 
     with pytest.raises(ToolExecutionError, match="redirect limit exceeded"):
-        tooling.web_fetch("https://a.example/start")
+        asyncio.run(tooling.web_fetch("https://a.example/start"))
 
     assert called_urls == [
         "https://a.example/start",
@@ -131,9 +132,50 @@ def test_web_fetch_allows_public_target_and_follows_safe_redirect(monkeypatch, t
     }
     _patch_client(monkeypatch, responses, called_urls)
 
-    result = tooling.web_fetch("https://example.com/start")
+    result = asyncio.run(tooling.web_fetch("https://example.com/start"))
 
     assert "source_url: https://example.org/final" in result
     assert "content_type: text/plain" in result
     assert "hello from public web" in result
     assert called_urls == ["https://example.com/start", "https://example.org/final"]
+
+
+def test_web_fetch_blocks_large_content_length_header(monkeypatch, tmp_path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    called_urls: list[str] = []
+
+    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+
+    responses = {
+        "https://example.com/huge": _FakeResponse(
+            status_code=200,
+            headers={
+                "Content-Type": "text/plain",
+                "Content-Length": str((5 * 1024 * 1024) + 1),
+            },
+            body=b"ignored",
+        ),
+    }
+    _patch_client(monkeypatch, responses, called_urls)
+
+    with pytest.raises(ToolExecutionError, match="response too large"):
+        asyncio.run(tooling.web_fetch("https://example.com/huge"))
+
+
+def test_web_fetch_blocks_binary_content_type(monkeypatch, tmp_path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    called_urls: list[str] = []
+
+    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+
+    responses = {
+        "https://example.com/archive": _FakeResponse(
+            status_code=200,
+            headers={"Content-Type": "application/zip"},
+            body=b"PK\x03\x04",
+        ),
+    }
+    _patch_client(monkeypatch, responses, called_urls)
+
+    with pytest.raises(ToolExecutionError, match="blocked content-type"):
+        asyncio.run(tooling.web_fetch("https://example.com/archive"))

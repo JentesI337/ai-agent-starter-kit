@@ -34,6 +34,12 @@ class LlmClient:
         base = self.base_url.lower().rstrip("/")
         return base.endswith("/api")
 
+    @property
+    def supports_function_calling(self) -> bool:
+        if self._is_native_ollama_api():
+            return False
+        return True
+
     def _require_non_empty_completion(self, *, content: str, model: str, endpoint: str) -> str:
         text = (content or "").strip()
         if text:
@@ -269,6 +275,116 @@ class LlmClient:
         except httpx.HTTPError as exc:
             logger.warning("llm_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
+
+    async def complete_chat_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        allowed_tools: list[str],
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> list[dict]:
+        if not self.supports_function_calling:
+            return []
+
+        active_model = model or self.model
+        normalized_temperature = self._normalize_temperature(temperature)
+        tool_definitions = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": f"Execute tool '{tool_name}'",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": True,
+                    },
+                },
+            }
+            for tool_name in allowed_tools
+            if isinstance(tool_name, str) and tool_name.strip()
+        ]
+        if not tool_definitions:
+            return []
+
+        payload = {
+            "model": active_model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "tools": tool_definitions,
+            "tool_choice": "auto",
+        }
+        if normalized_temperature is not None:
+            payload["temperature"] = normalized_temperature
+
+        headers = self._build_headers()
+        url = f"{self.base_url}/chat/completions"
+
+        try:
+            for attempt in range(1, MAX_RETRIES + 1):
+                async with httpx.AsyncClient(timeout=120) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    if response.status_code >= 400:
+                        logger.warning(
+                            "llm_tools_http_error url=%s model=%s status=%s attempt=%s body=%s",
+                            url,
+                            active_model,
+                            response.status_code,
+                            attempt,
+                            response.text[:300],
+                        )
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                            continue
+                        raise LlmClientError(
+                            f"LLM request failed ({response.status_code}): {response.text[:600]}"
+                        )
+
+                    data = response.json()
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    if not isinstance(choices, list) or not choices:
+                        return []
+                    message = (choices[0] or {}).get("message")
+                    if not isinstance(message, dict):
+                        return []
+                    tool_calls = message.get("tool_calls")
+                    if not isinstance(tool_calls, list):
+                        return []
+
+                    actions: list[dict] = []
+                    for tool_call in tool_calls:
+                        if not isinstance(tool_call, dict):
+                            continue
+                        function_payload = tool_call.get("function")
+                        if not isinstance(function_payload, dict):
+                            continue
+                        tool_name = str(function_payload.get("name", "")).strip()
+                        if not tool_name:
+                            continue
+                        raw_arguments = function_payload.get("arguments")
+                        parsed_args: dict = {}
+                        if isinstance(raw_arguments, str) and raw_arguments.strip():
+                            try:
+                                parsed = json.loads(raw_arguments)
+                            except Exception:
+                                parsed = {}
+                            if isinstance(parsed, dict):
+                                parsed_args = parsed
+                        actions.append({"tool": tool_name, "args": parsed_args})
+
+                    return actions
+        except httpx.TimeoutException as exc:
+            logger.warning("llm_tools_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
+            raise LlmClientError(f"LLM timeout: {exc}") from exc
+        except httpx.HTTPError as exc:
+            logger.warning("llm_tools_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
+            raise LlmClientError(f"LLM HTTP error: {exc}") from exc
+        return []
 
     async def _complete_chat_ollama(
         self,

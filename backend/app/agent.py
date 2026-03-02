@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from time import monotonic
 from typing import Callable, Awaitable
-from urllib.parse import quote_plus
 
 from app.agents.planner_agent import PlannerAgent
 from app.agents.synthesizer_agent import SynthesizerAgent
 from app.agents.tool_selector_agent import ToolSelectorAgent
+from app.contracts.tool_selector_runtime import ToolSelectorRuntime
 from app.config import settings
+from app.contracts.tool_protocol import ToolProvider
 from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
 from app.errors import GuardrailViolation, ToolExecutionError
 from app.llm_client import LlmClient
@@ -26,10 +28,15 @@ from app.orchestrator.step_executors import (
     ToolStepExecutor,
 )
 from app.services.tool_call_gatekeeper import (
-    ToolCallGatekeeper,
     collect_policy_override_candidates,
-    prepare_action_for_execution,
 )
+from app.services.action_parser import ActionParser
+from app.services.action_augmenter import ActionAugmenter
+from app.services.intent_detector import IntentDetector
+from app.services.reply_shaper import ReplyShaper
+from app.services.tool_arg_validator import ToolArgValidator
+from app.services.tool_execution_manager import ToolExecutionManager
+from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, build_default_tool_registry
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
@@ -41,22 +48,6 @@ SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str]]
 PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    required_args: tuple[str, ...]
-    optional_args: tuple[str, ...]
-    timeout_seconds: float
-    max_retries: int
-
-
-@dataclass(frozen=True)
-class ToolExecutionPolicy:
-    retry_class: str
-    timeout_seconds: float
-    max_retries: int
 
 
 @dataclass(frozen=True)
@@ -85,6 +76,35 @@ class PromptProfile:
     final_prompt: str
 
 
+class _HeadToolSelectorRuntime(ToolSelectorRuntime):
+    def __init__(self, owner: HeadAgent):
+        self._owner_ref: weakref.ReferenceType[HeadAgent] = weakref.ref(owner)
+
+    async def run_tools(
+        self,
+        *,
+        payload: ToolSelectorInput,
+        session_id: str,
+        request_id: str,
+        send_event: SendEvent,
+        model: str | None,
+        allowed_tools: set[str],
+    ) -> str:
+        owner = self._owner_ref()
+        if owner is None:
+            raise RuntimeError("HeadAgent is no longer available for tool selection runtime.")
+        return await owner._execute_tools(
+            payload.user_message,
+            payload.plan_text,
+            payload.reduced_context,
+            session_id,
+            request_id,
+            send_event,
+            model,
+            allowed_tools,
+        )
+
+
 class HeadAgent:
     def __init__(
         self,
@@ -92,7 +112,7 @@ class HeadAgent:
         role: str = "head-agent",
         client: LlmClient | None = None,
         memory: MemoryStore | None = None,
-        tools: AgentTooling | None = None,
+        tools: ToolProvider | None = None,
         model_registry: ModelRegistry | None = None,
         context_reducer: ContextReducer | None = None,
         spawn_subrun_handler: SpawnSubrunHandler | None = None,
@@ -133,8 +153,13 @@ class HeadAgent:
                 max_prompt_chars=max(1000, int(settings.skills_max_prompt_chars)),
             )
         )
+        self._action_parser = ActionParser()
+        self._action_augmenter = ActionAugmenter()
+        self._intent_detector = IntentDetector()
+        self._reply_shaper = ReplyShaper()
+        self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
-        self._tool_arg_validators = self._build_tool_arg_validators()
+        self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
         self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
         self._build_sub_agents()
@@ -144,7 +169,7 @@ class HeadAgent:
 
     def _build_sub_agents(self) -> None:
         self.planner_agent = PlannerAgent(client=self.client, system_prompt=self.prompt_profile.plan_prompt)
-        self.tool_selector_agent = ToolSelectorAgent(execute_tools_fn=self._execute_tools)
+        self.tool_selector_agent = ToolSelectorAgent(runtime=_HeadToolSelectorRuntime(self))
         self.synthesizer_agent = SynthesizerAgent(
             client=self.client,
             agent_name=self.name,
@@ -233,7 +258,6 @@ class HeadAgent:
             model=model,
         )
         self.planner_agent.configure_runtime(base_url=base_url, model=model)
-        self.tool_selector_agent.configure_runtime(base_url=base_url, model=model)
         self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
 
     def set_spawn_subrun_handler(self, handler: SpawnSubrunHandler | None) -> None:
@@ -371,7 +395,7 @@ class HeadAgent:
                 stage="planning_completed",
                 request_id=request_id,
                 session_id=session_id,
-                details={"plan_chars": len(plan_text)},
+                details={"plan_chars": len(plan_text), "iteration": 0},
             )
             self.memory.add(session_id, "plan", plan_text)
             await send_event(
@@ -382,25 +406,66 @@ class HeadAgent:
                 }
             )
 
-            tool_context = self.context_reducer.reduce(
-                budget_tokens=budgets["tool"],
-                user_message=user_message,
-                memory_lines=memory_lines,
-                tool_outputs=[plan_text],
-            )
-
-            tool_results = await self.tool_step_executor.execute(
-                ToolSelectorInput(
+            max_replan_iterations = max(1, int(settings.run_max_replan_iterations))
+            tool_results = ""
+            for iteration in range(max_replan_iterations):
+                tool_context_outputs = [plan_text]
+                if tool_results:
+                    tool_context_outputs.append(tool_results)
+                tool_context = self.context_reducer.reduce(
+                    budget_tokens=budgets["tool"],
                     user_message=user_message,
-                    plan_text=plan_text,
-                    reduced_context=tool_context.rendered,
-                ),
-                session_id,
-                request_id,
-                send_event,
-                model,
-                effective_allowed_tools,
-            )
+                    memory_lines=memory_lines,
+                    tool_outputs=tool_context_outputs,
+                )
+
+                tool_results = await self.tool_step_executor.execute(
+                    ToolSelectorInput(
+                        user_message=user_message,
+                        plan_text=plan_text,
+                        reduced_context=tool_context.rendered,
+                    ),
+                    session_id,
+                    request_id,
+                    send_event,
+                    model,
+                    effective_allowed_tools,
+                )
+
+                if self._plan_still_valid(plan_text, tool_results):
+                    break
+
+                if iteration >= max_replan_iterations - 1:
+                    break
+
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="replanning_started",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"iteration": iteration + 1, "reason": "tool_results_invalidated_plan"},
+                )
+                replan_context = self.context_reducer.reduce(
+                    budget_tokens=budgets["plan"],
+                    user_message=user_message,
+                    memory_lines=memory_lines,
+                    tool_outputs=[plan_text, tool_results] if tool_results else [plan_text],
+                )
+                plan_text = await self.plan_step_executor.execute(
+                    PlannerInput(
+                        user_message=user_message,
+                        reduced_context=replan_context.rendered,
+                    ),
+                    model,
+                )
+                self.memory.add(session_id, "plan", plan_text)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="replanning_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"iteration": iteration + 1, "plan_chars": len(plan_text)},
+                )
 
             blocked_payload = self._parse_blocked_tool_result(tool_results)
             if blocked_payload is not None:
@@ -587,7 +652,7 @@ class HeadAgent:
         model: str | None,
         allowed_tools: set[str],
     ) -> str:
-        tool_output = await self.tool_selector_agent.execute(
+        tool_selector_output = await self.tool_selector_agent.execute(
             payload,
             session_id=session_id,
             request_id=request_id,
@@ -595,7 +660,7 @@ class HeadAgent:
             model=model,
             allowed_tools=allowed_tools,
         )
-        return tool_output.tool_results
+        return tool_selector_output.tool_results
 
     async def _execute_synthesize_step(
         self,
@@ -757,850 +822,158 @@ class HeadAgent:
         model: str | None,
         allowed_tools: set[str],
     ) -> str:
-        effective_allowed_tools = set(allowed_tools)
-        allowed_text = "|".join(sorted(effective_allowed_tools)) if effective_allowed_tools else "(none)"
-        await self._emit_lifecycle(
-            send_event,
-            stage="tool_selection_started",
-            request_id=request_id,
-            session_id=session_id,
-        )
-        if not effective_allowed_tools:
+        async def _emit_lifecycle_proxy(stage: str, details: dict | None = None) -> None:
+            await self._emit_lifecycle(
+                send_event,
+                stage=stage,
+                request_id=request_id,
+                session_id=session_id,
+                details=details,
+            )
+
+        async def _emit_tool_selection_empty_proxy(reason: str, details: dict | None = None) -> None:
             await self._emit_tool_selection_empty(
                 send_event=send_event,
                 request_id=request_id,
                 session_id=session_id,
-                reason="policy_block",
-                details={"blocked_with_reason": "no_tools_allowed"},
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_skipped",
-                request_id=request_id,
-                session_id=session_id,
-                details={"reason": "no_tools_allowed"},
-            )
-            return ""
-
-        intent_decision = self._detect_intent_gate(user_message)
-        model_id = model or self.client.model
-        skills_enabled, skills_gating_details = self._resolve_skills_enabled_for_request(model_id=model_id)
-        skills_snapshot = self.skills_service.build_snapshot() if skills_enabled else self._empty_skills_snapshot()
-
-        if settings.skills_engine_enabled and settings.skills_canary_enabled and not skills_enabled:
-            await self._emit_lifecycle(
-                send_event,
-                stage="skills_skipped_canary",
-                request_id=request_id,
-                session_id=session_id,
-                details=skills_gating_details,
+                reason=reason,
+                details=details,
             )
 
-        if skills_enabled:
-            await self._emit_lifecycle(
-                send_event,
-                stage="skills_discovered",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "discovered": skills_snapshot.discovered_count,
-                    "eligible": skills_snapshot.eligible_count,
-                    "selected": skills_snapshot.selected_count,
-                    "truncated": skills_snapshot.truncated,
-                },
-            )
-            if skills_snapshot.truncated:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="skills_truncated",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "max_prompt_chars": settings.skills_max_prompt_chars,
-                        "selected": skills_snapshot.selected_count,
-                    },
-                )
-
-        effective_memory_context = memory_context
-        if skills_enabled and skills_snapshot.prompt.strip():
-            effective_memory_context = f"{memory_context}\n\n{skills_snapshot.prompt}"
-
-        if intent_decision.intent == "execute_command" and "run_command" not in effective_allowed_tools:
-            approved = await self._request_policy_override(
-                send_event=send_event,
-                session_id=session_id,
-                request_id=request_id,
-                tool="run_command",
-                resource=(intent_decision.extracted_command or "(missing command)"),
-            )
-            if approved:
-                effective_allowed_tools.add("run_command")
-
-        if intent_decision.intent == "execute_command" and "run_command" not in effective_allowed_tools:
-            blocked_message = (
-                "I can execute commands for you, but command execution is currently blocked by the active tool policy. "
-                "Please allow `run_command` (or switch to a coding-capable profile) and retry."
-            )
-            await self._emit_tool_selection_empty(
+        async def _invoke_hooks_proxy(hook_name: str, payload: dict) -> None:
+            await self._invoke_hooks(
+                hook_name=hook_name,
                 send_event=send_event,
                 request_id=request_id,
                 session_id=session_id,
-                reason="policy_block",
-                details={
-                    "intent": intent_decision.intent,
-                    "confidence": intent_decision.confidence,
-                    "blocked_with_reason": "run_command_not_allowed",
-                },
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_completed",
-                request_id=request_id,
-                session_id=session_id,
-                details={"actions": 0, "blocked_with_reason": "run_command_not_allowed"},
-            )
-            return self._encode_blocked_tool_result(
-                blocked_with_reason="run_command_not_allowed",
-                message=blocked_message,
+                payload=payload,
             )
 
-        if intent_decision.intent == "execute_command" and intent_decision.missing_slots:
-            blocked_message = (
-                "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
-                "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
+        async def _request_policy_override_proxy(*, tool: str, resource: str) -> bool:
+            return await self._request_policy_override(
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                tool=tool,
+                resource=resource,
             )
-            await self._emit_tool_selection_empty(
+
+        async def _approve_blocked_process_tools_if_needed_proxy(*, actions: list[dict], allowed_tools: set[str]) -> set[str]:
+            return await self._approve_blocked_process_tools_if_needed(
+                actions=actions,
+                allowed_tools=allowed_tools,
                 send_event=send_event,
                 request_id=request_id,
                 session_id=session_id,
-                reason="missing_slots",
-                details={
-                    "intent": intent_decision.intent,
-                    "confidence": intent_decision.confidence,
-                    "missing_slots": list(intent_decision.missing_slots),
-                    "blocked_with_reason": "missing_command",
-                },
             )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_completed",
+
+        async def _augment_actions_if_needed_proxy(
+            *,
+            actions: list[dict],
+            user_message: str,
+            plan_text: str,
+            memory_context: str,
+            model: str | None,
+            allowed_tools: set[str],
+        ) -> list[dict]:
+            return await self._augment_actions_if_needed(
+                actions=actions,
+                user_message=user_message,
+                plan_text=plan_text,
+                memory_context=memory_context,
+                send_event=send_event,
                 request_id=request_id,
                 session_id=session_id,
-                details={"actions": 0, "blocked_with_reason": "missing_command"},
-            )
-            return self._encode_blocked_tool_result(
-                blocked_with_reason="missing_command",
-                message=blocked_message,
+                model=model,
+                allowed_tools=allowed_tools,
             )
 
-        await self._invoke_hooks(
-            hook_name="before_prompt_build",
-            send_event=send_event,
-            request_id=request_id,
-            session_id=session_id,
-            payload={
-                "prompt_type": "tool_selection",
-                "model": model,
-                    "context_chars": len(effective_memory_context),
-                "allowed_tools": sorted(effective_allowed_tools),
-            },
-        )
-
-        tool_selector_prompt = (
-            "Choose up to 3 tool calls to support this task.\n"
-            "Return strict JSON only in this schema:\n"
-            f"{{\"actions\":[{{\"tool\":\"{allowed_text}\",\"args\":{{}}}}]}}\n"
-            "If no tool is needed return {\"actions\":[]}.\n"
-            "If the user explicitly asks to search/browse/check the web, include at least one web_fetch action whenever allowed.\n"
-            "Key args by tool:\n"
-            "- write_file: path, content\n"
-            "- apply_patch: path, search, replace, optional replace_all\n"
-            "- run_command/start_background_command: command, optional cwd\n"
-            "- spawn_subrun: message, optional mode(run|session), optional agent_id, optional model, optional timeout_seconds, optional tool_policy\n"
-            "- file_search: pattern, optional max_results\n"
-            "- grep_search: query, optional include_pattern, optional is_regexp, optional max_results\n"
-            "- list_code_usages: symbol, optional include_pattern, optional max_results\n"
-            "- get_background_output/kill_background_process: job_id\n"
-            "- web_fetch: url, optional max_chars\n\n"
-            "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
-            f"Allowed tool names are exactly: {', '.join(sorted(effective_allowed_tools)) or 'none'}.\n\n"
-            "Memory:\n"
-            f"{effective_memory_context}\n\n"
-            "Task:\n"
-            f"{user_message}\n\n"
-            "Plan:\n"
-            f"{plan_text}"
-        )
-
-        raw = await self.client.complete_chat(
-            self.prompt_profile.tool_selector_prompt,
-            tool_selector_prompt,
-            model=model,
-        )
-        actions, parse_error = self._extract_actions(raw)
-        repaired = False
-
-        if parse_error:
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_repair_started",
-                request_id=request_id,
+        async def _invoke_spawn_subrun_tool_proxy(*, args: dict, model: str | None) -> str:
+            return await self._invoke_spawn_subrun_tool(
+                args=args,
+                send_event=send_event,
                 session_id=session_id,
-                details={"error": parse_error},
-            )
-            repaired_raw = await self._repair_tool_selection_json(raw=raw, model=model)
-            repaired_actions, repaired_error = self._extract_actions(repaired_raw)
-            if repaired_error is None:
-                actions = repaired_actions
-                parse_error = None
-                repaired = True
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_selection_repair_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                )
-            else:
-                parse_error = f"{parse_error} | repair_failed: {repaired_error}"
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_selection_repair_failed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": repaired_error},
-                )
-
-        if parse_error:
-            await send_event(
-                {
-                    "type": "error",
-                    "agent": self.name,
-                    "message": f"Tool-selection parse issue: {parse_error}",
-                }
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_parse_failed",
                 request_id=request_id,
-                session_id=session_id,
-                details={"error": parse_error, "raw_preview": raw[:300]},
+                model=model,
             )
 
-        if repaired:
-            await send_event(
-                {
-                    "type": "status",
-                    "agent": self.name,
-                    "message": "Tool-selection output recovered from malformed format.",
-                }
-            )
+        def _memory_add_proxy(tool: str, clipped: str) -> None:
+            self.memory.add(session_id, f"tool:{tool}", clipped)
 
-        effective_allowed_tools = await self._approve_blocked_process_tools_if_needed(
-            actions=actions,
-            allowed_tools=effective_allowed_tools,
-            send_event=send_event,
-            request_id=request_id,
-            session_id=session_id,
-        )
-
-        actions, rejected_count = self._validate_actions(actions, effective_allowed_tools)
-
-        actions = await self._augment_actions_if_needed(
-            actions=actions,
+        return await self._tool_execution_manager.execute(
             user_message=user_message,
             plan_text=plan_text,
             memory_context=memory_context,
-            send_event=send_event,
-            request_id=request_id,
-            session_id=session_id,
+            app_settings=settings,
             model=model,
-            allowed_tools=effective_allowed_tools,
-        )
-
-        if not actions and intent_decision.intent == "execute_command" and intent_decision.confidence == "high":
-            if intent_decision.extracted_command:
-                actions = [
-                    {
-                        "tool": "run_command",
-                        "args": {"command": intent_decision.extracted_command},
-                    }
-                ]
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_selection_followup_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "reason": "intent_execute_command_forced_action",
-                        "added_tool": "run_command",
-                    },
-                )
-            else:
-                blocked_message = (
-                    "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
-                    "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
-                )
-                await self._emit_tool_selection_empty(
-                    send_event=send_event,
-                    request_id=request_id,
-                    session_id=session_id,
-                    reason="missing_slots",
-                    details={
-                        "intent": intent_decision.intent,
-                        "confidence": intent_decision.confidence,
-                        "missing_slots": ["command"],
-                        "blocked_with_reason": "missing_command",
-                    },
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_selection_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"actions": 0, "blocked_with_reason": "missing_command"},
-                )
-                return self._encode_blocked_tool_result(
-                    blocked_with_reason="missing_command",
-                    message=blocked_message,
-                )
-
-        if rejected_count > 0:
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_selection_actions_rejected",
-                request_id=request_id,
-                session_id=session_id,
-                details={"rejected": rejected_count},
-            )
-        await self._emit_lifecycle(
-            send_event,
-            stage="tool_selection_completed",
+            allowed_tools=allowed_tools,
+            agent_name=self.name,
             request_id=request_id,
             session_id=session_id,
-            details={"actions": len(actions)},
-        )
-        if not actions:
-            empty_reason = "ambiguous_input"
-            if intent_decision.intent is not None and intent_decision.confidence == "low":
-                empty_reason = "low_confidence"
-            await self._emit_tool_selection_empty(
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                reason=empty_reason,
-                details={
-                    "intent": intent_decision.intent,
-                    "confidence": intent_decision.confidence,
-                    "rejected_actions": rejected_count,
-                },
-            )
-            return ""
-
-        results: list[str] = []
-        tool_call_cap = max(1, int(getattr(settings, "run_tool_call_cap", 8)))
-        tool_time_cap_seconds = max(1.0, float(getattr(settings, "run_tool_time_cap_seconds", 90)))
-        loop_warn_threshold = max(1, int(getattr(settings, "tool_loop_warn_threshold", 2)))
-        loop_critical_threshold = max(loop_warn_threshold + 1, int(getattr(settings, "tool_loop_critical_threshold", 3)))
-        loop_circuit_breaker_threshold = max(
-            loop_critical_threshold + 1,
-            int(getattr(settings, "tool_loop_circuit_breaker_threshold", max(6, loop_critical_threshold * 2))),
-        )
-        generic_repeat_enabled = bool(getattr(settings, "tool_loop_detector_generic_repeat_enabled", True))
-        ping_pong_enabled = bool(getattr(settings, "tool_loop_detector_ping_pong_enabled", True))
-        poll_no_progress_enabled = bool(getattr(settings, "tool_loop_detector_poll_no_progress_enabled", True))
-        poll_no_progress_threshold = max(
-            2,
-            int(getattr(settings, "tool_loop_poll_no_progress_threshold", 3)),
-        )
-        warning_bucket_size = max(
-            1,
-            int(getattr(settings, "tool_loop_warning_bucket_size", 10)),
-        )
-        loop_gatekeeper = ToolCallGatekeeper(
-            warn_threshold=loop_warn_threshold,
-            critical_threshold=loop_critical_threshold,
-            circuit_breaker_threshold=loop_circuit_breaker_threshold,
-            warning_bucket_size=warning_bucket_size,
-            generic_repeat_enabled=generic_repeat_enabled,
-            ping_pong_enabled=ping_pong_enabled,
-            poll_no_progress_enabled=poll_no_progress_enabled,
-            poll_no_progress_threshold=poll_no_progress_threshold,
-        )
-        tool_call_count = 0
-        budget_blocked_count = 0
-        tool_error_count = 0
-        started_at = monotonic()
-
-        for idx, action in enumerate(actions, start=1):
-            prep = prepare_action_for_execution(
-                action=action,
-                allowed_tools=effective_allowed_tools,
-                normalize_tool_name=self._normalize_tool_name,
-                evaluate_action=self._evaluate_action,
-            )
-            fallback_tool = action.get("tool") if isinstance(action, dict) else ""
-            tool = prep.tool or (str(fallback_tool).strip() if isinstance(fallback_tool, str) else "")
-
-            elapsed = monotonic() - started_at
-            if elapsed >= tool_time_cap_seconds:
-                budget_blocked_count += 1
-                message = f"tool time budget exceeded ({tool_time_cap_seconds:.1f}s)"
-                results.append(f"[{tool}] REJECTED: {message}")
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_budget_exceeded",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "tool": tool,
-                        "index": idx,
-                        "budget_type": "time",
-                        "elapsed_seconds": round(elapsed, 3),
-                        "limit_seconds": tool_time_cap_seconds,
-                    },
-                )
-                break
-
-            if tool_call_count >= tool_call_cap:
-                budget_blocked_count += 1
-                message = f"tool call budget exceeded ({tool_call_cap})"
-                results.append(f"[{tool}] REJECTED: {message}")
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_budget_exceeded",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "tool": tool,
-                        "index": idx,
-                        "budget_type": "call_count",
-                        "used_calls": tool_call_count,
-                        "limit_calls": tool_call_cap,
-                    },
-                )
-                break
-
-            if prep.error:
-                results.append(f"[{tool}] REJECTED: {prep.error}")
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": self.name,
-                        "message": f"Tool blocked ({tool}): {prep.error}",
-                    }
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_blocked",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"tool": tool, "index": idx, "error": prep.error},
-                )
-                continue
-            evaluated_args = prep.normalized_args
-
-            signature = loop_gatekeeper.build_signature(tool=tool, args=evaluated_args)
-            pre_decision = loop_gatekeeper.before_tool_call(tool=tool, signature=signature, index=idx)
-            for stage, details in pre_decision.lifecycle_events:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage=stage,
-                    request_id=request_id,
-                    session_id=session_id,
-                    details=details,
-                )
-            if pre_decision.blocked:
-                results.append(f"[{tool}] REJECTED: {pre_decision.rejection_message}")
-                if pre_decision.break_run:
-                    break
-                continue
-
-            policy = self._build_execution_policy(tool)
-
-            await send_event(
-                {
-                    "type": "agent_step",
-                    "agent": self.name,
-                    "step": f"Tool {idx}: {tool}",
-                }
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_started",
-                request_id=request_id,
-                session_id=session_id,
-                details={"tool": tool, "index": idx},
-            )
-
-            await self._invoke_hooks(
-                hook_name="before_tool_call",
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                payload={
-                    "tool": tool,
-                    "args": dict(evaluated_args),
-                    "index": idx,
-                },
-            )
-
-            try:
-                tool_started = monotonic()
-                if tool == "spawn_subrun":
-                    result = await self._invoke_spawn_subrun_tool(
-                        args=evaluated_args,
-                        send_event=send_event,
-                        session_id=session_id,
-                        request_id=request_id,
-                        model=model,
-                    )
-                else:
-                    result = await self._run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
-                tool_call_count += 1
-                tool_elapsed_ms = int((monotonic() - tool_started) * 1000)
-                clipped = result[:6000]
-                self.memory.add(session_id, f"tool:{tool}", clipped)
-                results.append(f"[{tool}]\n{clipped}")
-
-                post_decision = loop_gatekeeper.after_tool_success(
-                    tool=tool,
-                    signature=signature,
-                    index=idx,
-                    result=clipped,
-                )
-                for stage, details in post_decision.lifecycle_events:
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage=stage,
-                        request_id=request_id,
-                        session_id=session_id,
-                        details=details,
-                    )
-                if post_decision.blocked:
-                    results.append(f"[{tool}] REJECTED: {post_decision.rejection_message}")
-                    if post_decision.break_run:
-                        break
-                    continue
-
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"tool": tool, "index": idx, "result_chars": len(clipped), "elapsed_ms": tool_elapsed_ms},
-                )
-                await self._invoke_hooks(
-                    hook_name="after_tool_call",
-                    send_event=send_event,
-                    request_id=request_id,
-                    session_id=session_id,
-                    payload={
-                        "tool": tool,
-                        "args": dict(evaluated_args),
-                        "index": idx,
-                        "status": "ok",
-                        "result_chars": len(clipped),
-                    },
-                )
-            except ToolExecutionError as exc:
-                attempt_calls = 1
-                retried_successfully = False
-                if (
-                    tool == "web_fetch"
-                    and self._should_retry_web_fetch_on_404(exc)
-                    and (self._is_web_research_task(user_message) or self._is_weather_lookup_task(user_message))
-                ):
-                    fallback_url = self._build_web_research_url(user_message)
-                    primary_url = str(evaluated_args.get("url", "")).strip()
-                    if fallback_url and fallback_url != primary_url:
-                        await send_event(
-                            {
-                                "type": "agent_step",
-                                "agent": self.name,
-                                "step": f"Tool {idx}: web_fetch retry with fallback source",
-                            }
-                        )
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="tool_retry_started",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "tool": tool,
-                                "index": idx,
-                                "reason": "http_404",
-                                "from_url": primary_url,
-                                "to_url": fallback_url,
-                            },
-                        )
-                        retry_args = dict(evaluated_args)
-                        retry_args["url"] = fallback_url
-                        attempt_calls += 1
-                        try:
-                            retry_started = monotonic()
-                            retry_result = await self._run_tool_with_policy(tool=tool, args=retry_args, policy=policy)
-                            retry_elapsed_ms = int((monotonic() - retry_started) * 1000)
-                            clipped = retry_result[:6000]
-                            self.memory.add(session_id, f"tool:{tool}", clipped)
-                            results.append(f"[{tool}]\n{clipped}")
-                            await self._emit_lifecycle(
-                                send_event,
-                                stage="tool_completed",
-                                request_id=request_id,
-                                session_id=session_id,
-                                details={
-                                    "tool": tool,
-                                    "index": idx,
-                                    "result_chars": len(clipped),
-                                    "elapsed_ms": retry_elapsed_ms,
-                                    "retried": True,
-                                },
-                            )
-                            await self._emit_lifecycle(
-                                send_event,
-                                stage="tool_retry_completed",
-                                request_id=request_id,
-                                session_id=session_id,
-                                details={
-                                    "tool": tool,
-                                    "index": idx,
-                                    "reason": "http_404",
-                                    "from_url": primary_url,
-                                    "to_url": fallback_url,
-                                },
-                            )
-                            await self._invoke_hooks(
-                                hook_name="after_tool_call",
-                                send_event=send_event,
-                                request_id=request_id,
-                                session_id=session_id,
-                                payload={
-                                    "tool": tool,
-                                    "args": dict(retry_args),
-                                    "index": idx,
-                                    "status": "ok",
-                                    "result_chars": len(clipped),
-                                    "retried": True,
-                                },
-                            )
-                            retried_successfully = True
-                        except ToolExecutionError as retry_exc:
-                            exc = ToolExecutionError(f"{exc} | retry_failed: {retry_exc}")
-                            await self._emit_lifecycle(
-                                send_event,
-                                stage="tool_retry_failed",
-                                request_id=request_id,
-                                session_id=session_id,
-                                details={
-                                    "tool": tool,
-                                    "index": idx,
-                                    "reason": "http_404",
-                                    "from_url": primary_url,
-                                    "to_url": fallback_url,
-                                    "error": str(retry_exc),
-                                },
-                            )
-
-                tool_call_count += attempt_calls
-                if retried_successfully:
-                    continue
-
-                tool_error_count += 1
-                results.append(f"[{tool}] ERROR: {exc}")
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": self.name,
-                        "message": f"Tool error ({tool}): {exc}",
-                    }
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_failed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"tool": tool, "index": idx, "error": str(exc)},
-                )
-                await self._invoke_hooks(
-                    hook_name="after_tool_call",
-                    send_event=send_event,
-                    request_id=request_id,
-                    session_id=session_id,
-                    payload={
-                        "tool": tool,
-                        "args": dict(evaluated_args),
-                        "index": idx,
-                        "status": "error",
-                        "error": str(exc),
-                    },
-                )
-
-        total_elapsed_ms = int((monotonic() - started_at) * 1000)
-        await self._emit_lifecycle(
-            send_event,
-            stage="tool_audit_summary",
-            request_id=request_id,
-            session_id=session_id,
-            details={
-                "tool_calls": tool_call_count,
-                "tool_errors": tool_error_count,
-                "budget_blocked": budget_blocked_count,
-                "elapsed_ms": total_elapsed_ms,
-                "call_cap": tool_call_cap,
-                "time_cap_seconds": tool_time_cap_seconds,
-                **loop_gatekeeper.summary_payload(),
-            },
+            client_model=self.client.model,
+            skills_engine_enabled=settings.skills_engine_enabled,
+            skills_canary_enabled=settings.skills_canary_enabled,
+            skills_max_prompt_chars=settings.skills_max_prompt_chars,
+            emit_lifecycle=_emit_lifecycle_proxy,
+            emit_tool_selection_empty=_emit_tool_selection_empty_proxy,
+            invoke_hooks=_invoke_hooks_proxy,
+            send_event=send_event,
+            detect_intent_gate=self._detect_intent_gate,
+            resolve_skills_enabled_for_request=self._resolve_skills_enabled_for_request,
+            build_skills_snapshot=self.skills_service.build_snapshot,
+            empty_skills_snapshot=self._empty_skills_snapshot,
+            request_policy_override=_request_policy_override_proxy,
+            complete_chat=self.client.complete_chat,
+            complete_chat_with_tools=self.client.complete_chat_with_tools,
+            supports_function_calling=self.client.supports_function_calling,
+            tool_selection_function_calling_enabled=settings.tool_selection_function_calling_enabled,
+            tool_selector_system_prompt=self.prompt_profile.tool_selector_prompt,
+            extract_actions=self._extract_actions,
+            repair_tool_selection_json=self._repair_tool_selection_json,
+            approve_blocked_process_tools_if_needed=_approve_blocked_process_tools_if_needed_proxy,
+            validate_actions=self._validate_actions,
+            augment_actions_if_needed=_augment_actions_if_needed_proxy,
+            encode_blocked_tool_result=self._encode_blocked_tool_result,
+            normalize_tool_name=self._normalize_tool_name,
+            evaluate_action=self._evaluate_action,
+            build_execution_policy=self._build_execution_policy,
+            run_tool_with_policy=self._run_tool_with_policy,
+            invoke_spawn_subrun_tool=_invoke_spawn_subrun_tool_proxy,
+            should_retry_web_fetch_on_404=self._should_retry_web_fetch_on_404,
+            is_web_research_task=self._is_web_research_task,
+            is_weather_lookup_task=self._is_weather_lookup_task,
+            build_web_research_url=self._build_web_research_url,
+            memory_add=_memory_add_proxy,
         )
 
-        return "\n\n".join(results)
+    def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
+        _ = plan_text
+        if self._parse_blocked_tool_result(tool_results):
+            return True
+        normalized_results = (tool_results or "").strip()
+        if not normalized_results:
+            return False
+        lowered = normalized_results.lower()
+        has_ok = "[ok]" in lowered
+        has_error = "[error]" in lowered
+        if has_error and not has_ok:
+            return False
+        return True
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
-        text = (user_message or "").strip()
-        lowered = text.lower()
-        if not text:
-            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
-
-        command_markers = (
-            "run",
-            "execute",
-            "start",
-            "launch",
-            "führe",
-            "starte",
-        )
-        has_explicit_command_keyword = any(
-            marker in lowered
-            for marker in (
-                "run command",
-                "execute command",
-                "shell command",
-                "terminal command",
-                "befehl",
-                "kommando",
-            )
-        )
-        has_command_intent = bool(re.match(r"^\s*(please\s+)?(run|execute|start|launch)\b", lowered))
-        has_command_intent = has_command_intent or any(lowered.startswith(f"{marker} ") for marker in command_markers)
-        has_command_intent = has_command_intent or has_explicit_command_keyword
-        if not has_command_intent:
-            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
-
-        extracted_command = self._extract_explicit_command(text)
-        if extracted_command and self._looks_like_shell_command(extracted_command):
-            return IntentGateDecision(
-                intent="execute_command",
-                confidence="high",
-                extracted_command=extracted_command,
-                missing_slots=(),
-            )
-
-        if extracted_command and not has_explicit_command_keyword:
-            return IntentGateDecision(intent=None, confidence="low", extracted_command=None, missing_slots=())
-
+        decision = self._intent_detector.detect_intent_gate(user_message)
         return IntentGateDecision(
-            intent="execute_command",
-            confidence="high",
-            extracted_command=None,
-            missing_slots=("command",),
+            intent=decision.intent,
+            confidence=decision.confidence,
+            extracted_command=decision.extracted_command,
+            missing_slots=decision.missing_slots,
         )
 
     def _looks_like_shell_command(self, candidate: str) -> bool:
-        text = (candidate or "").strip()
-        if not text:
-            return False
-
-        if re.search(r"[|><=&;]", text):
-            return True
-        if text.startswith(("./", ".\\", "/", "~", "..\\", "../")):
-            return True
-        if "\\" in text or "/" in text:
-            return True
-
-        token = text.split()[0].strip().strip('"\'').lower()
-        if not token:
-            return False
-
-        common_commands = {
-            "python",
-            "python3",
-            "py",
-            "pip",
-            "pip3",
-            "pytest",
-            "npm",
-            "npx",
-            "node",
-            "pnpm",
-            "yarn",
-            "uv",
-            "poetry",
-            "git",
-            "make",
-            "cmake",
-            "docker",
-            "kubectl",
-            "powershell",
-            "pwsh",
-            "bash",
-            "sh",
-            "cmd",
-            "ls",
-            "dir",
-            "cat",
-            "type",
-            "echo",
-            "grep",
-            "find",
-            "sed",
-            "awk",
-            "curl",
-            "wget",
-        }
-        return token in common_commands
+        return self._intent_detector.looks_like_shell_command(candidate)
 
     def _extract_explicit_command(self, user_message: str) -> str | None:
-        text = (user_message or "").strip()
-        if not text:
-            return None
-
-        fenced_match = re.search(r"`([^`\n]{1,400})`", text)
-        if fenced_match:
-            candidate = fenced_match.group(1).strip()
-            if candidate:
-                return candidate
-
-        quoted_match = re.search(r"\"([^\"\n]{1,400})\"", text)
-        if quoted_match:
-            candidate = quoted_match.group(1).strip()
-            if candidate:
-                return candidate
-
-        lowered = text.lower()
-        prefixes = (
-            "run ",
-            "execute ",
-            "start ",
-            "launch ",
-            "please run ",
-            "please execute ",
-            "führe ",
-            "starte ",
-        )
-        for prefix in prefixes:
-            if lowered.startswith(prefix):
-                candidate = text[len(prefix) :].strip()
-                if not candidate:
-                    return None
-                if candidate.lower() in {"it", "this", "that", "command", "den command", "befehl"}:
-                    return None
-                return candidate
-
-        command_after_colon = re.search(r"(?:command|befehl)\s*:\s*(.+)$", text, flags=re.IGNORECASE)
-        if command_after_colon:
-            candidate = command_after_colon.group(1).strip()
-            if candidate:
-                return candidate
-        return None
+        return self._intent_detector.extract_explicit_command(user_message)
 
     async def _emit_tool_selection_empty(
         self,
@@ -1654,115 +1027,32 @@ class HeadAgent:
         model: str | None,
         allowed_tools: set[str],
     ) -> list[dict]:
-        augmented_actions = list(actions)
-
-        if self._is_web_research_task(user_message) and "web_fetch" in allowed_tools:
-            has_web_fetch = any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
-            if not has_web_fetch:
-                fallback_url = self._build_web_research_url(user_message)
-                if fallback_url:
-                    augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="tool_selection_followup_completed",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "reason": "web_research_without_web_fetch",
-                            "added_tool": "web_fetch",
-                            "url": fallback_url,
-                        },
-                    )
-
-        if self._is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
-            has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
-            if not has_spawn_subrun:
-                augmented_actions.append(
-                    {
-                        "tool": "spawn_subrun",
-                        "args": {
-                            "message": user_message.strip() or "Execute delegated orchestration task",
-                            "mode": "run",
-                            "agent_id": "head-agent",
-                        },
-                    }
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_selection_followup_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "reason": "orchestration_without_spawn_subrun",
-                        "added_tool": "spawn_subrun",
-                    },
-                )
-
-        if not self._is_file_creation_task(user_message):
-            return augmented_actions
-
-        has_write_action = any(str(action.get("tool", "")).strip() == "write_file" for action in augmented_actions)
-        if has_write_action:
-            return augmented_actions
-
-        await self._emit_lifecycle(
-            send_event,
-            stage="tool_selection_followup_started",
-            request_id=request_id,
-            session_id=session_id,
-            details={"reason": "file_task_without_write_file"},
-        )
-
-        followup_prompt = (
-            "You previously selected tools for a task.\n"
-            "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
-            "Return strict JSON only:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
-            "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
-            "If still insufficient context, return {\"actions\":[]}\n\n"
-            "Memory:\n"
-            f"{memory_context}\n\n"
-            "Task:\n"
-            f"{user_message}\n\n"
-            "Plan:\n"
-            f"{plan_text}"
-        )
-
-        followup_raw = await self.client.complete_chat(
-            self.prompt_profile.tool_selector_prompt,
-            followup_prompt,
-            model=model,
-        )
-        followup_actions, followup_error = self._extract_actions(followup_raw)
-        if followup_error:
+        async def _emit_lifecycle_proxy(stage: str, details: dict | None = None) -> None:
             await self._emit_lifecycle(
                 send_event,
-                stage="tool_selection_followup_failed",
+                stage=stage,
                 request_id=request_id,
                 session_id=session_id,
-                details={"error": followup_error},
+                details=details,
             )
-            return augmented_actions
 
-        validated_followups, _ = self._validate_actions(followup_actions, allowed_tools)
-        merged = augmented_actions + validated_followups
-        deduped: list[dict] = []
-        seen_keys: set[str] = set()
-        for action in merged:
-            key = json.dumps(action, sort_keys=True)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            deduped.append(action)
-
-        await self._emit_lifecycle(
-            send_event,
-            stage="tool_selection_followup_completed",
-            request_id=request_id,
-            session_id=session_id,
-            details={"base_actions": len(actions), "merged_actions": len(deduped)},
+        return await self._action_augmenter.augment_actions(
+            actions=actions,
+            user_message=user_message,
+            plan_text=plan_text,
+            memory_context=memory_context,
+            model=model,
+            allowed_tools=allowed_tools,
+            complete_chat=self.client.complete_chat,
+            tool_selector_system_prompt=self.prompt_profile.tool_selector_prompt,
+            extract_actions=self._extract_actions,
+            validate_actions=self._validate_actions,
+            emit_lifecycle=_emit_lifecycle_proxy,
+            is_web_research_task=self._is_web_research_task,
+            build_web_research_url=self._build_web_research_url,
+            is_subrun_orchestration_task=self._is_subrun_orchestration_task,
+            is_file_creation_task=self._is_file_creation_task,
         )
-        return deduped
 
     async def _approve_blocked_process_tools_if_needed(
         self,
@@ -1848,64 +1138,19 @@ class HeadAgent:
         )
 
     def _is_web_research_task(self, user_message: str) -> bool:
-        text = (user_message or "").lower()
-        markers = (
-            "search on the web",
-            "search the web",
-            "browse the web",
-            "look up",
-            "latest",
-            "current",
-            "news",
-            "google",
-            "bing",
-            "duckduckgo",
-            "find online",
-            "web search",
-            "internet",
-        )
-        return any(marker in text for marker in markers)
+        return self._intent_detector.is_web_research_task(user_message)
 
     def _is_subrun_orchestration_task(self, user_message: str) -> bool:
-        text = (user_message or "").lower()
-        markers = (
-            "orchestrate",
-            "orchestration",
-            "delegate",
-            "delegation",
-            "spawn subrun",
-            "spawn subprocess",
-            "spawn sub process",
-            "parallel research",
-            "multi-agent",
-            "multi agent",
-        )
-        return any(marker in text for marker in markers)
+        return self._intent_detector.is_subrun_orchestration_task(user_message)
 
     def _is_weather_lookup_task(self, user_message: str) -> bool:
-        text = (user_message or "").lower()
-        markers = (
-            "weather",
-            "forecast",
-            "temperature",
-            "humidity",
-            "wind",
-            "precipitation",
-            "wetter",
-            "temperatur",
-            "niederschlag",
-        )
-        return any(marker in text for marker in markers)
+        return self._intent_detector.is_weather_lookup_task(user_message)
 
     def _should_retry_web_fetch_on_404(self, error: ToolExecutionError) -> bool:
-        text = str(error).lower()
-        return "http error 404" in text or " 404" in text
+        return self._intent_detector.should_retry_web_fetch_on_404(error)
 
     def _has_successful_web_fetch(self, tool_results: str) -> bool:
-        if not tool_results:
-            return False
-        success_pattern = re.compile(r"\[web_fetch\]\s*\n(?!ERROR:)", re.IGNORECASE)
-        return bool(success_pattern.search(tool_results))
+        return self._intent_detector.has_successful_web_fetch(tool_results)
 
     def _extract_tool_errors(self, tool_results: str, *, tool_name: str) -> list[str]:
         if not tool_results:
@@ -1915,196 +1160,44 @@ class HeadAgent:
         return [item for item in errors if item]
 
     def _build_web_fetch_unavailable_reply(self, web_errors: list[str]) -> str:
-        lines = [
-            "I couldn't reliably fetch web sources for this request, so I can't provide a grounded deep-research answer yet.",
-            "",
-            "What failed:",
-        ]
-        if web_errors:
-            for item in web_errors[:3]:
-                lines.append(f"- {item}")
-        else:
-            lines.append("- No successful web_fetch result was returned.")
-
-        lines.extend(
-            [
-                "",
-                "How to proceed:",
-                "- Retry the request once (temporary upstream issues can resolve on retry).",
-                "- Provide 3-5 direct source URLs and I will analyze them deeply.",
-                "- If you want, I can first build a reliable source list, then run a second pass with comparative analysis.",
-            ]
-        )
-        return "\n".join(lines).strip()
+        return self._intent_detector.build_web_fetch_unavailable_reply(web_errors)
 
     def _build_web_research_url(self, user_message: str) -> str:
-        text = (user_message or "").strip()
-        if not text:
-            return ""
-
-        explicit_url = re.search(r"https?://\S+", text)
-        if explicit_url:
-            return explicit_url.group(0).rstrip(").,;:!?")
-
-        query = text
-        for prefix in (
-            "can you",
-            "please",
-            "could you",
-            "search on the web for",
-            "search the web for",
-            "look up",
-            "find",
-        ):
-            if query.lower().startswith(prefix):
-                query = query[len(prefix) :].strip()
-
-        if not query:
-            query = text
-        return f"https://duckduckgo.com/html/?q={quote_plus(query)}"
+        return self._intent_detector.build_web_research_url(user_message)
 
     def _is_file_creation_task(self, user_message: str) -> bool:
-        text = (user_message or "").lower()
-        markers = (
-            "create",
-            "build",
-            "make",
-            "save",
-            "file",
-            "html",
-            "css",
-            "javascript",
-            "js",
-        )
-        return any(marker in text for marker in markers)
+        return self._intent_detector.is_file_creation_task(user_message)
 
     def _sanitize_final_response(self, final_text: str) -> str:
-        text = (final_text or "").strip()
-        if not text:
-            return text
-
-        sanitized = re.sub(r"\[TOOL_CALL\].*?\[/TOOL_CALL\]", "", text, flags=re.IGNORECASE | re.DOTALL)
-        sanitized = re.sub(r"\{\s*tool\s*=>.*?\}", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
-        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized).strip()
-        return sanitized
+        return self._reply_shaper.sanitize(final_text)
 
     def _shape_final_response(self, final_text: str, tool_results: str | None) -> ReplyShapeResult:
-        text = (final_text or "").strip()
-        removed_tokens: list[str] = []
-
-        for token in ("NO_REPLY", "ANNOUNCE_SKIP"):
-            if token in text:
-                removed_tokens.append(token)
-                text = text.replace(token, "")
-
-        text = self._sanitize_final_response(text)
-
-        deduped_lines = 0
-        lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-        if lines:
-            seen_tool_confirmation: set[str] = set()
-            shaped_lines: list[str] = []
-            tool_markers = tuple(sorted(self.tool_registry.keys()))
-            for line in lines:
-                lowered = line.lower()
-                is_tool_confirmation = (
-                    any(marker in lowered for marker in tool_markers)
-                    and any(keyword in lowered for keyword in ("done", "completed", "finished", "erfolgreich"))
-                )
-                if is_tool_confirmation:
-                    if lowered in seen_tool_confirmation:
-                        deduped_lines += 1
-                        continue
-                    seen_tool_confirmation.add(lowered)
-                shaped_lines.append(line)
-            text = "\n".join(shaped_lines).strip()
-
-        if tool_results:
-            compact = re.sub(r"\s+", " ", text.lower()).strip()
-            if compact in {
-                "done",
-                "done.",
-                "completed",
-                "completed.",
-                "ok",
-                "ok.",
-                "fertig",
-                "fertig.",
-            }:
-                return ReplyShapeResult(
-                    text="",
-                    suppressed=True,
-                    reason="irrelevant_ack_after_tools",
-                    removed_tokens=removed_tokens,
-                    deduped_lines=deduped_lines,
-                )
-
-        if not text:
-            reason = "empty_after_shaping"
-            if "NO_REPLY" in removed_tokens:
-                reason = "no_reply_token"
-            elif "ANNOUNCE_SKIP" in removed_tokens:
-                reason = "announce_skip_token"
-            return ReplyShapeResult(
-                text="",
-                suppressed=True,
-                reason=reason,
-                removed_tokens=removed_tokens,
-                deduped_lines=deduped_lines,
-            )
-
+        text, suppressed, reason, removed_tokens, deduped_lines = self._reply_shaper.shape(
+            final_text=final_text,
+            tool_results=tool_results,
+            tool_markers=set(self.tool_registry.keys()),
+        )
         return ReplyShapeResult(
             text=text,
-            suppressed=False,
-            reason=None,
+            suppressed=suppressed,
+            reason=reason,
             removed_tokens=removed_tokens,
             deduped_lines=deduped_lines,
         )
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
-        text = raw.strip()
-        try:
-            parsed = json.loads(text)
-        except Exception:
-            return [], "LLM JSON could not be decoded."
-        if not isinstance(parsed, dict):
-            return [], "LLM JSON root is not an object."
-        if set(parsed.keys()) - {"actions"}:
-            return [], "LLM JSON root contains unsupported fields."
-        actions = parsed.get("actions", [])
-        if not isinstance(actions, list):
-            return [], "LLM JSON field 'actions' is not a list."
-        return actions, None
+        return self._action_parser.parse(raw)
 
     async def _repair_tool_selection_json(self, raw: str, model: str | None) -> str:
-        raw_block = self._extract_json_candidate(raw)
-        repair_prompt = (
-            "Convert the following tool-selection output into strict JSON only.\n"
-            "Output schema:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
-            "Rules:\n"
-            "- Output only one JSON object.\n"
-            "- No markdown and no explanations.\n"
-            "- Map legacy tool names to allowed names if obvious (e.g. CreateFile -> write_file).\n"
-            "- If uncertain, return {\"actions\":[]}.\n\n"
-            "Broken output block (do not add reasoning):\n"
-            f"{raw_block}"
-        )
-        return await self.client.complete_chat(
-            self.prompt_profile.tool_repair_prompt,
-            repair_prompt,
+        return await self._action_parser.repair(
+            raw=raw,
             model=model,
+            complete_chat=self.client.complete_chat,
+            system_prompt=self.prompt_profile.tool_repair_prompt,
         )
 
     def _extract_json_candidate(self, raw: str) -> str:
-        text = (raw or "").strip()
-        if not text:
-            return "{}"
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return text[:3000]
-        return text[start : end + 1][:3000]
+        return self._action_parser.extract_json_candidate(raw)
 
     def _validate_actions(self, actions: list[dict], allowed_tools: set[str]) -> tuple[list[dict], int]:
         valid_actions: list[dict] = []
@@ -2130,107 +1223,8 @@ class HeadAgent:
 
         return valid_actions, rejected
 
-    def _build_tool_registry(self) -> dict[str, ToolSpec]:
-        return {
-            "list_dir": ToolSpec(
-                name="list_dir",
-                required_args=(),
-                optional_args=("path",),
-                timeout_seconds=6.0,
-                max_retries=0,
-            ),
-            "read_file": ToolSpec(
-                name="read_file",
-                required_args=("path",),
-                optional_args=(),
-                timeout_seconds=8.0,
-                max_retries=0,
-            ),
-            "write_file": ToolSpec(
-                name="write_file",
-                required_args=("path", "content"),
-                optional_args=(),
-                timeout_seconds=10.0,
-                max_retries=0,
-            ),
-            "run_command": ToolSpec(
-                name="run_command",
-                required_args=("command",),
-                optional_args=("cwd",),
-                timeout_seconds=float(max(3, settings.command_timeout_seconds)),
-                max_retries=1,
-            ),
-            "apply_patch": ToolSpec(
-                name="apply_patch",
-                required_args=("path", "search", "replace"),
-                optional_args=("replace_all",),
-                timeout_seconds=10.0,
-                max_retries=0,
-            ),
-            "file_search": ToolSpec(
-                name="file_search",
-                required_args=("pattern",),
-                optional_args=("max_results",),
-                timeout_seconds=6.0,
-                max_retries=0,
-            ),
-            "grep_search": ToolSpec(
-                name="grep_search",
-                required_args=("query",),
-                optional_args=("include_pattern", "is_regexp", "max_results"),
-                timeout_seconds=8.0,
-                max_retries=0,
-            ),
-            "list_code_usages": ToolSpec(
-                name="list_code_usages",
-                required_args=("symbol",),
-                optional_args=("include_pattern", "max_results"),
-                timeout_seconds=8.0,
-                max_retries=0,
-            ),
-            "get_changed_files": ToolSpec(
-                name="get_changed_files",
-                required_args=(),
-                optional_args=(),
-                timeout_seconds=8.0,
-                max_retries=0,
-            ),
-            "start_background_command": ToolSpec(
-                name="start_background_command",
-                required_args=("command",),
-                optional_args=("cwd",),
-                timeout_seconds=6.0,
-                max_retries=0,
-            ),
-            "get_background_output": ToolSpec(
-                name="get_background_output",
-                required_args=("job_id",),
-                optional_args=("tail_lines",),
-                timeout_seconds=5.0,
-                max_retries=0,
-            ),
-            "kill_background_process": ToolSpec(
-                name="kill_background_process",
-                required_args=("job_id",),
-                optional_args=(),
-                timeout_seconds=5.0,
-                max_retries=0,
-            ),
-            "web_fetch": ToolSpec(
-                name="web_fetch",
-                required_args=("url",),
-                optional_args=("max_chars",),
-                timeout_seconds=20.0,
-                max_retries=1,
-            ),
-            "spawn_subrun": ToolSpec(
-                name="spawn_subrun",
-                required_args=("message",),
-                optional_args=("mode", "agent_id", "model", "timeout_seconds", "tool_policy"),
-                timeout_seconds=6.0,
-                max_retries=0,
-            ),
-        }
+    def _build_tool_registry(self) -> ToolRegistry:
+        return build_default_tool_registry(command_timeout_seconds=settings.command_timeout_seconds)
 
     def _validate_tool_registry_dispatch(self) -> None:
         missing_tooling_methods = [
@@ -2241,7 +1235,7 @@ class HeadAgent:
         missing_arg_validators = [
             tool_name
             for tool_name in self.tool_registry
-            if tool_name not in self._tool_arg_validators
+            if not self._arg_validator.has_validator(tool_name)
         ]
         if missing_tooling_methods:
             raise RuntimeError(
@@ -2254,24 +1248,6 @@ class HeadAgent:
                 + ", ".join(sorted(missing_arg_validators))
             )
 
-    def _build_tool_arg_validators(self) -> dict[str, Callable[[dict[str, object]], str | None]]:
-        return {
-            "list_dir": self._validate_path_only_tool_args,
-            "read_file": self._validate_path_only_tool_args,
-            "write_file": self._validate_write_file_args,
-            "run_command": self._validate_command_tool_args,
-            "apply_patch": self._validate_apply_patch_args,
-            "file_search": self._validate_file_search_args,
-            "grep_search": self._validate_grep_search_args,
-            "list_code_usages": self._validate_list_code_usages_args,
-            "get_changed_files": self._validate_noop_tool_args,
-            "start_background_command": self._validate_command_tool_args,
-            "get_background_output": self._validate_get_background_output_args,
-            "kill_background_process": self._validate_kill_background_process_args,
-            "web_fetch": self._validate_web_fetch_args,
-            "spawn_subrun": self._validate_spawn_subrun_args,
-        }
-
     def _normalize_tool_name(self, tool_name: str) -> str:
         normalized = tool_name.strip()
         if not normalized:
@@ -2280,271 +1256,6 @@ class HeadAgent:
         if lowered in TOOL_NAME_ALIASES:
             return TOOL_NAME_ALIASES[lowered]
         return normalized
-
-    def _require_str_arg(
-        self,
-        args: dict[str, object],
-        name: str,
-        *,
-        non_empty: bool = True,
-        max_len: int = 4000,
-    ) -> tuple[str | None, str | None]:
-        value = args.get(name)
-        if not isinstance(value, str):
-            return None, f"argument '{name}' must be a string"
-        if non_empty and not value.strip():
-            return None, f"argument '{name}' must not be empty"
-        if len(value) > max_len:
-            return None, f"argument '{name}' too long"
-        return value, None
-
-    def _require_bool_arg(self, args: dict[str, object], name: str, *, default: bool = False) -> tuple[bool, str | None]:
-        if name not in args:
-            return default, None
-        value = args[name]
-        if not isinstance(value, bool):
-            return default, f"argument '{name}' must be a boolean"
-        return value, None
-
-    def _optional_int_arg(
-        self,
-        args: dict[str, object],
-        name: str,
-        *,
-        default: int,
-        min_value: int,
-        max_value: int,
-    ) -> tuple[int, str | None]:
-        if name not in args:
-            return default, None
-        value = args[name]
-        if not isinstance(value, int):
-            return default, f"argument '{name}' must be an integer"
-        if value < min_value or value > max_value:
-            return default, f"argument '{name}' out of range"
-        return value, None
-
-    def _validate_path_only_tool_args(self, normalized_args: dict[str, object]) -> str | None:
-        if "path" not in normalized_args:
-            return None
-        path_value, err = self._require_str_arg(normalized_args, "path", max_len=400)
-        if err:
-            return err
-        if path_value is not None and "\x00" in path_value:
-            return "path is not plausible"
-        normalized_args["path"] = path_value
-        return None
-
-    def _validate_write_file_args(self, normalized_args: dict[str, object]) -> str | None:
-        path_error = self._validate_path_only_tool_args(normalized_args)
-        if path_error:
-            return path_error
-        content, err = self._require_str_arg(normalized_args, "content", non_empty=False, max_len=350000)
-        if err:
-            return err
-        normalized_args["content"] = content
-        return None
-
-    def _validate_command_tool_args(self, normalized_args: dict[str, object]) -> str | None:
-        command, err = self._require_str_arg(normalized_args, "command", max_len=1000)
-        if err:
-            return err
-        if command is not None and self._violates_command_policy(command):
-            return "command blocked by policy"
-        normalized_args["command"] = command
-        if "cwd" in normalized_args:
-            cwd, err = self._require_str_arg(normalized_args, "cwd", max_len=400)
-            if err:
-                return err
-            normalized_args["cwd"] = cwd
-        return None
-
-    def _validate_apply_patch_args(self, normalized_args: dict[str, object]) -> str | None:
-        path_error = self._validate_path_only_tool_args(normalized_args)
-        if path_error:
-            return path_error
-        search, err = self._require_str_arg(normalized_args, "search", max_len=50000)
-        if err:
-            return err
-        replace, err = self._require_str_arg(normalized_args, "replace", non_empty=False, max_len=50000)
-        if err:
-            return err
-        replace_all, err = self._require_bool_arg(normalized_args, "replace_all", default=False)
-        if err:
-            return err
-        normalized_args["search"] = search
-        normalized_args["replace"] = replace
-        normalized_args["replace_all"] = replace_all
-        return None
-
-    def _validate_file_search_args(self, normalized_args: dict[str, object]) -> str | None:
-        pattern, err = self._require_str_arg(normalized_args, "pattern", max_len=300)
-        if err:
-            return err
-        max_results, err = self._optional_int_arg(
-            normalized_args,
-            "max_results",
-            default=100,
-            min_value=1,
-            max_value=500,
-        )
-        if err:
-            return err
-        normalized_args["pattern"] = pattern
-        normalized_args["max_results"] = max_results
-        return None
-
-    def _validate_grep_search_args(self, normalized_args: dict[str, object]) -> str | None:
-        query, err = self._require_str_arg(normalized_args, "query", max_len=500)
-        if err:
-            return err
-        if "include_pattern" in normalized_args:
-            include_pattern, err = self._require_str_arg(normalized_args, "include_pattern", max_len=300)
-            if err:
-                return err
-            normalized_args["include_pattern"] = include_pattern
-        is_regexp, err = self._require_bool_arg(normalized_args, "is_regexp", default=False)
-        if err:
-            return err
-        max_results, err = self._optional_int_arg(
-            normalized_args,
-            "max_results",
-            default=100,
-            min_value=1,
-            max_value=500,
-        )
-        if err:
-            return err
-        normalized_args["query"] = query
-        normalized_args["is_regexp"] = is_regexp
-        normalized_args["max_results"] = max_results
-        return None
-
-    def _validate_list_code_usages_args(self, normalized_args: dict[str, object]) -> str | None:
-        symbol, err = self._require_str_arg(normalized_args, "symbol", max_len=160)
-        if err:
-            return err
-        if "include_pattern" in normalized_args:
-            include_pattern, err = self._require_str_arg(normalized_args, "include_pattern", max_len=300)
-            if err:
-                return err
-            normalized_args["include_pattern"] = include_pattern
-        max_results, err = self._optional_int_arg(
-            normalized_args,
-            "max_results",
-            default=100,
-            min_value=1,
-            max_value=500,
-        )
-        if err:
-            return err
-        normalized_args["symbol"] = symbol
-        normalized_args["max_results"] = max_results
-        return None
-
-    def _validate_get_background_output_args(self, normalized_args: dict[str, object]) -> str | None:
-        job_id, err = self._require_str_arg(normalized_args, "job_id", max_len=80)
-        if err:
-            return err
-        tail_lines, err = self._optional_int_arg(
-            normalized_args,
-            "tail_lines",
-            default=200,
-            min_value=1,
-            max_value=1000,
-        )
-        if err:
-            return err
-        normalized_args["job_id"] = job_id
-        normalized_args["tail_lines"] = tail_lines
-        return None
-
-    def _validate_kill_background_process_args(self, normalized_args: dict[str, object]) -> str | None:
-        job_id, err = self._require_str_arg(normalized_args, "job_id", max_len=80)
-        if err:
-            return err
-        normalized_args["job_id"] = job_id
-        return None
-
-    def _validate_web_fetch_args(self, normalized_args: dict[str, object]) -> str | None:
-        url, err = self._require_str_arg(normalized_args, "url", max_len=1000)
-        if err:
-            return err
-        max_chars, err = self._optional_int_arg(
-            normalized_args,
-            "max_chars",
-            default=12000,
-            min_value=1000,
-            max_value=100000,
-        )
-        if err:
-            return err
-        normalized_args["url"] = url
-        normalized_args["max_chars"] = max_chars
-        return None
-
-    def _validate_spawn_subrun_args(self, normalized_args: dict[str, object]) -> str | None:
-        message, err = self._require_str_arg(normalized_args, "message", max_len=4000)
-        if err:
-            return err
-        normalized_args["message"] = message
-
-        if "mode" in normalized_args:
-            mode, err = self._require_str_arg(normalized_args, "mode", max_len=20)
-            if err:
-                return err
-            normalized_mode = (mode or "").strip().lower()
-            if normalized_mode not in {"run", "session"}:
-                return "argument 'mode' must be 'run' or 'session'"
-            normalized_args["mode"] = normalized_mode
-
-        if "agent_id" in normalized_args:
-            agent_id, err = self._require_str_arg(normalized_args, "agent_id", max_len=120)
-            if err:
-                return err
-            normalized_args["agent_id"] = agent_id
-
-        if "model" in normalized_args:
-            model_name, err = self._require_str_arg(normalized_args, "model", max_len=120)
-            if err:
-                return err
-            normalized_args["model"] = model_name
-
-        timeout_seconds, err = self._optional_int_arg(
-            normalized_args,
-            "timeout_seconds",
-            default=0,
-            min_value=0,
-            max_value=3600,
-        )
-        if err:
-            return err
-        normalized_args["timeout_seconds"] = timeout_seconds
-
-        tool_policy = normalized_args.get("tool_policy")
-        if tool_policy is not None:
-            if not isinstance(tool_policy, dict):
-                return "argument 'tool_policy' must be an object"
-            normalized_policy: ToolPolicyDict = {}
-            for policy_key in ("allow", "deny"):
-                policy_values = tool_policy.get(policy_key)
-                if policy_values is None:
-                    continue
-                if not isinstance(policy_values, list):
-                    return f"argument 'tool_policy.{policy_key}' must be a list"
-                if len(policy_values) > 20:
-                    return f"argument 'tool_policy.{policy_key}' too large"
-                normalized_values: list[str] = []
-                for policy_value in policy_values:
-                    if not isinstance(policy_value, str) or not policy_value.strip() or len(policy_value) > 80:
-                        return f"argument 'tool_policy.{policy_key}' contains invalid tool name"
-                    normalized_values.append(policy_value.strip())
-                normalized_policy[policy_key] = normalized_values
-            normalized_args["tool_policy"] = normalized_policy
-        return None
-
-    def _validate_noop_tool_args(self, normalized_args: dict[str, object]) -> str | None:
-        return None
 
     def _evaluate_action(self, tool: str, args: dict, allowed_tools: set[str]) -> tuple[dict, str | None]:
         if tool not in allowed_tools:
@@ -2568,10 +1279,7 @@ class HeadAgent:
             if optional_name in args:
                 normalized_args[optional_name] = args[optional_name]
 
-        tool_validator = self._tool_arg_validators.get(tool)
-        if tool_validator is None:
-            return {}, "tool validator missing"
-        validation_error = tool_validator(normalized_args)
+        validation_error = self._arg_validator.validate(tool, normalized_args)
         if validation_error:
             return {}, validation_error
 
@@ -2605,10 +1313,19 @@ class HeadAgent:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(self._invoke_tool, tool, args),
+                invoke_tool_fn = self._invoke_tool
+                if asyncio.iscoroutinefunction(invoke_tool_fn):
+                    return await asyncio.wait_for(
+                        invoke_tool_fn(tool, args),
+                        timeout=policy.timeout_seconds,
+                    )
+                sync_result = await asyncio.wait_for(
+                    asyncio.to_thread(invoke_tool_fn, tool, args),
                     timeout=policy.timeout_seconds,
                 )
+                if inspect.isawaitable(sync_result):
+                    return await asyncio.wait_for(sync_result, timeout=policy.timeout_seconds)
+                return sync_result
             except asyncio.TimeoutError as exc:
                 last_error = exc
                 if attempt >= max_attempts:
@@ -2675,7 +1392,7 @@ class HeadAgent:
             return "timeout" in text
         return any(marker in text for marker in transient_markers)
 
-    def _invoke_tool(self, tool: str, args: dict) -> str:
+    async def _invoke_tool(self, tool: str, args: dict) -> str:
         if tool == "spawn_subrun":
             raise ToolExecutionError("spawn_subrun must be handled by _invoke_spawn_subrun_tool.")
 
@@ -2697,7 +1414,12 @@ class HeadAgent:
                 kwargs[optional_name] = args[optional_name]
 
         try:
-            return tool_method(**kwargs)
+            if asyncio.iscoroutinefunction(tool_method):
+                return await tool_method(**kwargs)
+            sync_result = await asyncio.to_thread(tool_method, **kwargs)
+            if inspect.isawaitable(sync_result):
+                return await sync_result
+            return sync_result
         except TypeError as exc:
             raise ToolExecutionError(f"{tool} invocation failed: {exc}") from exc
 

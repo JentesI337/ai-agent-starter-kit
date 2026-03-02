@@ -3,6 +3,7 @@ from __future__ import annotations
 import heapq
 import json
 import re
+import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -277,3 +278,193 @@ class StateStore:
 
         if last_error is not None:
             raise last_error
+
+
+class SqliteStateStore(StateStore):
+    def __init__(self, persist_dir: str, db_filename: str = "state_store.sqlite3"):
+        super().__init__(persist_dir=persist_dir)
+        self._db_path = (self.persist_dir / db_filename).resolve()
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._create_tables()
+
+    def _create_tables(self) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    updated_at_ts REAL NOT NULL
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_updated_at_ts ON runs(updated_at_ts DESC)"
+            )
+
+    def init_run(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        request_id: str,
+        user_message: str,
+        runtime: str,
+        model: str,
+        meta: dict | None = None,
+    ) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        transformed_message = self._transform_value(user_message)
+        transformed_meta = self._transform_value(meta or {})
+        state = {
+            "run_id": run_id,
+            "session_id": session_id,
+            "request_id": request_id,
+            "status": "active",
+            "runtime": runtime,
+            "model": model,
+            "created_at": now,
+            "updated_at": now,
+            "input": {
+                "user_message": transformed_message,
+            },
+            "task_graph": TaskGraph().to_dict(),
+            "events": [],
+            "error": None,
+            "meta": transformed_meta,
+        }
+        self._upsert_run(run_id=run_id, state=state)
+        return state
+
+    def get_run(self, run_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT state_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if row is None:
+                return None
+            return json.loads(str(row["state_json"]))
+
+    def list_runs(self, limit: int = 200) -> list[dict]:
+        with self._lock:
+            cap = max(1, int(limit))
+            rows = self._conn.execute(
+                "SELECT state_json FROM runs ORDER BY updated_at_ts DESC LIMIT ?",
+                (cap,),
+            ).fetchall()
+            items: list[dict] = []
+            for row in rows:
+                try:
+                    items.append(json.loads(str(row["state_json"])))
+                except Exception:
+                    continue
+            return items
+
+    def append_event(self, run_id: str, event: dict) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            state["events"].append(self._transform_value(event))
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            return state
+
+    def set_task_status(self, run_id: str, task_id: str, label: str, status: str) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            graph = TaskGraph()
+            existing = state.get("task_graph", {}).get("nodes", [])
+            if isinstance(existing, list):
+                for item in existing:
+                    if isinstance(item, dict):
+                        existing_id = str(item.get("task_id", "")).strip()
+                        if not existing_id:
+                            continue
+                        existing_label = str(item.get("label", existing_id))
+                        graph.ensure_task(existing_id, existing_label)
+                        existing_status = str(item.get("status", "pending"))
+                        if existing_status in {"pending", "active", "completed", "failed"}:
+                            graph.set_status(existing_id, existing_status)
+
+            graph.ensure_task(task_id, label)
+            if status in {"pending", "active", "completed", "failed"}:
+                graph.set_status(task_id, status)
+            state["task_graph"] = graph.to_dict()
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            return state
+
+    def mark_completed(self, run_id: str) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            state["status"] = "completed"
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            self._write_snapshot(run_id, state)
+            return state
+
+    def mark_failed(self, run_id: str, error: str) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            state["status"] = "failed"
+            state["error"] = self._transform_value(error, key="error")
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            self._write_snapshot(run_id, state)
+            return state
+
+    def patch_run_meta(self, run_id: str, meta_patch: dict | None) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            current_meta = state.get("meta")
+            if not isinstance(current_meta, dict):
+                current_meta = {}
+
+            if isinstance(meta_patch, dict):
+                for key, value in meta_patch.items():
+                    current_meta[str(key)] = self._transform_value(value, key=str(key))
+
+            state["meta"] = current_meta
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            return state
+
+    def set_run_meta(self, run_id: str, meta: dict | None) -> dict:
+        with self._lock:
+            state = self._require_run(run_id)
+            state["meta"] = self._transform_value(meta or {})
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._upsert_run(run_id=run_id, state=state)
+            return state
+
+    def clear_all(self) -> None:
+        with self._lock:
+            with self._conn:
+                self._conn.execute("DELETE FROM runs")
+            for snapshot_file in self.snapshots_dir.glob("*.json"):
+                try:
+                    snapshot_file.unlink(missing_ok=True)
+                except Exception:
+                    continue
+
+    def _require_run(self, run_id: str) -> dict:
+        row = self._conn.execute("SELECT state_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise FileNotFoundError(f"Run state not found: {run_id}")
+        return json.loads(str(row["state_json"]))
+
+    def _upsert_run(self, *, run_id: str, state: dict) -> None:
+        updated_at_ts = datetime.now(timezone.utc).timestamp()
+        payload = json.dumps(state, ensure_ascii=False)
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO runs(run_id, state_json, updated_at_ts)
+                VALUES(?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    updated_at_ts=excluded.updated_at_ts
+                """,
+                (run_id, payload, updated_at_ts),
+            )
