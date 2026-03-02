@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract
 from app.orchestrator.pipeline_runner import PipelineRunner, RecoveryContext
@@ -151,6 +155,27 @@ def test_signal_priority_prefers_fallback_on_low_health(monkeypatch, tmp_path) -
     assert resolution.signal_priority_reason == "low_health_prefer_fallback"
 
 
+def test_signal_priority_reason_none_when_no_reordering_needed(monkeypatch, tmp_path) -> None:
+    runner = _runner(tmp_path)
+    monkeypatch.setattr(
+        settings,
+        "pipeline_runner_context_overflow_priority_local",
+        ["prompt_compaction", "overflow_fallback_retry"],
+        raising=False,
+    )
+
+    resolution = _resolve(
+        runner,
+        signal_priority_enabled=True,
+        expected_latency_ms=900,
+        signal_high_latency_ms=400,
+    )
+
+    assert resolution.prompt_compaction_applied is True
+    assert resolution.signal_priority_applied is False
+    assert resolution.signal_priority_reason == "none"
+
+
 def test_strategy_feedback_demotes_last_failed_strategy(monkeypatch, tmp_path) -> None:
     runner = _runner(tmp_path)
     monkeypatch.setattr(
@@ -169,6 +194,26 @@ def test_strategy_feedback_demotes_last_failed_strategy(monkeypatch, tmp_path) -
     assert resolution.overflow_retry_applied is True
     assert resolution.strategy_feedback_applied is True
     assert resolution.strategy_feedback_reason == "demote:prompt_compaction"
+
+
+def test_strategy_feedback_reason_none_when_failed_strategy_already_last(monkeypatch, tmp_path) -> None:
+    runner = _runner(tmp_path)
+    monkeypatch.setattr(
+        settings,
+        "pipeline_runner_context_overflow_priority_local",
+        ["prompt_compaction", "overflow_fallback_retry"],
+        raising=False,
+    )
+
+    resolution = _resolve(
+        runner,
+        strategy_feedback_enabled=True,
+        last_failed_strategy_by_reason={"context_overflow": "overflow_fallback_retry"},
+    )
+
+    assert resolution.prompt_compaction_applied is True
+    assert resolution.strategy_feedback_applied is False
+    assert resolution.strategy_feedback_reason == "none"
 
 
 def test_priority_flip_switches_order_when_streak_threshold_reached(monkeypatch, tmp_path) -> None:
@@ -207,6 +252,41 @@ def test_compaction_failure_recovery_uses_fallback_retry(tmp_path) -> None:
     assert resolution.recovery_branch == "guarded_compaction_failure_recovery"
 
 
+@pytest.mark.parametrize(
+    "message,expected_reason",
+    [
+        ("Request failed: context window exceeded", "context_overflow"),
+        ("provider said truncation required due to token limit", "truncation_required"),
+        ("HTTP 429 too many requests", "rate_limited"),
+        ("upstream model not found", "model_not_found"),
+        ("request timed out", "timeout"),
+        ("service unavailable (503)", "temporary_unavailable"),
+        ("network dns failure", "network_error"),
+        ("unknown weird failure", "unknown"),
+    ],
+)
+def test_classify_failover_reason_mapping(tmp_path, message: str, expected_reason: str) -> None:
+    runner = _runner(tmp_path)
+
+    assert runner._classify_failover_reason(message) == expected_reason
+
+
+@pytest.mark.parametrize(
+    "reason,expected_branch",
+    [
+        ("context_overflow", "fail_fast_context_overflow"),
+        ("compaction_failure", "fail_fast_compaction_failure"),
+        ("truncation_required", "fail_fast_truncation_required"),
+        ("rate_limited", "retry_with_fallback"),
+        ("unknown", "fail_fast_non_retryable"),
+    ],
+)
+def test_resolve_recovery_branch_mapping(tmp_path, reason: str, expected_branch: str) -> None:
+    runner = _runner(tmp_path)
+
+    assert runner._resolve_recovery_branch(reason) == expected_branch
+
+
 def test_compact_user_message_reduces_size_and_adds_suffix(tmp_path) -> None:
     runner = _runner(tmp_path)
 
@@ -223,3 +303,142 @@ def test_truncate_payload_for_retry_reduces_size_and_adds_suffix(tmp_path) -> No
 
     assert len(truncated) < 200
     assert "payload truncated by pipeline runner" in truncated
+
+
+def test_recovery_summary_includes_applied_vs_not_applied_metrics(tmp_path) -> None:
+    runner = _runner(tmp_path)
+    events: list[dict] = []
+
+    async def _send_event(payload: dict) -> None:
+        events.append(payload)
+
+    asyncio.run(
+        runner._emit_recovery_summary_event(
+            send_event=_send_event,
+            request_id="req-1",
+            session_id="sess-1",
+            attempts=2,
+            max_attempts=3,
+            recovery_failures_total=2,
+            recovery_reason_counts={"context_overflow": 2},
+            recovery_branch_counts={"guarded_prompt_compaction_recovery": 1, "guarded_context_overflow_fallback_retry": 1},
+            recovery_strategy_counts={"prompt_compaction": 1, "overflow_fallback_retry": 1},
+            recovery_strategy_applied_total=2,
+            recovery_signal_priority_applied_total=1,
+            recovery_signal_priority_not_applied_disabled_total=0,
+            recovery_signal_priority_not_applied_not_applicable_total=1,
+            recovery_signal_priority_not_applied_no_reorder_total=0,
+            recovery_strategy_feedback_applied_total=0,
+            recovery_strategy_feedback_not_applied_disabled_total=1,
+            recovery_strategy_feedback_not_applied_not_applicable_total=0,
+            recovery_strategy_feedback_not_applied_no_reorder_total=1,
+            recovery_persistent_priority_applied_total=1,
+            recovery_persistent_priority_not_applied_disabled_total=0,
+            recovery_persistent_priority_not_applied_not_applicable_total=0,
+            recovery_persistent_priority_not_applied_no_reorder_total=1,
+            recovery_overflow_retry_applied_total=1,
+            recovery_compaction_recovery_applied_total=0,
+            recovery_truncation_recovery_applied_total=0,
+            recovery_prompt_compaction_applied_total=1,
+            recovery_payload_truncation_applied_total=0,
+            final_outcome="success",
+            final_model="model-a",
+            final_reason="context_overflow",
+        )
+    )
+
+    assert len(events) == 1
+    payload = events[0]
+    assert payload.get("type") == "lifecycle"
+    assert payload.get("stage") == "model_recovery_summary"
+    details = payload.get("details", {})
+
+    assert details.get("signal_priority_applied_vs_not_applied") == {"applied": 1, "not_applied": 1}
+    assert details.get("signal_priority_not_applied_breakdown") == {
+        "disabled": 0,
+        "not_applicable": 1,
+        "no_reorder": 0,
+    }
+    assert details.get("strategy_feedback_applied_vs_not_applied") == {"applied": 0, "not_applied": 2}
+    assert details.get("strategy_feedback_not_applied_breakdown") == {
+        "disabled": 1,
+        "not_applicable": 0,
+        "no_reorder": 1,
+    }
+    assert details.get("persistent_priority_applied_vs_not_applied") == {"applied": 1, "not_applied": 1}
+    assert details.get("persistent_priority_not_applied_breakdown") == {
+        "disabled": 0,
+        "not_applicable": 0,
+        "no_reorder": 1,
+    }
+
+
+def test_recovery_summary_contains_monitoring_required_keys(tmp_path) -> None:
+    runner = _runner(tmp_path)
+    events: list[dict] = []
+
+    async def _send_event(payload: dict) -> None:
+        events.append(payload)
+
+    asyncio.run(
+        runner._emit_recovery_summary_event(
+            send_event=_send_event,
+            request_id="req-2",
+            session_id="sess-2",
+            attempts=1,
+            max_attempts=3,
+            recovery_failures_total=1,
+            recovery_reason_counts={"context_overflow": 1},
+            recovery_branch_counts={"guarded_prompt_compaction_recovery": 1},
+            recovery_strategy_counts={"prompt_compaction": 1},
+            recovery_strategy_applied_total=1,
+            recovery_signal_priority_applied_total=0,
+            recovery_signal_priority_not_applied_disabled_total=0,
+            recovery_signal_priority_not_applied_not_applicable_total=1,
+            recovery_signal_priority_not_applied_no_reorder_total=0,
+            recovery_strategy_feedback_applied_total=0,
+            recovery_strategy_feedback_not_applied_disabled_total=1,
+            recovery_strategy_feedback_not_applied_not_applicable_total=0,
+            recovery_strategy_feedback_not_applied_no_reorder_total=0,
+            recovery_persistent_priority_applied_total=0,
+            recovery_persistent_priority_not_applied_disabled_total=1,
+            recovery_persistent_priority_not_applied_not_applicable_total=0,
+            recovery_persistent_priority_not_applied_no_reorder_total=0,
+            recovery_overflow_retry_applied_total=0,
+            recovery_compaction_recovery_applied_total=0,
+            recovery_truncation_recovery_applied_total=0,
+            recovery_prompt_compaction_applied_total=1,
+            recovery_payload_truncation_applied_total=0,
+            final_outcome="success",
+            final_model="model-a",
+            final_reason="context_overflow",
+        )
+    )
+
+    details = events[0].get("details", {})
+    required_keys = {
+        "attempts",
+        "max_attempts",
+        "failures_total",
+        "final_outcome",
+        "final_model",
+        "final_reason",
+        "reason_counts",
+        "branch_counts",
+        "strategy_counts",
+        "signal_priority_applied_vs_not_applied",
+        "strategy_feedback_applied_vs_not_applied",
+        "persistent_priority_applied_vs_not_applied",
+        "signal_priority_not_applied_breakdown",
+        "strategy_feedback_not_applied_breakdown",
+        "persistent_priority_not_applied_breakdown",
+    }
+    assert required_keys.issubset(set(details.keys()))
+
+    for key in (
+        "signal_priority_not_applied_breakdown",
+        "strategy_feedback_not_applied_breakdown",
+        "persistent_priority_not_applied_breakdown",
+    ):
+        breakdown = details.get(key, {})
+        assert {"disabled", "not_applicable", "no_reorder"}.issubset(set(breakdown.keys()))

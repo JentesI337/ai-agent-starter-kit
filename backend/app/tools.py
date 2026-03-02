@@ -37,6 +37,9 @@ COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bnc\s+-[lp]\b", "netcat listen/connect flags are blocked"),
     (r"\b(?:curl|wget)\b[^\n]*\b(?:metadata\.google\.internal|169\.254\.169\.254)\b", "metadata endpoints are blocked"),
     (r"\bcmd(?:\.exe)?\b[^\n]*\s/c\s+del\b", "destructive cmd /c del is blocked"),
+    (r"\bcmd(?:\.exe)?\b[^\n]*\s/(?:c|k)\b[^\n]*\b(?:rd|rmdir)\b", "destructive cmd rd/rmdir is blocked"),
+    (r"\b(?:powershell|pwsh)(?:\.exe)?\b[^\n]*\b(?:iex|invoke-expression)\b", "PowerShell expression execution is blocked"),
+    (r"\b(?:bash|sh|zsh)\b[^\n]*\s-c\b", "shell -c execution is blocked"),
     (r"\becho\b[^\n]*\|\s*(?:bash|sh|pwsh|powershell|cmd)\b", "pipe-to-shell execution is blocked"),
     (r"\|\|?|&&|;|`|\$\(", "shell chaining and command substitution are blocked"),
 )
@@ -50,6 +53,40 @@ def find_command_safety_violation(command: str) -> str | None:
     for pattern, reason in COMMAND_SAFETY_PATTERNS:
         if re.search(pattern, lowered, flags=re.IGNORECASE):
             return reason
+
+    semantic_reason = find_semantic_command_safety_violation(command)
+    if semantic_reason:
+        return semantic_reason
+    return None
+
+
+def find_semantic_command_safety_violation(command: str) -> str | None:
+    lowered = (command or "").strip().lower()
+    if not lowered:
+        return None
+
+    has_powershell_inline = bool(
+        re.search(r"\b(?:powershell|pwsh)(?:\.exe)?\b[^\n]*\s-(?:c|command)\b", lowered, flags=re.IGNORECASE)
+    )
+    if not has_powershell_inline:
+        return None
+
+    has_remote_pull = any(token in lowered for token in ("downloadstring(", "invoke-webrequest", "irm ", "iwr "))
+    has_dynamic_eval = any(
+        token in lowered
+        for token in (
+            "scriptblock]::create",
+            "frombase64string(",
+            "invoke-expression",
+            "iex",
+        )
+    )
+
+    if has_remote_pull and has_dynamic_eval:
+        return "PowerShell inline remote-code execution pattern is blocked"
+    if "frombase64string(" in lowered and "scriptblock]::create" in lowered:
+        return "PowerShell inline base64 script execution pattern is blocked"
+
     return None
 
 

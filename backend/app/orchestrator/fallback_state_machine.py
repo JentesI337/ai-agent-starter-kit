@@ -4,15 +4,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from app.contracts.agent_contract import AgentContract, SendEvent
 from app.errors import LlmClientError
+from app.model_routing.router import ModelRouteDecision
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
-from app.orchestrator.recovery_strategy import RecoveryContext
+from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
 from app.tool_policy import ToolPolicyDict
 
 
 class FallbackHooks(Protocol):
     @property
-    def agent(self): ...
+    def agent(self) -> AgentContract: ...
 
     def _classify_failover_reason(self, message: str) -> str: ...
 
@@ -20,7 +22,7 @@ class FallbackHooks(Protocol):
 
     def _resolve_recovery_branch(self, reason: str) -> str: ...
 
-    def _resolve_recovery_strategy(self, *, ctx: RecoveryContext): ...
+    def _resolve_recovery_strategy(self, *, ctx: RecoveryContext) -> RecoveryStrategyResolution: ...
 
     async def _emit_recovery_summary_event(self, **kwargs) -> None: ...
 
@@ -48,8 +50,17 @@ class FallbackAttemptState:
     recovery_strategy_counts: dict[str, int] | None = None
     recovery_strategy_applied_total: int = 0
     recovery_signal_priority_applied_total: int = 0
+    recovery_signal_priority_not_applied_disabled_total: int = 0
+    recovery_signal_priority_not_applied_not_applicable_total: int = 0
+    recovery_signal_priority_not_applied_no_reorder_total: int = 0
     recovery_strategy_feedback_applied_total: int = 0
+    recovery_strategy_feedback_not_applied_disabled_total: int = 0
+    recovery_strategy_feedback_not_applied_not_applicable_total: int = 0
+    recovery_strategy_feedback_not_applied_no_reorder_total: int = 0
     recovery_persistent_priority_applied_total: int = 0
+    recovery_persistent_priority_not_applied_disabled_total: int = 0
+    recovery_persistent_priority_not_applied_not_applicable_total: int = 0
+    recovery_persistent_priority_not_applied_no_reorder_total: int = 0
     recovery_overflow_retry_applied_total: int = 0
     recovery_compaction_recovery_applied_total: int = 0
     recovery_truncation_recovery_applied_total: int = 0
@@ -109,16 +120,16 @@ class FallbackStateMachine:
         self,
         *,
         hooks: FallbackHooks,
-        route,
+        route: ModelRouteDecision,
         runtime: str,
         user_message: str,
-        send_event,
+        send_event: SendEvent,
         session_id: str,
         request_id: str,
         tool_policy: ToolPolicyDict | None,
         max_attempts: int,
         config: FallbackRuntimeConfig,
-    ):
+    ) -> None:
         self._hooks = hooks
         self._route = route
         self._runtime = runtime
@@ -331,10 +342,25 @@ class FallbackStateMachine:
 
                 if recovery_resolution.signal_priority_applied:
                     self._attempt.recovery_signal_priority_applied_total += 1
+                else:
+                    self._increment_priority_not_applied_bucket(
+                        prefix="recovery_signal_priority",
+                        reason=recovery_resolution.signal_priority_reason,
+                    )
                 if recovery_resolution.strategy_feedback_applied:
                     self._attempt.recovery_strategy_feedback_applied_total += 1
+                else:
+                    self._increment_priority_not_applied_bucket(
+                        prefix="recovery_strategy_feedback",
+                        reason=recovery_resolution.strategy_feedback_reason,
+                    )
                 if recovery_resolution.persistent_priority_applied:
                     self._attempt.recovery_persistent_priority_applied_total += 1
+                else:
+                    self._increment_priority_not_applied_bucket(
+                        prefix="recovery_persistent_priority",
+                        reason=recovery_resolution.persistent_priority_reason,
+                    )
                 if recovery_resolution.overflow_retry_applied:
                     self._attempt.recovery_overflow_retry_applied_total += 1
                 if recovery_resolution.compaction_recovery_applied:
@@ -498,8 +524,17 @@ class FallbackStateMachine:
             recovery_strategy_counts=self._attempt.recovery_strategy_counts or {},
             recovery_strategy_applied_total=self._attempt.recovery_strategy_applied_total,
             recovery_signal_priority_applied_total=self._attempt.recovery_signal_priority_applied_total,
+            recovery_signal_priority_not_applied_disabled_total=self._attempt.recovery_signal_priority_not_applied_disabled_total,
+            recovery_signal_priority_not_applied_not_applicable_total=self._attempt.recovery_signal_priority_not_applied_not_applicable_total,
+            recovery_signal_priority_not_applied_no_reorder_total=self._attempt.recovery_signal_priority_not_applied_no_reorder_total,
             recovery_strategy_feedback_applied_total=self._attempt.recovery_strategy_feedback_applied_total,
+            recovery_strategy_feedback_not_applied_disabled_total=self._attempt.recovery_strategy_feedback_not_applied_disabled_total,
+            recovery_strategy_feedback_not_applied_not_applicable_total=self._attempt.recovery_strategy_feedback_not_applied_not_applicable_total,
+            recovery_strategy_feedback_not_applied_no_reorder_total=self._attempt.recovery_strategy_feedback_not_applied_no_reorder_total,
             recovery_persistent_priority_applied_total=self._attempt.recovery_persistent_priority_applied_total,
+            recovery_persistent_priority_not_applied_disabled_total=self._attempt.recovery_persistent_priority_not_applied_disabled_total,
+            recovery_persistent_priority_not_applied_not_applicable_total=self._attempt.recovery_persistent_priority_not_applied_not_applicable_total,
+            recovery_persistent_priority_not_applied_no_reorder_total=self._attempt.recovery_persistent_priority_not_applied_no_reorder_total,
             recovery_overflow_retry_applied_total=self._attempt.recovery_overflow_retry_applied_total,
             recovery_compaction_recovery_applied_total=self._attempt.recovery_compaction_recovery_applied_total,
             recovery_truncation_recovery_applied_total=self._attempt.recovery_truncation_recovery_applied_total,
@@ -509,3 +544,16 @@ class FallbackStateMachine:
             final_model=final_model,
             final_reason=final_reason,
         )
+
+    def _increment_priority_not_applied_bucket(self, *, prefix: str, reason: str) -> None:
+        normalized_reason = (reason or "").strip().lower()
+        if normalized_reason == "disabled":
+            bucket = "disabled"
+        elif normalized_reason == "not_applicable":
+            bucket = "not_applicable"
+        else:
+            bucket = "no_reorder"
+
+        field_name = f"{prefix}_not_applied_{bucket}_total"
+        current = int(getattr(self._attempt, field_name, 0) or 0)
+        setattr(self._attempt, field_name, current + 1)

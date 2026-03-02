@@ -79,3 +79,16 @@ pytest backend/tests -q
 ```
 
 Erwartung: Alle Tests grün.
+
+## 7) Recovery-Telemetrie-Quickcheck (empfohlen)
+
+- Stelle sicher, dass Lifecycle-Events `model_recovery_summary` in Monitoring/Logs verfügbar sind.
+- Pflichtfelder in `details` prüfen:
+  - `attempts`, `max_attempts`, `failures_total`, `final_outcome`, `final_model`, `final_reason`
+  - `reason_counts`, `branch_counts`, `strategy_counts`
+  - `signal_priority_applied_vs_not_applied`, `strategy_feedback_applied_vs_not_applied`, `persistent_priority_applied_vs_not_applied`
+  - `signal_priority_not_applied_breakdown`, `strategy_feedback_not_applied_breakdown`, `persistent_priority_not_applied_breakdown`
+
+Vertiefung:
+- Mapping: `monitoring/RECOVERY_TELEMETRY_MAPPING.md`
+- Operatives Vorgehen: `RECOVERY_RUNBOOK.md`

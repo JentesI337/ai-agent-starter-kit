@@ -43,9 +43,26 @@ class _FakeAgent:
 
 
 class _Hooks:
-    def __init__(self, agent: _FakeAgent, *, retryable: bool = True) -> None:
+    def __init__(
+        self,
+        agent: _FakeAgent,
+        *,
+        retryable: bool = True,
+        signal_priority_applied: bool = False,
+        signal_priority_reason: str = "none",
+        strategy_feedback_applied: bool = False,
+        strategy_feedback_reason: str = "none",
+        persistent_priority_applied: bool = False,
+        persistent_priority_reason: str = "none",
+    ) -> None:
         self.agent = agent
         self.retryable = retryable
+        self.signal_priority_applied = signal_priority_applied
+        self.signal_priority_reason = signal_priority_reason
+        self.strategy_feedback_applied = strategy_feedback_applied
+        self.strategy_feedback_reason = strategy_feedback_reason
+        self.persistent_priority_applied = persistent_priority_applied
+        self.persistent_priority_reason = persistent_priority_reason
         self.summary_events: list[dict] = []
         self.metrics: list[tuple[str, str, str, str]] = []
 
@@ -72,6 +89,12 @@ class _Hooks:
             truncation_recovery_attempts=ctx.truncation_recovery_attempts,
             prompt_compaction_attempts=ctx.prompt_compaction_attempts,
             payload_truncation_attempts=ctx.payload_truncation_attempts,
+            signal_priority_applied=self.signal_priority_applied,
+            signal_priority_reason=self.signal_priority_reason,
+            strategy_feedback_applied=self.strategy_feedback_applied,
+            strategy_feedback_reason=self.strategy_feedback_reason,
+            persistent_priority_applied=self.persistent_priority_applied,
+            persistent_priority_reason=self.persistent_priority_reason,
         )
 
     async def _emit_recovery_summary_event(self, **kwargs) -> None:
@@ -116,7 +139,13 @@ def test_state_machine_retries_with_fallback_model_and_succeeds() -> None:
         profile=_RouteProfile(),
     )
     agent = _FakeAgent(fail_first_attempt=True)
-    hooks = _Hooks(agent, retryable=True)
+    hooks = _Hooks(
+        agent,
+        retryable=True,
+        signal_priority_reason="not_applicable",
+        strategy_feedback_reason="disabled",
+        persistent_priority_reason="insufficient_samples",
+    )
     emitted: list[dict] = []
 
     async def _send_event(payload: dict) -> None:
@@ -140,7 +169,66 @@ def test_state_machine_retries_with_fallback_model_and_succeeds() -> None:
     assert result == "ok:model-fallback"
     assert agent.calls == ["model-primary", "model-fallback"]
     assert any(event.get("type") == "status" for event in emitted)
-    assert hooks.summary_events[-1]["final_outcome"] == "success"
+    branch_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_recovery_branch_selected"
+    )
+    branch_details = branch_event.get("details", {})
+    required_branch_keys = {
+        "model",
+        "reason",
+        "branch",
+        "retryable",
+        "has_fallback",
+        "recovery_strategy",
+        "reason_streak",
+        "recovery_priority_overridden",
+        "signal_priority_applied",
+        "signal_priority_reason",
+        "strategy_feedback_applied",
+        "strategy_feedback_reason",
+        "persistent_priority_applied",
+        "persistent_priority_reason",
+    }
+    assert required_branch_keys.issubset(set(branch_details.keys()))
+    assert branch_details.get("reason") == "rate_limited"
+    assert branch_details.get("branch") == "retry_with_fallback"
+    assert branch_details.get("retryable") is True
+    assert branch_details.get("has_fallback") is True
+    assert branch_details.get("recovery_strategy") == "none"
+
+    action_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_recovery_action"
+    )
+    action_details = action_event.get("details", {})
+    required_action_keys = {
+        "model",
+        "reason",
+        "branch",
+        "action",
+        "recovery_strategy",
+        "reason_streak",
+        "recovery_priority_overridden",
+        "signal_priority_applied",
+        "signal_priority_reason",
+        "strategy_feedback_applied",
+        "strategy_feedback_reason",
+        "persistent_priority_applied",
+        "persistent_priority_reason",
+    }
+    assert required_action_keys.issubset(set(action_details.keys()))
+    assert action_details.get("reason") == "rate_limited"
+    assert action_details.get("branch") == "retry_with_fallback"
+    assert action_details.get("action") == "retry_fallback"
+    assert action_details.get("recovery_strategy") == "none"
+    summary = hooks.summary_events[-1]
+    assert summary["final_outcome"] == "success"
+    assert summary["recovery_signal_priority_not_applied_not_applicable_total"] == 1
+    assert summary["recovery_strategy_feedback_not_applied_disabled_total"] == 1
+    assert summary["recovery_persistent_priority_not_applied_no_reorder_total"] == 1
 
 
 def test_state_machine_fails_fast_when_not_retryable() -> None:
@@ -151,9 +239,10 @@ def test_state_machine_fails_fast_when_not_retryable() -> None:
     )
     agent = _FakeAgent(fail_first_attempt=True)
     hooks = _Hooks(agent, retryable=False)
+    emitted: list[dict] = []
 
-    async def _send_event(_payload: dict) -> None:
-        return None
+    async def _send_event(payload: dict) -> None:
+        emitted.append(payload)
 
     machine = FallbackStateMachine(
         hooks=hooks,
@@ -172,4 +261,14 @@ def test_state_machine_fails_fast_when_not_retryable() -> None:
         asyncio.run(machine.run())
 
     assert agent.calls == ["model-primary"]
+    action_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_recovery_action"
+    )
+    action_details = action_event.get("details", {})
+    assert action_details.get("reason") == "rate_limited"
+    assert action_details.get("branch") == "fail_fast_non_retryable"
+    assert action_details.get("action") == "fail_fast"
+    assert action_details.get("recovery_strategy") == "none"
     assert hooks.summary_events[-1]["final_outcome"] == "failure"

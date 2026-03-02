@@ -9,6 +9,7 @@ from app.config import settings
 from app.errors import GuardrailViolation, LlmClientError
 from app.model_routing.context_window_guard import evaluate_context_window_guard
 from app.model_routing import ModelRouter
+from app.model_routing.router import ModelRouteDecision
 from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
 from app.orchestrator.recovery_strategy import (
@@ -20,6 +21,34 @@ from app.orchestrator.recovery_strategy import (
 from app.orchestrator.step_types import PipelineStep
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
+
+
+RecoveryPriorityResolution = tuple[tuple[str, ...], bool, bool, str, bool, bool]
+
+FAILOVER_REASON_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "context_overflow",
+        (
+            "context overflow",
+            "context window",
+            "too large for the model",
+            "maximum context length",
+            "prompt too long",
+        ),
+    ),
+    ("truncation_required", ("truncat", "truncated", "token limit", "max tokens")),
+    ("model_not_found", ("model", "not found")),
+    ("rate_limited", ("rate limit", "too many requests", "429")),
+    ("timeout", ("timeout", "timed out")),
+    ("temporary_unavailable", ("temporarily unavailable", "service unavailable", "503")),
+    ("network_error", ("connection", "network", "dns")),
+)
+
+NON_RETRYABLE_FAIL_FAST_BRANCH_BY_REASON: dict[str, str] = {
+    "context_overflow": "fail_fast_context_overflow",
+    "compaction_failure": "fail_fast_compaction_failure",
+    "truncation_required": "fail_fast_truncation_required",
+}
 
 
 class PipelineRunner:
@@ -57,7 +86,7 @@ class PipelineRunner:
             status="active",
         )
 
-        route = self.model_router.route(runtime=runtime, requested_model=model)
+        route: ModelRouteDecision = self.model_router.route(runtime=runtime, requested_model=model)
         await send_event(
             build_lifecycle_event(
                 request_id=request_id,
@@ -145,7 +174,7 @@ class PipelineRunner:
         session_id: str,
         request_id: str,
         runtime: str,
-        route,
+        route: ModelRouteDecision,
         tool_policy: ToolPolicyDict | None,
     ) -> str:
         max_attempts = max(1, int(settings.pipeline_runner_max_attempts))
@@ -222,37 +251,20 @@ class PipelineRunner:
 
     def _classify_failover_reason(self, message: str) -> str:
         text = (message or "").lower()
-        if (
-            "context overflow" in text
-            or "context window" in text
-            or "too large for the model" in text
-            or "maximum context length" in text
-            or "prompt too long" in text
-        ):
-            return "context_overflow"
         if "compaction" in text and (
             "failed" in text
             or "timeout" in text
             or "timed out" in text
         ):
             return "compaction_failure"
-        if (
-            "truncat" in text
-            or "truncated" in text
-            or "token limit" in text
-            or "max tokens" in text
-        ):
-            return "truncation_required"
-        if "model" in text and "not found" in text:
-            return "model_not_found"
-        if "rate limit" in text or "too many requests" in text or "429" in text:
-            return "rate_limited"
-        if "timeout" in text or "timed out" in text:
-            return "timeout"
-        if "temporarily unavailable" in text or "service unavailable" in text or "503" in text:
-            return "temporary_unavailable"
-        if "connection" in text or "network" in text or "dns" in text:
-            return "network_error"
+
+        for reason, markers in FAILOVER_REASON_PATTERNS:
+            if reason == "model_not_found":
+                if "model" in text and "not found" in text:
+                    return reason
+                continue
+            if any(marker in text for marker in markers):
+                return reason
         return "unknown"
 
     def _is_retryable_failover_reason(self, reason: str) -> bool:
@@ -265,12 +277,9 @@ class PipelineRunner:
         }
 
     def _resolve_recovery_branch(self, reason: str) -> str:
-        if reason == "context_overflow":
-            return "fail_fast_context_overflow"
-        if reason == "compaction_failure":
-            return "fail_fast_compaction_failure"
-        if reason == "truncation_required":
-            return "fail_fast_truncation_required"
+        fail_fast_branch = NON_RETRYABLE_FAIL_FAST_BRANCH_BY_REASON.get(reason)
+        if fail_fast_branch:
+            return fail_fast_branch
         if self._is_retryable_failover_reason(reason):
             return "retry_with_fallback"
         return "fail_fast_non_retryable"
@@ -289,8 +298,17 @@ class PipelineRunner:
         recovery_strategy_counts: dict[str, int],
         recovery_strategy_applied_total: int,
         recovery_signal_priority_applied_total: int,
+        recovery_signal_priority_not_applied_disabled_total: int,
+        recovery_signal_priority_not_applied_not_applicable_total: int,
+        recovery_signal_priority_not_applied_no_reorder_total: int,
         recovery_strategy_feedback_applied_total: int,
+        recovery_strategy_feedback_not_applied_disabled_total: int,
+        recovery_strategy_feedback_not_applied_not_applicable_total: int,
+        recovery_strategy_feedback_not_applied_no_reorder_total: int,
         recovery_persistent_priority_applied_total: int,
+        recovery_persistent_priority_not_applied_disabled_total: int,
+        recovery_persistent_priority_not_applied_not_applicable_total: int,
+        recovery_persistent_priority_not_applied_no_reorder_total: int,
         recovery_overflow_retry_applied_total: int,
         recovery_compaction_recovery_applied_total: int,
         recovery_truncation_recovery_applied_total: int,
@@ -302,6 +320,23 @@ class PipelineRunner:
     ) -> None:
         if recovery_failures_total <= 0:
             return
+
+        signal_not_applied_total = (
+            recovery_signal_priority_not_applied_disabled_total
+            + recovery_signal_priority_not_applied_not_applicable_total
+            + recovery_signal_priority_not_applied_no_reorder_total
+        )
+        strategy_feedback_not_applied_total = (
+            recovery_strategy_feedback_not_applied_disabled_total
+            + recovery_strategy_feedback_not_applied_not_applicable_total
+            + recovery_strategy_feedback_not_applied_no_reorder_total
+        )
+        persistent_priority_not_applied_total = (
+            recovery_persistent_priority_not_applied_disabled_total
+            + recovery_persistent_priority_not_applied_not_applicable_total
+            + recovery_persistent_priority_not_applied_no_reorder_total
+        )
+
         await send_event(
             build_lifecycle_event(
                 request_id=request_id,
@@ -317,8 +352,35 @@ class PipelineRunner:
                     "strategy_counts": recovery_strategy_counts,
                     "recovery_strategy_applied_total": recovery_strategy_applied_total,
                     "signal_priority_applied_total": recovery_signal_priority_applied_total,
+                    "signal_priority_applied_vs_not_applied": {
+                        "applied": recovery_signal_priority_applied_total,
+                        "not_applied": signal_not_applied_total,
+                    },
+                    "signal_priority_not_applied_breakdown": {
+                        "disabled": recovery_signal_priority_not_applied_disabled_total,
+                        "not_applicable": recovery_signal_priority_not_applied_not_applicable_total,
+                        "no_reorder": recovery_signal_priority_not_applied_no_reorder_total,
+                    },
                     "strategy_feedback_applied_total": recovery_strategy_feedback_applied_total,
+                    "strategy_feedback_applied_vs_not_applied": {
+                        "applied": recovery_strategy_feedback_applied_total,
+                        "not_applied": strategy_feedback_not_applied_total,
+                    },
+                    "strategy_feedback_not_applied_breakdown": {
+                        "disabled": recovery_strategy_feedback_not_applied_disabled_total,
+                        "not_applicable": recovery_strategy_feedback_not_applied_not_applicable_total,
+                        "no_reorder": recovery_strategy_feedback_not_applied_no_reorder_total,
+                    },
                     "persistent_priority_applied_total": recovery_persistent_priority_applied_total,
+                    "persistent_priority_applied_vs_not_applied": {
+                        "applied": recovery_persistent_priority_applied_total,
+                        "not_applied": persistent_priority_not_applied_total,
+                    },
+                    "persistent_priority_not_applied_breakdown": {
+                        "disabled": recovery_persistent_priority_not_applied_disabled_total,
+                        "not_applicable": recovery_persistent_priority_not_applied_not_applicable_total,
+                        "no_reorder": recovery_persistent_priority_not_applied_no_reorder_total,
+                    },
                     "overflow_retry_applied_total": recovery_overflow_retry_applied_total,
                     "compaction_recovery_applied_total": recovery_compaction_recovery_applied_total,
                     "truncation_recovery_applied_total": recovery_truncation_recovery_applied_total,
@@ -338,6 +400,8 @@ class PipelineRunner:
             recovery_priority_overridden,
             persistent_priority_applied,
             persistent_priority_reason,
+            signal_priority_applied,
+            strategy_feedback_applied,
         ) = self._resolve_recovery_priority_steps(
             reason=ctx.reason,
             runtime=ctx.runtime,
@@ -366,18 +430,14 @@ class PipelineRunner:
             high_latency_ms=ctx.signal_high_latency_ms,
             high_cost_threshold=ctx.signal_high_cost_threshold,
             enabled=ctx.signal_priority_enabled,
+            applied=signal_priority_applied,
         )
-        signal_priority_applied = signal_priority_reason in {
-            "low_health_prefer_fallback",
-            "high_latency_prefer_transform",
-            "high_cost_prefer_transform",
-        }
         strategy_feedback_reason = self._resolve_strategy_feedback_reason(
             reason=ctx.reason,
             last_failed_strategy_by_reason=ctx.last_failed_strategy_by_reason,
             enabled=ctx.strategy_feedback_enabled,
+            applied=strategy_feedback_applied,
         )
-        strategy_feedback_applied = strategy_feedback_reason.startswith("demote:")
         return PriorityRecoveryMetadata(
             priority_steps=priority_steps,
             recovery_priority_overridden=recovery_priority_overridden,
@@ -444,10 +504,47 @@ class PipelineRunner:
         last_failed_strategy_by_reason: dict[str, str],
         persistent_priority_enabled: bool,
         persistent_priority_min_samples: int,
-    ) -> tuple[tuple[str, ...], bool, bool, str]:
+    ) -> RecoveryPriorityResolution:
+        """Resolve ordered recovery strategies and metadata for priority decisions."""
         normalized_runtime = (runtime or "").strip().lower()
         is_api = normalized_runtime == "api"
+        priority_config = self._resolve_reason_priority_config(reason=reason, is_api=is_api)
+        if priority_config is None:
+            return tuple(), False, False, "not_applicable", False, False
 
+        raw_priority, allowed_steps, fallback_steps = priority_config
+        base = self._normalize_recovery_priority(
+            raw_priority,
+            allowed=allowed_steps,
+            fallback=fallback_steps,
+        )
+        return self._apply_priority_recovery_pipeline(
+            reason=reason,
+            model_id=model_id,
+            base_steps=base,
+            reason_streak=reason_streak,
+            flip_enabled=flip_enabled,
+            flip_threshold=flip_threshold,
+            signal_priority_enabled=signal_priority_enabled,
+            health_score=health_score,
+            expected_latency_ms=expected_latency_ms,
+            cost_score=cost_score,
+            low_health_threshold=low_health_threshold,
+            high_latency_ms=high_latency_ms,
+            high_cost_threshold=high_cost_threshold,
+            strategy_feedback_enabled=strategy_feedback_enabled,
+            last_failed_strategy_by_reason=last_failed_strategy_by_reason,
+            persistent_priority_enabled=persistent_priority_enabled,
+            persistent_priority_min_samples=persistent_priority_min_samples,
+        )
+
+    def _resolve_reason_priority_config(
+        self,
+        *,
+        reason: str,
+        is_api: bool,
+    ) -> tuple[object, set[str], tuple[str, ...]] | None:
+        """Return reason/runtime-specific priority source, allowed steps and fallback order."""
         if reason == "context_overflow":
             raw_priority = (
                 settings.pipeline_runner_context_overflow_priority_api
@@ -459,43 +556,7 @@ class PipelineRunner:
                 if is_api
                 else ("prompt_compaction", "overflow_fallback_retry")
             )
-            base = self._normalize_recovery_priority(
-                raw_priority,
-                allowed={"prompt_compaction", "overflow_fallback_retry"},
-                fallback=fallback,
-            )
-            signal_adjusted, signal_applied = self._apply_signal_priority(
-                reason=reason,
-                steps=base,
-                enabled=signal_priority_enabled,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=low_health_threshold,
-                high_latency_ms=high_latency_ms,
-                high_cost_threshold=high_cost_threshold,
-            )
-            feedback_adjusted, feedback_applied = self._apply_strategy_feedback(
-                reason=reason,
-                steps=signal_adjusted,
-                enabled=strategy_feedback_enabled,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-            )
-            persistent_adjusted, persistent_applied, persistent_reason = self._apply_persistent_metrics_priority(
-                reason=reason,
-                model_id=model_id,
-                steps=feedback_adjusted,
-                enabled=persistent_priority_enabled,
-                min_samples=persistent_priority_min_samples,
-            )
-            final_steps, overridden = self._apply_priority_flip(
-                persistent_adjusted,
-                reason_streak=reason_streak,
-                enabled=flip_enabled,
-                threshold=flip_threshold,
-                already_overridden=(signal_applied or feedback_applied or persistent_applied),
-            )
-            return final_steps, overridden, persistent_applied, persistent_reason
+            return raw_priority, {"prompt_compaction", "overflow_fallback_retry"}, fallback
 
         if reason == "truncation_required":
             raw_priority = (
@@ -508,45 +569,64 @@ class PipelineRunner:
                 if is_api
                 else ("payload_truncation", "truncation_fallback_retry")
             )
-            base = self._normalize_recovery_priority(
-                raw_priority,
-                allowed={"payload_truncation", "truncation_fallback_retry"},
-                fallback=fallback,
-            )
-            signal_adjusted, signal_applied = self._apply_signal_priority(
-                reason=reason,
-                steps=base,
-                enabled=signal_priority_enabled,
-                health_score=health_score,
-                expected_latency_ms=expected_latency_ms,
-                cost_score=cost_score,
-                low_health_threshold=low_health_threshold,
-                high_latency_ms=high_latency_ms,
-                high_cost_threshold=high_cost_threshold,
-            )
-            feedback_adjusted, feedback_applied = self._apply_strategy_feedback(
-                reason=reason,
-                steps=signal_adjusted,
-                enabled=strategy_feedback_enabled,
-                last_failed_strategy_by_reason=last_failed_strategy_by_reason,
-            )
-            persistent_adjusted, persistent_applied, persistent_reason = self._apply_persistent_metrics_priority(
-                reason=reason,
-                model_id=model_id,
-                steps=feedback_adjusted,
-                enabled=persistent_priority_enabled,
-                min_samples=persistent_priority_min_samples,
-            )
-            final_steps, overridden = self._apply_priority_flip(
-                persistent_adjusted,
-                reason_streak=reason_streak,
-                enabled=flip_enabled,
-                threshold=flip_threshold,
-                already_overridden=(signal_applied or feedback_applied or persistent_applied),
-            )
-            return final_steps, overridden, persistent_applied, persistent_reason
+            return raw_priority, {"payload_truncation", "truncation_fallback_retry"}, fallback
 
-        return tuple(), False, False, "not_applicable"
+        return None
+
+    def _apply_priority_recovery_pipeline(
+        self,
+        *,
+        reason: str,
+        model_id: str,
+        base_steps: tuple[str, ...],
+        reason_streak: int,
+        flip_enabled: bool,
+        flip_threshold: int,
+        signal_priority_enabled: bool,
+        health_score: float,
+        expected_latency_ms: int,
+        cost_score: float,
+        low_health_threshold: float,
+        high_latency_ms: int,
+        high_cost_threshold: float,
+        strategy_feedback_enabled: bool,
+        last_failed_strategy_by_reason: dict[str, str],
+        persistent_priority_enabled: bool,
+        persistent_priority_min_samples: int,
+    ) -> RecoveryPriorityResolution:
+        """Apply signal, feedback, persistent metrics and optional flip in one shared path."""
+        signal_adjusted, signal_applied = self._apply_signal_priority(
+            reason=reason,
+            steps=base_steps,
+            enabled=signal_priority_enabled,
+            health_score=health_score,
+            expected_latency_ms=expected_latency_ms,
+            cost_score=cost_score,
+            low_health_threshold=low_health_threshold,
+            high_latency_ms=high_latency_ms,
+            high_cost_threshold=high_cost_threshold,
+        )
+        feedback_adjusted, feedback_applied = self._apply_strategy_feedback(
+            reason=reason,
+            steps=signal_adjusted,
+            enabled=strategy_feedback_enabled,
+            last_failed_strategy_by_reason=last_failed_strategy_by_reason,
+        )
+        persistent_adjusted, persistent_applied, persistent_reason = self._apply_persistent_metrics_priority(
+            reason=reason,
+            model_id=model_id,
+            steps=feedback_adjusted,
+            enabled=persistent_priority_enabled,
+            min_samples=persistent_priority_min_samples,
+        )
+        final_steps, overridden = self._apply_priority_flip(
+            persistent_adjusted,
+            reason_streak=reason_streak,
+            enabled=flip_enabled,
+            threshold=flip_threshold,
+            already_overridden=(signal_applied or feedback_applied or persistent_applied),
+        )
+        return final_steps, overridden, persistent_applied, persistent_reason, signal_applied, feedback_applied
 
     def _normalize_recovery_priority(
         self,
@@ -639,11 +719,14 @@ class PipelineRunner:
         high_latency_ms: int,
         high_cost_threshold: float,
         enabled: bool,
+        applied: bool,
     ) -> str:
         if not enabled:
             return "disabled"
         if reason not in {"context_overflow", "truncation_required"}:
             return "not_applicable"
+        if not applied:
+            return "none"
         if health_score < low_health_threshold:
             return "low_health_prefer_fallback"
         if expected_latency_ms >= high_latency_ms:
@@ -676,9 +759,12 @@ class PipelineRunner:
         reason: str,
         last_failed_strategy_by_reason: dict[str, str],
         enabled: bool,
+        applied: bool,
     ) -> str:
         if not enabled:
             return "disabled"
+        if not applied:
+            return "none"
         failed_strategy = str(last_failed_strategy_by_reason.get(reason, "") or "").strip()
         if not failed_strategy:
             return "none"

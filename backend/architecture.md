@@ -131,6 +131,25 @@ Aktueller Refactor-Stand:
 - Recovery-Entscheidungslogik ist in `app.orchestrator.recovery_strategy` ausgelagert (`RecoveryContext`, `RecoveryStrategyResolver`, `RecoveryStrategyResolution`).
 - Der ehemals monolithische Fallback-Loop läuft als explizite State-Machine in `app.orchestrator.fallback_state_machine` (`FallbackStateMachine`, `FallbackRuntimeConfig`) und wird von `PipelineRunner._run_with_fallback(...)` nur noch konfiguriert/wired.
 
+#### Recovery-Lifecycle-Events (Schema)
+
+- `model_recovery_branch_selected` (`details`):
+	- Basis: `model`, `reason`, `branch`, `retryable`, `has_fallback`, `recovery_strategy`, `reason_streak`
+	- Guarded-Recovery-Metadaten: `overflow_retry_*`, `compaction_recovery_*`, `truncation_recovery_*`, `prompt_compaction_*`, `payload_truncation_*`
+	- Priorisierungs-Metadaten: `recovery_priority_overridden`, `signal_priority_applied`, `signal_priority_reason`, `strategy_feedback_applied`, `strategy_feedback_reason`, `persistent_priority_applied`, `persistent_priority_reason`
+
+- `model_recovery_action` (`details`):
+	- Basis: `model`, `reason`, `branch`, `action` (`retry_fallback` | `fail_fast`), `recovery_strategy`, `reason_streak`
+	- Applied-Flags (kompakt): `overflow_retry_applied`, `compaction_recovery_applied`, `truncation_recovery_applied`, `prompt_compaction_applied`, `payload_truncation_applied`
+	- Priorisierungs-Metadaten: `recovery_priority_overridden`, `signal_priority_applied`, `signal_priority_reason`, `strategy_feedback_applied`, `strategy_feedback_reason`, `persistent_priority_applied`, `persistent_priority_reason`
+
+- `model_recovery_summary` (`details`):
+	- Basis: `attempts`, `max_attempts`, `failures_total`, `unique_reasons`, `reason_counts`, `branch_counts`, `strategy_counts`, `final_outcome`, `final_model`, `final_reason`
+	- Summen: `recovery_strategy_applied_total`, `signal_priority_applied_total`, `strategy_feedback_applied_total`, `persistent_priority_applied_total`
+	- Additive Vergleichsmetriken: `signal_priority_applied_vs_not_applied`, `strategy_feedback_applied_vs_not_applied`, `persistent_priority_applied_vs_not_applied`
+	- Feingranulare Not-Applied-Buckets: `signal_priority_not_applied_breakdown`, `strategy_feedback_not_applied_breakdown`, `persistent_priority_not_applied_breakdown` mit Subkeys `disabled`, `not_applicable`, `no_reorder`
+	- Recovery-Actions: `overflow_retry_applied_total`, `compaction_recovery_applied_total`, `truncation_recovery_applied_total`, `prompt_compaction_applied_total`, `payload_truncation_applied_total`
+
 ### 4.5 `app.orchestrator.subrun_lane`
 
 Verwaltet Child-Execution-Lanes inklusive:
