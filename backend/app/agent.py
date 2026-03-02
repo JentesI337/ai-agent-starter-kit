@@ -36,13 +36,13 @@ from app.services.intent_detector import IntentDetector
 from app.services.reply_shaper import ReplyShaper
 from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
-from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, build_default_tool_registry
+from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tool_policy import ToolPolicyDict
-from app.tools import AgentTooling
+from app.tools import AgentTooling, find_command_safety_violation
 
 SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str]]
@@ -153,9 +153,10 @@ class HeadAgent:
                 max_prompt_chars=max(1000, int(settings.skills_max_prompt_chars)),
             )
         )
+        self._intent = IntentDetector()
+        self._intent_detector = self._intent
         self._action_parser = ActionParser()
-        self._action_augmenter = ActionAugmenter()
-        self._intent_detector = IntentDetector()
+        self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
         self._reply_shaper = ReplyShaper()
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
@@ -961,19 +962,20 @@ class HeadAgent:
         return True
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
-        decision = self._intent_detector.detect_intent_gate(user_message)
+        decision = self._intent.detect(user_message)
+        confidence_label = "high" if decision.confidence >= 0.8 else ("medium" if decision.confidence >= 0.45 else "low")
         return IntentGateDecision(
             intent=decision.intent,
-            confidence=decision.confidence,
+            confidence=confidence_label,
             extracted_command=decision.extracted_command,
             missing_slots=decision.missing_slots,
         )
 
     def _looks_like_shell_command(self, candidate: str) -> bool:
-        return self._intent_detector.looks_like_shell_command(candidate)
+        return self._intent.is_shell_command(candidate)
 
     def _extract_explicit_command(self, user_message: str) -> str | None:
-        return self._intent_detector.extract_explicit_command(user_message)
+        return self._intent.extract_command(user_message)
 
     async def _emit_tool_selection_empty(
         self,
@@ -1138,19 +1140,19 @@ class HeadAgent:
         )
 
     def _is_web_research_task(self, user_message: str) -> bool:
-        return self._intent_detector.is_web_research_task(user_message)
+        return self._intent.is_web_research_task(user_message)
 
     def _is_subrun_orchestration_task(self, user_message: str) -> bool:
-        return self._intent_detector.is_subrun_orchestration_task(user_message)
+        return self._intent.is_subrun_orchestration_task(user_message)
 
     def _is_weather_lookup_task(self, user_message: str) -> bool:
-        return self._intent_detector.is_weather_lookup_task(user_message)
+        return self._intent.is_weather_lookup_task(user_message)
 
     def _should_retry_web_fetch_on_404(self, error: ToolExecutionError) -> bool:
-        return self._intent_detector.should_retry_web_fetch_on_404(error)
+        return self._intent.should_retry_fetch(error)
 
     def _has_successful_web_fetch(self, tool_results: str) -> bool:
-        return self._intent_detector.has_successful_web_fetch(tool_results)
+        return self._intent.has_successful_fetch(tool_results)
 
     def _extract_tool_errors(self, tool_results: str, *, tool_name: str) -> list[str]:
         if not tool_results:
@@ -1160,29 +1162,29 @@ class HeadAgent:
         return [item for item in errors if item]
 
     def _build_web_fetch_unavailable_reply(self, web_errors: list[str]) -> str:
-        return self._intent_detector.build_web_fetch_unavailable_reply(web_errors)
+        return self._intent.build_fetch_unavailable_reply(web_errors)
 
     def _build_web_research_url(self, user_message: str) -> str:
-        return self._intent_detector.build_web_research_url(user_message)
+        return self._intent.build_search_url(user_message)
 
     def _is_file_creation_task(self, user_message: str) -> bool:
-        return self._intent_detector.is_file_creation_task(user_message)
+        return self._intent.is_file_creation_task(user_message)
 
     def _sanitize_final_response(self, final_text: str) -> str:
         return self._reply_shaper.sanitize(final_text)
 
     def _shape_final_response(self, final_text: str, tool_results: str | None) -> ReplyShapeResult:
-        text, suppressed, reason, removed_tokens, deduped_lines = self._reply_shaper.shape(
+        shape = self._reply_shaper.shape(
             final_text=final_text,
             tool_results=tool_results,
             tool_markers=set(self.tool_registry.keys()),
         )
         return ReplyShapeResult(
-            text=text,
-            suppressed=suppressed,
-            reason=reason,
-            removed_tokens=removed_tokens,
-            deduped_lines=deduped_lines,
+            text=shape.text,
+            suppressed=shape.was_suppressed,
+            reason=shape.suppression_reason,
+            removed_tokens=shape.removed_tokens,
+            deduped_lines=shape.dedup_lines_removed,
         )
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
@@ -1224,7 +1226,11 @@ class HeadAgent:
         return valid_actions, rejected
 
     def _build_tool_registry(self) -> ToolRegistry:
-        return build_default_tool_registry(command_timeout_seconds=settings.command_timeout_seconds)
+        return ToolRegistryFactory.build(
+            tooling=self.tools,
+            allowed_tools=None,
+            command_timeout_seconds=settings.command_timeout_seconds,
+        )
 
     def _validate_tool_registry_dispatch(self) -> None:
         missing_tooling_methods = [
@@ -1286,26 +1292,10 @@ class HeadAgent:
         return normalized_args, None
 
     def _violates_command_policy(self, command: str) -> bool:
-        lowered = command.lower()
-        blocked_patterns = [
-            r"\brm\s+-rf\s+/",
-            r"\bdel\s+/[a-z]*\s*[a-z]:\\",
-            r"\bformat\s+[a-z]:",
-            r"\bshutdown\b",
-            r"\breboot\b",
-        ]
-        return any(re.search(pattern, lowered) for pattern in blocked_patterns)
+        return find_command_safety_violation(command) is not None
 
     def _build_execution_policy(self, tool: str) -> ToolExecutionPolicy:
-        spec = self.tool_registry[tool]
-        retry_class = "none"
-        if tool in {"run_command", "web_fetch"}:
-            retry_class = "transient"
-        return ToolExecutionPolicy(
-            retry_class=retry_class,
-            timeout_seconds=spec.timeout_seconds,
-            max_retries=spec.max_retries,
-        )
+        return self.tool_registry.build_execution_policy(tool)
 
     async def _run_tool_with_policy(self, tool: str, args: dict, policy: ToolExecutionPolicy) -> str:
         max_attempts = policy.max_retries + 1
@@ -1400,7 +1390,9 @@ class HeadAgent:
         if spec is None:
             raise ToolExecutionError(f"Unknown tool: {tool}")
 
-        tool_method = getattr(self.tools, tool, None)
+        tool_method = self.tool_registry.get_dispatcher(tool)
+        if tool_method is None:
+            tool_method = getattr(self.tools, tool, None)
         if tool_method is None:
             raise ToolExecutionError(f"No AgentTooling method registered for tool: {tool}")
 

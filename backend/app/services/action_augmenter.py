@@ -3,8 +3,45 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 
+from app.services.intent_detector import IntentDetector
+
 
 class ActionAugmenter:
+    def __init__(self, intent_detector: IntentDetector | None = None):
+        self._intent = intent_detector
+
+    def augment(self, actions: list[dict], user_message: str, allowed_tools: set[str]) -> list[dict]:
+        augmented_actions = list(actions)
+
+        if (
+            self._intent is not None
+            and self._intent.is_web_research_task(user_message)
+            and "web_fetch" in allowed_tools
+            and not any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
+        ):
+            fallback_url = self._intent.build_search_url(user_message)
+            if fallback_url:
+                augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
+
+        if (
+            self._intent is not None
+            and self._intent.is_subrun_orchestration_task(user_message)
+            and "spawn_subrun" in allowed_tools
+            and not any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
+        ):
+            augmented_actions.append(
+                {
+                    "tool": "spawn_subrun",
+                    "args": {
+                        "message": user_message.strip() or "Execute delegated orchestration task",
+                        "mode": "run",
+                        "agent_id": "head-agent",
+                    },
+                }
+            )
+
+        return augmented_actions
+
     async def augment_actions(
         self,
         *,
@@ -24,9 +61,61 @@ class ActionAugmenter:
         is_subrun_orchestration_task: Callable[[str], bool],
         is_file_creation_task: Callable[[str], bool],
     ) -> list[dict]:
-        augmented_actions = list(actions)
+        uses_injected_intent = self._intent is not None
+        if uses_injected_intent:
+            is_web_research_task = self._intent.is_web_research_task
+            build_web_research_url = self._intent.build_search_url
+            is_subrun_orchestration_task = self._intent.is_subrun_orchestration_task
+            is_file_creation_task = self._intent.is_file_creation_task
 
-        if is_web_research_task(user_message) and "web_fetch" in allowed_tools:
+        had_web_fetch_in_input = any(str(action.get("tool", "")).strip() == "web_fetch" for action in actions)
+        had_spawn_subrun_in_input = any(
+            str(action.get("tool", "")).strip() == "spawn_subrun" for action in actions
+        )
+
+        augmented_actions = self.augment(actions, user_message, allowed_tools)
+
+        has_web_fetch_after_augment = any(
+            str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions
+        )
+        if (
+            is_web_research_task(user_message)
+            and "web_fetch" in allowed_tools
+            and not had_web_fetch_in_input
+            and has_web_fetch_after_augment
+        ):
+            web_fetch_action = next(
+                (action for action in augmented_actions if str(action.get("tool", "")).strip() == "web_fetch"),
+                None,
+            )
+            added_url = str(web_fetch_action.get("args", {}).get("url", "")) if web_fetch_action else ""
+            await emit_lifecycle(
+                "tool_selection_followup_completed",
+                {
+                    "reason": "web_research_without_web_fetch",
+                    "added_tool": "web_fetch",
+                    "url": added_url,
+                },
+            )
+
+        has_spawn_subrun_after_augment = any(
+            str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions
+        )
+        if (
+            is_subrun_orchestration_task(user_message)
+            and "spawn_subrun" in allowed_tools
+            and not had_spawn_subrun_in_input
+            and has_spawn_subrun_after_augment
+        ):
+            await emit_lifecycle(
+                "tool_selection_followup_completed",
+                {
+                    "reason": "orchestration_without_spawn_subrun",
+                    "added_tool": "spawn_subrun",
+                },
+            )
+
+        if (not uses_injected_intent) and is_web_research_task(user_message) and "web_fetch" in allowed_tools:
             has_web_fetch = any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
             if not has_web_fetch:
                 fallback_url = build_web_research_url(user_message)
@@ -41,7 +130,7 @@ class ActionAugmenter:
                         },
                     )
 
-        if is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
+        if (not uses_injected_intent) and is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
             has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
             if not has_spawn_subrun:
                 augmented_actions.append(

@@ -19,6 +19,40 @@ from app.errors import ToolExecutionError
 from app.tool_catalog import TOOL_NAMES
 
 
+COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\brm\s+-r[f]?\s", "recursive rm is blocked"),
+    (r"\bdel\s+/[a-z]*\s*[a-z]:\\", "destructive del against drive roots is blocked"),
+    (r"\bformat\s+[a-z]:", "format command is blocked"),
+    (r"\bshutdown\b", "shutdown command is blocked"),
+    (r"\breboot\b", "reboot command is blocked"),
+    (r"\bchmod\s+[0-7]{3,4}\b", "chmod with numeric permissions is blocked"),
+    (r"\bchown\b", "chown command is blocked"),
+    (r"\bmkfs\b", "filesystem formatting commands are blocked"),
+    (r"\bdd\s+if=", "disk write command pattern is blocked"),
+    (r"\bcurl\b.*\|\s*(?:ba)?sh\b", "curl pipe-to-shell execution is blocked"),
+    (r"\bwget\b.*\|\s*(?:ba)?sh\b", "wget pipe-to-shell execution is blocked"),
+    (r"\bwget\b.*&&\s*(?:ba)?sh\b", "wget chained shell execution is blocked"),
+    (r"python[23]?\s+-c\b", "python -c execution is blocked"),
+    (r"\bpowershell(?:\.exe)?\b[^\n]*\s-(?:enc|encodedcommand)\b", "encoded PowerShell commands are blocked"),
+    (r"\bnc\s+-[lp]\b", "netcat listen/connect flags are blocked"),
+    (r"\b(?:curl|wget)\b[^\n]*\b(?:metadata\.google\.internal|169\.254\.169\.254)\b", "metadata endpoints are blocked"),
+    (r"\bcmd(?:\.exe)?\b[^\n]*\s/c\s+del\b", "destructive cmd /c del is blocked"),
+    (r"\becho\b[^\n]*\|\s*(?:bash|sh|pwsh|powershell|cmd)\b", "pipe-to-shell execution is blocked"),
+    (r"\|\|?|&&|;|`|\$\(", "shell chaining and command substitution are blocked"),
+)
+
+
+def find_command_safety_violation(command: str) -> str | None:
+    lowered = (command or "").strip().lower()
+    if not lowered:
+        return "empty command is blocked"
+
+    for pattern, reason in COMMAND_SAFETY_PATTERNS:
+        if re.search(pattern, lowered, flags=re.IGNORECASE):
+            return reason
+    return None
+
+
 class AgentTooling:
     def __init__(self, workspace_root: str, command_timeout_seconds: int = 60):
         self.workspace_root = Path(workspace_root).resolve()
@@ -488,23 +522,11 @@ class AgentTooling:
             )
 
     def _enforce_command_safety(self, *, command: str, leader: str) -> None:
-        lowered = (command or "").strip().lower()
-        if not lowered:
+        if not (command or "").strip():
             raise ToolExecutionError("Command must not be empty.")
-
-        blocked_patterns: tuple[tuple[str, str], ...] = (
-            (r"\b(?:curl|wget)\b[^\n]*\b(?:metadata\.google\.internal|169\.254\.169\.254)\b", "metadata endpoints are blocked"),
-            (r"\bnc\b[^\n]*\s-l\b", "netcat listen mode is blocked"),
-            (r"\bpowershell(?:\.exe)?\b[^\n]*\s-(?:enc|encodedcommand)\b", "encoded PowerShell commands are blocked"),
-            (r"\bcmd(?:\.exe)?\b[^\n]*\s/c\s+del\b", "destructive cmd /c del is blocked"),
-            (r"\bpython(?:3)?\b[^\n]*\s-c\b[^\n]*\b(?:eval|exec|os\.system|subprocess)\b", "dangerous python -c payload is blocked"),
-            (r"\becho\b[^\n]*\|\s*(?:bash|sh|pwsh|powershell|cmd)\b", "pipe-to-shell execution is blocked"),
-            (r"\|\|?|&&|;|`|\$\(", "shell chaining and command substitution are blocked"),
-        )
-
-        for pattern, reason in blocked_patterns:
-            if re.search(pattern, lowered, flags=re.IGNORECASE):
-                raise ToolExecutionError(f"Command blocked by safety policy: {reason}.")
+        reason = find_command_safety_violation(command)
+        if reason:
+            raise ToolExecutionError(f"Command blocked by safety policy: {reason}.")
 
     def _extract_command_leader(self, command: str) -> str:
         text = (command or "").strip()

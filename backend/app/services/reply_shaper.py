@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
+
+
+@dataclass(frozen=True)
+class ReplyShapeResult:
+    text: str
+    was_suppressed: bool
+    suppression_reason: str | None
+    dedup_lines_removed: int
+    removed_tokens: list[str]
 
 
 class ReplyShaper:
@@ -16,12 +26,16 @@ class ReplyShaper:
 
     def shape(
         self,
+        raw_response: str | None = None,
+        tool_results: str | None = None,
+        user_message: str | None = None,
         *,
-        final_text: str,
-        tool_results: str | None,
-        tool_markers: set[str],
-    ) -> tuple[str, bool, str | None, list[str], int]:
-        text = (final_text or "").strip()
+        final_text: str | None = None,
+        tool_markers: set[str] | None = None,
+    ) -> ReplyShapeResult:
+        _ = user_message
+        source_text = final_text if final_text is not None else raw_response
+        text = (source_text or "").strip()
         removed_tokens: list[str] = []
 
         for token in ("NO_REPLY", "ANNOUNCE_SKIP"):
@@ -36,11 +50,12 @@ class ReplyShaper:
         if lines:
             seen_tool_confirmation: set[str] = set()
             shaped_lines: list[str] = []
-            sorted_markers = tuple(sorted(tool_markers))
+            sorted_markers = tuple(sorted(tool_markers or set()))
             for line in lines:
                 lowered = line.lower()
                 is_tool_confirmation = (
-                    any(marker in lowered for marker in sorted_markers)
+                    bool(sorted_markers)
+                    and any(marker in lowered for marker in sorted_markers)
                     and any(keyword in lowered for keyword in ("done", "completed", "finished", "erfolgreich"))
                 )
                 if is_tool_confirmation:
@@ -63,7 +78,13 @@ class ReplyShaper:
                 "fertig",
                 "fertig.",
             }:
-                return "", True, "irrelevant_ack_after_tools", removed_tokens, deduped_lines
+                return ReplyShapeResult(
+                    text="",
+                    was_suppressed=True,
+                    suppression_reason="irrelevant_ack_after_tools",
+                    dedup_lines_removed=deduped_lines,
+                    removed_tokens=removed_tokens,
+                )
 
         if not text:
             reason = "empty_after_shaping"
@@ -71,6 +92,18 @@ class ReplyShaper:
                 reason = "no_reply_token"
             elif "ANNOUNCE_SKIP" in removed_tokens:
                 reason = "announce_skip_token"
-            return "", True, reason, removed_tokens, deduped_lines
+            return ReplyShapeResult(
+                text="",
+                was_suppressed=True,
+                suppression_reason=reason,
+                dedup_lines_removed=deduped_lines,
+                removed_tokens=removed_tokens,
+            )
 
-        return text, False, None, removed_tokens, deduped_lines
+        return ReplyShapeResult(
+            text=text,
+            was_suppressed=False,
+            suppression_reason=None,
+            dedup_lines_removed=deduped_lines,
+            removed_tokens=removed_tokens,
+        )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass, field
+import asyncio
 from threading import Lock
 from typing import Any
 
@@ -20,6 +21,13 @@ class RuntimeComponents:
     agent: Any | None = None
     orchestrator_api: Any | None = None
     subrun_lane: Any | None = None
+
+
+@dataclass
+class ControlPlaneState:
+    active_run_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
+    workflow_version_registry: dict[str, int] = field(default_factory=dict)
+    workflow_version_lock: Lock = field(default_factory=Lock)
 
 
 class LazyObjectProxy:

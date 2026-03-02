@@ -16,9 +16,6 @@ from app.services.tool_call_gatekeeper import prepare_action_for_execution
 class ToolExecutionConfig:
     call_cap: int
     time_cap_seconds: float
-    result_max_chars: int = 6000
-    smart_truncate_enabled: bool = True
-    parallel_read_only_enabled: bool = False
     loop_warn_threshold: int
     loop_critical_threshold: int
     loop_circuit_breaker_threshold: int
@@ -27,6 +24,9 @@ class ToolExecutionConfig:
     poll_no_progress_enabled: bool
     poll_no_progress_threshold: int
     warning_bucket_size: int
+    result_max_chars: int = 6000
+    smart_truncate_enabled: bool = True
+    parallel_read_only_enabled: bool = False
 
     @classmethod
     def from_settings(cls, app_settings: Settings) -> ToolExecutionConfig:
@@ -55,6 +55,16 @@ class ToolExecutionConfig:
         )
 
 
+@dataclass(frozen=True)
+class ToolExecutionResult:
+    tool_results: list[dict[str, object]]
+    budget_exhausted: bool
+    loop_detected: bool
+    total_calls: int
+    total_time_seconds: float
+    audit_summary: dict[str, object]
+
+
 class ToolExecutionManager:
     READ_ONLY_TOOLS = {
         "list_dir",
@@ -65,6 +75,29 @@ class ToolExecutionManager:
         "get_changed_files",
         "web_fetch",
     }
+
+    def __init__(
+        self,
+        *,
+        config: ToolExecutionConfig | None = None,
+        registry: object | None = None,
+        gatekeeper: object | None = None,
+        intent_detector: object | None = None,
+        arg_validator: object | None = None,
+        action_parser: object | None = None,
+        action_augmenter: object | None = None,
+        llm_client: object | None = None,
+        send_event: Callable[[dict], Awaitable[None]] | None = None,
+    ) -> None:
+        self._config = config
+        self._registry = registry
+        self._gatekeeper = gatekeeper
+        self._intent_detector = intent_detector
+        self._arg_validator = arg_validator
+        self._action_parser = action_parser
+        self._action_augmenter = action_augmenter
+        self._llm_client = llm_client
+        self._send_event = send_event
 
     async def execute(
         self,
@@ -344,6 +377,21 @@ class ToolExecutionManager:
             f"{plan_text}"
         )
 
+    def _build_tool_selection_prompt(
+        self,
+        *,
+        allowed_tools: set[str],
+        memory_context: str,
+        user_message: str,
+        plan_text: str,
+    ) -> str:
+        return self.build_tool_selector_prompt(
+            allowed_tools=allowed_tools,
+            memory_context=memory_context,
+            user_message=user_message,
+            plan_text=plan_text,
+        )
+
     def build_loop_gatekeeper(self, config: ToolExecutionConfig) -> ToolCallGatekeeper:
         return ToolCallGatekeeper(
             warn_threshold=config.loop_warn_threshold,
@@ -443,6 +491,23 @@ class ToolExecutionManager:
             )
 
         return actions
+
+    async def _validate_and_filter(self, **kwargs) -> tuple[list[dict], set[str], int, str | None]:
+        return await self.apply_action_pipeline(**kwargs)
+
+    async def _handle_augmentation(self, **kwargs) -> list[dict]:
+        augment_fn = kwargs.pop("augment_actions_if_needed")
+        return await augment_fn(**kwargs)
+
+    def _check_loop_conditions(self, *, elapsed_seconds: float, total_calls: int, config: ToolExecutionConfig) -> bool:
+        if total_calls >= config.call_cap:
+            return True
+        if elapsed_seconds >= config.time_cap_seconds:
+            return True
+        return False
+
+    async def _execute_action_batch(self, **kwargs) -> str:
+        return await self.run_tool_loop(**kwargs)
 
     async def apply_action_pipeline(
         self,

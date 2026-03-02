@@ -8,6 +8,7 @@ from app.services.idempotency_service import (
     idempotency_register,
     prune_idempotency_registry,
 )
+from app.services.idempotency_manager import IdempotencyManager
 
 
 def _iso_ago(seconds: int) -> str:
@@ -82,3 +83,58 @@ def test_register_prunes_and_caps_registry() -> None:
     assert len(registry) == 2
     assert "new" in registry
     assert "mid" in registry
+
+
+def test_idempotency_manager_isolates_namespaces() -> None:
+    manager = IdempotencyManager(ttl_seconds=60, max_entries=100)
+
+    manager.register(
+        namespace="run",
+        idempotency_key="dup-key",
+        fingerprint="fp-run",
+        value={"run_id": "run-1"},
+    )
+    manager.register(
+        namespace="workflow",
+        idempotency_key="dup-key",
+        fingerprint="fp-workflow",
+        value={"workflow_id": "wf-1"},
+    )
+
+    run_replay = manager.lookup_or_raise(
+        namespace="run",
+        idempotency_key="dup-key",
+        fingerprint="fp-run",
+        conflict_message="conflict",
+        replay_builder=lambda key, existing: {"key": key, "run_id": existing.get("run_id")},
+    )
+    workflow_replay = manager.lookup_or_raise(
+        namespace="workflow",
+        idempotency_key="dup-key",
+        fingerprint="fp-workflow",
+        conflict_message="conflict",
+        replay_builder=lambda key, existing: {"key": key, "workflow_id": existing.get("workflow_id")},
+    )
+
+    assert run_replay == {"key": "dup-key", "run_id": "run-1"}
+    assert workflow_replay == {"key": "dup-key", "workflow_id": "wf-1"}
+
+
+def test_idempotency_manager_lookup_is_namespace_scoped() -> None:
+    manager = IdempotencyManager(ttl_seconds=60, max_entries=100)
+    manager.register(
+        namespace="run",
+        idempotency_key="run-only",
+        fingerprint="fp-run",
+        value={"run_id": "run-1"},
+    )
+
+    replay = manager.lookup_or_raise(
+        namespace="workflow",
+        idempotency_key="run-only",
+        fingerprint="fp-run",
+        conflict_message="conflict",
+        replay_builder=lambda key, existing: {"key": key, "value": existing},
+    )
+
+    assert replay is None

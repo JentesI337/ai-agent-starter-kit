@@ -50,5 +50,28 @@ class ActionParser:
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end <= start:
-            return text[:3000]
+            return "{}"
         return text[start : end + 1][:3000]
+
+    def validate(
+        self,
+        actions: list[dict],
+        allowed_tools: set[str],
+        *,
+        normalize_tool_name: Callable[[str], str] | None = None,
+    ) -> list[dict]:
+        validated: list[dict] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            tool_name = action.get("tool")
+            args = action.get("args", {})
+            if not isinstance(tool_name, str):
+                continue
+            normalized = normalize_tool_name(tool_name) if normalize_tool_name else tool_name
+            if normalized not in allowed_tools:
+                continue
+            if not isinstance(args, dict):
+                continue
+            validated.append({"tool": normalized, "args": args})
+        return validated

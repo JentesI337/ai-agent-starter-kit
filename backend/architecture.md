@@ -43,7 +43,7 @@ Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 - `StateStore`: Run-States + Event-Historie + Summary-Snapshots auf Dateisystem.
 - `MemoryStore`: Session-Kontext als JSONL, begrenzt pro Session.
 - `CustomAgentStore`: Workflow-/Agent-Definitionen als JSON-Dateien.
-- Idempotency-Registries bleiben In-Memory, sind aber per TTL + Max-Entries begrenzt.
+- Idempotency bleibt In-Memory, zentralisiert über `IdempotencyManager` (`app.services.idempotency_manager`) mit Namespace-Trennung sowie TTL + Max-Entries.
 
 5) Policy- und Guardrail-Schicht
 - Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service` mit einheitlicher Transport-/Boundary-Repräsentation in `app.tool_policy`.
@@ -75,7 +75,8 @@ Zentrale API-Wiring-Datei mit:
 
 - FastAPI-App, CORS, Lifespan.
 - DI/Wiring für Runtime-Komponenten über `app.app_state`.
-- Handler-Funktionen für API-Operationen und Einbindung der Router-Builder.
+- Kompositions-/Wiring-Schicht für API-Operationen; domänenspezifische Handler sind in `app.handlers/*` ausgelagert (`run`, `session`, `workflow`, `tools`, `skills`, `policy`, `agent`).
+- Request-Modelle für die Control-Plane sind aus `main.py` nach `app.control_models` extrahiert.
 - Einbindung der modularen Router:
 	- `build_run_api_router`
 	- `build_control_runs_router`
@@ -127,7 +128,8 @@ Aktueller Refactor-Stand:
 - `OrchestratorApi` serialisiert/koordiniert pro Session über `SessionLaneManager`.
 - `OrchestratorApi` löst Tool-Policy kontextsensitiv (provider/model/agent/depth/request/also_allow) auf und emittiert u. a. `agent_depth_policy_applied` sowie `tool_policy_layers_logged`.
 - `PipelineRunner` setzt Task-Status je Pipeline-Schritt, routed Modelle, führt kontextfenster-basierte Guardrails (`context_window_warn`/`context_window_blocked`) und reason-klassifizierte Fallbacks aus.
-- Recovery-Entscheidungslogik ist in eine dedizierte Strategy-Methode (`_resolve_recovery_strategy`) ausgelagert; der Hauptpfad nutzt ein strukturiertes Ergebnisobjekt (`RecoveryStrategyResolution`).
+- Recovery-Entscheidungslogik ist in `app.orchestrator.recovery_strategy` ausgelagert (`RecoveryContext`, `RecoveryStrategyResolver`, `RecoveryStrategyResolution`).
+- Der ehemals monolithische Fallback-Loop läuft als explizite State-Machine in `app.orchestrator.fallback_state_machine` (`FallbackStateMachine`, `FallbackRuntimeConfig`) und wird von `PipelineRunner._run_with_fallback(...)` nur noch konfiguriert/wired.
 
 ### 4.5 `app.orchestrator.subrun_lane`
 
@@ -341,8 +343,11 @@ Teststatus (Kernsuiten):
 - `tests/test_idempotency_service.py`
 - `tests/test_state_store_list_runs_index.py`
 - `tests/test_head_agent_adapter_constraints.py`
+- `tests/test_pipeline_runner_recovery.py`
+- `tests/test_recovery_strategy.py`
+- `tests/test_fallback_state_machine.py`
 
-Aktueller Stand: Vollsuite lokal unter Python 3.12 grün (`262 passed, 3 skipped`) mit globalem Coverage-Gate bestanden (zuletzt `82.52%`).
+Aktueller Stand: Vollsuite lokal unter Python 3.12 grün (`360 passed, 3 skipped`; Lauf vom 2026-03-02) mit globalem Coverage-Gate bestanden.
 
 ## 10. Benchmarking-Strategie (neu)
 
