@@ -242,6 +242,20 @@ def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
     assert allowed == set()
 
 
+def test_effective_tool_policy_ignores_unknown_only_request_allow(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "list_dir"])
+    monkeypatch.setattr(settings, "agent_tools_deny", [])
+
+    allowed = agent._resolve_effective_allowed_tools(
+        {
+            "allow": ["totally_unknown_tool"],
+        }
+    )
+
+    assert allowed == {"read_file", "list_dir"}
+
+
 def test_validate_actions_respects_active_tool_policy() -> None:
     agent = HeadCodingAgent()
     actions, parse_error = agent._extract_actions('{"actions":[{"tool":"write_file","args":{"path":"a.txt","content":"x"}}]}')
@@ -507,7 +521,434 @@ def test_execute_tools_loop_detector_warns_and_blocks(monkeypatch) -> None:
     assert "REJECTED: tool loop blocked" in result
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_warn" for evt in events)
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_blocked" for evt in events)
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_blocked"
+        and evt.get("details", {}).get("reason_type") == "generic_repeat"
+        for evt in events
+    )
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_audit_summary" for evt in events)
+
+
+def test_execute_tools_loop_detector_poll_no_progress_ignores_different_tool_signatures(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        return "no-progress"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_poll_no_progress_threshold", 2)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="do two checks",
+                plan_text="check repository",
+                memory_context="user: check repository",
+                session_id="s-loop-poll",
+                request_id="r-loop-poll",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "poll_no_progress streak" not in result
+    assert not any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_poll_no_progress_blocked"
+        for evt in events
+    )
+
+
+def test_execute_tools_loop_detector_poll_no_progress_blocks_same_signature(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        return "no-progress"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_poll_no_progress_threshold", 2)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="do two checks",
+                plan_text="check repository",
+                memory_context="user: check repository",
+                session_id="s-loop-poll-same",
+                request_id="r-loop-poll-same",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "poll_no_progress streak" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_poll_no_progress_blocked"
+        and evt.get("details", {}).get("reason_type") == "poll_no_progress"
+        for evt in events
+    )
+
+
+def test_execute_tools_ping_pong_requires_no_progress_evidence(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    read_count = {"count": 0}
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            read_count["count"] += 1
+            return f"read-content-{read_count['count']}"
+        return "dir-content"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-no-evidence",
+                request_id="r-ping-pong-no-evidence",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "ping-pong pattern detected" not in result
+    assert not any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_blocked"
+        for evt in events
+    )
+
+
+def test_execute_tools_ping_pong_blocks_with_no_progress_evidence(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            return "same-read"
+        return "same-dir"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-evidence",
+                request_id="r-ping-pong-evidence",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "ping-pong pattern detected" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_blocked"
+        and evt.get("details", {}).get("reason_type") == "ping_pong"
+        and evt.get("details", {}).get("no_progress_evidence") is True
+        for evt in events
+    )
+
+
+def test_execute_tools_ping_pong_warns_before_critical(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            return "same-read"
+        return "same-dir"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 4)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 6)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-warn",
+                request_id="r-ping-pong-warn",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "ping-pong pattern detected" not in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_warn"
+        and evt.get("details", {}).get("reason_type") == "ping_pong"
+        and evt.get("details", {}).get("alternating_count") == 4
+        for evt in events
+    )
+    assert not any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_blocked"
+        for evt in events
+    )
+
+
+def test_execute_tools_ping_pong_blocks_at_critical_threshold(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            return "same-read"
+        return "same-dir"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 4)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 6)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 12)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-critical",
+                request_id="r-ping-pong-critical",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    assert "ping-pong pattern detected" in result
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_warn"
+        and evt.get("details", {}).get("alternating_count") == 4
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "tool_loop_ping_pong_blocked"
+        and evt.get("details", {}).get("critical_threshold") == 6
+        and evt.get("details", {}).get("alternating_count") == 6
+        for evt in events
+    )
+
+
+def test_execute_tools_ping_pong_warn_is_deduplicated(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            return "read-changing"
+        return "dir-changing"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 4)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 99)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 20)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        _ = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-warn-dedupe",
+                request_id="r-ping-pong-warn-dedupe",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    warn_events = [
+        evt
+        for evt in events
+        if evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_ping_pong_warn"
+    ]
+    assert len(warn_events) == 1
+    assert isinstance(warn_events[0].get("details", {}).get("warning_key"), str)
+    assert warn_events[0].get("details", {}).get("warning_key", "").startswith("pingpong:")
 
 
 def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:

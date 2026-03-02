@@ -357,3 +357,54 @@ def test_subrun_lane_announce_retries_and_marks_sent(tmp_path) -> None:
         event.get("status") == "announced" and event.get("legacy_status") == "sent"
         for event in announce_delivery_events
     )
+
+
+def test_subrun_lane_restores_registry_from_disk(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=2,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+    )
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> str:
+        run_id = await lane.spawn(
+            parent_request_id="req-parent",
+            parent_session_id="sess-parent",
+            user_message="persist me",
+            runtime="local",
+            model="llama",
+            timeout_seconds=5,
+            tool_policy=None,
+            send_event=send_event,
+        )
+        await lane.wait_for_completion(run_id, timeout=5)
+        return run_id
+
+    run_id = asyncio.run(run_case())
+
+    restored_lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=StateStore(persist_dir=str(tmp_path / "state")),
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=2,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+    )
+
+    restored_info = restored_lane.get_info(run_id)
+    assert restored_info is not None
+    assert restored_info.get("status") == "completed"
+    assert restored_info.get("parent_session_id") == "sess-parent"

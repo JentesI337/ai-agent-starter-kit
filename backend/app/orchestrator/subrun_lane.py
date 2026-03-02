@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from time import monotonic
 from typing import Callable, Awaitable
 
@@ -79,6 +81,8 @@ class SubrunLane:
         self._parent_by_child: dict[str, str] = {}
         self._children_by_session: dict[str, set[str]] = defaultdict(set)
         self._lock = asyncio.Lock()
+        self._registry_file = Path(self._state_store.persist_dir) / "subrun_registry.json"
+        self._restore_registry()
 
     async def spawn(
         self,
@@ -205,6 +209,7 @@ class SubrunLane:
             self._parent_by_child[run_id] = parent_request_id
             if child_session_id != parent_session_id:
                 self._children_by_session[parent_session_id].add(child_session_id)
+        self._persist_registry_safe()
         return run_id
 
     async def wait_for_completion(self, run_id: str, timeout: float = 10.0) -> dict | None:
@@ -632,6 +637,7 @@ class SubrunLane:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._run_status[run_id] = snapshot
+        self._persist_registry_safe()
 
     def _build_announce_idempotency_key(self, run_id: str) -> str:
         return f"subrun:{run_id}:announce:v1"
@@ -659,6 +665,7 @@ class SubrunLane:
             "error": error,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        self._persist_registry_safe()
         try:
             self._state_store.append_event(
                 run_id=run_id,
@@ -724,3 +731,109 @@ class SubrunLane:
             "announce_failed": "dead_letter",
         }
         return mapping.get(status, status)
+
+    def _serialize_spec(self, spec: SubrunSpec) -> dict:
+        return {
+            "run_id": spec.run_id,
+            "parent_request_id": spec.parent_request_id,
+            "parent_session_id": spec.parent_session_id,
+            "child_session_id": spec.child_session_id,
+            "user_message": spec.user_message,
+            "runtime": spec.runtime,
+            "model": spec.model,
+            "tool_policy": spec.tool_policy,
+            "preset": spec.preset,
+            "timeout_seconds": spec.timeout_seconds,
+            "depth": spec.depth,
+            "parent_run_id": spec.parent_run_id,
+            "root_run_id": spec.root_run_id,
+            "agent_id": spec.agent_id,
+            "mode": spec.mode,
+            "orchestrator_agent_ids": spec.orchestrator_agent_ids,
+        }
+
+    def _deserialize_spec(self, payload: dict) -> SubrunSpec | None:
+        try:
+            run_id = str(payload.get("run_id", "")).strip()
+            if not run_id:
+                return None
+            return SubrunSpec(
+                run_id=run_id,
+                parent_request_id=str(payload.get("parent_request_id", "")).strip(),
+                parent_session_id=str(payload.get("parent_session_id", "")).strip(),
+                child_session_id=str(payload.get("child_session_id", "")).strip(),
+                user_message=str(payload.get("user_message", "")),
+                runtime=str(payload.get("runtime", "")).strip() or "local",
+                model=str(payload.get("model", "")).strip() or "",
+                tool_policy=payload.get("tool_policy") if isinstance(payload.get("tool_policy"), dict) else None,
+                preset=(str(payload.get("preset") or "").strip().lower() or None),
+                timeout_seconds=max(0, int(payload.get("timeout_seconds") or 0)),
+                depth=max(1, int(payload.get("depth") or 1)),
+                parent_run_id=(str(payload.get("parent_run_id") or "").strip() or None),
+                root_run_id=str(payload.get("root_run_id", "")).strip() or run_id,
+                agent_id=str(payload.get("agent_id", "")).strip() or "head-agent",
+                mode=self._normalize_spawn_mode(str(payload.get("mode") or "run")),
+                orchestrator_agent_ids=(
+                    payload.get("orchestrator_agent_ids")
+                    if isinstance(payload.get("orchestrator_agent_ids"), list)
+                    else None
+                ),
+                orchestrator_api=self._orchestrator_api,
+            )
+        except Exception:
+            return None
+
+    def _persist_registry_safe(self) -> None:
+        payload = {
+            "version": 1,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "run_specs": {run_id: self._serialize_spec(spec) for run_id, spec in self._run_specs.items()},
+            "run_status": self._run_status,
+            "announce_status": self._announce_status,
+        }
+        try:
+            self._registry_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._registry_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(self._registry_file)
+        except Exception:
+            return
+
+    def _restore_registry(self) -> None:
+        try:
+            if not self._registry_file.exists():
+                return
+            payload = json.loads(self._registry_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+
+        run_specs_payload = payload.get("run_specs") if isinstance(payload, dict) else None
+        if isinstance(run_specs_payload, dict):
+            for run_id, raw_spec in run_specs_payload.items():
+                if not isinstance(raw_spec, dict):
+                    continue
+                spec = self._deserialize_spec(raw_spec)
+                if spec is None:
+                    continue
+                self._run_specs[str(run_id)] = spec
+
+        run_status_payload = payload.get("run_status") if isinstance(payload, dict) else None
+        if isinstance(run_status_payload, dict):
+            for run_id, snapshot in run_status_payload.items():
+                if isinstance(snapshot, dict):
+                    self._run_status[str(run_id)] = snapshot
+
+        announce_status_payload = payload.get("announce_status") if isinstance(payload, dict) else None
+        if isinstance(announce_status_payload, dict):
+            for run_id, snapshot in announce_status_payload.items():
+                if isinstance(snapshot, dict):
+                    self._announce_status[str(run_id)] = snapshot
+
+        self._children_by_parent.clear()
+        self._parent_by_child.clear()
+        self._children_by_session.clear()
+        for run_id, spec in self._run_specs.items():
+            self._children_by_parent[spec.parent_request_id].add(run_id)
+            self._parent_by_child[run_id] = spec.parent_request_id
+            if spec.child_session_id != spec.parent_session_id:
+                self._children_by_session[spec.parent_session_id].add(spec.child_session_id)

@@ -284,6 +284,13 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         resource: str,
         display_text: str,
     ) -> bool:
+        if await components.policy_approval_service.is_preapproved(
+            tool=tool,
+            resource=resource,
+            session_id=session_id,
+        ):
+            return True
+
         approval = await components.policy_approval_service.create(
             run_id=request_id,
             session_id=session_id,
@@ -304,17 +311,18 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                     "tool": tool,
                     "resource": resource,
                     "display_text": display_text,
-                    "options": ["allow"],
-                    "scope": "run_only",
+                    "options": ["allow_once", "allow_always", "deny"],
+                    "scope": "tool_resource",
                     "status": "pending",
                 },
             }
         )
 
-        return await components.policy_approval_service.wait_for_allow(
+        decision = await components.policy_approval_service.wait_for_decision(
             approval_id=approval["approval_id"],
             timeout_seconds=settings.policy_approval_wait_seconds,
         )
+        return decision in {"allow_once", "allow_always"}
 
     for agent_instance in components.agent_registry.values():
         set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
@@ -806,6 +814,12 @@ class ControlPolicyApprovalsPendingRequest(BaseModel):
 
 class ControlPolicyApprovalsAllowRequest(BaseModel):
     approval_id: str
+
+
+class ControlPolicyApprovalsDecideRequest(BaseModel):
+    approval_id: str
+    decision: str
+    scope: str | None = None
 
 
 def _normalize_preset(value: str | None) -> str | None:
@@ -1359,6 +1373,7 @@ def _resolve_tool_policy(
     provider: str | None = None,
     model: str | None = None,
     request_policy: dict[str, list[str]] | None = None,
+    also_allow: list[str] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
     orchestrator_agent_ids: list[str] | None = None,
@@ -1369,6 +1384,7 @@ def _resolve_tool_policy(
         provider=provider,
         model=model,
         request_policy=request_policy,
+        also_allow=also_allow,
         agent_id=agent_id,
         depth=depth,
         orchestrator_agent_ids=orchestrator_agent_ids,
@@ -1377,6 +1393,16 @@ def _resolve_tool_policy(
 
 def _normalize_policy_values(values: list[str] | None, allowed_universe: set[str]) -> set[str] | None:
     return normalize_policy_values(values=values, allowed_universe=allowed_universe)
+
+
+def _extract_also_allow(tool_policy: dict[str, list[str]] | None) -> list[str] | None:
+    if not isinstance(tool_policy, dict):
+        return None
+    raw = tool_policy.get("also_allow")
+    if not isinstance(raw, list):
+        return None
+    values = [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
+    return values or None
 
 
 def _build_tools_catalog(*, agent_id: str | None = None) -> dict:
@@ -2494,6 +2520,7 @@ def _build_tools_policy_preview(
         provider=provider,
         model=model,
         request_policy=tool_policy,
+        also_allow=also_allow,
         agent_id=resolved_agent_id,
         depth=0,
         orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids()),
@@ -2640,6 +2667,7 @@ async def _run_background_message(
                 runtime=runtime_state.runtime,
                 model=selected_model,
                 tool_policy=tool_policy,
+                also_allow=_extract_also_allow(tool_policy),
                 agent_id=resolved_agent_id,
                 depth=0,
                 preset=applied_preset,
@@ -2832,6 +2860,7 @@ async def test_agent(request: AgentTestRequest):
                 runtime=runtime_state.runtime,
                 model=selected_model,
                 tool_policy=request.tool_policy,
+                also_allow=_extract_also_allow(request.tool_policy),
                 agent_id=PRIMARY_AGENT_ID,
                 depth=0,
                 preset=applied_preset,
@@ -3183,6 +3212,29 @@ async def _api_control_policy_approvals_allow(request_data: dict) -> dict:
     }
 
 
+async def _api_control_policy_approvals_decide(request_data: dict) -> dict:
+    request = ControlPolicyApprovalsDecideRequest.model_validate(request_data)
+    normalized_decision = (request.decision or "").strip().lower()
+    if normalized_decision not in {"allow_once", "allow_always", "deny"}:
+        raise HTTPException(status_code=400, detail="Unsupported policy approval decision")
+
+    try:
+        updated = await policy_approval_service.decide(
+            request.approval_id,
+            normalized_decision,
+            scope=request.scope,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    return {
+        "schema": "policy.approvals.decide.v1",
+        "approval": updated,
+    }
+
+
 @app.post("/api/control/policy-approvals.pending")
 async def control_policy_approvals_pending(request: dict) -> dict:
     return await _api_control_policy_approvals_pending(request)
@@ -3191,6 +3243,11 @@ async def control_policy_approvals_pending(request: dict) -> dict:
 @app.post("/api/control/policy-approvals.allow")
 async def control_policy_approvals_allow(request: dict) -> dict:
     return await _api_control_policy_approvals_allow(request)
+
+
+@app.post("/api/control/policy-approvals.decide")
+async def control_policy_approvals_decide(request: dict) -> dict:
+    return await _api_control_policy_approvals_decide(request)
 
 
 app.include_router(

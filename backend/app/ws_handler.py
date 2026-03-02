@@ -235,6 +235,15 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     continue
 
                 incoming_tool_policy = data.tool_policy.model_dump(exclude_none=True) if data.tool_policy else None
+                incoming_also_allow = None
+                if isinstance(incoming_tool_policy, dict):
+                    raw_also_allow = incoming_tool_policy.get("also_allow")
+                    if isinstance(raw_also_allow, list):
+                        incoming_also_allow = [
+                            str(item).strip()
+                            for item in raw_also_allow
+                            if isinstance(item, str) and str(item).strip()
+                        ]
                 applied_preset = (data.preset or "").strip().lower() or None
 
                 effective_agent_id = requested_agent_id
@@ -488,6 +497,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         runtime=runtime_state.runtime,
                         model=selected_model,
                         tool_policy=incoming_tool_policy,
+                        also_allow=incoming_also_allow,
                         agent_id=resolved_agent_id,
                         depth=0,
                         preset=applied_preset,

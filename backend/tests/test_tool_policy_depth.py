@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.config import settings
 from app.services.tool_policy_service import resolve_tool_policy
 
 
@@ -37,3 +38,14 @@ def test_agent_depth_policy_keeps_spawn_subrun_available_for_head_agent_depth_ze
     merged = resolved.get("merged_policy") or {}
     deny_values = set(merged.get("deny") or [])
     assert "spawn_subrun" not in deny_values
+
+
+def test_global_policy_layer_is_included_in_merged_policy(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "agent_tools_allow", ["read_file"])
+    monkeypatch.setattr(settings, "agent_tools_deny", ["run_command"])
+
+    resolved = resolve_tool_policy(request_policy=None)
+    merged = resolved.get("merged_policy") or {}
+
+    assert "read_file" in set(merged.get("allow") or [])
+    assert "run_command" in set(merged.get("deny") or [])

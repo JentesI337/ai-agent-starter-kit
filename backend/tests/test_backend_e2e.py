@@ -222,7 +222,7 @@ def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkey
         )
 
         events = []
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
@@ -274,7 +274,7 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
         )
 
         events = []
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
@@ -496,7 +496,7 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
         )
 
         events = []
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             events.append(evt)
             if evt.get("type") == "subrun_announce":
@@ -549,7 +549,7 @@ def test_websocket_subrun_spawn_mode_session_reuses_parent_session(monkeypatch) 
         )
 
         accepted_event = None
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 accepted_event = evt
@@ -726,7 +726,7 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
         _ = _unwrap_event(ws.receive_json())
         ws.send_json({"type": "subrun_spawn", "content": "mgmt", "agent_id": "head-coder"})
 
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 subrun_id = evt.get("run_id")
@@ -881,7 +881,7 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
         _ = _unwrap_event(ws.receive_json())
         ws.send_json({"type": "subrun_spawn", "content": "visible", "agent_id": "head-coder"})
 
-        for _ in range(24):
+        for _ in range(48):
             evt = _unwrap_event(ws.receive_json())
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 subrun_id = evt.get("run_id")

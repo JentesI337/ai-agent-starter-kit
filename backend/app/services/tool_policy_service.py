@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.errors import GuardrailViolation
+from app.tool_catalog import TOOL_NAME_SET
 
 PRESET_TOOL_POLICIES: dict[str, dict[str, list[str]]] = {
     "research": {
@@ -211,6 +212,7 @@ def resolve_tool_policy(
     provider: str | None = None,
     model: str | None = None,
     request_policy: dict[str, list[str]] | None = None,
+    also_allow: list[str] | None = None,
     agent_id: str | None = None,
     depth: int | None = None,
     orchestrator_agent_ids: list[str] | None = None,
@@ -256,6 +258,8 @@ def resolve_tool_policy(
     if agent_depth_deny:
         agent_depth_policy = {"deny": sorted(agent_depth_deny)}
 
+    known_tool_names = {item.strip().lower() for item in TOOL_NAME_SET}
+
     merge_chain: list[tuple[str, str | None, dict[str, list[str]] | None]] = [
         (
             "global",
@@ -278,9 +282,7 @@ def resolve_tool_policy(
     ]
 
     merged_policy = None
-    for layer_name, _, layer_policy in merge_chain:
-        if layer_name == "global":
-            continue
+    for _, _, layer_policy in merge_chain:
         merged_policy = merge_tool_policy(merged_policy, layer_policy)
 
     layers: list[dict] = []
@@ -297,6 +299,36 @@ def resolve_tool_policy(
     merged_allow_values = list(merged_payload.get("allow") or [])
     merged_deny_values = list(merged_payload.get("deny") or [])
 
+    warnings: list[str] = []
+    unknown_allowlist_by_layer: dict[str, list[str]] = {}
+    for layer_name, _, layer_policy in merge_chain:
+        layer_allow = [
+            str(item).strip().lower()
+            for item in (layer_policy or {}).get("allow") or []
+            if isinstance(item, str) and str(item).strip()
+        ]
+        unknown = sorted({item for item in layer_allow if item not in known_tool_names and item != "*"})
+        if unknown:
+            unknown_allowlist_by_layer[layer_name] = unknown
+            warnings.append(
+                f"Unknown allow entries in layer '{layer_name}': {', '.join(unknown)}"
+            )
+
+    normalized_also_allow: list[str] = []
+    unknown_also_allow: list[str] = []
+    for raw in also_allow or []:
+        if not isinstance(raw, str):
+            continue
+        candidate = raw.strip().lower()
+        if not candidate:
+            continue
+        if candidate in known_tool_names and candidate not in normalized_also_allow:
+            normalized_also_allow.append(candidate)
+        elif candidate not in known_tool_names and candidate not in unknown_also_allow:
+            unknown_also_allow.append(candidate)
+    if unknown_also_allow:
+        warnings.append(f"Unknown also_allow entries ignored: {', '.join(sorted(unknown_also_allow))}")
+
     normalized_deny = {
         item.strip().lower() for item in merged_deny_values if isinstance(item, str) and item.strip()
     }
@@ -304,6 +336,8 @@ def resolve_tool_policy(
         item.strip().lower() for item in merged_allow_values if isinstance(item, str) and item.strip()
     }
     conflicted_tools = sorted(normalized_allow & normalized_deny)
+    if conflicted_tools:
+        warnings.append(f"deny overrides allow for: {', '.join(conflicted_tools)}")
 
     effective_allow_after_conflicts = [
         item
@@ -314,17 +348,25 @@ def resolve_tool_policy(
         item for item in merged_deny_values if isinstance(item, str) and item.strip()
     ]
 
+    merged_policy_with_additive = dict(merged_policy or {})
+    if normalized_also_allow:
+        merged_policy_with_additive["also_allow"] = sorted(normalized_also_allow)
+
     return {
         "profile": normalized_profile,
         "applied_preset": normalized_preset,
         "provider": normalized_provider,
         "model": normalized_model,
-        "merged_policy": merged_policy,
+        "merged_policy": merged_policy_with_additive or None,
         "explain": {
             "order": list(TOOL_POLICY_RESOLUTION_ORDER),
             "layers": layers,
             "final_allow": merged_allow_values,
             "final_deny": merged_deny_values,
+            "warnings": warnings,
+            "unknown_allowlist_by_layer": unknown_allowlist_by_layer,
+            "also_allow": sorted(normalized_also_allow),
+            "unknown_also_allow": sorted(unknown_also_allow),
             "conflict_resolution": {
                 "strategy": "deny_overrides_allow",
                 "conflicted_tools": conflicted_tools,

@@ -62,6 +62,7 @@ class OrchestratorApi:
                 provider=request_context.runtime,
                 model=request_context.model,
                 request_policy=request_context.tool_policy,
+                also_allow=request_context.also_allow,
                 agent_id=request_context.agent_id,
                 depth=request_context.depth,
                 orchestrator_agent_ids=request_context.orchestrator_agent_ids,
@@ -71,6 +72,7 @@ class OrchestratorApi:
 
             explain = resolved_policy_result.get("explain") or {}
             layers = explain.get("layers") if isinstance(explain, dict) else []
+            warnings = explain.get("warnings") if isinstance(explain, dict) else []
             depth_layer: dict | None = None
             if isinstance(layers, list):
                 for layer in layers:
@@ -91,6 +93,21 @@ class OrchestratorApi:
                         "depth": request_context.depth,
                         "provider": request_context.runtime,
                         "model": request_context.model,
+                        "warnings": warnings if isinstance(warnings, list) else [],
+                    },
+                    agent=self._runner.agent.name,
+                )
+            )
+
+            await send_event(
+                build_lifecycle_event(
+                    request_id=request_context.request_id,
+                    session_id=request_context.session_id,
+                    stage="tool_policy_layers_logged",
+                    details={
+                        "layers": layers if isinstance(layers, list) else [],
+                        "warnings": warnings if isinstance(warnings, list) else [],
+                        "also_allow": (explain.get("also_allow") if isinstance(explain, dict) else []) or [],
                     },
                     agent=self._runner.agent.name,
                 )

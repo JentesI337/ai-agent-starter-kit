@@ -341,6 +341,16 @@ class Settings(BaseModel):
     run_tool_time_cap_seconds: float = float(os.getenv("RUN_TOOL_TIME_CAP_SECONDS", "90"))
     tool_loop_warn_threshold: int = int(os.getenv("TOOL_LOOP_WARN_THRESHOLD", "2"))
     tool_loop_critical_threshold: int = int(os.getenv("TOOL_LOOP_CRITICAL_THRESHOLD", "3"))
+    tool_loop_detector_generic_repeat_enabled: bool = _parse_bool_env("TOOL_LOOP_DETECTOR_GENERIC_REPEAT_ENABLED", True)
+    tool_loop_detector_ping_pong_enabled: bool = _parse_bool_env("TOOL_LOOP_DETECTOR_PING_PONG_ENABLED", True)
+    tool_loop_detector_poll_no_progress_enabled: bool = _parse_bool_env(
+        "TOOL_LOOP_DETECTOR_POLL_NO_PROGRESS_ENABLED",
+        True,
+    )
+    tool_loop_poll_no_progress_threshold: int = int(os.getenv("TOOL_LOOP_POLL_NO_PROGRESS_THRESHOLD", "3"))
+    context_window_guard_enabled: bool = _parse_bool_env("CONTEXT_WINDOW_GUARD_ENABLED", True)
+    context_window_warn_below_tokens: int = int(os.getenv("CONTEXT_WINDOW_WARN_BELOW_TOKENS", "8000"))
+    context_window_hard_min_tokens: int = int(os.getenv("CONTEXT_WINDOW_HARD_MIN_TOKENS", "4000"))
     session_visibility_default: str = os.getenv("SESSION_VISIBILITY_DEFAULT", "tree")
     api_auth_required: bool = _parse_bool_env("API_AUTH_REQUIRED", False)
     api_auth_token: str = os.getenv("API_AUTH_TOKEN", os.getenv("OLLAMA_API_KEY", ""))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -266,16 +267,16 @@ class HeadAgent:
             )
 
             effective_allowed_tools = self._resolve_effective_allowed_tools(tool_policy)
+            policy_details = self._build_tool_policy_resolution_details(
+                tool_policy=tool_policy,
+                effective_allowed_tools=effective_allowed_tools,
+            )
             await self._emit_lifecycle(
                 send_event,
                 stage="tool_policy_resolved",
                 request_id=request_id,
                 session_id=session_id,
-                details={
-                    "allowed": sorted(effective_allowed_tools),
-                    "requested_allow": sorted((tool_policy or {}).get("allow", [])),
-                    "requested_deny": sorted((tool_policy or {}).get("deny", [])),
-                },
+                details=policy_details,
             )
 
             toolchain_ok, toolchain_details = self.tools.check_toolchain()
@@ -634,7 +635,7 @@ class HeadAgent:
     def _validate_tool_policy(self, tool_policy: dict[str, list[str]] | None) -> None:
         if tool_policy is None:
             return
-        for key in ("allow", "deny"):
+        for key in ("allow", "deny", "also_allow"):
             values = tool_policy.get(key)
             if values is None:
                 continue
@@ -658,6 +659,57 @@ class HeadAgent:
                 normalized.add(candidate)
         return normalized
 
+    def _unknown_tool_names(self, values: list[str] | None) -> list[str]:
+        if values is None:
+            return []
+        unknown: set[str] = set()
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            candidate = self._normalize_tool_name(value)
+            if candidate and candidate not in ALLOWED_TOOLS:
+                unknown.add(candidate)
+        return sorted(unknown)
+
+    def _build_tool_policy_resolution_details(
+        self,
+        *,
+        tool_policy: dict[str, list[str]] | None,
+        effective_allowed_tools: set[str],
+    ) -> dict[str, object]:
+        requested_allow_values = [
+            item
+            for item in ((tool_policy or {}).get("allow") or [])
+            if isinstance(item, str) and item.strip()
+        ]
+        requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
+        unknown_requested_allow = self._unknown_tool_names((tool_policy or {}).get("allow"))
+        unknown_requested_deny = self._unknown_tool_names((tool_policy or {}).get("deny"))
+        unknown_requested_also_allow = self._unknown_tool_names((tool_policy or {}).get("also_allow"))
+        request_allow_ignored_unknown_only = bool(requested_allow_values) and not bool(requested_allow)
+
+        warnings: list[str] = []
+        if request_allow_ignored_unknown_only:
+            warnings.append("request allowlist contains only unknown tools; ignoring it to preserve baseline tools")
+        if unknown_requested_allow:
+            warnings.append(f"unknown allow entries ignored: {', '.join(unknown_requested_allow)}")
+        if unknown_requested_deny:
+            warnings.append(f"unknown deny entries ignored: {', '.join(unknown_requested_deny)}")
+        if unknown_requested_also_allow:
+            warnings.append(f"unknown also_allow entries ignored: {', '.join(unknown_requested_also_allow)}")
+
+        return {
+            "allowed": sorted(effective_allowed_tools),
+            "requested_allow": sorted((tool_policy or {}).get("allow", [])),
+            "requested_deny": sorted((tool_policy or {}).get("deny", [])),
+            "requested_also_allow": sorted((tool_policy or {}).get("also_allow", [])),
+            "request_allow_ignored_unknown_only": request_allow_ignored_unknown_only,
+            "unknown_requested_allow": unknown_requested_allow,
+            "unknown_requested_deny": unknown_requested_deny,
+            "unknown_requested_also_allow": unknown_requested_also_allow,
+            "warnings": warnings,
+        }
+
     def _resolve_effective_allowed_tools(self, tool_policy: dict[str, list[str]] | None) -> set[str]:
         base_allowed = set(ALLOWED_TOOLS)
 
@@ -665,15 +717,26 @@ class HeadAgent:
         if config_allow is not None:
             base_allowed &= config_allow
 
+        requested_allow_values = [
+            item
+            for item in ((tool_policy or {}).get("allow") or [])
+            if isinstance(item, str) and item.strip()
+        ]
         requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
         if requested_allow is not None:
-            base_allowed &= requested_allow
+            if requested_allow:
+                base_allowed &= requested_allow
+            elif not requested_allow_values:
+                base_allowed &= requested_allow
 
         deny_set = set()
         deny_set |= self._normalize_tool_set(settings.agent_tools_deny) or set()
         deny_set |= self._normalize_tool_set((tool_policy or {}).get("deny")) or set()
 
         base_allowed -= deny_set
+
+        also_allow_set = self._normalize_tool_set((tool_policy or {}).get("also_allow")) or set()
+        base_allowed |= (also_allow_set - deny_set)
         return base_allowed
 
     async def _execute_tools(
@@ -1031,14 +1094,31 @@ class HeadAgent:
         tool_time_cap_seconds = max(1.0, float(getattr(settings, "run_tool_time_cap_seconds", 90)))
         loop_warn_threshold = max(1, int(getattr(settings, "tool_loop_warn_threshold", 2)))
         loop_critical_threshold = max(loop_warn_threshold + 1, int(getattr(settings, "tool_loop_critical_threshold", 3)))
+        loop_circuit_breaker_threshold = max(
+            loop_critical_threshold + 1,
+            int(getattr(settings, "tool_loop_circuit_breaker_threshold", max(6, loop_critical_threshold * 2))),
+        )
+        generic_repeat_enabled = bool(getattr(settings, "tool_loop_detector_generic_repeat_enabled", True))
+        ping_pong_enabled = bool(getattr(settings, "tool_loop_detector_ping_pong_enabled", True))
+        poll_no_progress_enabled = bool(getattr(settings, "tool_loop_detector_poll_no_progress_enabled", True))
+        poll_no_progress_threshold = max(
+            2,
+            int(getattr(settings, "tool_loop_poll_no_progress_threshold", 3)),
+        )
         tool_call_count = 0
         loop_blocked_count = 0
+        ping_pong_blocked_count = 0
+        poll_no_progress_blocked_count = 0
         budget_blocked_count = 0
         tool_error_count = 0
         signature_counts: dict[str, int] = {}
+        signature_history: list[str] = []
+        repeat_signature_hits = 0
+        emitted_loop_warning_keys: set[str] = set()
+        completed_outcomes: list[tuple[str, str]] = []
         started_at = monotonic()
 
-        for idx, action in enumerate(actions[:3], start=1):
+        for idx, action in enumerate(actions, start=1):
             tool = str(action.get("tool", "")).strip()
             args = action.get("args", {})
             if not isinstance(args, dict):
@@ -1103,22 +1183,92 @@ class HeadAgent:
                 continue
 
             signature = json.dumps({"tool": tool, "args": evaluated_args}, ensure_ascii=False, sort_keys=True)
+            signature_history.append(signature)
+            if len(signature_history) > 12:
+                signature_history = signature_history[-12:]
+            if signature in signature_history[:-1]:
+                repeat_signature_hits += 1
+
             current_count = signature_counts.get(signature, 0) + 1
             signature_counts[signature] = current_count
-            if current_count == loop_warn_threshold:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_loop_warn",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "tool": tool,
-                        "index": idx,
-                        "signature_hits": current_count,
-                        "warn_threshold": loop_warn_threshold,
-                    },
+
+            if ping_pong_enabled:
+                ping_pong_meta = self._detect_ping_pong_pattern(
+                    completed_outcomes=completed_outcomes,
+                    next_signature=signature,
                 )
-            if current_count >= loop_critical_threshold:
+                if ping_pong_meta:
+                    a = str(ping_pong_meta.get("signature_a", ""))
+                    b = str(ping_pong_meta.get("signature_b", ""))
+                    alternating_count = int(ping_pong_meta.get("alternating_count", 0))
+                    no_progress_evidence = bool(ping_pong_meta.get("no_progress_evidence", False))
+
+                    ping_pong_warning_key = self._build_ping_pong_warning_key(
+                        signature_a=a,
+                        signature_b=b,
+                    )
+                    if alternating_count >= loop_warn_threshold and ping_pong_warning_key not in emitted_loop_warning_keys:
+                        emitted_loop_warning_keys.add(ping_pong_warning_key)
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="tool_loop_ping_pong_warn",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "tool": tool,
+                                "index": idx,
+                                "reason_type": "ping_pong",
+                                "signature_a": a,
+                                "signature_b": b,
+                                "alternating_count": alternating_count,
+                                "no_progress_evidence": no_progress_evidence,
+                                "warn_threshold": loop_warn_threshold,
+                                "warning_key": ping_pong_warning_key,
+                            },
+                        )
+
+                    if no_progress_evidence and alternating_count >= loop_critical_threshold:
+                        ping_pong_blocked_count += 1
+                        loop_blocked_count += 1
+                        message = "tool loop blocked (ping-pong pattern detected)"
+                        results.append(f"[{tool}] REJECTED: {message}")
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="tool_loop_ping_pong_blocked",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "tool": tool,
+                                "index": idx,
+                                "reason_type": "ping_pong",
+                                "signature_a": a,
+                                "signature_b": b,
+                                "alternating_count": alternating_count,
+                                "no_progress_evidence": True,
+                                "critical_threshold": loop_critical_threshold,
+                            },
+                        )
+                        continue
+
+            if generic_repeat_enabled and current_count >= loop_warn_threshold:
+                generic_warning_key = f"generic:{signature}"
+                if generic_warning_key not in emitted_loop_warning_keys:
+                    emitted_loop_warning_keys.add(generic_warning_key)
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="tool_loop_warn",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "tool": tool,
+                            "index": idx,
+                            "reason_type": "generic_repeat",
+                            "signature_hits": current_count,
+                            "warn_threshold": loop_warn_threshold,
+                            "warning_key": generic_warning_key,
+                        },
+                    )
+            if generic_repeat_enabled and current_count >= loop_critical_threshold:
                 loop_blocked_count += 1
                 message = (
                     "tool loop blocked "
@@ -1133,11 +1283,34 @@ class HeadAgent:
                     details={
                         "tool": tool,
                         "index": idx,
+                        "reason_type": "generic_repeat",
                         "signature_hits": current_count,
                         "critical_threshold": loop_critical_threshold,
                     },
                 )
                 continue
+
+            if generic_repeat_enabled and repeat_signature_hits >= loop_circuit_breaker_threshold:
+                loop_blocked_count += 1
+                message = (
+                    "tool loop circuit breaker triggered "
+                    f"(repeat hits {repeat_signature_hits}, threshold {loop_circuit_breaker_threshold})"
+                )
+                results.append(f"[{tool}] REJECTED: {message}")
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_loop_circuit_breaker",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "tool": tool,
+                        "index": idx,
+                        "reason_type": "generic_repeat",
+                        "repeat_signature_hits": repeat_signature_hits,
+                        "circuit_breaker_threshold": loop_circuit_breaker_threshold,
+                    },
+                )
+                break
 
             policy = self._build_execution_policy(tool)
 
@@ -1185,6 +1358,48 @@ class HeadAgent:
                 clipped = result[:6000]
                 self.memory.add(session_id, f"tool:{tool}", clipped)
                 results.append(f"[{tool}]\n{clipped}")
+
+                outcome_hash = hashlib.sha256(
+                    json.dumps(
+                        {"result": clipped.strip()},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ).encode("utf-8")
+                ).hexdigest()
+                completed_outcomes.append((signature, outcome_hash))
+                if len(completed_outcomes) > 60:
+                    completed_outcomes = completed_outcomes[-60:]
+
+                if poll_no_progress_enabled:
+                    outcome_streak = 0
+                    for recorded_signature, recorded_hash in reversed(completed_outcomes):
+                        if recorded_signature != signature:
+                            continue
+                        if recorded_hash != outcome_hash:
+                            break
+                        outcome_streak += 1
+
+                    if outcome_streak >= poll_no_progress_threshold:
+                        poll_no_progress_blocked_count += 1
+                        loop_blocked_count += 1
+                        results.append(
+                            f"[{tool}] REJECTED: tool loop blocked (poll_no_progress streak {outcome_streak}/{poll_no_progress_threshold})"
+                        )
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="tool_loop_poll_no_progress_blocked",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "tool": tool,
+                                "index": idx,
+                                "reason_type": "poll_no_progress",
+                                "outcome_streak": outcome_streak,
+                                "threshold": poll_no_progress_threshold,
+                            },
+                        )
+                        break
+
                 await self._emit_lifecycle(
                     send_event,
                     stage="tool_completed",
@@ -1348,16 +1563,85 @@ class HeadAgent:
                 "tool_calls": tool_call_count,
                 "tool_errors": tool_error_count,
                 "loop_blocked": loop_blocked_count,
+                "loop_ping_pong_blocked": ping_pong_blocked_count,
+                "loop_poll_no_progress_blocked": poll_no_progress_blocked_count,
+                "loop_repeat_signature_hits": repeat_signature_hits,
+                "loop_reason_counts": {
+                    "generic_repeat": max(0, loop_blocked_count - ping_pong_blocked_count - poll_no_progress_blocked_count),
+                    "ping_pong": ping_pong_blocked_count,
+                    "poll_no_progress": poll_no_progress_blocked_count,
+                },
                 "budget_blocked": budget_blocked_count,
                 "elapsed_ms": total_elapsed_ms,
                 "call_cap": tool_call_cap,
                 "time_cap_seconds": tool_time_cap_seconds,
                 "loop_warn_threshold": loop_warn_threshold,
                 "loop_critical_threshold": loop_critical_threshold,
+                "loop_circuit_breaker_threshold": loop_circuit_breaker_threshold,
+                "loop_detector_generic_repeat_enabled": generic_repeat_enabled,
+                "loop_detector_ping_pong_enabled": ping_pong_enabled,
+                "loop_detector_poll_no_progress_enabled": poll_no_progress_enabled,
+                "loop_poll_no_progress_threshold": poll_no_progress_threshold,
             },
         )
 
         return "\n\n".join(results)
+
+    def _detect_ping_pong_pattern(
+        self,
+        *,
+        completed_outcomes: list[tuple[str, str]],
+        next_signature: str,
+    ) -> dict[str, object] | None:
+        if len(completed_outcomes) < 3:
+            return None
+
+        last_signature, _ = completed_outcomes[-1]
+        other_signature: str | None = None
+        for previous_signature, _ in reversed(completed_outcomes[:-1]):
+            if previous_signature != last_signature:
+                other_signature = previous_signature
+                break
+
+        if not other_signature:
+            return None
+        if next_signature != other_signature:
+            return None
+
+        alternating_tail: list[tuple[str, str]] = []
+        expected_signature = last_signature
+        for signature_value, outcome_hash in reversed(completed_outcomes):
+            if signature_value != expected_signature:
+                break
+            alternating_tail.append((signature_value, outcome_hash))
+            expected_signature = other_signature if expected_signature == last_signature else last_signature
+
+        if len(alternating_tail) < 3:
+            return None
+
+        hashes_a = {
+            outcome_hash
+            for signature_value, outcome_hash in alternating_tail
+            if signature_value == last_signature
+        }
+        hashes_b = {
+            outcome_hash
+            for signature_value, outcome_hash in alternating_tail
+            if signature_value == other_signature
+        }
+
+        alternating_count = len(alternating_tail) + 1
+        no_progress_evidence = bool(hashes_a and hashes_b and len(hashes_a) == 1 and len(hashes_b) == 1)
+
+        return {
+            "signature_a": last_signature,
+            "signature_b": other_signature,
+            "alternating_count": alternating_count,
+            "no_progress_evidence": no_progress_evidence,
+        }
+
+    def _build_ping_pong_warning_key(self, *, signature_a: str, signature_b: str) -> str:
+        return "pingpong:" + "|".join(sorted([signature_a, signature_b]))
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         text = (user_message or "").strip()

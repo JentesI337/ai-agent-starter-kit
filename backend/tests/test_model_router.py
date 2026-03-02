@@ -30,8 +30,9 @@ class _FakeAgent(AgentContract):
         combine_steps=False,
     )
 
-    def __init__(self):
+    def __init__(self, *, failure_messages: list[str] | None = None):
         self.calls: list[str] = []
+        self.failure_messages = list(failure_messages or ["model not found"])
 
     @property
     def name(self) -> str:
@@ -43,8 +44,9 @@ class _FakeAgent(AgentContract):
     async def run(self, user_message, send_event, session_id, request_id, model=None, tool_policy=None):
         active_model = model or ""
         self.calls.append(active_model)
-        if len(self.calls) == 1:
-            raise LlmClientError("model not found")
+        failure_index = len(self.calls) - 1
+        if failure_index < len(self.failure_messages):
+            raise LlmClientError(self.failure_messages[failure_index])
         return "ok"
 
 
@@ -99,3 +101,88 @@ def test_pipeline_runner_retries_on_model_not_found(tmp_path) -> None:
 
     assert result == "ok"
     assert len(agent.calls) == 2
+
+
+def test_pipeline_runner_retries_on_timeout_reason(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    agent = _FakeAgent(failure_messages=["request timed out"])
+    runner = PipelineRunner(agent=agent, state_store=store)
+
+    request_id = "req-timeout"
+    store.init_run(
+        run_id=request_id,
+        session_id="sess-1",
+        request_id=request_id,
+        user_message="hi",
+        runtime="local",
+        model="custom-model",
+    )
+
+    events: list[dict] = []
+
+    async def send_event(payload: dict):
+        events.append(payload)
+
+    result = asyncio.run(
+        runner.run(
+            user_message="hello",
+            send_event=send_event,
+            session_id="sess-1",
+            request_id=request_id,
+            runtime="local",
+            model="custom-model",
+        )
+    )
+
+    assert result == "ok"
+    assert len(agent.calls) == 2
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "model_fallback_classified"
+        and evt.get("details", {}).get("reason") == "timeout"
+        for evt in events
+    )
+
+
+def test_pipeline_runner_does_not_retry_on_unknown_reason(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    agent = _FakeAgent(failure_messages=["schema mismatch in request payload"])
+    runner = PipelineRunner(agent=agent, state_store=store)
+
+    request_id = "req-unknown"
+    store.init_run(
+        run_id=request_id,
+        session_id="sess-1",
+        request_id=request_id,
+        user_message="hi",
+        runtime="local",
+        model="custom-model",
+    )
+
+    events: list[dict] = []
+
+    async def send_event(payload: dict):
+        events.append(payload)
+
+    try:
+        asyncio.run(
+            runner.run(
+                user_message="hello",
+                send_event=send_event,
+                session_id="sess-1",
+                request_id=request_id,
+                runtime="local",
+                model="custom-model",
+            )
+        )
+        assert False, "expected LlmClientError"
+    except LlmClientError:
+        pass
+
+    assert len(agent.calls) == 1
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "model_fallback_not_retryable"
+        and evt.get("details", {}).get("reason") == "unknown"
+        for evt in events
+    )

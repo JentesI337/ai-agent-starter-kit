@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from app.contracts.agent_contract import AgentContract, SendEvent
-from app.errors import LlmClientError
+from app.config import settings
+from app.errors import GuardrailViolation, LlmClientError
+from app.model_routing.context_window_guard import evaluate_context_window_guard
 from app.model_routing import ModelRouter
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
 from app.orchestrator.step_types import PipelineStep
@@ -60,6 +62,46 @@ class PipelineRunner:
             )
         )
 
+        if settings.context_window_guard_enabled:
+            guard = evaluate_context_window_guard(
+                tokens=route.profile.max_context,
+                warn_below_tokens=settings.context_window_warn_below_tokens,
+                hard_min_tokens=settings.context_window_hard_min_tokens,
+            )
+            if guard.should_warn:
+                await send_event(
+                    build_lifecycle_event(
+                        request_id=request_id,
+                        session_id=session_id,
+                        stage="context_window_warn",
+                        details={
+                            "model": route.primary_model,
+                            "tokens": guard.tokens,
+                            "warn_below_tokens": settings.context_window_warn_below_tokens,
+                            "hard_min_tokens": settings.context_window_hard_min_tokens,
+                        },
+                        agent=self.agent.name,
+                    )
+                )
+            if guard.should_block:
+                await send_event(
+                    build_lifecycle_event(
+                        request_id=request_id,
+                        session_id=session_id,
+                        stage="context_window_blocked",
+                        details={
+                            "model": route.primary_model,
+                            "tokens": guard.tokens,
+                            "warn_below_tokens": settings.context_window_warn_below_tokens,
+                            "hard_min_tokens": settings.context_window_hard_min_tokens,
+                        },
+                        agent=self.agent.name,
+                    )
+                )
+                raise GuardrailViolation(
+                    f"Model context window too small ({guard.tokens} tokens, min {settings.context_window_hard_min_tokens})."
+                )
+
         final_text = await self._run_with_fallback(
             user_message=user_message,
             send_event=send_event,
@@ -91,6 +133,7 @@ class PipelineRunner:
     ) -> str:
         models = [route.primary_model, *route.fallback_models]
         last_error: Exception | None = None
+        last_reason = "unknown"
 
         for index, candidate_model in enumerate(models):
             try:
@@ -107,7 +150,7 @@ class PipelineRunner:
                             request_id=request_id,
                             session_id=session_id,
                             stage=LifecycleStage.MODEL_FALLBACK_RETRY,
-                            details={"to": candidate_model},
+                            details={"to": candidate_model, "reason": last_reason},
                             agent=self.agent.name,
                         )
                     )
@@ -122,15 +165,79 @@ class PipelineRunner:
                 )
             except LlmClientError as exc:
                 last_error = exc
+                reason = self._classify_failover_reason(str(exc))
+                last_reason = reason
+                retryable = self._is_retryable_failover_reason(reason)
+                has_fallback = index < len(models) - 1
+
+                await send_event(
+                    build_lifecycle_event(
+                        request_id=request_id,
+                        session_id=session_id,
+                        stage="model_fallback_classified",
+                        details={
+                            "model": candidate_model,
+                            "reason": reason,
+                            "retryable": retryable,
+                            "has_fallback": has_fallback,
+                        },
+                        agent=self.agent.name,
+                    )
+                )
+
                 if index >= len(models) - 1:
+                    await send_event(
+                        build_lifecycle_event(
+                            request_id=request_id,
+                            session_id=session_id,
+                            stage="model_fallback_exhausted",
+                            details={
+                                "model": candidate_model,
+                                "reason": reason,
+                            },
+                            agent=self.agent.name,
+                        )
+                    )
                     raise
-                if not self._is_model_not_found_error(str(exc)):
+
+                if not retryable:
+                    await send_event(
+                        build_lifecycle_event(
+                            request_id=request_id,
+                            session_id=session_id,
+                            stage="model_fallback_not_retryable",
+                            details={
+                                "model": candidate_model,
+                                "reason": reason,
+                            },
+                            agent=self.agent.name,
+                        )
+                    )
                     raise
 
         if isinstance(last_error, LlmClientError):
             raise last_error
         raise LlmClientError("Model routing failed before execution.")
 
-    def _is_model_not_found_error(self, message: str) -> bool:
+    def _classify_failover_reason(self, message: str) -> str:
         text = (message or "").lower()
-        return "model" in text and "not found" in text
+        if "model" in text and "not found" in text:
+            return "model_not_found"
+        if "rate limit" in text or "too many requests" in text or "429" in text:
+            return "rate_limited"
+        if "timeout" in text or "timed out" in text:
+            return "timeout"
+        if "temporarily unavailable" in text or "service unavailable" in text or "503" in text:
+            return "temporary_unavailable"
+        if "connection" in text or "network" in text or "dns" in text:
+            return "network_error"
+        return "unknown"
+
+    def _is_retryable_failover_reason(self, reason: str) -> bool:
+        return reason in {
+            "model_not_found",
+            "rate_limited",
+            "timeout",
+            "temporary_unavailable",
+            "network_error",
+        }

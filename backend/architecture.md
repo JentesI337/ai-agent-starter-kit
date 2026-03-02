@@ -47,7 +47,8 @@ Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 
 5) Policy- und Guardrail-Schicht
 - Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service`.
-- Guardrails auf Input, Tool-Nutzung, Subrun-Depth, Idempotency-Konflikte.
+- Persistente Policy-Approvals über `app.services.policy_approval_service` (allow-once/allow-always/deny, scope-fähig).
+- Guardrails auf Input, Tool-Nutzung, Context-Window, Subrun-Depth, Idempotency-Konflikte.
 
 6) Skills-Schicht
 - Modulares Skills-System über `app.skills/*` (Discovery, Parsing, Eligibility, Snapshot, Prompt).
@@ -112,14 +113,15 @@ Aktueller Refactor-Stand:
 - Konstruktor unterstützt optionale Dependency Injection (`LlmClient`, `MemoryStore`, `AgentTooling`, `ModelRegistry`, `ContextReducer`).
 - `configure_runtime()` re-konfiguriert Sub-Agents in-place statt vollständigem Rebuild.
 - Native Delegations-Fähigkeit über Tool `spawn_subrun` (mit Guardrails/Policy) zur direkten Child-Run-Erzeugung aus dem Agentenlauf.
+- Tool-Loop-Detektoren inkl. typisierter Gründe (`generic_repeat`, `ping_pong`, `poll_no_progress`) mit konfigurierbaren Flags/Thresholds.
 - Skills-Integration vor Tool-Selection über `SkillsService` (promptbasierter Skill-Kontext, run-spezifischer Snapshot).
 - Canary-Gating für Skills über Agent/Model-Matching; bei Nicht-Match wird Lifecycle `skills_skipped_canary` emittiert.
 
 ### 4.4 `app.interfaces.orchestrator_api` + `app.orchestrator.pipeline_runner`
 
 - `OrchestratorApi` serialisiert/koordiniert pro Session über `SessionLaneManager`.
-- `OrchestratorApi` löst Tool-Policy kontextsensitiv (provider/model/agent/depth/request) auf und emittiert Lifecycle-Event `agent_depth_policy_applied`.
-- `PipelineRunner` setzt Task-Status je Pipeline-Schritt, routed Modelle, führt Fallbacks aus.
+- `OrchestratorApi` löst Tool-Policy kontextsensitiv (provider/model/agent/depth/request/also_allow) auf und emittiert u. a. `agent_depth_policy_applied` sowie `tool_policy_layers_logged`.
+- `PipelineRunner` setzt Task-Status je Pipeline-Schritt, routed Modelle, führt kontextfenster-basierte Guardrails (`context_window_warn`/`context_window_blocked`) und reason-klassifizierte Fallbacks aus.
 
 ### 4.5 `app.orchestrator.subrun_lane`
 
@@ -131,6 +133,7 @@ Verwaltet Child-Execution-Lanes inklusive:
 - Sichtbarkeit (`self`/`tree`/`agent`/`all`).
 - Subrun-Status- und Announce-Events.
 - Kill/Kill-All-Operationen.
+- Persistente Registry (Status/Specs/Announce) mit Restore bei Neustart.
 
 ### 4.6 `app.runtime_manager`
 
@@ -161,6 +164,14 @@ Verwaltet Child-Execution-Lanes inklusive:
 	- `SKILLS_MAX_DISCOVERED`
 	- `SKILLS_MAX_PROMPT_CHARS`
 	- `SKILLS_DIR`
+- Loop- und Context-Guard-Flags:
+	- `TOOL_LOOP_DETECTOR_GENERIC_REPEAT_ENABLED`
+	- `TOOL_LOOP_DETECTOR_PING_PONG_ENABLED`
+	- `TOOL_LOOP_DETECTOR_POLL_NO_PROGRESS_ENABLED`
+	- `TOOL_LOOP_POLL_NO_PROGRESS_THRESHOLD`
+	- `CONTEXT_WINDOW_GUARD_ENABLED`
+	- `CONTEXT_WINDOW_WARN_BELOW_TOKENS`
+	- `CONTEXT_WINDOW_HARD_MIN_TOKENS`
 
 ### 4.9 `app.skills/*` + Skills Control-Plane
 
@@ -219,6 +230,7 @@ Gruppen:
 - Sessions: `/api/control/sessions.*`
 - Workflows: `/api/control/workflows.*`
 - Tools/Policy: `/api/control/tools.catalog`, `/api/control/tools.profile`, `/api/control/tools.policy.matrix`, `/api/control/tools.policy.preview`
+- Policy Approvals: `/api/control/policy-approvals.pending`, `/api/control/policy-approvals.allow`, `/api/control/policy-approvals.decide`
 - Skills: `/api/control/skills.list`, `/api/control/skills.preview`, `/api/control/skills.check`, `/api/control/skills.sync`
 
 Idempotency:
@@ -244,6 +256,7 @@ Praktische Wirkung von `agent_depth`:
 
 Regel bei Konflikten:
 - `deny` überschreibt `allow`.
+- Additives `also_allow` wird unterstützt; unbekannte Allow-Einträge werden als Warnungen im Explain-Teil ausgegeben.
 
 Weitere Schutzmechanismen:
 - Input-/Model-/Session-Guardrails in Agent- und API-Flows.
@@ -253,6 +266,7 @@ Weitere Schutzmechanismen:
 - API-Runtime-Auth-Guard (konfigurierbar, expliziter Fehlerpfad bei fehlender Auth im API-Mode).
 - Skills-Guardrails für Sync-Operationen (`workspace_root`-Constraint, Max-Item-Cap, optional bestätigtes Cleanup).
 - Skills-Canary-Rollout-Guardrails (Agent-/Model-Match als harte Aktivierungsbedingung).
+- Policy-Approval-Scopes (`tool_resource`, `tool`, `session_tool_resource`, `session_tool`) inkl. persistenter `allow_always`-Regeln.
 
 ## 7. Datenhaltung und Artefakte
 
@@ -263,6 +277,8 @@ Standardpfade (konfigurierbar via Env):
 - Snapshots: `ORCHESTRATOR_STATE_DIR/snapshots/*.summary.json`
 - Runtime-Status: `RUNTIME_STATE_FILE`
 - Custom Agents: `CUSTOM_AGENTS_DIR/*.json`
+- Subrun-Registry: `ORCHESTRATOR_STATE_DIR/subrun_registry.json`
+- Persistente Approval-Regeln: `ORCHESTRATOR_STATE_DIR/policy_allow_always_rules.json`
 - Skills-Quelle: `SKILLS_DIR` (Ordnerstruktur mit `SKILL.md` pro Skill)
 - Skills-Sync-Ziel: frei wählbares Ziel innerhalb `workspace_root` (default: `skills_synced/`)
 
@@ -277,7 +293,7 @@ Runtimes:
 
 Routing:
 - `ModelRouter` priorisiert requested model, ansonsten score-basierte Auswahl.
-- Fallback-Kette bei modellbezogenen LLM-Fehlern.
+- Fallback-Kette mit Reason-Taxonomie (`model_not_found`, `rate_limited`, `timeout`, `temporary_unavailable`, `network_error`, `unknown`) und Retry nur für retrybare Klassen.
 - Health/Latency/Cost/Profile fließen in Entscheidung ein.
 
 ## 9. Beobachtbarkeit und Testbarkeit
@@ -286,6 +302,9 @@ Beobachtbarkeit:
 - Strukturierte Logs für WS, Runtime-Switch, Fehlerpfade, Shutdown-Cleanup.
 - Lifecycle-Events als durchgehender Audit-/Status-Stream.
 - Zusätzliche Lifecycle-Sichtbarkeit für Depth-Policy-Entscheidungen über `agent_depth_policy_applied` (inkl. requested/resolved/depth-layer Details).
+- Zusätzliche Lifecycle-Sichtbarkeit für Policy-Warnungen/Layers (`tool_policy_layers_logged`) und Failover-Klassifikation (`model_fallback_classified`, `model_fallback_not_retryable`, `model_fallback_exhausted`).
+- Context-Window-Lifecycle (`context_window_warn`, `context_window_blocked`) vor eigentlicher Agent-Ausführung.
+- Tool-Loop-Lifecycle mit Reason-Typen inkl. `tool_loop_poll_no_progress_blocked`.
 - Skills-Lifecycle-Events für Rollout/Diagnose (`skills_discovered`, `skills_truncated`, `skills_skipped_canary`).
 - Strukturierte Sync-Audit-Logs (`skills_sync_audit`) inkl. Modus, Plan-/Apply-Zählern und Laufzeit.
 
@@ -299,7 +318,7 @@ Teststatus (Kernsuiten):
 - `tests/test_state_store_list_runs_index.py`
 - `tests/test_head_agent_adapter_constraints.py`
 
-Aktueller Stand: relevante Kern-/Regressionssuiten grün (zuletzt lokal validiert).
+Aktueller Stand: Vollsuite lokal unter Python 3.12 grün (`194 passed, 3 skipped`).
 
 ## 10. Benchmarking-Strategie (neu)
 
