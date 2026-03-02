@@ -331,6 +331,15 @@ class Settings(BaseModel):
         "yes",
         "on",
     }
+    subrun_restore_orphan_reconcile_enabled: bool = _parse_bool_env(
+        "SUBRUN_RESTORE_ORPHAN_RECONCILE_ENABLED",
+        True,
+    )
+    subrun_restore_orphan_grace_seconds: int = int(os.getenv("SUBRUN_RESTORE_ORPHAN_GRACE_SECONDS", "0"))
+    subrun_lifecycle_delivery_error_grace_enabled: bool = _parse_bool_env(
+        "SUBRUN_LIFECYCLE_DELIVERY_ERROR_GRACE_ENABLED",
+        True,
+    )
     policy_approval_wait_seconds: float = float(os.getenv("POLICY_APPROVAL_WAIT_SECONDS", "30"))
     session_lane_global_max_concurrent: int = int(os.getenv("SESSION_LANE_GLOBAL_MAX_CONCURRENT", "8"))
     run_wait_default_timeout_ms: int = int(os.getenv("RUN_WAIT_DEFAULT_TIMEOUT_MS", "30000"))
@@ -348,9 +357,130 @@ class Settings(BaseModel):
         True,
     )
     tool_loop_poll_no_progress_threshold: int = int(os.getenv("TOOL_LOOP_POLL_NO_PROGRESS_THRESHOLD", "3"))
+    tool_loop_warning_bucket_size: int = int(os.getenv("TOOL_LOOP_WARNING_BUCKET_SIZE", "10"))
     context_window_guard_enabled: bool = _parse_bool_env("CONTEXT_WINDOW_GUARD_ENABLED", True)
     context_window_warn_below_tokens: int = int(os.getenv("CONTEXT_WINDOW_WARN_BELOW_TOKENS", "8000"))
     context_window_hard_min_tokens: int = int(os.getenv("CONTEXT_WINDOW_HARD_MIN_TOKENS", "4000"))
+    pipeline_runner_max_attempts: int = int(os.getenv("PIPELINE_RUNNER_MAX_ATTEMPTS", "16"))
+    pipeline_runner_context_overflow_fallback_retry_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_CONTEXT_OVERFLOW_FALLBACK_RETRY_ENABLED",
+        False,
+    )
+    pipeline_runner_context_overflow_fallback_retry_max_attempts: int = int(
+        os.getenv("PIPELINE_RUNNER_CONTEXT_OVERFLOW_FALLBACK_RETRY_MAX_ATTEMPTS", "1")
+    )
+    pipeline_runner_compaction_failure_recovery_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_COMPACTION_FAILURE_RECOVERY_ENABLED",
+        False,
+    )
+    pipeline_runner_compaction_failure_recovery_max_attempts: int = int(
+        os.getenv("PIPELINE_RUNNER_COMPACTION_FAILURE_RECOVERY_MAX_ATTEMPTS", "1")
+    )
+    pipeline_runner_truncation_recovery_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_TRUNCATION_RECOVERY_ENABLED",
+        False,
+    )
+    pipeline_runner_truncation_recovery_max_attempts: int = int(
+        os.getenv("PIPELINE_RUNNER_TRUNCATION_RECOVERY_MAX_ATTEMPTS", "1")
+    )
+    pipeline_runner_prompt_compaction_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_PROMPT_COMPACTION_ENABLED",
+        False,
+    )
+    pipeline_runner_prompt_compaction_max_attempts: int = int(
+        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MAX_ATTEMPTS", "1")
+    )
+    pipeline_runner_prompt_compaction_ratio: float = float(
+        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_RATIO", "0.7")
+    )
+    pipeline_runner_prompt_compaction_min_chars: int = int(
+        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MIN_CHARS", "200")
+    )
+    pipeline_runner_payload_truncation_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_PAYLOAD_TRUNCATION_ENABLED",
+        False,
+    )
+    pipeline_runner_payload_truncation_max_attempts: int = int(
+        os.getenv("PIPELINE_RUNNER_PAYLOAD_TRUNCATION_MAX_ATTEMPTS", "1")
+    )
+    pipeline_runner_payload_truncation_target_chars: int = int(
+        os.getenv("PIPELINE_RUNNER_PAYLOAD_TRUNCATION_TARGET_CHARS", "1200")
+    )
+    pipeline_runner_payload_truncation_min_chars: int = int(
+        os.getenv("PIPELINE_RUNNER_PAYLOAD_TRUNCATION_MIN_CHARS", "120")
+    )
+    pipeline_runner_context_overflow_priority_local: list[str] = _parse_csv_env(
+        os.getenv(
+            "PIPELINE_RUNNER_CONTEXT_OVERFLOW_PRIORITY_LOCAL",
+            "prompt_compaction,overflow_fallback_retry",
+        ),
+        ["prompt_compaction", "overflow_fallback_retry"],
+    )
+    pipeline_runner_context_overflow_priority_api: list[str] = _parse_csv_env(
+        os.getenv(
+            "PIPELINE_RUNNER_CONTEXT_OVERFLOW_PRIORITY_API",
+            "overflow_fallback_retry,prompt_compaction",
+        ),
+        ["overflow_fallback_retry", "prompt_compaction"],
+    )
+    pipeline_runner_truncation_priority_local: list[str] = _parse_csv_env(
+        os.getenv(
+            "PIPELINE_RUNNER_TRUNCATION_PRIORITY_LOCAL",
+            "payload_truncation,truncation_fallback_retry",
+        ),
+        ["payload_truncation", "truncation_fallback_retry"],
+    )
+    pipeline_runner_truncation_priority_api: list[str] = _parse_csv_env(
+        os.getenv(
+            "PIPELINE_RUNNER_TRUNCATION_PRIORITY_API",
+            "truncation_fallback_retry,payload_truncation",
+        ),
+        ["truncation_fallback_retry", "payload_truncation"],
+    )
+    pipeline_runner_recovery_priority_flip_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_RECOVERY_PRIORITY_FLIP_ENABLED",
+        True,
+    )
+    pipeline_runner_recovery_priority_flip_threshold: int = int(
+        os.getenv("PIPELINE_RUNNER_RECOVERY_PRIORITY_FLIP_THRESHOLD", "2")
+    )
+    pipeline_runner_signal_priority_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_SIGNAL_PRIORITY_ENABLED",
+        True,
+    )
+    pipeline_runner_signal_low_health_threshold: float = float(
+        os.getenv("PIPELINE_RUNNER_SIGNAL_LOW_HEALTH_THRESHOLD", "0.55")
+    )
+    pipeline_runner_signal_high_latency_ms: int = int(
+        os.getenv("PIPELINE_RUNNER_SIGNAL_HIGH_LATENCY_MS", "2500")
+    )
+    pipeline_runner_signal_high_cost_threshold: float = float(
+        os.getenv("PIPELINE_RUNNER_SIGNAL_HIGH_COST_THRESHOLD", "0.75")
+    )
+    pipeline_runner_strategy_feedback_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_STRATEGY_FEEDBACK_ENABLED",
+        True,
+    )
+    pipeline_runner_persistent_priority_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_PERSISTENT_PRIORITY_ENABLED",
+        True,
+    )
+    pipeline_runner_persistent_priority_min_samples: int = int(
+        os.getenv("PIPELINE_RUNNER_PERSISTENT_PRIORITY_MIN_SAMPLES", "3")
+    )
+    pipeline_runner_persistent_priority_decay_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_PERSISTENT_PRIORITY_DECAY_ENABLED",
+        True,
+    )
+    pipeline_runner_persistent_priority_decay_half_life_seconds: int = int(
+        os.getenv("PIPELINE_RUNNER_PERSISTENT_PRIORITY_DECAY_HALF_LIFE_SECONDS", "86400")
+    )
+    pipeline_runner_persistent_priority_window_size: int = int(
+        os.getenv("PIPELINE_RUNNER_PERSISTENT_PRIORITY_WINDOW_SIZE", "50")
+    )
+    pipeline_runner_persistent_priority_window_max_age_seconds: int = int(
+        os.getenv("PIPELINE_RUNNER_PERSISTENT_PRIORITY_WINDOW_MAX_AGE_SECONDS", "604800")
+    )
     session_visibility_default: str = os.getenv("SESSION_VISIBILITY_DEFAULT", "tree")
     api_auth_required: bool = _parse_bool_env("API_AUTH_REQUIRED", False)
     api_auth_token: str = os.getenv("API_AUTH_TOKEN", os.getenv("OLLAMA_API_KEY", ""))

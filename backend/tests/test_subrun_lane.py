@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import pytest
 
 from app.errors import GuardrailViolation
@@ -408,3 +409,243 @@ def test_subrun_lane_restores_registry_from_disk(tmp_path) -> None:
     assert restored_info is not None
     assert restored_info.get("status") == "completed"
     assert restored_info.get("parent_session_id") == "sess-parent"
+
+
+def test_subrun_lane_restore_reconciles_orphaned_running_run(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    run_id = "orphan-run"
+    store.init_run(
+        run_id=run_id,
+        session_id="sess-parent-subrun-orphan",
+        request_id=run_id,
+        user_message="recover me",
+        runtime="local",
+        model="llama",
+        meta={"subrun": True},
+    )
+
+    registry_file = store.persist_dir / "subrun_registry.json"
+    registry_payload = {
+        "version": 1,
+        "updated_at": "2026-03-02T00:00:00+00:00",
+        "run_specs": {
+            run_id: {
+                "run_id": run_id,
+                "parent_request_id": "req-parent",
+                "parent_session_id": "sess-parent",
+                "child_session_id": "sess-parent-subrun-orphan",
+                "user_message": "recover me",
+                "runtime": "local",
+                "model": "llama",
+                "tool_policy": None,
+                "preset": None,
+                "timeout_seconds": 5,
+                "depth": 1,
+                "parent_run_id": None,
+                "root_run_id": "req-parent",
+                "agent_id": "head-agent",
+                "mode": "run",
+                "orchestrator_agent_ids": None,
+            }
+        },
+        "run_status": {
+            run_id: {
+                "run_id": run_id,
+                "status": "running",
+                "details": {"started_at": "2026-03-02T00:00:00+00:00"},
+                "updated_at": "2026-03-02T00:00:00+00:00",
+            }
+        },
+        "announce_status": {},
+    }
+    registry_file.write_text(json.dumps(registry_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    restored_lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=StateStore(persist_dir=str(tmp_path / "state")),
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=2,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+    )
+
+    restored_info = restored_lane.get_info(run_id)
+    assert restored_info is not None
+    assert restored_info.get("status") == "failed"
+    details = restored_info.get("details") or {}
+    assert details.get("reconciled") is True
+    assert details.get("reconcile_reason") == "orphaned_after_restore"
+
+    run_state = StateStore(persist_dir=str(tmp_path / "state")).get_run(run_id)
+    assert run_state is not None
+    assert run_state.get("status") == "failed"
+    assert any(
+        event.get("type") == "subrun_orphan_reconciled"
+        and event.get("reason") == "orphaned_after_restore"
+        for event in (run_state.get("events") or [])
+    )
+
+
+def test_subrun_lane_lifecycle_delivery_error_is_deferred(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=3,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+    )
+
+    events: list[dict] = []
+
+    async def flaky_send_event(payload: dict) -> None:
+        if payload.get("type") == "lifecycle" and payload.get("subrun") is True:
+            raise RuntimeError("transient lifecycle sink failure")
+        events.append(payload)
+
+    async def run_case() -> str:
+        run_id = await lane.spawn(
+            parent_request_id="req-parent",
+            parent_session_id="sess-parent",
+            user_message="grace lifecycle errors",
+            runtime="local",
+            model="llama",
+            timeout_seconds=5,
+            tool_policy=None,
+            send_event=flaky_send_event,
+        )
+        await lane.wait_for_completion(run_id, timeout=5)
+        return run_id
+
+    run_id = asyncio.run(run_case())
+
+    status = lane.get_status(run_id)
+    assert status is not None
+    assert status.get("status") == "completed"
+    assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "completed" for evt in events)
+
+    run_log = lane.get_log(run_id) or []
+    assert any(
+        event.get("type") == "lifecycle_delivery_deferred"
+        and event.get("stage") == "run_started"
+        for event in run_log
+    )
+
+
+def test_subrun_lane_restore_respects_orphan_grace_window(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    run_id = "orphan-grace-run"
+    store.init_run(
+        run_id=run_id,
+        session_id="sess-parent-subrun-grace",
+        request_id=run_id,
+        user_message="recover me later",
+        runtime="local",
+        model="llama",
+        meta={"subrun": True},
+    )
+
+    registry_file = store.persist_dir / "subrun_registry.json"
+    registry_payload = {
+        "version": 1,
+        "updated_at": "2026-03-02T00:00:00+00:00",
+        "run_specs": {
+            run_id: {
+                "run_id": run_id,
+                "parent_request_id": "req-parent",
+                "parent_session_id": "sess-parent",
+                "child_session_id": "sess-parent-subrun-grace",
+                "user_message": "recover me later",
+                "runtime": "local",
+                "model": "llama",
+                "tool_policy": None,
+                "preset": None,
+                "timeout_seconds": 5,
+                "depth": 1,
+                "parent_run_id": None,
+                "root_run_id": "req-parent",
+                "agent_id": "head-agent",
+                "mode": "run",
+                "orchestrator_agent_ids": None,
+            }
+        },
+        "run_status": {
+            run_id: {
+                "run_id": run_id,
+                "status": "running",
+                "details": {"started_at": "2026-03-02T00:00:00+00:00"},
+                "updated_at": "2999-01-01T00:00:00+00:00",
+            }
+        },
+        "announce_status": {},
+    }
+    registry_file.write_text(json.dumps(registry_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    restored_lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=StateStore(persist_dir=str(tmp_path / "state")),
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=2,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+        restore_orphan_reconcile_enabled=True,
+        restore_orphan_grace_seconds=3600,
+    )
+
+    restored_info = restored_lane.get_info(run_id)
+    assert restored_info is not None
+    assert restored_info.get("status") == "running"
+
+
+def test_subrun_lane_lifecycle_delivery_error_grace_can_be_disabled(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=3,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+        lifecycle_delivery_error_grace_enabled=False,
+    )
+
+    events: list[dict] = []
+
+    async def flaky_send_event(payload: dict) -> None:
+        if payload.get("type") == "lifecycle" and payload.get("subrun") is True:
+            raise RuntimeError("hard lifecycle sink failure")
+        events.append(payload)
+
+    async def run_case() -> str:
+        run_id = await lane.spawn(
+            parent_request_id="req-parent",
+            parent_session_id="sess-parent",
+            user_message="disable lifecycle grace",
+            runtime="local",
+            model="llama",
+            timeout_seconds=5,
+            tool_policy=None,
+            send_event=flaky_send_event,
+        )
+        await lane.wait_for_completion(run_id, timeout=5)
+        return run_id
+
+    run_id = asyncio.run(run_case())
+
+    status = lane.get_status(run_id)
+    assert status is not None
+    assert status.get("status") == "failed"
+    assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "failed" for evt in events)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +24,11 @@ from app.orchestrator.step_executors import (
     PlannerStepExecutor,
     SynthesizeStepExecutor,
     ToolStepExecutor,
+)
+from app.services.tool_call_gatekeeper import (
+    ToolCallGatekeeper,
+    collect_policy_override_candidates,
+    prepare_action_for_execution,
 )
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
@@ -1105,24 +1109,34 @@ class HeadAgent:
             2,
             int(getattr(settings, "tool_loop_poll_no_progress_threshold", 3)),
         )
+        warning_bucket_size = max(
+            1,
+            int(getattr(settings, "tool_loop_warning_bucket_size", 10)),
+        )
+        loop_gatekeeper = ToolCallGatekeeper(
+            warn_threshold=loop_warn_threshold,
+            critical_threshold=loop_critical_threshold,
+            circuit_breaker_threshold=loop_circuit_breaker_threshold,
+            warning_bucket_size=warning_bucket_size,
+            generic_repeat_enabled=generic_repeat_enabled,
+            ping_pong_enabled=ping_pong_enabled,
+            poll_no_progress_enabled=poll_no_progress_enabled,
+            poll_no_progress_threshold=poll_no_progress_threshold,
+        )
         tool_call_count = 0
-        loop_blocked_count = 0
-        ping_pong_blocked_count = 0
-        poll_no_progress_blocked_count = 0
         budget_blocked_count = 0
         tool_error_count = 0
-        signature_counts: dict[str, int] = {}
-        signature_history: list[str] = []
-        repeat_signature_hits = 0
-        emitted_loop_warning_keys: set[str] = set()
-        completed_outcomes: list[tuple[str, str]] = []
         started_at = monotonic()
 
         for idx, action in enumerate(actions, start=1):
-            tool = str(action.get("tool", "")).strip()
-            args = action.get("args", {})
-            if not isinstance(args, dict):
-                args = {}
+            prep = prepare_action_for_execution(
+                action=action,
+                allowed_tools=effective_allowed_tools,
+                normalize_tool_name=self._normalize_tool_name,
+                evaluate_action=self._evaluate_action,
+            )
+            fallback_tool = action.get("tool") if isinstance(action, dict) else ""
+            tool = prep.tool or (str(fallback_tool).strip() if isinstance(fallback_tool, str) else "")
 
             elapsed = monotonic() - started_at
             if elapsed >= tool_time_cap_seconds:
@@ -1163,14 +1177,13 @@ class HeadAgent:
                 )
                 break
 
-            evaluated_args, eval_error = self._evaluate_action(tool, args, effective_allowed_tools)
-            if eval_error:
-                results.append(f"[{tool}] REJECTED: {eval_error}")
+            if prep.error:
+                results.append(f"[{tool}] REJECTED: {prep.error}")
                 await send_event(
                     {
                         "type": "error",
                         "agent": self.name,
-                        "message": f"Tool blocked ({tool}): {eval_error}",
+                        "message": f"Tool blocked ({tool}): {prep.error}",
                     }
                 )
                 await self._emit_lifecycle(
@@ -1178,139 +1191,26 @@ class HeadAgent:
                     stage="tool_blocked",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"tool": tool, "index": idx, "error": eval_error},
+                    details={"tool": tool, "index": idx, "error": prep.error},
                 )
                 continue
+            evaluated_args = prep.normalized_args
 
-            signature = json.dumps({"tool": tool, "args": evaluated_args}, ensure_ascii=False, sort_keys=True)
-            signature_history.append(signature)
-            if len(signature_history) > 12:
-                signature_history = signature_history[-12:]
-            if signature in signature_history[:-1]:
-                repeat_signature_hits += 1
-
-            current_count = signature_counts.get(signature, 0) + 1
-            signature_counts[signature] = current_count
-
-            if ping_pong_enabled:
-                ping_pong_meta = self._detect_ping_pong_pattern(
-                    completed_outcomes=completed_outcomes,
-                    next_signature=signature,
-                )
-                if ping_pong_meta:
-                    a = str(ping_pong_meta.get("signature_a", ""))
-                    b = str(ping_pong_meta.get("signature_b", ""))
-                    alternating_count = int(ping_pong_meta.get("alternating_count", 0))
-                    no_progress_evidence = bool(ping_pong_meta.get("no_progress_evidence", False))
-
-                    ping_pong_warning_key = self._build_ping_pong_warning_key(
-                        signature_a=a,
-                        signature_b=b,
-                    )
-                    if alternating_count >= loop_warn_threshold and ping_pong_warning_key not in emitted_loop_warning_keys:
-                        emitted_loop_warning_keys.add(ping_pong_warning_key)
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="tool_loop_ping_pong_warn",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "tool": tool,
-                                "index": idx,
-                                "reason_type": "ping_pong",
-                                "signature_a": a,
-                                "signature_b": b,
-                                "alternating_count": alternating_count,
-                                "no_progress_evidence": no_progress_evidence,
-                                "warn_threshold": loop_warn_threshold,
-                                "warning_key": ping_pong_warning_key,
-                            },
-                        )
-
-                    if no_progress_evidence and alternating_count >= loop_critical_threshold:
-                        ping_pong_blocked_count += 1
-                        loop_blocked_count += 1
-                        message = "tool loop blocked (ping-pong pattern detected)"
-                        results.append(f"[{tool}] REJECTED: {message}")
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="tool_loop_ping_pong_blocked",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "tool": tool,
-                                "index": idx,
-                                "reason_type": "ping_pong",
-                                "signature_a": a,
-                                "signature_b": b,
-                                "alternating_count": alternating_count,
-                                "no_progress_evidence": True,
-                                "critical_threshold": loop_critical_threshold,
-                            },
-                        )
-                        continue
-
-            if generic_repeat_enabled and current_count >= loop_warn_threshold:
-                generic_warning_key = f"generic:{signature}"
-                if generic_warning_key not in emitted_loop_warning_keys:
-                    emitted_loop_warning_keys.add(generic_warning_key)
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="tool_loop_warn",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "tool": tool,
-                            "index": idx,
-                            "reason_type": "generic_repeat",
-                            "signature_hits": current_count,
-                            "warn_threshold": loop_warn_threshold,
-                            "warning_key": generic_warning_key,
-                        },
-                    )
-            if generic_repeat_enabled and current_count >= loop_critical_threshold:
-                loop_blocked_count += 1
-                message = (
-                    "tool loop blocked "
-                    f"(signature repeated {current_count}x, threshold {loop_critical_threshold})"
-                )
-                results.append(f"[{tool}] REJECTED: {message}")
+            signature = loop_gatekeeper.build_signature(tool=tool, args=evaluated_args)
+            pre_decision = loop_gatekeeper.before_tool_call(tool=tool, signature=signature, index=idx)
+            for stage, details in pre_decision.lifecycle_events:
                 await self._emit_lifecycle(
                     send_event,
-                    stage="tool_loop_blocked",
+                    stage=stage,
                     request_id=request_id,
                     session_id=session_id,
-                    details={
-                        "tool": tool,
-                        "index": idx,
-                        "reason_type": "generic_repeat",
-                        "signature_hits": current_count,
-                        "critical_threshold": loop_critical_threshold,
-                    },
+                    details=details,
                 )
+            if pre_decision.blocked:
+                results.append(f"[{tool}] REJECTED: {pre_decision.rejection_message}")
+                if pre_decision.break_run:
+                    break
                 continue
-
-            if generic_repeat_enabled and repeat_signature_hits >= loop_circuit_breaker_threshold:
-                loop_blocked_count += 1
-                message = (
-                    "tool loop circuit breaker triggered "
-                    f"(repeat hits {repeat_signature_hits}, threshold {loop_circuit_breaker_threshold})"
-                )
-                results.append(f"[{tool}] REJECTED: {message}")
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_loop_circuit_breaker",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "tool": tool,
-                        "index": idx,
-                        "reason_type": "generic_repeat",
-                        "repeat_signature_hits": repeat_signature_hits,
-                        "circuit_breaker_threshold": loop_circuit_breaker_threshold,
-                    },
-                )
-                break
 
             policy = self._build_execution_policy(tool)
 
@@ -1359,46 +1259,25 @@ class HeadAgent:
                 self.memory.add(session_id, f"tool:{tool}", clipped)
                 results.append(f"[{tool}]\n{clipped}")
 
-                outcome_hash = hashlib.sha256(
-                    json.dumps(
-                        {"result": clipped.strip()},
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ).encode("utf-8")
-                ).hexdigest()
-                completed_outcomes.append((signature, outcome_hash))
-                if len(completed_outcomes) > 60:
-                    completed_outcomes = completed_outcomes[-60:]
-
-                if poll_no_progress_enabled:
-                    outcome_streak = 0
-                    for recorded_signature, recorded_hash in reversed(completed_outcomes):
-                        if recorded_signature != signature:
-                            continue
-                        if recorded_hash != outcome_hash:
-                            break
-                        outcome_streak += 1
-
-                    if outcome_streak >= poll_no_progress_threshold:
-                        poll_no_progress_blocked_count += 1
-                        loop_blocked_count += 1
-                        results.append(
-                            f"[{tool}] REJECTED: tool loop blocked (poll_no_progress streak {outcome_streak}/{poll_no_progress_threshold})"
-                        )
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="tool_loop_poll_no_progress_blocked",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "tool": tool,
-                                "index": idx,
-                                "reason_type": "poll_no_progress",
-                                "outcome_streak": outcome_streak,
-                                "threshold": poll_no_progress_threshold,
-                            },
-                        )
+                post_decision = loop_gatekeeper.after_tool_success(
+                    tool=tool,
+                    signature=signature,
+                    index=idx,
+                    result=clipped,
+                )
+                for stage, details in post_decision.lifecycle_events:
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage=stage,
+                        request_id=request_id,
+                        session_id=session_id,
+                        details=details,
+                    )
+                if post_decision.blocked:
+                    results.append(f"[{tool}] REJECTED: {post_decision.rejection_message}")
+                    if post_decision.break_run:
                         break
+                    continue
 
                 await self._emit_lifecycle(
                     send_event,
@@ -1562,86 +1441,15 @@ class HeadAgent:
             details={
                 "tool_calls": tool_call_count,
                 "tool_errors": tool_error_count,
-                "loop_blocked": loop_blocked_count,
-                "loop_ping_pong_blocked": ping_pong_blocked_count,
-                "loop_poll_no_progress_blocked": poll_no_progress_blocked_count,
-                "loop_repeat_signature_hits": repeat_signature_hits,
-                "loop_reason_counts": {
-                    "generic_repeat": max(0, loop_blocked_count - ping_pong_blocked_count - poll_no_progress_blocked_count),
-                    "ping_pong": ping_pong_blocked_count,
-                    "poll_no_progress": poll_no_progress_blocked_count,
-                },
                 "budget_blocked": budget_blocked_count,
                 "elapsed_ms": total_elapsed_ms,
                 "call_cap": tool_call_cap,
                 "time_cap_seconds": tool_time_cap_seconds,
-                "loop_warn_threshold": loop_warn_threshold,
-                "loop_critical_threshold": loop_critical_threshold,
-                "loop_circuit_breaker_threshold": loop_circuit_breaker_threshold,
-                "loop_detector_generic_repeat_enabled": generic_repeat_enabled,
-                "loop_detector_ping_pong_enabled": ping_pong_enabled,
-                "loop_detector_poll_no_progress_enabled": poll_no_progress_enabled,
-                "loop_poll_no_progress_threshold": poll_no_progress_threshold,
+                **loop_gatekeeper.summary_payload(),
             },
         )
 
         return "\n\n".join(results)
-
-    def _detect_ping_pong_pattern(
-        self,
-        *,
-        completed_outcomes: list[tuple[str, str]],
-        next_signature: str,
-    ) -> dict[str, object] | None:
-        if len(completed_outcomes) < 3:
-            return None
-
-        last_signature, _ = completed_outcomes[-1]
-        other_signature: str | None = None
-        for previous_signature, _ in reversed(completed_outcomes[:-1]):
-            if previous_signature != last_signature:
-                other_signature = previous_signature
-                break
-
-        if not other_signature:
-            return None
-        if next_signature != other_signature:
-            return None
-
-        alternating_tail: list[tuple[str, str]] = []
-        expected_signature = last_signature
-        for signature_value, outcome_hash in reversed(completed_outcomes):
-            if signature_value != expected_signature:
-                break
-            alternating_tail.append((signature_value, outcome_hash))
-            expected_signature = other_signature if expected_signature == last_signature else last_signature
-
-        if len(alternating_tail) < 3:
-            return None
-
-        hashes_a = {
-            outcome_hash
-            for signature_value, outcome_hash in alternating_tail
-            if signature_value == last_signature
-        }
-        hashes_b = {
-            outcome_hash
-            for signature_value, outcome_hash in alternating_tail
-            if signature_value == other_signature
-        }
-
-        alternating_count = len(alternating_tail) + 1
-        no_progress_evidence = bool(hashes_a and hashes_b and len(hashes_a) == 1 and len(hashes_b) == 1)
-
-        return {
-            "signature_a": last_signature,
-            "signature_b": other_signature,
-            "alternating_count": alternating_count,
-            "no_progress_evidence": no_progress_evidence,
-        }
-
-    def _build_ping_pong_warning_key(self, *, signature_a: str, signature_b: str) -> str:
-        return "pingpong:" + "|".join(sorted([signature_a, signature_b]))
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         text = (user_message or "").strip()
@@ -1963,49 +1771,21 @@ class HeadAgent:
         session_id: str,
     ) -> set[str]:
         effective_allowed = set(allowed_tools)
-        process_tools = {"run_command", "spawn_subrun"}
-        reviewed: set[tuple[str, str]] = set()
-
-        for action in actions:
-            if not isinstance(action, dict):
-                continue
-            raw_tool = action.get("tool")
-            if not isinstance(raw_tool, str):
-                continue
-            tool = self._normalize_tool_name(raw_tool)
-            if tool not in process_tools or tool in effective_allowed:
-                continue
-            args = action.get("args")
-            if not isinstance(args, dict):
-                continue
-
-            resource = ""
-            if tool == "run_command":
-                candidate = args.get("command")
-                if isinstance(candidate, str):
-                    resource = candidate.strip()
-            elif tool == "spawn_subrun":
-                candidate = args.get("message")
-                if isinstance(candidate, str):
-                    resource = candidate.strip()
-
-            if not resource:
-                continue
-
-            key = (tool, resource)
-            if key in reviewed:
-                continue
-            reviewed.add(key)
-
+        candidates = collect_policy_override_candidates(
+            actions=actions,
+            allowed_tools=effective_allowed,
+            normalize_tool_name=self._normalize_tool_name,
+        )
+        for candidate in candidates:
             approved = await self._request_policy_override(
                 send_event=send_event,
                 session_id=session_id,
                 request_id=request_id,
-                tool=tool,
-                resource=resource,
+                tool=candidate.tool,
+                resource=candidate.resource,
             )
             if approved:
-                effective_allowed.add(tool)
+                effective_allowed.add(candidate.tool)
 
         return effective_allowed
 

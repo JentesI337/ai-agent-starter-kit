@@ -57,6 +57,9 @@ class SubrunLane:
         announce_retry_jitter: bool,
         leaf_spawn_depth_guard_enabled: bool = False,
         orchestrator_agent_ids: list[str] | None = None,
+        restore_orphan_reconcile_enabled: bool = True,
+        restore_orphan_grace_seconds: int = 0,
+        lifecycle_delivery_error_grace_enabled: bool = True,
     ):
         self._orchestrator_api = orchestrator_api
         self._state_store = state_store
@@ -67,6 +70,9 @@ class SubrunLane:
         self._announce_retry_base_delay_ms = max(10, int(announce_retry_base_delay_ms))
         self._announce_retry_max_delay_ms = max(self._announce_retry_base_delay_ms, int(announce_retry_max_delay_ms))
         self._announce_retry_jitter = bool(announce_retry_jitter)
+        self._restore_orphan_reconcile_enabled = bool(restore_orphan_reconcile_enabled)
+        self._restore_orphan_grace_seconds = max(0, int(restore_orphan_grace_seconds))
+        self._lifecycle_delivery_error_grace_enabled = bool(lifecycle_delivery_error_grace_enabled)
         self._leaf_spawn_depth_guard_enabled = bool(leaf_spawn_depth_guard_enabled)
         self._orchestrator_agent_ids = {
             str(item).strip().lower()
@@ -611,7 +617,11 @@ class SubrunLane:
                     },
                 )
 
-            await send_event(forwarded)
+            await self._send_with_lifecycle_error_grace(
+                run_id=spec.run_id,
+                send_event=send_event,
+                payload=forwarded,
+            )
 
         return await spec.orchestrator_api.run_user_message(
             user_message=spec.user_message,
@@ -638,6 +648,31 @@ class SubrunLane:
         }
         self._run_status[run_id] = snapshot
         self._persist_registry_safe()
+
+    async def _send_with_lifecycle_error_grace(self, *, run_id: str, send_event: SendEvent, payload: dict) -> None:
+        is_lifecycle = str(payload.get("type") or "") == "lifecycle"
+        if not is_lifecycle:
+            await send_event(payload)
+            return
+
+        if not self._lifecycle_delivery_error_grace_enabled:
+            await send_event(payload)
+            return
+
+        try:
+            await send_event(payload)
+        except Exception as exc:
+            try:
+                self._state_store.append_event(
+                    run_id=run_id,
+                    event={
+                        "type": "lifecycle_delivery_deferred",
+                        "stage": str(payload.get("stage") or ""),
+                        "error": str(exc),
+                    },
+                )
+            except Exception:
+                return
 
     def _build_announce_idempotency_key(self, run_id: str) -> str:
         return f"subrun:{run_id}:announce:v1"
@@ -837,3 +872,65 @@ class SubrunLane:
             self._parent_by_child[run_id] = spec.parent_request_id
             if spec.child_session_id != spec.parent_session_id:
                 self._children_by_session[spec.parent_session_id].add(spec.child_session_id)
+
+        self._reconcile_orphaned_runs_after_restore()
+
+    def _reconcile_orphaned_runs_after_restore(self) -> None:
+        if not self._restore_orphan_reconcile_enabled:
+            return
+
+        reconciled_at = datetime.now(timezone.utc).isoformat()
+        now_ts = datetime.now(timezone.utc).timestamp()
+        for run_id, snapshot in list(self._run_status.items()):
+            if not isinstance(snapshot, dict):
+                continue
+            status = str(snapshot.get("status") or "").strip().lower()
+            if status in TERMINAL_STATUSES:
+                continue
+            if status not in {"accepted", "running"}:
+                continue
+
+            if self._restore_orphan_grace_seconds > 0:
+                updated_raw = str(snapshot.get("updated_at") or "").strip()
+                if updated_raw:
+                    try:
+                        updated_ts = datetime.fromisoformat(updated_raw).timestamp()
+                        age_seconds = max(0.0, now_ts - updated_ts)
+                        if age_seconds < self._restore_orphan_grace_seconds:
+                            continue
+                    except Exception:
+                        pass
+
+            details = snapshot.get("details") if isinstance(snapshot.get("details"), dict) else {}
+            reconciled_snapshot = {
+                "run_id": run_id,
+                "status": "failed",
+                "details": {
+                    **details,
+                    "reconciled": True,
+                    "reconciled_at": reconciled_at,
+                    "reconcile_reason": "orphaned_after_restore",
+                },
+                "updated_at": reconciled_at,
+            }
+            self._run_status[run_id] = reconciled_snapshot
+
+            try:
+                self._state_store.mark_failed(run_id=run_id, error="Subrun orphaned after restore.")
+            except Exception:
+                pass
+            try:
+                self._state_store.append_event(
+                    run_id=run_id,
+                    event={
+                        "type": "subrun_orphan_reconciled",
+                        "status_before": status,
+                        "status_after": "failed",
+                        "reason": "orphaned_after_restore",
+                        "reconciled_at": reconciled_at,
+                    },
+                )
+            except Exception:
+                pass
+
+        self._persist_registry_safe()

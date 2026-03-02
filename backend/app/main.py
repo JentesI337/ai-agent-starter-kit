@@ -222,6 +222,9 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         announce_retry_jitter=settings.subrun_announce_retry_jitter,
         leaf_spawn_depth_guard_enabled=settings.subrun_leaf_spawn_depth_guard_enabled,
         orchestrator_agent_ids=list(_effective_orchestrator_agent_ids(components)),
+        restore_orphan_reconcile_enabled=settings.subrun_restore_orphan_reconcile_enabled,
+        restore_orphan_grace_seconds=settings.subrun_restore_orphan_grace_seconds,
+        lifecycle_delivery_error_grace_enabled=settings.subrun_lifecycle_delivery_error_grace_enabled,
     )
 
     async def _spawn_subrun_from_agent(

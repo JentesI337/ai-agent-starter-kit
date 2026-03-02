@@ -951,6 +951,148 @@ def test_execute_tools_ping_pong_warn_is_deduplicated(monkeypatch) -> None:
     assert warn_events[0].get("details", {}).get("warning_key", "").startswith("pingpong:")
 
 
+def test_execute_tools_generic_repeat_warning_bucket_progression(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"read_file","args":{"path":"README.md"}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        return "content"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 2)
+    monkeypatch.setattr(settings, "tool_loop_warning_bucket_size", 2)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 99)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 10)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        _ = asyncio.run(
+            agent._execute_tools(
+                user_message="repeat readme",
+                plan_text="repeat read",
+                memory_context="user: repeat readme",
+                session_id="s-generic-bucket",
+                request_id="r-generic-bucket",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    warn_events = [
+        evt
+        for evt in events
+        if evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_warn"
+    ]
+    bucket_indices = [
+        evt.get("details", {}).get("warning_bucket_index")
+        for evt in warn_events
+    ]
+
+    assert len(warn_events) == 2
+    assert bucket_indices == [1, 2]
+    assert all(
+        evt.get("details", {}).get("warning_bucket_size") == 2
+        for evt in warn_events
+    )
+
+
+def test_execute_tools_ping_pong_warning_bucket_progression(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":['
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}},'
+            '{"tool":"read_file","args":{"path":"README.md"}},'
+            '{"tool":"list_dir","args":{"path":"."}}]}'
+        )
+
+    def fake_invoke_tool(tool: str, args: dict) -> str:
+        if tool == "read_file":
+            return "read-stable"
+        return "dir-stable"
+
+    monkeypatch.setattr(settings, "tool_loop_detector_generic_repeat_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_detector_ping_pong_enabled", True)
+    monkeypatch.setattr(settings, "tool_loop_detector_poll_no_progress_enabled", False)
+    monkeypatch.setattr(settings, "tool_loop_warn_threshold", 4)
+    monkeypatch.setattr(settings, "tool_loop_warning_bucket_size", 2)
+    monkeypatch.setattr(settings, "tool_loop_critical_threshold", 99)
+    monkeypatch.setattr(settings, "run_tool_call_cap", 20)
+    monkeypatch.setattr(settings, "run_tool_time_cap_seconds", 60.0)
+
+    original_complete_chat = agent.client.complete_chat
+    original_invoke = agent._invoke_tool
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
+    try:
+        _ = asyncio.run(
+            agent._execute_tools(
+                user_message="alternate checks",
+                plan_text="alternate read/list checks",
+                memory_context="user: alternate checks",
+                session_id="s-ping-pong-bucket",
+                request_id="r-ping-pong-bucket",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"read_file", "list_dir"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
+
+    warn_events = [
+        evt
+        for evt in events
+        if evt.get("type") == "lifecycle" and evt.get("stage") == "tool_loop_ping_pong_warn"
+    ]
+    bucket_indices = [
+        evt.get("details", {}).get("warning_bucket_index")
+        for evt in warn_events
+    ]
+
+    assert len(warn_events) >= 2
+    assert bucket_indices == sorted(bucket_indices)
+    assert warn_events[0].get("details", {}).get("warning_bucket_index") == 1
+    assert all(
+        evt.get("details", {}).get("warning_bucket_size") == 2
+        for evt in warn_events
+    )
+
+
 def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
     agent = HeadCodingAgent()
     events: list[dict] = []
