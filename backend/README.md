@@ -96,6 +96,48 @@ Lifecycle `stage` examples:
 - `streaming_started`, `streaming_completed`
 - `run_completed`, `request_completed`
 - `model_route_selected`, `model_fallback_retry`
+- `skills_discovered`, `skills_truncated`, `skills_skipped_canary`
+
+## Skills Engine (Feature-Flag + Canary)
+
+The backend includes a modular skills system (`app/skills/*`) that can enrich tool-selection context with discovered/eligible skills.
+
+Key environment variables:
+- `SKILLS_ENGINE_ENABLED` (default: `false`)
+- `SKILLS_CANARY_ENABLED` (default: `false`)
+- `SKILLS_CANARY_AGENT_IDS` (csv, default: `head-agent`)
+- `SKILLS_CANARY_MODEL_PROFILES` (csv, default: `*`)
+- `SKILLS_DIR` (default: `<workspace>/skills`)
+- `SKILLS_MAX_DISCOVERED` (default: `150`)
+- `SKILLS_MAX_PROMPT_CHARS` (default: `30000`)
+
+Behavior:
+- If `SKILLS_ENGINE_ENABLED=false`, skills are fully disabled.
+- If `SKILLS_ENGINE_ENABLED=true` and `SKILLS_CANARY_ENABLED=false`, skills are globally enabled.
+- If both are `true`, skills are enabled only when both canary matchers pass:
+	- agent role matches `SKILLS_CANARY_AGENT_IDS`
+	- model id/profile matches `SKILLS_CANARY_MODEL_PROFILES`
+- When blocked by canary, lifecycle emits `skills_skipped_canary`.
+
+## Skills Control-Plane
+
+Available endpoints:
+- `POST /api/control/skills.list`
+- `POST /api/control/skills.preview`
+- `POST /api/control/skills.check`
+- `POST /api/control/skills.sync`
+
+`skills.sync` modes and safety:
+- `apply=false` => dry-run plan only
+- `apply=true` => execute sync
+- optional `clean_target=true` => also plan stale target skill-dir deletions
+- with `clean_target=true` and `apply=true`, `confirm_clean_target=true` is required
+- target dir must be inside `WORKSPACE_ROOT`
+
+`skills.sync` response includes audit fields:
+- `audit.started_at`
+- `audit.duration_ms`
+- counters for planned/apply/delete (`planned_count`, `planned_delete_count`, `applied_count`, `applied_delete_count`)
 
 ## Current agent capabilities
 

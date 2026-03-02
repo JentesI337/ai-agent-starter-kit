@@ -1,6 +1,6 @@
 # Backend Architecture
 
-Stand: 2026-03-01  
+Stand: 2026-03-02  
 Scope: Nur Backend (`backend/`), Frontend ist bewusst nicht Teil dieses Dokuments.
 
 ## 1. Zielbild
@@ -48,6 +48,11 @@ Das Backend ist eine FastAPI-Anwendung mit klaren Verantwortungsblöcken:
 5) Policy- und Guardrail-Schicht
 - Zentrale Tool-Policy-Auflösung über `app.services.tool_policy_service`.
 - Guardrails auf Input, Tool-Nutzung, Subrun-Depth, Idempotency-Konflikte.
+
+6) Skills-Schicht
+- Modulares Skills-System über `app.skills/*` (Discovery, Parsing, Eligibility, Snapshot, Prompt).
+- Aktivierung über Feature-Flags inkl. Canary-Gating (pro Agent-ID/Rolle und Modell-Profil).
+- Read-only Inspection + kontrollierte Synchronisation über Control-Plane-Endpunkte.
 
 ## 3. Laufzeitmodell und Lifecycle
 
@@ -107,6 +112,8 @@ Aktueller Refactor-Stand:
 - Konstruktor unterstützt optionale Dependency Injection (`LlmClient`, `MemoryStore`, `AgentTooling`, `ModelRegistry`, `ContextReducer`).
 - `configure_runtime()` re-konfiguriert Sub-Agents in-place statt vollständigem Rebuild.
 - Native Delegations-Fähigkeit über Tool `spawn_subrun` (mit Guardrails/Policy) zur direkten Child-Run-Erzeugung aus dem Agentenlauf.
+- Skills-Integration vor Tool-Selection über `SkillsService` (promptbasierter Skill-Kontext, run-spezifischer Snapshot).
+- Canary-Gating für Skills über Agent/Model-Matching; bei Nicht-Match wird Lifecycle `skills_skipped_canary` emittiert.
 
 ### 4.4 `app.interfaces.orchestrator_api` + `app.orchestrator.pipeline_runner`
 
@@ -146,6 +153,28 @@ Verwaltet Child-Execution-Lanes inklusive:
 - Prompt-Fallbacks werden zentral über `_resolve_prompt(...)` aufgelöst.
 - Aufgelöste Prompt-Werte sind über `resolved_prompt_settings(...)` verfügbar.
 - Debug-Endpoint für effective Prompt-Werte: `GET /api/debug/prompts/resolved`.
+- Skills-Flags unterstützen globale Aktivierung und Canary-Rollout:
+	- `SKILLS_ENGINE_ENABLED`
+	- `SKILLS_CANARY_ENABLED`
+	- `SKILLS_CANARY_AGENT_IDS`
+	- `SKILLS_CANARY_MODEL_PROFILES`
+	- `SKILLS_MAX_DISCOVERED`
+	- `SKILLS_MAX_PROMPT_CHARS`
+	- `SKILLS_DIR`
+
+### 4.9 `app.skills/*` + Skills Control-Plane
+
+- `app.skills` kapselt Frontmatter-Parsing (`SKILL.md`), Discovery, Eligibility und Snapshot/Payload-Building.
+- Control-Plane-Endpunkte:
+	- `POST /api/control/skills.list`
+	- `POST /api/control/skills.preview`
+	- `POST /api/control/skills.check`
+	- `POST /api/control/skills.sync`
+- `skills.sync` unterstützt `dry_run` und `apply`, optionales `clean_target` (nur Skill-Ordner mit `SKILL.md`), sowie Guardrails:
+	- Zielpfad muss innerhalb `workspace_root` liegen.
+	- `source` und `target` dürfen nicht identisch sein.
+	- `clean_target` mit `apply=true` erfordert explizite Bestätigung (`confirm_clean_target=true`).
+- Responses enthalten Audit-Metadaten (`audit.started_at`, `audit.duration_ms`) und Plan-/Apply-Zähler.
 
 ## 5. API-Oberfläche (Backend)
 
@@ -190,6 +219,7 @@ Gruppen:
 - Sessions: `/api/control/sessions.*`
 - Workflows: `/api/control/workflows.*`
 - Tools/Policy: `/api/control/tools.catalog`, `/api/control/tools.profile`, `/api/control/tools.policy.matrix`, `/api/control/tools.policy.preview`
+- Skills: `/api/control/skills.list`, `/api/control/skills.preview`, `/api/control/skills.check`, `/api/control/skills.sync`
 
 Idempotency:
 - Relevante write-/execute-Endpoints unterstützen `Idempotency-Key` (Header + Payload-Konventionen).
@@ -221,6 +251,8 @@ Weitere Schutzmechanismen:
 - Subrun-Depth- und Child-Limits.
 - Secret-Redaction in persisted state payloads.
 - API-Runtime-Auth-Guard (konfigurierbar, expliziter Fehlerpfad bei fehlender Auth im API-Mode).
+- Skills-Guardrails für Sync-Operationen (`workspace_root`-Constraint, Max-Item-Cap, optional bestätigtes Cleanup).
+- Skills-Canary-Rollout-Guardrails (Agent-/Model-Match als harte Aktivierungsbedingung).
 
 ## 7. Datenhaltung und Artefakte
 
@@ -231,6 +263,8 @@ Standardpfade (konfigurierbar via Env):
 - Snapshots: `ORCHESTRATOR_STATE_DIR/snapshots/*.summary.json`
 - Runtime-Status: `RUNTIME_STATE_FILE`
 - Custom Agents: `CUSTOM_AGENTS_DIR/*.json`
+- Skills-Quelle: `SKILLS_DIR` (Ordnerstruktur mit `SKILL.md` pro Skill)
+- Skills-Sync-Ziel: frei wählbares Ziel innerhalb `workspace_root` (default: `skills_synced/`)
 
 Hinweis:
 - Datenhaltung bleibt dateibasiert; `list_runs(limit=...)` ist durch In-Memory-Index optimiert, aber nicht DB-backed.
@@ -252,6 +286,8 @@ Beobachtbarkeit:
 - Strukturierte Logs für WS, Runtime-Switch, Fehlerpfade, Shutdown-Cleanup.
 - Lifecycle-Events als durchgehender Audit-/Status-Stream.
 - Zusätzliche Lifecycle-Sichtbarkeit für Depth-Policy-Entscheidungen über `agent_depth_policy_applied` (inkl. requested/resolved/depth-layer Details).
+- Skills-Lifecycle-Events für Rollout/Diagnose (`skills_discovered`, `skills_truncated`, `skills_skipped_canary`).
+- Strukturierte Sync-Audit-Logs (`skills_sync_audit`) inkl. Modus, Plan-/Apply-Zählern und Laufzeit.
 
 Teststatus (Kernsuiten):
 - `tests/test_control_plane_contracts.py`

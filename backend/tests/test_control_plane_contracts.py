@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import shutil
 import uuid
 
 os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app, agent, agent_registry, runtime_manager, state_store
 from app.runtime_manager import RuntimeState
 
@@ -439,6 +442,347 @@ def test_control_tools_policy_matrix_rejects_unknown_agent() -> None:
     client = TestClient(app)
 
     response = client.post("/api/control/tools.policy.matrix", json={"agent_id": "unknown-agent"})
+    assert response.status_code == 400
+
+
+def test_control_skills_list_contract(tmp_path) -> None:
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = skills_root / "demo-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: demo-skill\n"
+        "description: Demo skill for contract test\n"
+        "---\n"
+        "# Demo\n",
+        encoding="utf-8",
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/control/skills.list",
+        json={
+            "skills_dir": str(skills_root),
+            "max_discovered": 10,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["schema"] == "skills.list.v1"
+    assert payload["count"] == 1
+    assert payload["discovered_count"] == 1
+    assert payload["eligible_count"] == 1
+    assert isinstance(payload["items"], list)
+    assert payload["items"][0]["name"] == "demo-skill"
+
+
+def test_control_skills_preview_contract(tmp_path) -> None:
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = skills_root / "preview-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: preview-skill\n"
+        "description: Preview skill for contract test\n"
+        "---\n"
+        "# Preview\n",
+        encoding="utf-8",
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/control/skills.preview",
+        json={
+            "skills_dir": str(skills_root),
+            "max_discovered": 10,
+            "max_prompt_chars": 5000,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["schema"] == "skills.preview.v1"
+    snapshot = payload["snapshot"]
+    assert snapshot["discovered_count"] == 1
+    assert snapshot["eligible_count"] == 1
+    assert snapshot["selected_count"] == 1
+    assert snapshot["truncated"] is False
+    assert isinstance(snapshot["prompt"], str)
+    assert "preview-skill" in snapshot["prompt"]
+
+
+def test_control_skills_check_contract(tmp_path) -> None:
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True, exist_ok=True)
+
+    ok_skill = skills_root / "ok-skill"
+    ok_skill.mkdir(parents=True, exist_ok=True)
+    (ok_skill / "SKILL.md").write_text(
+        "---\n"
+        "name: ok-skill\n"
+        "description: Eligible skill\n"
+        "---\n"
+        "# OK\n",
+        encoding="utf-8",
+    )
+
+    bad_skill = skills_root / "bad-skill"
+    bad_skill.mkdir(parents=True, exist_ok=True)
+    (bad_skill / "SKILL.md").write_text(
+        "---\n"
+        "name: bad-skill\n"
+        "description: Ineligible skill\n"
+        "requires_env: NEVER_SET_ENV_ABC123\n"
+        "---\n"
+        "# BAD\n",
+        encoding="utf-8",
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/control/skills.check",
+        json={
+            "skills_dir": str(skills_root),
+            "max_discovered": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema"] == "skills.check.v1"
+    assert payload["discovered_count"] == 2
+    assert payload["eligible_count"] == 1
+    assert payload["ineligible_count"] == 1
+    assert "bad-skill" in payload["rejected"]
+    assert payload["rejected"]["bad-skill"].startswith("missing_env:")
+
+
+def test_control_skills_sync_dry_run_contract(tmp_path) -> None:
+    source_root = tmp_path / "skills-src"
+    source_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = source_root / "sync-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: sync-skill\n"
+        "description: Sync dry run\n"
+        "---\n"
+        "# Sync\n",
+        encoding="utf-8",
+    )
+
+    target_root = Path(settings.workspace_root) / f".tmp-skills-sync-{uuid.uuid4().hex[:8]}"
+    shutil.rmtree(target_root, ignore_errors=True)
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/control/skills.sync",
+            json={
+                "source_skills_dir": str(source_root),
+                "target_skills_dir": str(target_root),
+                "apply": False,
+                "max_discovered": 10,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert payload["schema"] == "skills.sync.v1"
+        assert payload["mode"] == "dry_run"
+        assert payload["planned_count"] == 1
+        assert payload["applied_count"] == 0
+        assert isinstance(payload["audit"], dict)
+        assert isinstance(payload["audit"]["duration_ms"], int)
+        assert payload["audit"]["duration_ms"] >= 0
+        assert payload["actions"][0]["skill_name"] == "sync-skill"
+        assert payload["actions"][0]["action"] in {"create", "update"}
+    finally:
+        shutil.rmtree(target_root, ignore_errors=True)
+
+
+def test_control_skills_sync_apply_contract(tmp_path) -> None:
+    source_root = tmp_path / "skills-src-apply"
+    source_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = source_root / "apply-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: apply-skill\n"
+        "description: Sync apply\n"
+        "---\n"
+        "# Apply\n",
+        encoding="utf-8",
+    )
+    (skill_dir / "notes.txt").write_text("hello", encoding="utf-8")
+
+    target_root = Path(settings.workspace_root) / f".tmp-skills-sync-apply-{uuid.uuid4().hex[:8]}"
+    shutil.rmtree(target_root, ignore_errors=True)
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/control/skills.sync",
+            json={
+                "source_skills_dir": str(source_root),
+                "target_skills_dir": str(target_root),
+                "apply": True,
+                "max_discovered": 10,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert payload["schema"] == "skills.sync.v1"
+        assert payload["mode"] == "apply"
+        assert payload["planned_count"] == 1
+        assert payload["applied_count"] == 1
+        assert isinstance(payload["audit"], dict)
+        assert isinstance(payload["audit"]["duration_ms"], int)
+        assert payload["audit"]["duration_ms"] >= 0
+
+        copied_skill_dir = target_root / "apply-skill"
+        assert copied_skill_dir.exists()
+        assert (copied_skill_dir / "SKILL.md").exists()
+        assert (copied_skill_dir / "notes.txt").exists()
+    finally:
+        shutil.rmtree(target_root, ignore_errors=True)
+
+
+def test_control_skills_sync_clean_target_dry_run_contract(tmp_path) -> None:
+    source_root = tmp_path / "skills-src-clean"
+    source_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = source_root / "keep-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: keep-skill\n"
+        "description: Keep and sync\n"
+        "---\n"
+        "# Keep\n",
+        encoding="utf-8",
+    )
+
+    target_root = Path(settings.workspace_root) / f".tmp-skills-sync-clean-{uuid.uuid4().hex[:8]}"
+    shutil.rmtree(target_root, ignore_errors=True)
+    stale_skill = target_root / "stale-skill"
+    stale_skill.mkdir(parents=True, exist_ok=True)
+    (stale_skill / "SKILL.md").write_text("# stale", encoding="utf-8")
+    non_skill_dir = target_root / "keep-this-dir"
+    non_skill_dir.mkdir(parents=True, exist_ok=True)
+    (non_skill_dir / "README.txt").write_text("not a skill", encoding="utf-8")
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/control/skills.sync",
+            json={
+                "source_skills_dir": str(source_root),
+                "target_skills_dir": str(target_root),
+                "apply": False,
+                "clean_target": True,
+                "max_discovered": 10,
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert payload["schema"] == "skills.sync.v1"
+        assert payload["clean_target"] is True
+        assert payload["planned_delete_count"] == 1
+        assert isinstance(payload["audit"], dict)
+        assert isinstance(payload["audit"]["duration_ms"], int)
+        assert payload["audit"]["duration_ms"] >= 0
+        delete_actions = [item for item in payload["actions"] if item["action"] == "delete"]
+        assert len(delete_actions) == 1
+        assert Path(delete_actions[0]["target_dir"]).name == "stale-skill"
+    finally:
+        shutil.rmtree(target_root, ignore_errors=True)
+
+
+def test_control_skills_sync_clean_target_apply_requires_confirmation(tmp_path) -> None:
+    source_root = tmp_path / "skills-src-clean-apply"
+    source_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = source_root / "apply-clean-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: apply-clean-skill\n"
+        "description: apply clean\n"
+        "---\n"
+        "# Apply clean\n",
+        encoding="utf-8",
+    )
+
+    target_root = Path(settings.workspace_root) / f".tmp-skills-sync-clean-apply-{uuid.uuid4().hex[:8]}"
+    shutil.rmtree(target_root, ignore_errors=True)
+    stale_skill = target_root / "obsolete-skill"
+    stale_skill.mkdir(parents=True, exist_ok=True)
+    (stale_skill / "SKILL.md").write_text("# obsolete", encoding="utf-8")
+
+    try:
+        client = TestClient(app)
+
+        rejected = client.post(
+            "/api/control/skills.sync",
+            json={
+                "source_skills_dir": str(source_root),
+                "target_skills_dir": str(target_root),
+                "apply": True,
+                "clean_target": True,
+            },
+        )
+        assert rejected.status_code == 400
+
+        accepted = client.post(
+            "/api/control/skills.sync",
+            json={
+                "source_skills_dir": str(source_root),
+                "target_skills_dir": str(target_root),
+                "apply": True,
+                "clean_target": True,
+                "confirm_clean_target": True,
+            },
+        )
+        assert accepted.status_code == 200
+        payload = accepted.json()
+
+        assert payload["schema"] == "skills.sync.v1"
+        assert payload["mode"] == "apply"
+        assert payload["applied_delete_count"] == 1
+        assert not stale_skill.exists()
+    finally:
+        shutil.rmtree(target_root, ignore_errors=True)
+
+
+def test_control_skills_sync_rejects_target_outside_workspace(tmp_path) -> None:
+    source_root = tmp_path / "skills-src-outside"
+    source_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = source_root / "outside-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: outside-skill\n"
+        "description: should fail on target guardrail\n"
+        "---\n"
+        "# Outside\n",
+        encoding="utf-8",
+    )
+
+    target_outside = tmp_path / "outside-target"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/control/skills.sync",
+        json={
+            "source_skills_dir": str(source_root),
+            "target_skills_dir": str(target_outside),
+            "apply": False,
+        },
+    )
     assert response.status_code == 400
 
 

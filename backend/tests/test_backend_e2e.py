@@ -7,10 +7,12 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.errors import GuardrailViolation
-from app.orchestrator.step_executors import PlannerStepExecutor
+from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor
 from app.runtime_manager import RuntimeState
+from app.skills.service import SkillsRuntimeConfig, SkillsService
 
 
 def _set_local_runtime() -> None:
@@ -290,8 +292,175 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
         and "currently blocked by the active tool policy" in str(evt.get("message", ""))
         for evt in events
     )
+
+
+def test_websocket_emits_skills_lifecycle_when_enabled(monkeypatch, tmp_path) -> None:
+    _set_local_runtime()
+
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = skills_root / "ws-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: ws-skill\n"
+        "description: websocket skills lifecycle test\n"
+        "---\n"
+        "# WS SKILL\n",
+        encoding="utf-8",
+    )
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_complete_chat(system_prompt, user_prompt, model=None):
+        return '{"actions":[]}'
+
+    async def fake_plan_execute(payload, model=None):
+        return "plan"
+
+    async def fake_synthesize_execute(payload, send_event, session_id, request_id, model=None):
+        return "done"
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
+    monkeypatch.setattr(settings, "skills_engine_enabled", True)
+    monkeypatch.setattr(settings, "skills_dir", str(skills_root))
+    monkeypatch.setattr(settings, "skills_max_discovered", 10)
+    monkeypatch.setattr(settings, "skills_max_prompt_chars", 5000)
+    monkeypatch.setattr(
+        delegate,
+        "skills_service",
+        SkillsService(
+            SkillsRuntimeConfig(
+                enabled=True,
+                skills_dir=str(skills_root),
+                max_discovered=10,
+                max_prompt_chars=5000,
+            )
+        ),
+    )
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "check skills lifecycle",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(30):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "skills_discovered"
+        and (evt.get("details") or {}).get("discovered") == 1
+        and (evt.get("details") or {}).get("eligible") == 1
+        for evt in events
+    )
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
 
+def test_websocket_skills_canary_gating_event(monkeypatch, tmp_path) -> None:
+    _set_local_runtime()
+
+    skills_root = tmp_path / "skills-canary"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    skill_dir = skills_root / "ws-canary-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: ws-canary-skill\n"
+        "description: websocket skills canary gating test\n"
+        "---\n"
+        "# WS CANARY SKILL\n",
+        encoding="utf-8",
+    )
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_complete_chat(system_prompt, user_prompt, model=None):
+        return '{"actions":[]}'
+
+    async def fake_plan_execute(payload, model=None):
+        return "plan"
+
+    async def fake_synthesize_execute(payload, send_event, session_id, request_id, model=None):
+        return "done"
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
+    monkeypatch.setattr(settings, "skills_engine_enabled", True)
+    monkeypatch.setattr(settings, "skills_canary_enabled", True)
+    monkeypatch.setattr(settings, "skills_canary_agent_ids", ["coder-agent"])
+    monkeypatch.setattr(settings, "skills_canary_model_profiles", ["*"])
+    monkeypatch.setattr(settings, "skills_dir", str(skills_root))
+    monkeypatch.setattr(settings, "skills_max_discovered", 10)
+    monkeypatch.setattr(settings, "skills_max_prompt_chars", 5000)
+    monkeypatch.setattr(
+        delegate,
+        "skills_service",
+        SkillsService(
+            SkillsRuntimeConfig(
+                enabled=True,
+                skills_dir=str(skills_root),
+                max_discovered=10,
+                max_prompt_chars=5000,
+            )
+        ),
+    )
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "check skills canary gating",
+                "agent_id": "head-agent",
+            }
+        )
+
+        events = []
+        for _ in range(30):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "skills_skipped_canary"
+        and (evt.get("details") or {}).get("agent") == "head-agent"
+        and (evt.get("details") or {}).get("agent_match") is False
+        for evt in events
+    )
+    assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "skills_discovered" for evt in events)
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
 
 def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
     _set_local_runtime()

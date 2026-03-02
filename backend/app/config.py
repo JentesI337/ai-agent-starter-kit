@@ -178,6 +178,24 @@ class Settings(BaseModel):
         workspace_root,
         "custom_agents",
     )
+    skills_dir: str = _resolve_path_from_workspace(
+        os.getenv("SKILLS_DIR"),
+        workspace_root,
+        "skills",
+    )
+    skills_engine_enabled: bool = _parse_bool_env("SKILLS_ENGINE_ENABLED", False)
+    skills_canary_enabled: bool = _parse_bool_env("SKILLS_CANARY_ENABLED", False)
+    skills_canary_agent_ids: list[str] = _parse_csv_env(
+        os.getenv("SKILLS_CANARY_AGENT_IDS", "head-agent"),
+        ["head-agent"],
+    )
+    skills_canary_model_profiles: list[str] = _parse_csv_env(
+        os.getenv("SKILLS_CANARY_MODEL_PROFILES", "*"),
+        ["*"],
+    )
+    skills_mandatory_selection: bool = _parse_bool_env("SKILLS_MANDATORY_SELECTION", False)
+    skills_max_discovered: int = int(os.getenv("SKILLS_MAX_DISCOVERED", "150"))
+    skills_max_prompt_chars: int = int(os.getenv("SKILLS_MAX_PROMPT_CHARS", "30000"))
     orchestrator_state_reset_on_startup: bool = _parse_bool_env(
         "ORCHESTRATOR_STATE_RESET_ON_STARTUP",
         _default_reset_on_startup(app_env),

@@ -25,6 +25,8 @@ from app.orchestrator.step_executors import (
     SynthesizeStepExecutor,
     ToolStepExecutor,
 )
+from app.skills.models import SkillSnapshot
+from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tools import AgentTooling
@@ -117,6 +119,14 @@ class HeadAgent:
         self.context_reducer = context_reducer or ContextReducer()
         self._spawn_subrun_handler = spawn_subrun_handler
         self._policy_approval_handler = policy_approval_handler
+        self.skills_service = SkillsService(
+            SkillsRuntimeConfig(
+                enabled=settings.skills_engine_enabled,
+                skills_dir=settings.skills_dir,
+                max_discovered=max(1, int(settings.skills_max_discovered)),
+                max_prompt_chars=max(1000, int(settings.skills_max_prompt_chars)),
+            )
+        )
         self.tool_registry = self._build_tool_registry()
         self._hooks: list[object] = []
         self._build_sub_agents()
@@ -136,6 +146,60 @@ class HeadAgent:
         self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
         self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
         self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
+
+    @staticmethod
+    def _matches_canary_rule(value: str, rules: list[str]) -> bool:
+        normalized_value = (value or "").strip().lower()
+        normalized_rules = [str(item).strip().lower() for item in (rules or []) if str(item).strip()]
+        if not normalized_rules:
+            return True
+        if "*" in normalized_rules:
+            return True
+        for rule in normalized_rules:
+            if rule.endswith("*") and normalized_value.startswith(rule[:-1]):
+                return True
+            if normalized_value == rule:
+                return True
+        return False
+
+    def _resolve_skills_enabled_for_request(self, *, model_id: str) -> tuple[bool, dict[str, object]]:
+        if not settings.skills_engine_enabled:
+            return False, {
+                "reason": "skills_engine_disabled",
+                "agent": self.role,
+                "model": model_id,
+            }
+
+        if not settings.skills_canary_enabled:
+            return True, {
+                "reason": "skills_enabled_global",
+                "agent": self.role,
+                "model": model_id,
+            }
+
+        agent_match = self._matches_canary_rule(self.role, settings.skills_canary_agent_ids)
+        model_match = self._matches_canary_rule(model_id, settings.skills_canary_model_profiles)
+        enabled = agent_match and model_match
+        return enabled, {
+            "reason": "skills_enabled_canary" if enabled else "skills_blocked_canary",
+            "agent": self.role,
+            "model": model_id,
+            "agent_match": agent_match,
+            "model_match": model_match,
+            "canary_agent_ids": settings.skills_canary_agent_ids,
+            "canary_model_profiles": settings.skills_canary_model_profiles,
+        }
+
+    @staticmethod
+    def _empty_skills_snapshot() -> SkillSnapshot:
+        return SkillSnapshot(
+            prompt="",
+            skills=(),
+            discovered_count=0,
+            eligible_count=0,
+            selected_count=0,
+            truncated=False,
+        )
 
     def _resolve_prompt_profile(self, role: str) -> PromptProfile:
         normalized_role = (role or "").strip().lower()
@@ -649,6 +713,48 @@ class HeadAgent:
             return ""
 
         intent_decision = self._detect_intent_gate(user_message)
+        model_id = model or self.client.model
+        skills_enabled, skills_gating_details = self._resolve_skills_enabled_for_request(model_id=model_id)
+        skills_snapshot = self.skills_service.build_snapshot() if skills_enabled else self._empty_skills_snapshot()
+
+        if settings.skills_engine_enabled and settings.skills_canary_enabled and not skills_enabled:
+            await self._emit_lifecycle(
+                send_event,
+                stage="skills_skipped_canary",
+                request_id=request_id,
+                session_id=session_id,
+                details=skills_gating_details,
+            )
+
+        if skills_enabled:
+            await self._emit_lifecycle(
+                send_event,
+                stage="skills_discovered",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "discovered": skills_snapshot.discovered_count,
+                    "eligible": skills_snapshot.eligible_count,
+                    "selected": skills_snapshot.selected_count,
+                    "truncated": skills_snapshot.truncated,
+                },
+            )
+            if skills_snapshot.truncated:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="skills_truncated",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "max_prompt_chars": settings.skills_max_prompt_chars,
+                        "selected": skills_snapshot.selected_count,
+                    },
+                )
+
+        effective_memory_context = memory_context
+        if skills_enabled and skills_snapshot.prompt.strip():
+            effective_memory_context = f"{memory_context}\n\n{skills_snapshot.prompt}"
+
         if intent_decision.intent == "execute_command" and "run_command" not in effective_allowed_tools:
             approved = await self._request_policy_override(
                 send_event=send_event,
@@ -725,7 +831,7 @@ class HeadAgent:
             payload={
                 "prompt_type": "tool_selection",
                 "model": model,
-                "context_chars": len(memory_context),
+                    "context_chars": len(effective_memory_context),
                 "allowed_tools": sorted(effective_allowed_tools),
             },
         )
@@ -749,7 +855,7 @@ class HeadAgent:
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
             f"Allowed tool names are exactly: {', '.join(sorted(effective_allowed_tools)) or 'none'}.\n\n"
             "Memory:\n"
-            f"{memory_context}\n\n"
+            f"{effective_memory_context}\n\n"
             "Task:\n"
             f"{user_message}\n\n"
             "Plan:\n"
