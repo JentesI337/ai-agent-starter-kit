@@ -7,7 +7,7 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
-from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
+from app.main import app, agent, agent_registry, runtime_manager, state_store, subrun_lane
 from app.runtime_manager import RuntimeState
 from backend.tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
 
@@ -323,3 +323,52 @@ def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
 
     assert steer_applied
     assert "done:second" in final_messages
+
+
+def test_ws_handler_queue_overflow_marks_run_failed(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    def fake_enqueue(self, session_id, run_id, message, meta=None):
+        _ = (self, session_id, run_id, message, meta)
+        raise OverflowError("session inbox overflow for test")
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr("app.ws_handler.SessionInboxService.enqueue", fake_enqueue, raising=True)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json({"type": "user_message", "content": "overflow", "agent_id": "head-agent"})
+
+        events = []
+        request_id = None
+        saw_failed_lifecycle = False
+        saw_error_event = False
+        for _ in range(30):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_received":
+                request_id = evt.get("request_id")
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed_queue_overflow":
+                saw_failed_lifecycle = True
+            if evt.get("type") == "error" and "queue overflow" in str(evt.get("message", "")).lower():
+                saw_error_event = True
+            if saw_failed_lifecycle and saw_error_event:
+                break
+
+    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "queue_overflow" for evt in events)
+    assert any(
+        evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed_queue_overflow"
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "error" and "queue overflow" in str(evt.get("message", "")).lower()
+        for evt in events
+    )
+    assert request_id
+    run_state = state_store.get_run(request_id)
+    assert isinstance(run_state, dict)
+    assert str(run_state.get("status") or "").lower() == "failed"

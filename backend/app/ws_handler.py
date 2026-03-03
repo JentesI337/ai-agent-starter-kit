@@ -637,6 +637,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             },
                         )
                     except OverflowError:
+                        deps.state_mark_failed_safe(run_id=request_id, error="session_queue_overflow")
                         await send_lifecycle(
                             stage="queue_overflow",
                             request_id=request_id,
@@ -644,6 +645,16 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             details={
                                 "queue_mode": queue_mode,
                                 "max_queue_length": deps.settings.session_inbox_max_queue_length,
+                            },
+                        )
+                        await send_lifecycle(
+                            stage="request_failed_queue_overflow",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "queue_mode": queue_mode,
+                                "max_queue_length": deps.settings.session_inbox_max_queue_length,
+                                "error": "session_queue_overflow",
                             },
                         )
                         await send_event(

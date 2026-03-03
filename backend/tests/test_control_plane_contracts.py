@@ -28,7 +28,16 @@ def test_control_run_start_and_wait_contract(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -74,7 +83,16 @@ def test_control_agent_run_and_wait_contract(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -119,7 +137,16 @@ def test_control_run_start_idempotency_reuses_same_run(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -162,7 +189,16 @@ def test_control_run_start_idempotency_rejects_changed_payload(monkeypatch) -> N
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -200,7 +236,16 @@ def test_control_sessions_list_minimal(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -249,7 +294,16 @@ def test_control_sessions_resolve_minimal(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -292,7 +346,16 @@ def test_control_sessions_history_minimal(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -338,7 +401,16 @@ def test_lifecycle_event_schema_v1_is_persisted(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -997,7 +1069,16 @@ def test_control_workflows_execute_contract(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1066,7 +1147,16 @@ def test_control_workflows_execute_idempotency_replay_and_conflict(monkeypatch) 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1506,7 +1596,16 @@ def test_lifecycle_emits_tool_policy_decision(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1563,7 +1662,16 @@ def test_lifecycle_emits_agent_depth_policy_applied(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1617,7 +1725,16 @@ def test_control_runs_get_returns_run_summary(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1710,7 +1827,16 @@ def test_control_runs_list_returns_items(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1755,7 +1881,16 @@ def test_control_runs_list_filters_by_session(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1804,7 +1939,16 @@ def test_control_runs_events_returns_items(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1861,7 +2005,16 @@ def test_control_runs_audit_returns_telemetry(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1910,7 +2063,16 @@ def test_control_runs_audit_includes_blocked_with_reason_details(monkeypatch) ->
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "lifecycle",
@@ -1970,7 +2132,16 @@ def test_control_runs_audit_guardrail_summary_from_tool_audit_event(monkeypatch)
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "lifecycle",
@@ -2050,7 +2221,16 @@ def test_control_sessions_send_contract(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2093,7 +2273,16 @@ def test_control_sessions_send_idempotency_replay_and_conflict(monkeypatch) -> N
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2141,7 +2330,16 @@ def test_control_sessions_spawn_contract(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2190,7 +2388,16 @@ def test_control_sessions_spawn_idempotency_replay_and_conflict(monkeypatch) -> 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2239,7 +2446,16 @@ def test_control_sessions_status_returns_session_state(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2295,7 +2511,16 @@ def test_control_sessions_get_returns_session_state(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2350,7 +2575,16 @@ def test_control_sessions_patch_updates_latest_run_meta(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2401,7 +2635,16 @@ def test_control_sessions_patch_idempotency_replay_and_conflict(monkeypatch) -> 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2463,7 +2706,16 @@ def test_control_sessions_reset_clears_latest_run_meta(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -2519,7 +2771,16 @@ def test_control_sessions_reset_idempotency_replay_and_conflict(monkeypatch) -> 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",

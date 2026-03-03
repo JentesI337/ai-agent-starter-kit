@@ -686,6 +686,7 @@ async def api_control_run_start(request_data: dict, idempotency_key_header: str 
         session_id=request.session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
         prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
