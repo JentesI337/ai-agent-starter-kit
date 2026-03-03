@@ -64,6 +64,53 @@ class SessionInboxService:
                 self._queues.pop(normalized_session, None)
             return item
 
+    def dequeue_prioritized(
+        self,
+        session_id: str,
+        *,
+        force_follow_up: bool = False,
+    ) -> tuple[InboxMessage | None, bool]:
+        normalized_session = (session_id or "").strip()
+        if not normalized_session:
+            return None, False
+        with self._lock:
+            queue = self._queues.get(normalized_session)
+            if not queue:
+                return None, False
+            self._purge_expired_locked(queue)
+            if not queue:
+                self._queues.pop(normalized_session, None)
+                return None, False
+
+            deferred_follow_up = False
+            selected_index = 0
+            if force_follow_up:
+                follow_up_index = next(
+                    (
+                        idx
+                        for idx, item in enumerate(queue)
+                        if str(item.meta.get("queue_mode") or "wait") == "follow_up"
+                    ),
+                    None,
+                )
+                selected_index = follow_up_index if follow_up_index is not None else 0
+            else:
+                for idx, item in enumerate(queue):
+                    mode = str(item.meta.get("queue_mode") or "wait")
+                    if mode == "follow_up":
+                        deferred_follow_up = True
+                        continue
+                    selected_index = idx
+                    break
+                else:
+                    selected_index = 0
+
+            item = queue[selected_index]
+            del queue[selected_index]
+            if not queue:
+                self._queues.pop(normalized_session, None)
+            return item, deferred_follow_up and str(item.meta.get("queue_mode") or "wait") != "follow_up"
+
     def peek_newer_than(self, session_id: str, run_id: str) -> list[InboxMessage]:
         normalized_session = (session_id or "").strip()
         if not normalized_session:

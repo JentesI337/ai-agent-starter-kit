@@ -132,3 +132,6 @@ def test_api_control_config_health_includes_schema_and_risks() -> None:
     assert "strict_unknown_keys_enabled" in payload
     assert "unknown_key_count" in payload
     assert isinstance(payload["invalid_or_unknown"], list)
+    assert "isolation_allowlist_wildcard" in payload["risk_flags"]
+    assert "isolation_allowlist_excessive" in payload["risk_flags"]
+    assert "isolation_allowlist_pair_count" in payload["risk_flags"]

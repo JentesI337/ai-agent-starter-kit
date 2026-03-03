@@ -1,0 +1,50 @@
+{
+  "schema": "eval.golden-suite.v1",
+  "description": "Golden eval suite for backend release gates (30 representative flows)",
+  "thresholds": {
+    "overall_success_rate_min": 1.0,
+    "replan_success_rate_min": 1.0,
+    "tool_loop_success_rate_min": 1.0,
+    "invalid_final_rate_max": 0.0
+  },
+  "tests": {
+    "success": [
+      "backend/tests/test_backend_e2e.py::test_runtime_status_endpoint_includes_api_model_health_fields",
+      "backend/tests/test_backend_e2e.py::test_resolved_prompt_debug_endpoint_returns_prompt_map",
+      "backend/tests/test_backend_e2e.py::test_rest_ping_endpoint_without_agent",
+      "backend/tests/test_backend_e2e.py::test_monitoring_schema_endpoint_exposes_agents_and_lifecycle",
+      "backend/tests/test_backend_e2e.py::test_websocket_connect_emits_status_event",
+      "backend/tests/test_backend_e2e.py::test_websocket_user_message_emits_final_and_request_completed",
+      "backend/tests/test_backend_e2e.py::test_websocket_command_intent_policy_block_emits_tool_selection_empty",
+      "backend/tests/test_backend_e2e.py::test_websocket_head_agent_routes_coding_intent_to_coder",
+      "backend/tests/test_backend_e2e.py::test_presets_endpoint_lists_research_and_review",
+      "backend/tests/test_ws_handler.py::test_ws_handler_routes_coding_intent_to_coder_agent",
+      "backend/tests/test_ws_handler.py::test_ws_handler_disconnect_is_graceful_and_reconnects",
+      "backend/tests/test_ws_handler.py::test_ws_handler_unsupported_type_emits_rejection_lifecycle",
+      "backend/tests/test_ws_handler.py::test_ws_handler_user_messages_are_queued_and_processed_in_order",
+      "backend/tests/test_ws_handler.py::test_ws_handler_follow_up_is_deferred_behind_wait",
+      "backend/tests/test_ws_handler.py::test_ws_handler_applies_directive_overrides_and_strips_prefix",
+      "backend/tests/test_ws_handler.py::test_ws_handler_subrun_spawn_uses_directive_clean_content_and_model_override",
+      "backend/tests/test_tool_selection_offline_eval.py::test_offline_tool_call_accuracy_curated_set",
+      "backend/tests/test_tool_selection_offline_eval.py::test_effective_tool_policy_combines_global_and_per_run"
+    ],
+    "replan": [
+      "backend/tests/test_backend_e2e.py::test_websocket_tool_selection_empty_triggers_single_replan_then_completes",
+      "backend/tests/test_head_agent_replan_policy.py::test_resolve_replan_reason_uses_regular_budget_first",
+      "backend/tests/test_head_agent_replan_policy.py::test_resolve_replan_reason_allows_single_empty_fallback_after_regular_budget",
+      "backend/tests/test_head_agent_replan_policy.py::test_resolve_replan_reason_uses_bounded_error_only_budget"
+    ],
+    "tool_loop": [
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_loop_detector_warns_and_blocks",
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_loop_detector_poll_no_progress_ignores_different_tool_signatures",
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_loop_detector_poll_no_progress_blocks_same_signature",
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_ping_pong_requires_no_progress_evidence",
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_ping_pong_blocks_with_no_progress_evidence",
+      "backend/tests/test_tool_selection_offline_eval.py::test_execute_tools_ping_pong_warns_before_critical"
+    ],
+    "invalid_final": [
+      "backend/tests/test_verification_service.py::test_verification_service_plan_and_tool_and_final",
+      "backend/tests/test_verification_service.py::test_verification_service_flags_empty_outputs"
+    ]
+  }
+}

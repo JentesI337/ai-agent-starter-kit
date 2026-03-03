@@ -250,6 +250,7 @@ class Settings(BaseModel):
     prompt_mode_default: str = os.getenv("PROMPT_MODE_DEFAULT", "full").strip().lower()
     session_inbox_max_queue_length: int = int(os.getenv("SESSION_INBOX_MAX_QUEUE_LENGTH", "100"))
     session_inbox_ttl_seconds: int = int(os.getenv("SESSION_INBOX_TTL_SECONDS", "600"))
+    session_follow_up_max_deferrals: int = int(os.getenv("SESSION_FOLLOW_UP_MAX_DEFERRALS", "2"))
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
     web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
     web_fetch_blocked_content_types: list[str] = _parse_csv_env(
@@ -681,7 +682,71 @@ def validate_environment_config(
     scoped_keys = sorted(key for key in env_map.keys() if _is_scoped_config_env_key(str(key)))
     unknown_keys = sorted(key for key in scoped_keys if str(key).upper() not in known_keys)
 
-    if not unknown_keys:
+    def _require_int_range(field: str, *, minimum: int, maximum: int) -> str | None:
+        raw_value = getattr(selected_settings, field, None)
+        if not isinstance(raw_value, int):
+            return f"{field} must be int"
+        if raw_value < minimum or raw_value > maximum:
+            return f"{field} out of range [{minimum}, {maximum}]"
+        return None
+
+    def _require_float_range(field: str, *, minimum: float, maximum: float) -> str | None:
+        raw_value = getattr(selected_settings, field, None)
+        if not isinstance(raw_value, (float, int)):
+            return f"{field} must be float"
+        normalized = float(raw_value)
+        if normalized < minimum or normalized > maximum:
+            return f"{field} out of range [{minimum}, {maximum}]"
+        return None
+
+    config_errors: list[str] = []
+    config_warnings: list[str] = []
+
+    for maybe_error in (
+        _require_int_range("command_timeout_seconds", minimum=1, maximum=3600),
+        _require_int_range("session_inbox_max_queue_length", minimum=1, maximum=5000),
+        _require_int_range("session_inbox_ttl_seconds", minimum=1, maximum=86400),
+        _require_int_range("session_follow_up_max_deferrals", minimum=1, maximum=100),
+        _require_int_range("run_tool_call_cap", minimum=1, maximum=256),
+        _require_float_range("run_tool_time_cap_seconds", minimum=1.0, maximum=3600.0),
+        _require_int_range("tool_loop_warn_threshold", minimum=1, maximum=200),
+        _require_int_range("tool_loop_critical_threshold", minimum=2, maximum=400),
+        _require_int_range("tool_loop_circuit_breaker_threshold", minimum=3, maximum=800),
+        _require_int_range("max_user_message_length", minimum=1, maximum=200000),
+    ):
+        if maybe_error:
+            config_errors.append(maybe_error)
+
+    if int(getattr(selected_settings, "tool_loop_critical_threshold", 0)) <= int(
+        getattr(selected_settings, "tool_loop_warn_threshold", 0)
+    ):
+        config_errors.append("tool_loop_critical_threshold must be greater than tool_loop_warn_threshold")
+    if int(getattr(selected_settings, "tool_loop_circuit_breaker_threshold", 0)) <= int(
+        getattr(selected_settings, "tool_loop_critical_threshold", 0)
+    ):
+        config_errors.append("tool_loop_circuit_breaker_threshold must be greater than tool_loop_critical_threshold")
+
+    queue_mode_default = str(getattr(selected_settings, "queue_mode_default", "wait") or "wait").strip().lower()
+    if queue_mode_default not in {"wait", "follow_up", "steer"}:
+        config_errors.append("queue_mode_default must be one of: wait, follow_up, steer")
+
+    prompt_mode_default = str(getattr(selected_settings, "prompt_mode_default", "full") or "full").strip().lower()
+    if prompt_mode_default not in {"full", "minimal", "subagent"}:
+        config_errors.append("prompt_mode_default must be one of: full, minimal, subagent")
+
+    hook_failure_policy_default = str(
+        getattr(selected_settings, "hook_failure_policy_default", "soft_fail") or "soft_fail"
+    ).strip().lower()
+    if hook_failure_policy_default not in {"soft_fail", "hard_fail", "skip"}:
+        config_errors.append("hook_failure_policy_default must be one of: soft_fail, hard_fail, skip")
+
+    prompt_compaction_ratio = float(getattr(selected_settings, "pipeline_runner_prompt_compaction_ratio", 0.7) or 0.7)
+    if prompt_compaction_ratio <= 0.0 or prompt_compaction_ratio >= 1.0:
+        config_errors.append("pipeline_runner_prompt_compaction_ratio must be > 0 and < 1")
+
+    if config_errors:
+        status = "error"
+    elif not unknown_keys:
         status = "ok"
     elif strict_mode:
         status = "error"
@@ -690,6 +755,8 @@ def validate_environment_config(
 
     warnings: list[str] = []
     errors: list[str] = []
+    warnings.extend(config_warnings)
+    errors.extend(config_errors)
     if unknown_keys and strict_mode:
         errors.append("Unknown config keys detected in strict mode.")
     elif unknown_keys:
@@ -699,7 +766,7 @@ def validate_environment_config(
         "schema_version": "config.v1",
         "strict_mode": strict_mode,
         "validation_status": status,
-        "is_valid": not (strict_mode and bool(unknown_keys)),
+        "is_valid": len(errors) == 0,
         "unknown_keys": unknown_keys,
         "warnings": warnings,
         "errors": errors,

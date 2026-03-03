@@ -50,6 +50,34 @@ Direct run from `backend`:
 ./.venv/Scripts/python.exe scripts/check_coverage_thresholds.py --coverage-json coverage.json --global-min 70 --use-default-thresholds
 ```
 
+Eval-Gates (Golden-Suite + KPI-Schwellen):
+
+```powershell
+./.venv/Scripts/python.exe scripts/run_eval_gates.py
+```
+
+Manifest (versioniert):
+- `backend/monitoring/eval_golden_suite.json`
+- enthält aktuell `30` repräsentative Flows über `success|replan|tool_loop|invalid_final`
+
+Optional explizit mit Suite-Pfad:
+
+```powershell
+./.venv/Scripts/python.exe scripts/run_eval_gates.py --suite-path backend/monitoring/eval_golden_suite.json
+```
+
+Default-Gates:
+- `overall_success_rate >= 1.0`
+- `replan_success_rate >= 1.0`
+- `tool_loop_success_rate >= 1.0`
+- `invalid_final_rate <= 0.0`
+
+Override über Umgebungsvariablen:
+- `EVAL_GATE_OVERALL_SUCCESS_RATE_MIN`
+- `EVAL_GATE_REPLAN_SUCCESS_RATE_MIN`
+- `EVAL_GATE_TOOL_LOOP_SUCCESS_RATE_MIN`
+- `EVAL_GATE_INVALID_FINAL_RATE_MAX`
+
 WebSocket test stability:
 - Use `receive_json_with_timeout` from `backend/tests/async_test_guards.py` in websocket tests.
 - Avoid direct `ws.receive_json()` calls in loops, because lifecycle/event volume can change and block indefinitely.

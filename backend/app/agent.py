@@ -38,6 +38,7 @@ from app.services.intent_detector import IntentDetector
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
+from app.services.verification_service import VerificationService
 from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
@@ -170,6 +171,7 @@ class HeadAgent:
         self._action_parser = ActionParser()
         self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
         self._reply_shaper = ReplyShaper()
+        self._verification = VerificationService()
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
@@ -457,6 +459,18 @@ class HeadAgent:
                 session_id=session_id,
                 details={"plan_chars": len(plan_text), "iteration": 0},
             )
+            plan_verification = self._verification.verify_plan(user_message=user_message, plan_text=plan_text)
+            await self._emit_lifecycle(
+                send_event,
+                stage="verification_plan",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "status": plan_verification.status,
+                    "reason": plan_verification.reason,
+                    **plan_verification.details,
+                },
+            )
             self.memory.add(session_id, "plan", plan_text)
             await send_event(
                 {
@@ -619,10 +633,37 @@ class HeadAgent:
                     "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
                 },
             )
+            tool_result_verification = self._verification.verify_tool_result(
+                plan_text=plan_text,
+                tool_results=tool_results,
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="verification_tool_result",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "status": tool_result_verification.status,
+                    "reason": tool_result_verification.reason,
+                    **tool_result_verification.details,
+                },
+            )
 
             blocked_payload = self._parse_blocked_tool_result(tool_results)
             if blocked_payload is not None:
                 final_text = blocked_payload.get("message") or "I need one required detail before I can continue."
+                final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="verification_final",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "status": final_verification.status,
+                        "reason": final_verification.reason,
+                        **final_verification.details,
+                    },
+                )
                 await send_event(
                     {
                         "type": "final",
@@ -647,6 +688,21 @@ class HeadAgent:
 
             if self._is_steer_interrupted(tool_results):
                 interrupted_message = "Run interrupted due to newer input (steer). Processing latest message now."
+                final_verification = self._verification.verify_final(
+                    user_message=user_message,
+                    final_text=interrupted_message,
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="verification_final",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "status": final_verification.status,
+                        "reason": final_verification.reason,
+                        **final_verification.details,
+                    },
+                )
                 await send_event(
                     {
                         "type": "status",
@@ -704,6 +760,18 @@ class HeadAgent:
                     details={"error_count": len(web_errors)},
                 )
                 final_text = self._build_web_fetch_unavailable_reply(web_errors)
+                final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="verification_final",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "status": final_verification.status,
+                        "reason": final_verification.reason,
+                        **final_verification.details,
+                    },
+                )
                 await send_event(
                     {
                         "type": "final",
@@ -819,6 +887,20 @@ class HeadAgent:
                     },
                 )
             final_text = shape_result.text
+            final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
+            await self._emit_lifecycle(
+                send_event,
+                stage="verification_final",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "status": final_verification.status,
+                    "reason": final_verification.reason,
+                    **final_verification.details,
+                },
+            )
+            if not final_verification.ok:
+                final_text = "No output generated."
 
             if shape_result.suppressed:
                 await self._emit_lifecycle(

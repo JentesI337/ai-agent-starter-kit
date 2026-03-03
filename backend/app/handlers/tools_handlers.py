@@ -519,10 +519,17 @@ def api_control_config_health(request_data: dict) -> dict:
         if env_key in os.environ:
             active_overrides[key] = env_key
 
+    isolation_pairs = list(getattr(settings, "agent_isolation_allowed_scope_pairs", []) or [])
+    wildcard_pair_present = any("*" in str(item) for item in isolation_pairs)
+    excessive_pair_count = len(isolation_pairs) > 20
+
     risk_flags = {
         "run_state_violation_hard_fail_enabled": bool(getattr(settings, "run_state_violation_hard_fail_enabled", False)),
         "skills_engine_enabled": bool(getattr(settings, "skills_engine_enabled", False)),
         "queue_mode_default": str(getattr(settings, "queue_mode_default", "wait")),
+        "isolation_allowlist_wildcard": wildcard_pair_present,
+        "isolation_allowlist_excessive": excessive_pair_count,
+        "isolation_allowlist_pair_count": len(isolation_pairs),
     }
 
     payload = {

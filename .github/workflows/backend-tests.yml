@@ -44,3 +44,7 @@ jobs:
             --coverage-json backend/coverage.json \
             --global-min 70 \
             --use-default-thresholds
+
+      - name: Run backend eval gates
+        run: |
+          python backend/scripts/run_eval_gates.py

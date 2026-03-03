@@ -250,6 +250,50 @@ def test_ws_handler_user_messages_are_queued_and_processed_in_order(monkeypatch)
     assert finals == ["done:first", "done:second"]
 
 
+def test_ws_handler_follow_up_is_deferred_behind_wait(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
+        if user_message == "first-wait":
+            await asyncio.sleep(0.05)
+        await send_event({"type": "final", "agent": "head-agent", "message": f"done:{user_message}"})
+        return f"done:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_run)
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_run)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(receive_json_with_timeout(ws))
+        ws.send_json({"type": "user_message", "content": "first-wait", "agent_id": "head-agent", "queue_mode": "wait"})
+        ws.send_json({"type": "user_message", "content": "second-follow", "agent_id": "head-agent", "queue_mode": "follow_up"})
+        ws.send_json({"type": "user_message", "content": "third-wait", "agent_id": "head-agent", "queue_mode": "wait"})
+
+        finals = []
+        for _ in range(90):
+            evt = _unwrap_event(receive_json_with_timeout(ws))
+            if evt.get("type") == "final":
+                finals.append(evt.get("message"))
+                if len(finals) == 3:
+                    break
+
+    assert finals == ["done:first-wait", "done:third-wait", "done:second-follow"]
+
+
 def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
     _set_local_runtime()
 

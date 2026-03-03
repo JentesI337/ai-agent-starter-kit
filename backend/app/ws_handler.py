@@ -106,6 +106,7 @@ class SettingsLike(Protocol):
     prompt_mode_default: str
     session_inbox_max_queue_length: int
     session_inbox_ttl_seconds: int
+    session_follow_up_max_deferrals: int
 
 
 @dataclass
@@ -142,6 +143,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         ttl_seconds=deps.settings.session_inbox_ttl_seconds,
     )
     session_workers: dict[str, Any] = {}
+    follow_up_deferrals: dict[str, int] = {}
     deps.logger.info(
         "ws_connected session_id=%s runtime=%s model=%s",
         connection_session_id,
@@ -462,12 +464,43 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         current_task = asyncio.current_task()
         try:
             while True:
-                dequeued = session_inbox.dequeue(session_id)
+                max_follow_up_deferrals = max(1, int(getattr(deps.settings, "session_follow_up_max_deferrals", 2)))
+                current_deferrals = int(follow_up_deferrals.get(session_id, 0))
+                dequeued, deferred_follow_up = session_inbox.dequeue_prioritized(
+                    session_id,
+                    force_follow_up=current_deferrals >= max_follow_up_deferrals,
+                )
                 if dequeued is None:
                     return
                 request_id = str(dequeued.meta.get("request_id") or dequeued.run_id or "")
                 queue_mode = str(dequeued.meta.get("queue_mode") or deps.settings.queue_mode_default)
                 prompt_mode = str(dequeued.meta.get("prompt_mode") or deps.settings.prompt_mode_default)
+                if deferred_follow_up:
+                    current_deferrals += 1
+                    follow_up_deferrals[session_id] = current_deferrals
+                    await send_lifecycle(
+                        stage="follow_up_deferred",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "deferred_count": current_deferrals,
+                            "max_deferrals": max_follow_up_deferrals,
+                            "queue_size": session_inbox.size(session_id),
+                        },
+                    )
+                elif queue_mode == "follow_up":
+                    follow_up_deferrals[session_id] = 0
+                    await send_lifecycle(
+                        stage="follow_up_scheduled",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "deferred_count": current_deferrals,
+                            "queue_size": session_inbox.size(session_id),
+                        },
+                    )
+                else:
+                    follow_up_deferrals[session_id] = 0
                 await send_lifecycle(
                     stage="run_dequeued",
                     request_id=request_id,
@@ -486,6 +519,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             worker = session_workers.get(session_id)
             if worker is current_task:
                 session_workers.pop(session_id, None)
+            follow_up_deferrals.pop(session_id, None)
 
     def ensure_session_worker(session_id: str) -> None:
         existing = session_workers.get(session_id)

@@ -10,10 +10,16 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 - ✅ Run-State/Stage-Instrumentierung aktiv inkl. optionaler Hard-Fail-Policy bei State-Violation.
 - ✅ Phase-2-Kern umgesetzt: `PromptKernelBuilder` V1, `prompt_mode` (`full|minimal|subagent`), Context-Cost-APIs (`context.list`, `context.detail`) inkl. segmentierter Metrikpräzisierung.
 - ✅ Phase-3-Kern umgesetzt: Typed Tool Schemas aus `ToolRegistry` im Function-Calling-Pfad verdrahtet.
+- ✅ Phase-4-Kern umgesetzt: Hook-Contract/Safety V2 (`hook_contract_version`, `timeout_ms`, `failure_policy`) inkl. Hookpoints `before_model_resolve`, `before_prompt_build`, `before_tool_call`, `after_tool_call`, `tool_result_persist`, `before_transcript_append`.
+- ✅ Phase-5-Kern umgesetzt: Multi-Agent-Isolation als Default-Contract (deny-by-default, scope pair allowlist, Delegation-/Handover-Sanitization).
 - ✅ Phase-6-Kern umgesetzt: Directive Layer OOB (`/queue`, `/model`, `/reasoning`, `/verbose`) + `reasoning_visibility` End-to-End verdrahtet.
 - ✅ Phase-7-Kern umgesetzt: strict unknown-key fail-fast + `config.health`-Validierungsstatus (`validation_status`, `strict_unknown_keys_enabled`, `unknown_key_count`, `invalid_or_unknown`).
 - ✅ Hardening abgeschlossen: Background-Run-Fehlerpfad/Cleanup bei Directive-Fehlern abgesichert; WS-Non-User-Pfade verwenden konsistent bereinigten Content/Model-Override.
-- 🔜 Nächste priorisierte Kernpunkte: Hook-Contract/Safety V2 (Phase 4) und Multi-Agent-Isolation als Default-Contract (Phase 5).
+- ✅ Verifikation auf aktuellem Stand: Fokuslauf (`hooks|isolation|subrun|ws_handler|config_validation`) grün; Full-Regression Backend: `514 passed, 3 skipped`.
+- ✅ Verifier-Layer V1 umgesetzt: `verification_plan`, `verification_tool_result`, `verification_final` sind im Agent-Lifecycle verdrahtet.
+- ✅ Queue-Semantik-Härtung ergänzt: `follow_up` wird gegenüber `wait` priorisiert/deferiert mit starvation-sicherer Fairness + Lifecycle-Events.
+- ✅ Config-Härtung 7.1+ erweitert: zusätzliche Range-/Typ-Regeln für kritische Felder + Isolation-Allowlist-Risk-Flags in `config.health`.
+- ✅ Eval-Gates umgesetzt: Golden-Suite + KPI-Schwellen via `backend/scripts/run_eval_gates.py`, in CI verdrahtet.
 
 ---
 
@@ -28,16 +34,16 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 | 3 | Skills als Lazy-Loading | 8.0/10 |
 | 4 | Typed Tools + Action-Space Shaping | 8.0/10 |
 | 5 | Loop Guardrails | 8.5/10 |
-| 6 | Hooks/Interceptors | 6.5/10 |
-| 7 | Multi-Agent Arbeitsteilung | 6.5/10 |
+| 6 | Hooks/Interceptors | 8.5/10 |
+| 7 | Multi-Agent Arbeitsteilung | 8.0/10 |
 | 8 | Operator Controls (/queue,/think,...) | 8.0/10 |
 | 9 | Predictability by Schema | 7.8/10 |
 
-**Gesamt:** 8.1/10
+**Gesamt:** 8.4/10
 
 ### Top-3 Hebel für sofortigen Impact
-1. **Hook-Contract + Safety-Policy V2** (versioniert, Timeout-/Failure-Vertrag je Hookpoint).  
-2. **Multi-Agent-Isolation** (Workspace-/Skills-/Credential-Scope als harter Default-Contract).  
+1. **Verifier-Layer nach Plan/Tool/Final** (prüfbare Zwischenzustände statt nur Prompt-Qualität).  
+2. **Eval-Gates als CI-Release-Kriterium** (Golden-Tasks + harte KPI-Schwellen gegen Regressionen).  
 3. **Config-Härtung Phase 7.1+** (zusätzliche Typ-/Bereichsvalidierung kritischer Felder über Unknown-Keys hinaus).
 
 ---
@@ -192,6 +198,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## Phase 1 – Deterministische Steuerung (2–3 Wochen)
 
+**Status (03.03.2026):** ✅ P1.1/P1.2/P1.3 umgesetzt und verifiziert (Inbox + WS-Entkopplung + Steer-Checkpoint inkl. Lifecycle-Events und Fairness bei `follow_up`).
+
 ### Epic P1.1: Session Inbox + Queue-Modi
 **Outcome:** Kein blindes Weiterlaufen mehr bei neuen User-Inputs.
 
@@ -242,6 +250,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## Phase 2 – Context Engineering auf Produktionsniveau (2 Wochen)
 
+**Status (03.03.2026):** ✅ P2.1/P2.2/P2.3 umgesetzt und verifiziert (`prompt-kernel.v1.1`, `prompt_mode`, event-first Kontextmetriken in `context.list/detail`).
+
 ### Epic P2.1: Prompt Kernel Builder
 **Outcome:** Reproduzierbare Prompt-Komposition.
 
@@ -289,6 +299,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## Phase 3 – Tooling-Qualität und Action-Space-Shaping (2–3 Wochen)
 
+**Status (03.03.2026):** ✅ Kern umgesetzt (typed Tool-Schemas produktiv, provider-kompatible Function-Calling-Verdrahtung aktiv); 🔄 Feintuning über parse/repair-KPIs bleibt laufend.
+
 ### Epic P3.1: Typed Function Schemas aus ToolRegistry
 **Outcome:** Modell bekommt präzise Tool-Argumente statt generischer Objekte.
 
@@ -332,6 +344,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ---
 
 ## Phase 4 – Hook Middleware V2 + Persist-Transform (2 Wochen)
+
+**Status (03.03.2026):** ✅ P4.1/P4.2 umgesetzt und verifiziert (`test_hooks_contract_v2` + Fokusläufe grün). 🔜 P4.3 bleibt als gezielte Persist-Transform-Härtung offen.
 
 ### Epic P4.1: Hook-Vertragsmodell erweitern
 **Outcome:** Saubere Middleware statt Ad-hoc-Eingriffe.
@@ -377,6 +391,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ---
 
 ## Phase 5 – Multi-Agent-Isolation und Delegation (2 Wochen)
+
+**Status (03.03.2026):** ✅ Kern umgesetzt und verifiziert (`test_multi_agent_isolation`, `test_subrun_visibility_scope`, erweiterte Delegations-Sanitization). 
 
 ### Epic P5.1: Hartere Isolierung je Agent
 **Outcome:** Weniger Kontext-/Credential-Kollisionen.
@@ -470,28 +486,28 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ## 4) Ticket-Backlog (konkret, direkt sprintfähig)
 
 ## Sprint A (Steuerungskern)
-- A1: `SessionInboxService` + unit tests
-- A2: RequestContext um `queue_mode` erweitern
-- A3: WS receive/executor entkoppeln
-- A4: Steer-Check in Tool-Loop + Lifecycle Events
-- A5: Queue Overflow Handling + TTL
+- A1: `SessionInboxService` + unit tests ✅
+- A2: RequestContext um `queue_mode` erweitern ✅
+- A3: WS receive/executor entkoppeln ✅
+- A4: Steer-Check in Tool-Loop + Lifecycle Events ✅
+- A5: Queue Overflow Handling + TTL ✅
 
 ## Sprint B (Prompt & Kontext)
-- B1: PromptKernelBuilder V1
-- B2: PromptMode full/minimal/subagent
-- B3: Context APIs list/detail
-- B4: Token Segment Estimator + Overhead Ranking
+- B1: PromptKernelBuilder V1 ✅
+- B2: PromptMode full/minimal/subagent ✅
+- B3: Context APIs list/detail ✅
+- B4: Token Segment Estimator + Overhead Ranking ✅
 
 ## Sprint C (Tool Schemas)
-- C1: ToolSpec Schema-Felder ergänzen
-- C2: Function-Calling payload aus ToolRegistry erzeugen
-- C3: Provider-normalized tool schema adapter
-- C4: Regression tests parse_repair_rate
+- C1: ToolSpec Schema-Felder ergänzen ✅
+- C2: Function-Calling payload aus ToolRegistry erzeugen ✅
+- C3: Provider-normalized tool schema adapter ✅
+- C4: Regression tests parse_repair_rate 🔄 fortlaufend
 
 ## Sprint D (Hooks + Persist)
-- D1: Hook Contract V2
-- D2: Hook timeout/error isolation
-- D3: tool_result_persist transform chain
+- D1: Hook Contract V2 ✅
+- D2: Hook timeout/error isolation ✅
+- D3: tool_result_persist transform chain (gezielte Resthärtung offen)
 - D4: Audit Erweiterung für hook timings
 
 ## Sprint E (Operator + Config)
@@ -560,7 +576,10 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 	Gegenmaßnahme: Compat-Mode + schrittweise Härtung.
 
 - **Hooks verursachen Latenzspitzen**  
-	Gegenmaßnahme: harte Hook-Timeouts + parallel-safe execution policy.
+	Gegenmaßnahme: harte Hook-Timeouts + für blockierende sync-Hooks optionaler Executor-Watchdog.
+
+- **Isolation-Allowlist zu breit konfiguriert**  
+	Gegenmaßnahme: `config.health` um Isolation-Risk-Flags erweitern (z. B. zu viele/wilde Freigaben).
 
 - **Operator-Directives missverständlich**  
 	Gegenmaßnahme: klare Fehlermeldungen + Hilfe-Endpoint.
@@ -598,13 +617,13 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## 10) Sofort startbare nächste 72h (konkrete Reihenfolge)
 
-1. Hook-Contract V2 für `before_model_resolve|before_prompt_build|before_tool_call|after_tool_call|tool_result_persist|before_transcript_append` spezifizieren und versionieren.  
-2. Per-Hook Safety-Policy implementieren (`timeout_ms`, `failure_policy`, optionaler Hard-Fail-Modus) inkl. Events.  
-3. Multi-Agent-Isolation Default-Contract einführen (`workspace_root`, `skills_dir`, credential-scope je Agent).  
-4. Delegation/Handover auf isolierte Scopes härten und Ping-Pong-Grenzen verifizieren.  
-5. Config-Härtung Phase 7.1+ ergänzen: Range-/Typ-Validierung für kritische Felder (`timeouts`, `thresholds`, `list sizes`).  
-6. Fokus-Verifikation: `pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1`  
-7. Dokumentation/Audit-Vertrag aktualisieren (neue Hook-Policies, Isolation-Events, Failure-Policies).
+1. Verifier-Layer V1 in den Kernpfaden (`plan -> tool -> final`) umsetzen und `verification_*` Lifecycle-Events ergänzen.  
+2. Golden-Task-Suite + Eval-Gates in CI definieren (mind. Erfolgsrate, Replan-Rate, Invalid-Final-Rate).  
+3. Queue-Semantik `follow_up` gegenüber `wait` explizit differenzieren (Scheduling + starvation-sichere Fairness).  
+4. Config-Härtung Phase 7.1+ ergänzen: Range-/Typ-Validierung für kritische Felder (`timeouts`, `thresholds`, `list sizes`).  
+5. `config.health` um zusätzliche Risk-Flags erweitern (insb. Isolation-Allowlist-Risiko).  
+6. Fokus-Verifikation: `pytest -q backend/tests -k "verification or queue_mode or ws_handler or config_validation" --maxfail=1`  
+7. Contract-Doku aktualisieren (Verifier-Events, Eval-Gates, Range-/Typ-Regeln).
 
 ---
 

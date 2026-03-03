@@ -4,6 +4,163 @@ Stand: 03.03.2026
 Scope: `backend/app/*`  
 Referenzen: `fahrplan.md`, `importantPattern.md`
 
+---
+
+## Masterplan 2026-03-03 (codebasiert, präzise)
+
+Quelle: direkte Analyse der produktiven Implementierung in `backend/app/*` (WS-Lane, Orchestrator, Agent-Loop, Tool-Execution, Skills, Control-Plane, Config).
+
+### A) Reifegrad-Matrix (Ist)
+
+1. Deterministische Lane + Queue/Steer: **9/10**
+2. Context Engineering + Prompt Kernel: **8.5/10**
+3. Skills Lazy-Loading: **8/10**
+4. Typed Tools + Action-Space Shaping: **8/10**
+5. Loop Guardrails (Anti-Stall): **9/10**
+6. Hooks als Middleware: **8.5/10**
+7. Multi-Agent Arbeitsteilung + Isolation: **7/10**
+8. Operator Controls (OOB Directives): **6.5/10**
+9. Predictability by Schema (Config): **7.5/10**
+
+Gesamt: **~7.5/10 Agent-Core**, aber **~5.5/10 für „nahezu jedes Problem“**.
+
+### B) Zielbild (90 Tage)
+
+Ziel: von robustem Agent-Core zu einer Plattform, die komplexe, offene Aufgaben verlässlich löst.
+
+- P0: harte Isolation + Verifier-Schicht + Eval-Gates
+- P1: Follow-up/Steer Scheduling präzisieren + Capability Routing
+- P2: Retrieval/Knowledge-Reliability + Kosten/Qualität adaptive Steuerung
+
+### C) Konkreter 30/60/90-Plan
+
+#### 0–30 Tage (P0, höchster Hebel)
+
+1) **Hard Isolation Contract pro Agent/Subrun**
+- Ziel: echte Trennung von Workspace/Secrets/Netz statt nur Policy-Metadaten.
+- Betroffene Bereiche:
+   - `backend/app/services/agent_isolation.py`
+   - `backend/app/orchestrator/subrun_lane.py`
+   - `backend/app/agent.py` (Tool-Ausführungskontext)
+- Umsetzung:
+   - harte Allowlist für Pfadzugriffe pro Session/Agent
+   - Secret-Scope Enforcement vor Tool-Dispatch
+   - deny-by-default für cross-scope Delegation ohne explizite Freigabe
+- Akzeptanz:
+   - Cross-Scope-Zugriffe werden deterministisch geblockt und auditiert
+   - keine stillen Fallbacks auf globale Scopes
+
+2) **Verifier-Layer nach Plan/Tool/Final**
+- Ziel: Qualität nicht nur durch Prompting, sondern durch prüfbare Zwischenzustände.
+- Betroffene Bereiche:
+   - `backend/app/agent.py`
+   - `backend/app/services/tool_execution_manager.py`
+   - `backend/app/orchestrator/pipeline_runner.py`
+- Umsetzung:
+   - Plan-Validator: prüft Zielbezug/Tool-Notwendigkeit
+   - Tool-Result-Validator: Fortschritt, Widerspruch, fehlende Artefakte
+   - Final-Validator: Antwortvollständigkeit gegen User-Ziel
+- Akzeptanz:
+   - neue Lifecycle-Events `verification_*`
+   - messbar weniger „completed, aber falsch/leer“ Fälle
+
+3) **Eval-Gates als Release-Kriterium**
+- Ziel: Regressionen vor Merge erkennen.
+- Betroffene Bereiche:
+   - `backend/tests/*`
+   - `backend/monitoring/*`
+- Umsetzung:
+   - Golden-Task-Suite (mind. 30 repräsentative Flows)
+   - Pflichtmetriken: Erfolgsrate, Replan-Rate, Tool-Loop-Rate, Invalid-Final-Rate
+- Akzeptanz:
+   - CI blockt bei Gate-Verletzung
+
+#### 31–60 Tage (P1)
+
+**Status (03.03.2026):** ✅ P1.4 (`wait|follow_up|steer` Scheduling inkl. Fairness/Deferral-Events) umgesetzt und verifiziert; 🔜 P1.5 (Capability-basiertes Routing) bleibt als nächster Ausbaupunkt offen.
+
+4) **Queue-Semantik schärfen (`wait` vs `follow_up` vs `steer`)**
+- Ziel: `follow_up` darf nicht faktisch wie `wait` laufen.
+- Betroffene Bereiche:
+   - `backend/app/ws_handler.py`
+   - `backend/app/services/session_inbox_service.py`
+   - `backend/app/interfaces/request_context.py`
+- Umsetzung:
+   - separate Scheduling-Regeln für `follow_up`
+   - fairness + starvation-sichere Reihenfolge
+   - explizite Events für Follow-up-Merging/Deferral
+- Akzeptanz:
+   - reproduzierbares, unterscheidbares Laufzeitverhalten aller drei Modi
+
+5) **Capability-basiertes Tool/Agent Routing**
+- Ziel: bessere Erstentscheidung, weniger Replan-Zyklen.
+- Betroffene Bereiche:
+   - `backend/app/services/tool_registry.py`
+   - `backend/app/services/tool_execution_manager.py`
+   - `backend/app/services/agent_resolution.py`
+- Umsetzung:
+   - Capability-Metadaten pro Tool/Agent
+   - intent + capability match als harte Vorselektion
+- Akzeptanz:
+   - sinkende `tool_selection_empty` / `replanning_started` Quote
+
+#### 61–90 Tage (P2)
+
+**Status (03.03.2026):** 🔄 strategisch offen; technische Vorarbeiten aus Pattern 2/3 (Prompt-Kernel v1.1, event-first Context-Metriken, Skills-Snapshot-Optimierung) sind bereits produktiv verdrahtet.
+
+6) **Reliable Retrieval Layer**
+- Ziel: bessere Problemlösung bei wissenslastigen Aufgaben.
+- Betroffene Bereiche:
+   - `backend/app/skills/*`
+   - neuer Retrieval-Service + Caching/Source-Trust
+- Umsetzung:
+   - semantische Suche + Quellenranking
+   - Antwortbezug auf tatsächlich verwendete Quellen im Laufzeitkontext
+- Akzeptanz:
+   - weniger Halluzinationsmuster in Research-Aufgaben
+
+7) **Qualitäts-/Kosten-adaptive Inferenzsteuerung**
+- Ziel: Qualität steigern ohne unkontrollierte Kosten.
+- Betroffene Bereiche:
+   - `backend/app/orchestrator/pipeline_runner.py`
+   - `backend/app/model_routing/*`
+- Umsetzung:
+   - dynamische Wahl von reasoning level/model abhängig von Signals
+   - harte Budgets + graceful degradation
+- Akzeptanz:
+   - stabile QoS bei Last, keine Kostenexplosion
+
+### D) Verifikationskriterien (verbindlich)
+
+Für jede Welle Pflicht:
+
+1. **Funktional**
+- deterministische Reproduzierbarkeit gleicher Inputs
+- kein unbegründeter Status „completed“ bei fehlendem Ergebnis
+
+2. **Sicherheit/Isolation**
+- negative Tests für Cross-Scope/Secret-Leaks
+- deny-by-default nachweisbar
+
+3. **Observability**
+- vollständige Lifecycle-Kette pro Run
+- neue Events dokumentiert und in `context.detail` nachvollziehbar
+
+4. **Qualität**
+- Golden-Task-Passrate steigt je Welle
+- Tool-Loop-Blockaden sinken ohne Genauigkeitsverlust
+
+### E) Reihenfolge für sofortige Umsetzung
+
+1. Isolation Contract (P0.1)
+2. Verifier Layer (P0.2)
+3. Eval-Gates (P0.3)
+4. Queue-Semantik (P1.4)
+5. Capability Routing (P1.5)
+
+Diese Reihenfolge maximiert Reliability zuerst und erhöht dann Problemlösefähigkeit strukturell, statt nur Prompt-Verhalten zu ändern.
+
+
 ## Umsetzungsstatus (03.03.2026, Update)
 
 - ✅ `SessionInboxService` implementiert (`enqueue`, `dequeue`, `peek_newer_than`, Overflow/TTL).  
@@ -31,8 +188,19 @@ Referenzen: `fahrplan.md`, `importantPattern.md`
 - ✅ T2 Directive Layer OOB + Reasoning Visibility umgesetzt: `/queue|/model|/reasoning|/verbose` parserbasiert, Prefix-Strip aktiv in WS/REST.
 - ✅ T2 Hardening nachgezogen: Background-Run Directive-Fehler gehen garantiert durch Fail-/Cleanup-Pfad; WS-Non-User-Pfade nutzen konsistent bereinigten Content/Model-Override.
 - ✅ API-Level Regression ergänzt: `run.start` + `run.wait` verifizieren Directive-only Fehlerpfad im Background-Run.
+- ✅ P0 Verifier-Layer V1 ergänzt: `verification_plan`, `verification_tool_result`, `verification_final` Lifecycle-Events im Agent-Loop integriert.
+- ✅ Queue-Semantik `follow_up` vs `wait` geschärft: priorisierte Dequeue-Logik mit starvation-sicherer Fairness (`SESSION_FOLLOW_UP_MAX_DEFERRALS`) und Events `follow_up_deferred`/`follow_up_scheduled`.
+- ✅ Config-Härtung 7.1+ erweitert: kritische Range-/Typ-Validierungen in `validate_environment_config(...)` + zusätzliche Isolation-Allowlist-Risk-Flags in `config.health`.
+- ✅ Eval-Gates als CI-Release-Kriterium ergänzt: `backend/scripts/run_eval_gates.py` (Golden-Suite + KPI-Schwellen) und Workflow-Verdrahtung in `.github/workflows/backend-tests.yml`.
+- ✅ Golden-Suite auf 30 repräsentative Flows erweitert und in separates Manifest ausgelagert: `backend/monitoring/eval_golden_suite.json`.
 
-Hinweis: T3 ist umgesetzt/verifiziert; verbleibende priorisierte Kernpunkte sind Hook-Contract/Safety (P4) und Multi-Agent-Isolation (P5).
+### Statusdelta P1/P2/P3 (03.03.2026)
+
+- ✅ **P1**: deterministische Lane-Steuerung inkl. Queue-Semantik `wait|follow_up|steer` ist produktiv und getestet.
+- ✅ **P2**: Context Engineering ist mit `prompt-kernel.v1.1`, `context_segmented` und event-first `context.list/detail` operativ stabil.
+- ✅ **P3**: Typed Tool Schemas + Skills Lazy-Loading (Snapshot-Cache, Prompt-Mode-Kontraktion, Lifecycle-Events) sind integriert.
+
+Hinweis: T3 ist umgesetzt/verifiziert; verbleibende priorisierte Kernpunkte sind P1.5 (Capability-Routing) sowie P2-Roadmap-Themen (Retrieval-Layer, adaptive Inferenzsteuerung).
 
 ---
 
@@ -235,6 +403,8 @@ Damit ist der Fahrplan verifiziert und auf eine unmittelbar umsetzbare Reihenfol
 
 ## 8) Umsetzungsplan Vertiefung (Pattern 2 + 3)
 
+**Status (03.03.2026):** ✅ S1/S2/S3 umgesetzt und über Fokusläufe verifiziert; der Abschnitt dient als nachvollziehbares Implementierungsprotokoll.
+
 Ziel: von „teilweise bis gut“ auf „stabil, messbar, reproduzierbar“ heben, ohne die bereits stabile Lane-/Steer-Logik zu gefährden.
 
 ### 8.1 Scope und Nicht-Ziele
@@ -370,11 +540,11 @@ Abort-Kriterien:
 
 ### 8.6 Ticket-Schnitt (direkt sprintfähig)
 
-1. **P2-S1:** PromptKernel V1.1 + section fingerprints + Tests
-2. **P2-S2:** Context APIs: event-first aggregation + degraded fallback flags
-3. **P3-S1:** Skills snapshot cache + skip-path verification
-4. **P3-S2:** Prompt-mode Skills contraction + lifecycle events
-5. **P2/P3-QA:** KPI-baseline vs. delta report (mind. 3 Lastprofile)
+1. **P2-S1:** PromptKernel V1.1 + section fingerprints + Tests ✅
+2. **P2-S2:** Context APIs: event-first aggregation + degraded fallback flags ✅
+3. **P3-S1:** Skills snapshot cache + skip-path verification ✅
+4. **P3-S2:** Prompt-mode Skills contraction + lifecycle events ✅
+5. **P2/P3-QA:** KPI-baseline vs. delta report (mind. 3 Lastprofile) 🔄 fortlaufend
 
 Damit sind Pattern 2 und 3 in einer Reihenfolge geplant, die erst Messbarkeit/Determinismus absichert und danach die Kosten/Qualität optimiert.
 

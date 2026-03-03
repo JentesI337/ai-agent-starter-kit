@@ -51,6 +51,22 @@ def test_session_inbox_ttl_purges_expired() -> None:
     assert inbox.dequeue("s1") is None
 
 
+def test_session_inbox_dequeue_prioritized_defers_follow_up() -> None:
+    inbox = SessionInboxService(max_queue_length=5, ttl_seconds=60)
+    inbox.enqueue("s1", "r-follow", "follow", meta={"queue_mode": "follow_up"})
+    inbox.enqueue("s1", "r-wait", "wait", meta={"queue_mode": "wait"})
+
+    first, deferred = inbox.dequeue_prioritized("s1", force_follow_up=False)
+    assert first is not None
+    assert first.run_id == "r-wait"
+    assert deferred is True
+
+    second, deferred_second = inbox.dequeue_prioritized("s1", force_follow_up=True)
+    assert second is not None
+    assert second.run_id == "r-follow"
+    assert deferred_second is False
+
+
 def test_normalize_queue_mode_accepts_supported_values() -> None:
     assert normalize_queue_mode("wait") == "wait"
     assert normalize_queue_mode("follow_up") == "follow_up"
