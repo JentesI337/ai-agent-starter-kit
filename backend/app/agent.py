@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import json
 import weakref
@@ -8,7 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from typing import Callable, Awaitable
+from time import monotonic
+from typing import Any, Callable, Awaitable
 
 from app.agents.planner_agent import PlannerAgent
 from app.agents.synthesizer_agent import SynthesizerAgent
@@ -36,6 +38,7 @@ from app.services.intent_detector import IntentDetector
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
+from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
@@ -172,7 +175,18 @@ class HeadAgent:
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
         self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
+        self._source_agent_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+            f"source_agent_id_{id(self)}",
+            default=None,
+        )
         self._build_sub_agents()
+
+    def set_source_agent_context(self, source_agent_id: str | None):
+        normalized = (source_agent_id or "").strip().lower() or None
+        return self._source_agent_id_context.set(normalized)
+
+    def reset_source_agent_context(self, token) -> None:
+        self._source_agent_id_context.reset(token)
 
     def register_hook(self, hook: object) -> None:
         self._hooks.append(hook)
@@ -334,6 +348,17 @@ class HeadAgent:
                 raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
 
             self.memory.add(session_id, "user", user_message)
+            await self._invoke_hooks(
+                hook_name="before_model_resolve",
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                payload={
+                    "requested_model": model,
+                    "default_model": self.client.model,
+                    "agent": self.name,
+                },
+            )
             model_id = model or self.client.model
             effective_prompt_mode = normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default)
             profile = self.model_registry.resolve(model_id)
@@ -811,6 +836,17 @@ class HeadAgent:
                     }
                 )
             else:
+                await self._invoke_hooks(
+                    hook_name="before_transcript_append",
+                    send_event=send_event,
+                    request_id=request_id,
+                    session_id=session_id,
+                    payload={
+                        "role": "assistant",
+                        "content_chars": len(final_text or ""),
+                        "status": status,
+                    },
+                )
                 self.memory.add(session_id, "assistant", final_text or "No output generated.")
                 await send_event(
                     {
@@ -1694,6 +1730,7 @@ class HeadAgent:
         child_model = str(args.get("model") or model or "").strip() or None
         timeout_seconds = int(args.get("timeout_seconds") or 0)
         child_policy = args.get("tool_policy")
+        source_agent_id = self._source_agent_id_context.get() or self.name
 
         if child_policy is not None and not isinstance(child_policy, dict):
             raise ToolExecutionError("spawn_subrun 'tool_policy' must be an object.")
@@ -1708,11 +1745,13 @@ class HeadAgent:
             send_event=send_event,
             agent_id=agent_id,
             mode=mode,
+            source_agent_id=source_agent_id,
         )
 
         run_id = ""
         normalized_mode = mode
         normalized_agent_id = agent_id
+        delegation_scope: dict[str, Any] | None = None
         handover_contract: dict = {
             "terminal_reason": "subrun-accepted",
             "confidence": 0.0,
@@ -1725,7 +1764,14 @@ class HeadAgent:
             normalized_agent_id = str(spawn_result.get("agent_id") or normalized_agent_id).strip() or normalized_agent_id
             candidate_handover = spawn_result.get("handover")
             if isinstance(candidate_handover, dict):
-                handover_contract = candidate_handover
+                handover_contract = self._sanitize_subrun_handover_contract(candidate_handover)
+            candidate_scope = spawn_result.get("delegation_scope")
+            if isinstance(candidate_scope, dict):
+                delegation_scope = self._sanitize_subrun_delegation_scope(
+                    candidate_scope,
+                    source_agent_id=self.name,
+                    target_agent_id=normalized_agent_id,
+                )
         else:
             run_id = str(spawn_result).strip()
 
@@ -1733,10 +1779,59 @@ class HeadAgent:
             raise ToolExecutionError("spawn_subrun handler returned an empty run_id.")
 
         handover_json = json.dumps(handover_contract, ensure_ascii=False)
+        delegation_json = (
+            f" delegation_scope={json.dumps(delegation_scope, ensure_ascii=False)}"
+            if delegation_scope is not None
+            else ""
+        )
         return (
             f"spawned_subrun_id={run_id} mode={normalized_mode} agent_id={normalized_agent_id} "
-            f"handover_contract={handover_json}"
+            f"handover_contract={handover_json}{delegation_json}"
         )
+
+    @staticmethod
+    def _sanitize_subrun_handover_contract(candidate: dict[str, Any]) -> dict[str, Any]:
+        terminal_reason = str(candidate.get("terminal_reason") or "subrun-accepted").strip() or "subrun-accepted"
+        raw_confidence = candidate.get("confidence", 0.0)
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        result_value = candidate.get("result")
+        result: str | None
+        if result_value is None:
+            result = None
+        else:
+            result = str(result_value)[:2000]
+
+        sanitized = {
+            "terminal_reason": terminal_reason,
+            "confidence": confidence,
+            "result": result,
+        }
+
+        raw_questions = candidate.get("follow_up_questions")
+        if isinstance(raw_questions, list):
+            questions = [str(item).strip() for item in raw_questions if str(item).strip()]
+            if questions:
+                sanitized["follow_up_questions"] = questions[:5]
+        return sanitized
+
+    @staticmethod
+    def _sanitize_subrun_delegation_scope(
+        candidate: dict[str, Any],
+        *,
+        source_agent_id: str,
+        target_agent_id: str,
+    ) -> dict[str, Any]:
+        return {
+            "source_agent_id": str(candidate.get("source_agent_id") or source_agent_id).strip().lower() or source_agent_id,
+            "target_agent_id": str(candidate.get("target_agent_id") or target_agent_id).strip().lower() or target_agent_id,
+            "allowed": bool(candidate.get("allowed", False)),
+            "reason": str(candidate.get("reason") or "scope_match").strip().lower() or "scope_match",
+        }
 
     def _is_retryable_tool_error(self, error: ToolExecutionError, retry_class: str) -> bool:
         if retry_class == "none":
@@ -1810,30 +1905,85 @@ class HeadAgent:
         if not self._hooks:
             return
 
+        contract = resolve_hook_execution_contract(settings=settings, hook_name=hook_name)
+
         for hook in list(self._hooks):
             method = getattr(hook, hook_name, None)
             if method is None:
                 continue
 
             try:
+                started_at = monotonic()
                 maybe_result = method(payload)
-                if asyncio.iscoroutine(maybe_result):
-                    await maybe_result
+                if asyncio.iscoroutine(maybe_result) or inspect.isawaitable(maybe_result):
+                    await asyncio.wait_for(maybe_result, timeout=max(0.001, contract.timeout_ms / 1000.0))
                 await self._emit_lifecycle(
                     send_event,
                     stage="hook_invoked",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"hook": type(hook).__name__, "name": hook_name},
+                    details={
+                        "hook": type(hook).__name__,
+                        "name": hook_name,
+                        "status": "ok",
+                        "duration_ms": int((monotonic() - started_at) * 1000),
+                        **contract.as_event_details(),
+                    },
                 )
+            except asyncio.TimeoutError as exc:
+                details = {
+                    "hook": type(hook).__name__,
+                    "name": hook_name,
+                    "status": "timeout",
+                    "error": f"hook timed out after {contract.timeout_ms}ms",
+                    **contract.as_event_details(),
+                }
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="hook_timeout",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details=details,
+                )
+                if contract.failure_policy == "hard_fail":
+                    raise RuntimeError(
+                        f"Hook '{hook_name}' timed out for {type(hook).__name__}"
+                    ) from exc
+                if contract.failure_policy == "skip":
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="hook_skipped",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details=details,
+                    )
             except Exception as exc:
+                details = {
+                    "hook": type(hook).__name__,
+                    "name": hook_name,
+                    "status": "error",
+                    "error": str(exc),
+                    **contract.as_event_details(),
+                }
                 await self._emit_lifecycle(
                     send_event,
                     stage="hook_failed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"hook": type(hook).__name__, "name": hook_name, "error": str(exc)},
+                    details=details,
                 )
+                if contract.failure_policy == "hard_fail":
+                    raise RuntimeError(
+                        f"Hook '{hook_name}' failed for {type(hook).__name__}: {exc}"
+                    ) from exc
+                if contract.failure_policy == "skip":
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="hook_skipped",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details=details,
+                    )
 
 
 class CoderAgent(HeadAgent):

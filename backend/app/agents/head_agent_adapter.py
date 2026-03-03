@@ -41,6 +41,12 @@ class HeadAgentAdapter(AgentContract):
     def set_policy_approval_handler(self, handler) -> None:
         self._delegate.set_policy_approval_handler(handler)
 
+    def set_source_agent_context(self, source_agent_id: str | None):
+        return self._delegate.set_source_agent_context(source_agent_id)
+
+    def reset_source_agent_context(self, token) -> None:
+        self._delegate.reset_source_agent_context(token)
+
     async def run(
         self,
         user_message: str,
@@ -94,6 +100,12 @@ class CoderAgentAdapter(AgentContract):
 
     def set_policy_approval_handler(self, handler) -> None:
         self._delegate.set_policy_approval_handler(handler)
+
+    def set_source_agent_context(self, source_agent_id: str | None):
+        return self._delegate.set_source_agent_context(source_agent_id)
+
+    def reset_source_agent_context(self, token) -> None:
+        self._delegate.reset_source_agent_context(token)
 
     async def run(
         self,
@@ -156,6 +168,12 @@ class ReviewAgentAdapter(AgentContract):
 
     def set_policy_approval_handler(self, handler) -> None:
         self._delegate.set_policy_approval_handler(handler)
+
+    def set_source_agent_context(self, source_agent_id: str | None):
+        return self._delegate.set_source_agent_context(source_agent_id)
+
+    def reset_source_agent_context(self, token) -> None:
+        self._delegate.reset_source_agent_context(token)
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)

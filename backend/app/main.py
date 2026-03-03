@@ -2,6 +2,7 @@
 import logging
 import re
 from collections.abc import MutableMapping
+from typing import Any
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
@@ -22,6 +23,7 @@ from app.handlers import (
 from app.interfaces import OrchestratorApi
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.orchestrator.subrun_lane import SubrunLane
+from app.orchestrator.events import build_lifecycle_event
 from app.routers import (
     build_agents_router,
     build_run_api_router,
@@ -61,6 +63,7 @@ from app.services.agent_resolution import (
     resolve_agent as _resolve_agent_impl,
     sync_custom_agents as _sync_custom_agents_impl,
 )
+from app.services.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
 from app.services.idempotency_manager import IdempotencyManager
 from app.services.request_normalization import normalize_preset
 from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
@@ -89,6 +92,40 @@ idempotency_mgr = IdempotencyManager(
     ttl_seconds=settings.idempotency_registry_ttl_seconds,
     max_entries=settings.idempotency_registry_max_entries,
 )
+
+
+def _sanitize_delegation_scope_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
+    source_agent_id = str((payload or {}).get("source_agent_id") or "head-agent").strip().lower() or "head-agent"
+    target_agent_id = str((payload or {}).get("target_agent_id") or source_agent_id).strip().lower() or source_agent_id
+    reason = str((payload or {}).get("reason") or "scope_match").strip().lower() or "scope_match"
+    allowed = bool((payload or {}).get("allowed", False))
+    return {
+        "source_agent_id": source_agent_id,
+        "target_agent_id": target_agent_id,
+        "allowed": allowed,
+        "reason": reason,
+    }
+
+
+def _sanitize_handover_contract(payload: dict[str, Any] | None) -> dict[str, Any]:
+    candidate = payload or {}
+    terminal_reason = str(candidate.get("terminal_reason") or "subrun-accepted").strip() or "subrun-accepted"
+    confidence_raw = candidate.get("confidence", 0.0)
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+    result_value = candidate.get("result")
+    if result_value is None:
+        result: str | None = None
+    else:
+        result = str(result_value)[:2000]
+    return {
+        "terminal_reason": terminal_reason,
+        "confidence": confidence,
+        "result": result,
+    }
 def _startup_sequence() -> None:
     config_validation = validate_environment_config(settings)
     if not bool(config_validation.get("is_valid", True)):
@@ -174,6 +211,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         send_event,
         agent_id: str,
         mode: str,
+        source_agent_id: str | None = None,
     ) -> dict:
         _sync_custom_agents(components)
         runtime_state = components.runtime_manager.get_state()
@@ -186,6 +224,45 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         selected_orchestrator = components.orchestrator_registry.get(normalized_agent_id)
         if selected_orchestrator is None:
             raise GuardrailViolation(f"Unsupported subrun agent: {agent_id}")
+
+        source_id = _normalize_agent_id(source_agent_id or normalized_agent_id)
+        definitions = {item.id: item for item in components.custom_agent_store.list()}
+        source_profile = resolve_agent_isolation_profile(
+            agent_id=source_id,
+            custom_definition=definitions.get(source_id),
+        )
+        target_profile = resolve_agent_isolation_profile(
+            agent_id=normalized_agent_id,
+            custom_definition=definitions.get(normalized_agent_id),
+        )
+        isolation_policy = AgentIsolationPolicy.from_settings(settings)
+        isolation_decision = isolation_policy.evaluate(
+            source_agent_id=source_id,
+            target_agent_id=normalized_agent_id,
+            source_profile=source_profile,
+            target_profile=target_profile,
+        )
+        await send_event(
+            build_lifecycle_event(
+                request_id=parent_request_id,
+                session_id=parent_session_id,
+                stage="subrun_isolation_checked",
+                details=isolation_decision.as_details(),
+            )
+        )
+        if not isolation_decision.allowed:
+            await send_event(
+                build_lifecycle_event(
+                    request_id=parent_request_id,
+                    session_id=parent_session_id,
+                    stage="subrun_isolation_blocked",
+                    details=isolation_decision.as_details(),
+                )
+            )
+            raise GuardrailViolation(
+                "Subrun isolation blocked: cross-scope delegation requires explicit allowlist pair."
+            )
+
         effective_timeout = max(0, int(timeout_seconds))
         if effective_timeout == 0:
             effective_timeout = int(settings.subrun_timeout_seconds)
@@ -208,7 +285,8 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             "run_id": run_id,
             "mode": mode,
             "agent_id": normalized_agent_id,
-            "handover": components.subrun_lane.get_handover_contract(run_id),
+            "handover": _sanitize_handover_contract(components.subrun_lane.get_handover_contract(run_id)),
+            "delegation_scope": _sanitize_delegation_scope_metadata(isolation_decision.as_details()),
         }
     async def _request_policy_override_from_agent(
         *,
@@ -252,10 +330,15 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             timeout_seconds=settings.policy_approval_wait_seconds,
         )
         return decision in {"allow_once", "allow_always"}
-    for agent_instance in components.agent_registry.values():
+    for owner_agent_id, agent_instance in components.agent_registry.items():
         set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
         if callable(set_handler):
-            set_handler(_spawn_subrun_from_agent)
+            async def _bound_spawn_subrun_handler(*, _owner_agent_id: str = owner_agent_id, **kwargs):
+                if "source_agent_id" not in kwargs or kwargs.get("source_agent_id") is None:
+                    kwargs["source_agent_id"] = _owner_agent_id
+                return await _spawn_subrun_from_agent(**kwargs)
+
+            set_handler(_bound_spawn_subrun_handler)
         set_policy_handler = getattr(agent_instance, "set_policy_approval_handler", None)
         if callable(set_policy_handler):
             set_policy_handler(_request_policy_override_from_agent)

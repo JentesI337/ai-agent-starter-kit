@@ -620,3 +620,245 @@ Verifikation nach Implementierung:
 
 Status T3:
 - ✅ **Strict Config Validation (unknown-key fail-fast) implementiert und fokussiert verifiziert**.
+
+---
+
+## 13) Exakte Verifikation + Next-72h-Schnitt für P4/P5 (03.03.2026, live)
+
+### 13.1 Live-Verifikation (heute ausgeführt)
+
+Ausführung in Repo-Root:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **49 passed, 1 skipped, 456 deselected**
+
+Interpretation:
+- Lane/WS/Config/Subrun-Basis ist weiterhin stabil.
+- Für den priorisierten Restscope bleiben die erwarteten Kernlücken: **Hook-Contract/Safety V2** und **Default-Multi-Agent-Isolation**.
+
+### 13.2 Codebasierter Ist-Stand (P4/P5, belegt)
+
+P4 (Hooks):
+- Hook-Invocation ist vorhanden (`before_prompt_build`, `before_tool_call`, `after_tool_call`, `agent_end`) und emittiert `hook_invoked`/`hook_failed`.
+- Es fehlt weiterhin ein expliziter, versionierter Hook-Vertrag pro Hookpoint (`hook_contract_version`, `timeout_ms`, `failure_policy`) als enforcebarer Runtime-Contract.
+- Es gibt keine dedizierte Hook-V2-Testdatei (`test_hooks_*`), nur indirekte Hook-Abdeckung in bestehenden Tool-Tests.
+
+P5 (Isolation):
+- Subrun-Lane/Visibility/Depth-Guards sind vorhanden und getestet.
+- Harte Agent-Isolation als Default-Contract (separate `workspace_root`/`skills_dir`/Credential-Scope je Agent) ist noch nicht als durchgehender Standard verdrahtet.
+- Es gibt keine dedizierte Isolations-Testdatei (`test_multi_agent_isolation.py`) mit negativen Cross-Scope-Fällen.
+
+### 13.3 Exakter 72h-Umsetzungsschnitt (nur P4/P5)
+
+1. **P4-S1 Hook-Contract V2 (Schema + Resolver)**
+    - Dateien:
+       - `backend/app/services/hook_contract.py` (neu)
+       - `backend/app/agent.py`
+       - `backend/app/services/tool_execution_manager.py`
+    - Inhalt:
+       - Contract je Hookpoint: `hook_contract_version`, `timeout_ms`, `failure_policy` (`soft_fail|hard_fail|skip`).
+       - zentraler Resolver für Defaults + optionale Settings-Overrides.
+    - Exit:
+       - Hookpoint-Metadaten werden konsistent in Lifecycle-Details emittiert.
+
+2. **P4-S2 Hook-Safety Enforcement (Timeout + Failure-Isolation)**
+    - Dateien:
+       - `backend/app/agent.py`
+       - `backend/app/services/tool_execution_manager.py`
+    - Inhalt:
+       - Hook-Ausführung via `asyncio.wait_for` (per Hookpoint).
+       - Fehlerpfad strikt nach `failure_policy`:
+          - `soft_fail`: Event + Run läuft weiter
+          - `hard_fail`: deterministischer Abbruch
+          - `skip`: Hook überspringen + Event
+    - Exit:
+       - Defekter Hook verursacht keinen globalen Abbruch ohne explizite Hard-Fail-Policy.
+
+3. **P5-S1 Agent-Isolation Contract (Defaults + Guardrails)**
+    - Dateien:
+       - `backend/app/custom_agents.py`
+       - `backend/app/main.py`
+       - `backend/app/subrun_endpoints.py`
+       - ggf. `backend/app/config.py` (Flags/Defaults)
+    - Inhalt:
+       - pro Agent effektive Isolation-Config (workspace, skills, credential scope).
+       - deny-by-default bei Scope-Überschreitung; nur explizite allow-Regeln erlauben Cross-Scope.
+    - Exit:
+       - Kein impliziter Zugriff zwischen Agent-Scopes im Standardpfad.
+
+4. **P5-S2 Delegation/Handover gegen Isolation härten**
+    - Dateien:
+       - `backend/app/main.py`
+       - `backend/app/subrun_endpoints.py`
+    - Inhalt:
+       - Spawn/Handover transportiert nur erlaubte Scope-Metadaten.
+       - Visibility-Entscheide bleiben kompatibel, aber nicht scope-erweiternd.
+    - Exit:
+       - Delegation funktioniert, ohne Isolation aufzuweichen.
+
+5. **QA/Verifikation (verpflichtend)**
+    - Neue Tests:
+       - `backend/tests/test_hooks_contract_v2.py`
+       - `backend/tests/test_multi_agent_isolation.py`
+    - Fokuslauf:
+       - `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks_contract_v2 or multi_agent_isolation or subrun or ws_handler" --maxfail=1 -o faulthandler_timeout=20`
+    - Regressionslauf:
+       - `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests --maxfail=1 -o faulthandler_timeout=20`
+
+### 13.4 Harte Exit-Gates (P4/P5)
+
+- Hookpoint-Events tragen stets `hook_contract_version`, `timeout_ms`, `failure_policy`, `status`.
+- Timeouts und Exceptions sind auditierbar (`hook_timeout`/`hook_failed`) und policy-konsistent.
+- Mindestens ein negativer Isolationstest blockiert Cross-Agent-Workspace/Skills/Credential-Zugriff.
+- Keine Regression in bestehenden `ws_handler`-, `subrun`-, `config_validation`-Fokusläufen.
+
+### 13.5 Fortschritt P4-S1 (03.03.2026, umgesetzt + verifiziert)
+
+Implementiert:
+
+- Neues Modul: `backend/app/services/hook_contract.py`
+   - `resolve_hook_execution_contract(...)` liefert versionierten Contract pro Hookpoint.
+   - Contract-Felder: `hook_contract_version`, `timeout_ms`, `failure_policy` (`soft_fail|hard_fail|skip`).
+- `backend/app/config.py`
+   - Neue Hook-Settings:
+      - `HOOK_CONTRACT_VERSION`
+      - `HOOK_TIMEOUT_MS_DEFAULT`
+      - `HOOK_TIMEOUT_MS_OVERRIDES` (CSV `hook:ms,...`)
+      - `HOOK_FAILURE_POLICY_DEFAULT`
+      - `HOOK_FAILURE_POLICY_OVERRIDES` (CSV `hook:policy,...`)
+- `backend/app/agent.py`
+   - `_invoke_hooks(...)` nutzt nun Contract-Resolver + `asyncio.wait_for`-Timeouts.
+   - Lifecycle-Events enthalten konsistent Contract-Metadaten.
+   - Failure-Policies sind enforced (`soft_fail`, `hard_fail`, `skip`).
+   - Hookpoints erweitert um `before_model_resolve` und `before_transcript_append`.
+- `backend/app/services/tool_execution_manager.py`
+   - Neuer Hookpoint `tool_result_persist` vor Persistierung von Tool-Resultaten.
+
+Tests:
+
+- Neu: `backend/tests/test_hooks_contract_v2.py`
+   - Defaults/Overrides des Contract-Resolvers.
+   - Soft-Fail mit Event-Metadaten.
+   - Hard-Fail bei Timeout.
+
+Live-Verifikation:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_hooks_contract_v2.py backend/tests/test_tool_execution_manager.py backend/tests/test_ws_handler.py -o faulthandler_timeout=20 --maxfail=1`
+   - Ergebnis: **25 passed**
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **53 passed, 1 skipped, 456 deselected**
+
+### 13.6 Fortschritt P5-S1 (03.03.2026, umgesetzt + verifiziert)
+
+Implementiert:
+
+- Neues Modul: `backend/app/services/agent_isolation.py`
+   - `AgentIsolationPolicy` mit Default-Enforcement und Pair-Allowlist.
+   - `resolve_agent_isolation_profile(...)` für `workspace_scope` / `skills_scope` / `credential_scope`.
+- `backend/app/config.py`
+   - Neue Settings:
+      - `AGENT_ISOLATION_ENABLED` (Default: `true`)
+      - `AGENT_ISOLATION_ALLOWED_SCOPE_PAIRS` (CSV, z. B. `head-agent->coder-agent`)
+- `backend/app/custom_agents.py`
+   - `CustomAgentDefinition` / `CustomAgentCreateRequest` erweitert um optionale Scope-Felder:
+      - `workspace_scope`, `skills_scope`, `credential_scope`
+   - Persistenzpfad (`upsert`) schreibt Scope-Felder deterministisch mit.
+- `backend/app/main.py`
+   - Subrun-Spawn prüft Isolation-Entscheid zwischen Source- und Target-Agent vor Spawn.
+   - Bei Verstoß: `subrun_isolation_blocked` + `GuardrailViolation` (deny-by-default).
+   - Source-Agent wird beim Setzen des Spawn-Handlers pro Agent gebunden (`owner_agent_id`).
+
+Tests:
+
+- Neu: `backend/tests/test_multi_agent_isolation.py`
+   - Blocked-by-default bei Cross-Scope.
+   - Allowlist-Freigabe für explizite Paare.
+   - Persistenz/Resolution der neuen Custom-Agent-Scope-Felder.
+
+Live-Verifikation:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_multi_agent_isolation.py backend/tests/test_subrun_visibility_scope.py backend/tests/test_hooks_contract_v2.py backend/tests/test_ws_handler.py -o faulthandler_timeout=20 --maxfail=1`
+   - Ergebnis: **19 passed**
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **58 passed, 1 skipped, 456 deselected**
+
+### 13.7 Fortschritt P5-S2 (03.03.2026, umgesetzt + verifiziert)
+
+Implementiert:
+
+- `backend/app/main.py`
+   - Delegation-Scope-Metadaten werden vor Rückgabe explizit sanitisiert (`source_agent_id`, `target_agent_id`, `allowed`, `reason`).
+   - Handover-Contract aus Subrun-Lane wird im Spawn-Rückgabepfad auf erlaubte Felder reduziert (`terminal_reason`, `confidence`, `result`).
+- `backend/app/agent.py`
+   - Structured `spawn_subrun`-Antworten werden im Agent vor Weitergabe explizit sanitisiert.
+   - Whitelist für Handover-Metadaten (`terminal_reason`, `confidence`, `result`, optional `follow_up_questions`).
+   - Whitelist für Delegation-Scope-Metadaten (`source_agent_id`, `target_agent_id`, `allowed`, `reason`).
+   - Nicht erlaubte Felder werden nicht in `handover_contract`/`delegation_scope` weitertransportiert.
+
+Tests:
+
+- Erweiterung: `backend/tests/test_tool_selection_offline_eval.py`
+   - Neuer Fall verifiziert, dass zusätzliche/sensitive Felder aus structured `spawn_subrun`-Payloads nicht durchgereicht werden.
+
+Live-Verifikation:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_tool_selection_offline_eval.py backend/tests/test_multi_agent_isolation.py backend/tests/test_ws_handler.py -o faulthandler_timeout=20 --maxfail=1`
+   - Ergebnis: **58 passed**
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **59 passed, 1 skipped, 456 deselected**
+
+### 13.8 Review-Follow-up (03.03.2026): Source-Agent-Identität im Delegationspfad gehärtet
+
+Anlass:
+- Code-Review hat gezeigt, dass Custom-Agent-Delegation im `spawn_subrun`-Pfad potenziell mit Base-Agent-Identität ausgewertet werden konnte.
+
+Fix:
+
+- `backend/app/agent.py`
+   - Source-Agent-Identität wird per `ContextVar` im Agent gehalten und im `spawn_subrun`-Call explizit als `source_agent_id` weitergereicht.
+- `backend/app/agents/head_agent_adapter.py`
+   - Forwarder für `set_source_agent_context(...)` / `reset_source_agent_context(...)` ergänzt.
+- `backend/app/custom_agents.py`
+   - `CustomAgentAdapter.run(...)` setzt Source-Agent-Context auf `definition.id` für die Dauer des Runs und resettet deterministisch im `finally`.
+- `backend/app/main.py`
+   - Bound Spawn-Handler nutzt Owner-ID nur noch als Fallback, wenn `source_agent_id` nicht explizit übergeben wurde.
+
+Tests:
+
+- Erweiterung: `backend/tests/test_multi_agent_isolation.py`
+   - Neuer Test verifiziert Source-Context-Propagation + Cleanup für Custom-Agent-Delegation.
+
+Live-Verifikation:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_multi_agent_isolation.py backend/tests/test_tool_selection_offline_eval.py backend/tests/test_hooks_contract_v2.py backend/tests/test_ws_handler.py -o faulthandler_timeout=20 --maxfail=1`
+   - Ergebnis: **63 passed**
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **60 passed, 1 skipped, 456 deselected**
+
+### 13.9 Full-Regression-Evidenz + Rest-Risiko-Matrix (03.03.2026)
+
+Full-Regression (Backend):
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests --maxfail=1 -o faulthandler_timeout=20`
+  - Ergebnis: **514 passed, 3 skipped**
+
+Rest-Risiko-Matrix (nach aktuellem Stand):
+
+1. **Hook-Safety bei synchronen, blockierenden Hooks**
+   - Risiko: `asyncio.wait_for` schützt nur awaitables; harte sync-Blocker können Event-Loop-Latenz verursachen.
+   - Impact: mittel
+   - Mitigation (nächste Iteration): optionale Ausführung synchroner Hooks in separatem Executor + Timeout-Watchdog.
+
+2. **Isolation-Allowlist-Fehlkonfiguration (Operator-Risiko)**
+   - Risiko: zu breite `AGENT_ISOLATION_ALLOWED_SCOPE_PAIRS` kann Schutzwirkung reduzieren.
+   - Impact: mittel
+   - Mitigation (nächste Iteration): `config.health` um Isolation-Warnflags erweitern (z. B. Wildcard-Paare, ungewöhnlich viele Freigaben).
+
+3. **Lifecycle-Contract-Drift bei neuen Hook-/Isolation-Events**
+   - Risiko: künftige Event-Änderungen ohne Schema-Contract-Test könnten Consumer brechen.
+   - Impact: niedrig bis mittel
+   - Mitigation (nächste Iteration): dedizierte Contract-Tests für `hook_*` + `subrun_isolation_*` Payload-Schemas.

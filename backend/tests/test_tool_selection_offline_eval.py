@@ -173,6 +173,65 @@ def test_execute_tools_supports_structured_spawn_subrun_response(monkeypatch) ->
     assert '"terminal_reason": "subrun-running"' in result
 
 
+def test_execute_tools_sanitizes_spawn_subrun_handover_and_scope_metadata(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":[{"tool":"spawn_subrun","args":'
+            '{"message":"delegate","mode":"run","agent_id":"coder-agent"}}]}'
+        )
+
+    async def fake_spawn_subrun_handler(**kwargs) -> dict:
+        return {
+            "run_id": "subrun-sanitized",
+            "mode": kwargs.get("mode", "run"),
+            "agent_id": kwargs.get("agent_id", "head-agent"),
+            "handover": {
+                "terminal_reason": "subrun-running",
+                "confidence": 1.7,
+                "result": "ok",
+                "secret": "must-not-leak",
+            },
+            "delegation_scope": {
+                "source_agent_id": "head-agent",
+                "target_agent_id": "coder-agent",
+                "allowed": True,
+                "reason": "cross_scope_allowlisted",
+                "credentials": "must-not-leak",
+            },
+        }
+
+    original_complete_chat = agent.client.complete_chat
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent.set_spawn_subrun_handler(fake_spawn_subrun_handler)
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="delegate",
+                plan_text="spawn",
+                memory_context="",
+                session_id="s-subrun-sanitized",
+                request_id="r-subrun-sanitized",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"spawn_subrun"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+
+    assert "spawned_subrun_id=subrun-sanitized" in result
+    assert '"confidence": 1.0' in result
+    assert '"secret"' not in result
+    assert "delegation_scope=" in result
+    assert '"reason": "cross_scope_allowlisted"' in result
+    assert '"credentials"' not in result
+
+
 def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
     agent = HeadCodingAgent()
     attempts = {"count": 0}

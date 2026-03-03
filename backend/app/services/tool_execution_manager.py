@@ -905,6 +905,17 @@ class ToolExecutionManager:
                     if config.smart_truncate_enabled
                     else result[:result_max_chars]
                 )
+                await invoke_hooks(
+                    "tool_result_persist",
+                    {
+                        "tool": tool,
+                        "args": dict(evaluated_args),
+                        "index": idx,
+                        "call_id": call_id,
+                        "status": "ok",
+                        "result_chars": len(clipped),
+                    },
+                )
                 memory_add(tool, clipped)
                 results.append(f"[{tool}]\n{clipped}")
 
@@ -1017,6 +1028,18 @@ class ToolExecutionManager:
                                 self._smart_truncate(retry_result, max_chars=result_max_chars)
                                 if config.smart_truncate_enabled
                                 else retry_result[:result_max_chars]
+                            )
+                            await invoke_hooks(
+                                "tool_result_persist",
+                                {
+                                    "tool": tool,
+                                    "args": dict(retry_args),
+                                    "index": idx,
+                                    "call_id": call_id,
+                                    "status": "ok",
+                                    "result_chars": len(clipped),
+                                    "retried": True,
+                                },
                             )
                             memory_add(tool, clipped)
                             results.append(f"[{tool}]\n{clipped}")

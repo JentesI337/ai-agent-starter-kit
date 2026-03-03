@@ -19,6 +19,9 @@ class CustomAgentDefinition(BaseModel):
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
+    workspace_scope: str | None = Field(default=None, min_length=1, max_length=120)
+    skills_scope: str | None = Field(default=None, min_length=1, max_length=120)
+    credential_scope: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class CustomAgentCreateRequest(BaseModel):
@@ -29,6 +32,9 @@ class CustomAgentCreateRequest(BaseModel):
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
+    workspace_scope: str | None = Field(default=None, min_length=1, max_length=120)
+    skills_scope: str | None = Field(default=None, min_length=1, max_length=120)
+    credential_scope: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class CustomAgentAdapter(AgentContract):
@@ -75,16 +81,27 @@ class CustomAgentAdapter(AgentContract):
             )
 
         merged_policy = self._merge_tool_policy(tool_policy)
-        return await self._base_agent.run(
-            user_message=enriched_user_message,
-            send_event=send_event,
-            session_id=session_id,
-            request_id=request_id,
-            model=model,
-            tool_policy=merged_policy,
-            prompt_mode=prompt_mode,
-            should_steer_interrupt=should_steer_interrupt,
-        )
+        source_token = None
+        context_set = False
+        set_source_context = getattr(self._base_agent, "set_source_agent_context", None)
+        reset_source_context = getattr(self._base_agent, "reset_source_agent_context", None)
+        if callable(set_source_context):
+            source_token = set_source_context(self.definition.id)
+            context_set = True
+        try:
+            return await self._base_agent.run(
+                user_message=enriched_user_message,
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                model=model,
+                tool_policy=merged_policy,
+                prompt_mode=prompt_mode,
+                should_steer_interrupt=should_steer_interrupt,
+            )
+        finally:
+            if context_set and callable(reset_source_context):
+                reset_source_context(source_token)
 
     def _build_flow_instruction(self) -> str:
         lines: list[str] = []
@@ -155,6 +172,9 @@ class CustomAgentStore:
             workflow_steps=[step.strip() for step in request.workflow_steps if isinstance(step, str) and step.strip()],
             tool_policy=request.tool_policy,
             allow_subrun_delegation=bool(request.allow_subrun_delegation),
+            workspace_scope=(request.workspace_scope or "").strip() or None,
+            skills_scope=(request.skills_scope or "").strip() or None,
+            credential_scope=(request.credential_scope or "").strip() or None,
         )
         file_path = self.persist_dir / f"{definition.id}.json"
         file_path.write_text(

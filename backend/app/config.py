@@ -21,6 +21,38 @@ def _parse_optional_csv_env(value: str | None) -> list[str] | None:
     return entries or None
 
 
+def _parse_int_mapping_env(value: str | None) -> dict[str, int]:
+    parsed: dict[str, int] = {}
+    for entry in (value or "").split(","):
+        part = entry.strip()
+        if not part or ":" not in part:
+            continue
+        key, raw_value = part.split(":", 1)
+        normalized_key = key.strip()
+        if not normalized_key:
+            continue
+        try:
+            parsed[normalized_key] = int(raw_value.strip())
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
+def _parse_str_mapping_env(value: str | None) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for entry in (value or "").split(","):
+        part = entry.strip()
+        if not part or ":" not in part:
+            continue
+        key, raw_value = part.split(":", 1)
+        normalized_key = key.strip()
+        normalized_value = raw_value.strip()
+        if not normalized_key or not normalized_value:
+            continue
+        parsed[normalized_key] = normalized_value
+    return parsed
+
+
 def _resolve_workspace_root(value: str | None) -> str:
     candidate = (value or "").strip() or DEFAULT_WORKSPACE_ROOT
     if not os.path.isabs(candidate):
@@ -355,6 +387,11 @@ class Settings(BaseModel):
         os.getenv("SUBRUN_ORCHESTRATOR_AGENT_IDS", "head-agent"),
         ["head-agent"],
     )
+    agent_isolation_enabled: bool = _parse_bool_env("AGENT_ISOLATION_ENABLED", True)
+    agent_isolation_allowed_scope_pairs: list[str] = _parse_csv_env(
+        os.getenv("AGENT_ISOLATION_ALLOWED_SCOPE_PAIRS", ""),
+        [],
+    )
     subrun_announce_retry_max_attempts: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_ATTEMPTS", "5"))
     subrun_announce_retry_base_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_BASE_DELAY_MS", "500"))
     subrun_announce_retry_max_delay_ms: int = int(os.getenv("SUBRUN_ANNOUNCE_RETRY_MAX_DELAY_MS", "10000"))
@@ -377,6 +414,13 @@ class Settings(BaseModel):
     session_lane_global_max_concurrent: int = int(os.getenv("SESSION_LANE_GLOBAL_MAX_CONCURRENT", "8"))
     run_wait_default_timeout_ms: int = int(os.getenv("RUN_WAIT_DEFAULT_TIMEOUT_MS", "30000"))
     run_wait_poll_interval_ms: int = int(os.getenv("RUN_WAIT_POLL_INTERVAL_MS", "200"))
+    hook_contract_version: str = os.getenv("HOOK_CONTRACT_VERSION", "hook-contract.v2").strip()
+    hook_timeout_ms_default: int = int(os.getenv("HOOK_TIMEOUT_MS_DEFAULT", "1500"))
+    hook_timeout_ms_overrides: dict[str, int] = _parse_int_mapping_env(os.getenv("HOOK_TIMEOUT_MS_OVERRIDES", ""))
+    hook_failure_policy_default: str = os.getenv("HOOK_FAILURE_POLICY_DEFAULT", "soft_fail").strip().lower()
+    hook_failure_policy_overrides: dict[str, str] = _parse_str_mapping_env(
+        os.getenv("HOOK_FAILURE_POLICY_OVERRIDES", "")
+    )
     idempotency_registry_ttl_seconds: int = int(os.getenv("IDEMPOTENCY_REGISTRY_TTL_SECONDS", "86400"))
     idempotency_registry_max_entries: int = int(os.getenv("IDEMPOTENCY_REGISTRY_MAX_ENTRIES", "5000"))
     run_tool_call_cap: int = int(os.getenv("RUN_TOOL_CALL_CAP", "8"))
@@ -577,6 +621,7 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "QUEUE_",
     "PROMPT_",
     "SESSION_",
+    "HOOK_",
     "COMMAND_",
     "WEB_FETCH_",
     "CORS_",
@@ -585,6 +630,7 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "OLLAMA_",
     "RUNTIME_STATE_FILE",
     "SUBRUN_",
+    "AGENT_ISOLATION_",
     "POLICY_",
     "IDEMPOTENCY_",
     "TOOL_",
