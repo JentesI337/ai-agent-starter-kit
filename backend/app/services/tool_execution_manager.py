@@ -167,6 +167,7 @@ class ToolExecutionManager:
         request_policy_override: Callable[..., Awaitable[bool]],
         complete_chat: Callable[[str, str, str | None], Awaitable[str]],
         complete_chat_with_tools: Callable[..., Awaitable[list[dict]]] | None = None,
+        build_function_calling_tools: Callable[[set[str]], list[dict]] | None = None,
         supports_function_calling: bool = False,
         tool_selection_function_calling_enabled: bool = True,
         tool_selector_system_prompt: str,
@@ -353,6 +354,7 @@ class ToolExecutionManager:
         actions = await self.select_actions_with_repair(
             complete_chat=complete_chat,
             complete_chat_with_tools=complete_chat_with_tools,
+            build_function_calling_tools=build_function_calling_tools,
             supports_function_calling=supports_function_calling,
             function_calling_enabled=tool_selection_function_calling_enabled,
             tool_selector_system_prompt=tool_selector_system_prompt,
@@ -527,6 +529,7 @@ class ToolExecutionManager:
         session_id: str,
         agent_name: str,
         complete_chat_with_tools: Callable[..., Awaitable[list[dict]]] | None = None,
+        build_function_calling_tools: Callable[[set[str]], list[dict]] | None = None,
         supports_function_calling: bool = False,
         function_calling_enabled: bool = False,
         allowed_tools: set[str] | None = None,
@@ -534,10 +537,14 @@ class ToolExecutionManager:
         effective_allowed_tools = set(allowed_tools or set())
         if function_calling_enabled and supports_function_calling and complete_chat_with_tools is not None:
             try:
+                tool_definitions = None
+                if build_function_calling_tools is not None:
+                    tool_definitions = build_function_calling_tools(effective_allowed_tools)
                 actions = await complete_chat_with_tools(
                     system_prompt=tool_selector_system_prompt,
                     user_prompt=tool_selector_prompt,
                     allowed_tools=sorted(effective_allowed_tools),
+                    tool_definitions=tool_definitions,
                     model=model,
                 )
                 if actions:

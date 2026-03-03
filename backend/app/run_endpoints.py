@@ -10,6 +10,11 @@ from fastapi import HTTPException
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import RequestContext
 from app.config import settings
+from app.services.directive_parser import (
+    normalize_reasoning_level,
+    normalize_reasoning_visibility,
+    parse_directives_from_message,
+)
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.tool_policy import ToolPolicyDict
 from app.tool_policy import tool_policy_to_dict
@@ -67,7 +72,15 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
         model=runtime_state.model,
     )
 
-    selected_model = (request.model or "").strip() or runtime_state.model
+    directive_result = parse_directives_from_message(
+        request.message or "",
+        queue_mode_default=settings.queue_mode_default,
+    )
+    clean_message = directive_result.clean_content
+    reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
+    reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+
+    selected_model = (request.model or directive_result.overrides.model or "").strip() or runtime_state.model
     if runtime_state.runtime == "local":
         selected_model = await deps.runtime_manager.ensure_model_ready(collect_event, session_id, selected_model)
     else:
@@ -78,7 +91,7 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
     try:
         applied_preset = deps.normalize_preset(request.preset)
         await deps.orchestrator_api.run_user_message(
-            user_message=request.message,
+            user_message=clean_message,
             send_event=collect_event,
             request_context=RequestContext(
                 session_id=session_id,
@@ -92,13 +105,15 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
                 preset=applied_preset,
                 orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
                 queue_mode=normalize_queue_mode(
-                    getattr(request, "queue_mode", None),
+                    getattr(request, "queue_mode", None) or directive_result.overrides.queue_mode,
                     default=settings.queue_mode_default,
                 ),
                 prompt_mode=normalize_prompt_mode(
                     getattr(request, "prompt_mode", None),
                     default=settings.prompt_mode_default,
                 ),
+                reasoning_level=reasoning_level,
+                reasoning_visibility=reasoning_visibility,
             ),
         )
         deps.mark_completed(run_id=request_id)

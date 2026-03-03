@@ -324,3 +324,127 @@ def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
 
     assert steer_applied
     assert "done:second" in final_messages
+
+
+def test_ws_handler_applies_directive_overrides_and_strips_prefix(monkeypatch) -> None:
+    _set_local_runtime()
+
+    observed: dict[str, object] = {}
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        observed["ensure_model"] = model_name
+        return model_name
+
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
+        observed["user_message"] = user_message
+        observed["model"] = model
+        await send_event({"type": "final", "agent": "head-agent", "message": f"done:{user_message}"})
+        return f"done:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_run)
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_run)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(receive_json_with_timeout(ws))
+        ws.send_json(
+            {
+                "type": "user_message",
+                "agent_id": "head-agent",
+                "content": "/queue steer\n/model qwen3-coder:480b-cloud\n/verbose on\nstatus update",
+            }
+        )
+
+        events = []
+        for _ in range(50):
+            evt = _unwrap_event(receive_json_with_timeout(ws))
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert observed.get("ensure_model") == "qwen3-coder:480b-cloud"
+    assert observed.get("model") == "qwen3-coder:480b-cloud"
+    assert observed.get("user_message") == "status update"
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "request_received"
+        and evt.get("details", {}).get("queue_mode") == "steer"
+        and evt.get("details", {}).get("reasoning_visibility") == "summary"
+        for evt in events
+    )
+
+
+def test_ws_handler_subrun_spawn_uses_directive_clean_content_and_model_override(monkeypatch) -> None:
+    _set_local_runtime()
+
+    observed: dict[str, object] = {}
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        observed["ensure_model"] = model_name
+        return model_name
+
+    async def fake_spawn(
+        parent_request_id,
+        parent_session_id,
+        user_message,
+        runtime,
+        model,
+        timeout_seconds,
+        tool_policy,
+        send_event,
+        agent_id,
+        mode,
+        preset,
+        orchestrator_agent_ids,
+        orchestrator_api,
+    ):
+        observed["user_message"] = user_message
+        observed["model"] = model
+        observed["agent_id"] = agent_id
+        observed["mode"] = mode
+        return "subrun-123"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(subrun_lane, "spawn", fake_spawn)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(receive_json_with_timeout(ws))
+        ws.send_json(
+            {
+                "type": "subrun_spawn",
+                "agent_id": "head-agent",
+                "content": "/model qwen3-coder:480b-cloud\nbackground task",
+            }
+        )
+
+        events = []
+        for _ in range(30):
+            evt = _unwrap_event(receive_json_with_timeout(ws))
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert observed.get("ensure_model") == "qwen3-coder:480b-cloud"
+    assert observed.get("model") == "qwen3-coder:480b-cloud"
+    assert observed.get("user_message") == "background task"
+    assert observed.get("agent_id") == "head-agent"
+    assert observed.get("mode") == "run"
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "request_received"
+        and evt.get("details", {}).get("chars") == len("background task")
+        and evt.get("details", {}).get("directives_applied") == ["/model"]
+        for evt in events
+    )

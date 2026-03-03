@@ -54,3 +54,27 @@ def test_registry_can_register_spec_and_build_policy() -> None:
     assert policy.timeout_seconds == 12.0
     assert policy.max_retries == 2
     assert policy.retry_class == "none"
+
+
+def test_build_function_calling_tools_uses_typed_parameters() -> None:
+    registry = build_default_tool_registry(command_timeout_seconds=30)
+
+    tools = registry.build_function_calling_tools(allowed_tools={"run_command", "spawn_subrun"})
+
+    assert len(tools) == 2
+    by_name = {
+        item["function"]["name"]: item["function"]
+        for item in tools
+        if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    }
+    run_command = by_name["run_command"]
+    run_schema = run_command["parameters"]
+    assert run_schema["additionalProperties"] is False
+    assert run_schema["required"] == ["command"]
+    assert run_schema["properties"]["command"]["type"] == "string"
+
+    spawn_subrun = by_name["spawn_subrun"]
+    spawn_schema = spawn_subrun["parameters"]
+    assert spawn_schema["additionalProperties"] is False
+    assert spawn_schema["required"] == ["message"]
+    assert spawn_schema["properties"]["mode"]["enum"] == ["run", "wait"]

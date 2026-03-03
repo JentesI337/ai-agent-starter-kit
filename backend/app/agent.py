@@ -1196,6 +1196,7 @@ class HeadAgent:
             request_policy_override=_request_policy_override_proxy,
             complete_chat=self.client.complete_chat,
             complete_chat_with_tools=self.client.complete_chat_with_tools,
+            build_function_calling_tools=self._build_function_calling_tools,
             supports_function_calling=self.client.supports_function_calling,
             tool_selection_function_calling_enabled=settings.tool_selection_function_calling_enabled,
             tool_selector_system_prompt=self.prompt_profile.tool_selector_prompt,
@@ -1217,6 +1218,9 @@ class HeadAgent:
             memory_add=_memory_add_proxy,
             should_steer_interrupt=should_steer_interrupt,
         )
+
+    def _build_function_calling_tools(self, allowed_tools: set[str]) -> list[dict]:
+        return self.tool_registry.build_function_calling_tools(allowed_tools=allowed_tools)
 
     def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
         _ = plan_text

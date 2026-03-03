@@ -230,3 +230,62 @@ def test_complete_chat_includes_temperature_in_ollama_options(monkeypatch) -> No
     options = captured_payloads[0].get("options") or {}
     assert isinstance(options, dict)
     assert options.get("temperature") == pytest.approx(0.33)
+
+
+def test_complete_chat_with_tools_uses_typed_tool_definitions_in_payload(monkeypatch) -> None:
+    queue: list[object] = [
+        _FakeResponse(
+            status_code=200,
+            json_data={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "run_command",
+                                        "arguments": '{"command":"pytest -q"}',
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+        ),
+    ]
+    captured_payloads: list[dict] = []
+    _patch_async_client_with_capture(monkeypatch, queue, captured_payloads)
+
+    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    tool_definitions = [
+        {
+            "type": "function",
+            "function": {
+                "name": "run_command",
+                "description": "Execute command",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "minLength": 1},
+                    },
+                    "required": ["command"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+    ]
+
+    actions = asyncio.run(
+        client.complete_chat_with_tools(
+            system_prompt="sys",
+            user_prompt="user",
+            allowed_tools=["run_command"],
+            tool_definitions=tool_definitions,
+        )
+    )
+
+    assert actions == [{"tool": "run_command", "args": {"command": "pytest -q"}}]
+    assert captured_payloads
+    tools_payload = captured_payloads[0].get("tools")
+    assert tools_payload == tool_definitions

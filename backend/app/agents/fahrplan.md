@@ -9,7 +9,10 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 - ✅ Phase-1-Kern umgesetzt: Session Inbox, `queue_mode`, WS receive/executor split, Steer-Checkpoint + Lifecycle-Events.
 - ✅ Run-State/Stage-Instrumentierung aktiv inkl. optionaler Hard-Fail-Policy bei State-Violation.
 - ✅ Phase-2-Kern umgesetzt: `PromptKernelBuilder` V1, `prompt_mode` (`full|minimal|subagent`), Context-Cost-APIs (`context.list`, `context.detail`) inkl. segmentierter Metrikpräzisierung.
-- 🔜 Nächste priorisierte Gaps: Typed Tool Schemas (Phase 3), Directive Layer + Reasoning Visibility (Phase 6), strict unknown-key fail-fast (Phase 7).
+- ✅ Phase-3-Kern umgesetzt: Typed Tool Schemas aus `ToolRegistry` im Function-Calling-Pfad verdrahtet.
+- ✅ Phase-6-Kern umgesetzt: Directive Layer OOB (`/queue`, `/model`, `/reasoning`, `/verbose`) + `reasoning_visibility` End-to-End verdrahtet.
+- ✅ Hardening abgeschlossen: Background-Run-Fehlerpfad/Cleanup bei Directive-Fehlern abgesichert; WS-Non-User-Pfade verwenden konsistent bereinigten Content/Model-Override.
+- 🔜 Nächster priorisierter Kernpunkt: strict unknown-key fail-fast (Phase 7).
 
 ---
 
@@ -22,19 +25,19 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 | 1 | Stochastisch + deterministische Lane | 8.5/10 |
 | 2 | Context Engineering + Kosten-Sichtbarkeit | 8.0/10 |
 | 3 | Skills als Lazy-Loading | 8.0/10 |
-| 4 | Typed Tools + Action-Space Shaping | 6.5/10 |
+| 4 | Typed Tools + Action-Space Shaping | 8.0/10 |
 | 5 | Loop Guardrails | 8.5/10 |
 | 6 | Hooks/Interceptors | 6.5/10 |
 | 7 | Multi-Agent Arbeitsteilung | 6.5/10 |
-| 8 | Operator Controls (/queue,/think,...) | 3.0/10 |
+| 8 | Operator Controls (/queue,/think,...) | 8.0/10 |
 | 9 | Predictability by Schema | 5.5/10 |
 
-**Gesamt:** 6.9/10
+**Gesamt:** 7.8/10
 
 ### Top-3 Hebel für sofortigen Impact
-1. **Typed Tool-Schemas für Function Calling** statt generischer `additionalProperties=true` Tool-Args.  
-2. **Directive-Layer (Out-of-Band Controls)** für `/queue`, `/model`, `/reasoning`, `/verbose`.  
-3. **Strict Config Validation (unknown-key fail-fast)** zur Vermeidung von Drift/Ghost-Bugs.
+1. **Strict Config Validation (unknown-key fail-fast)** zur Vermeidung von Drift/Ghost-Bugs.  
+2. **Hook-Contract + Safety-Policy V2** (versioniert, Timeout-/Failure-Vertrag je Hookpoint).  
+3. **Multi-Agent-Isolation** (Workspace-/Skills-/Credential-Scope als harter Default-Contract).
 
 ---
 

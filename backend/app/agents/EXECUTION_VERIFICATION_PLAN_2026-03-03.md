@@ -27,8 +27,12 @@ Referenzen: `fahrplan.md`, `importantPattern.md`
 - ✅ Context-Cost APIs präzisiert: event-first Aggregation aktiv, additive Felder `segment_source`, `degraded_estimation`, `phase_breakdown` in `context.list`/`context.detail`.
 - ✅ Skills Lazy-Loading S3 umgesetzt: Snapshot-Cache (TTL/mtime), Events `skills_snapshot_built|skills_snapshot_skipped|skills_preview_injected|skills_preview_omitted_by_prompt_mode|skills_manual_read`, prompt-mode Kontraktion aktiv.
 - ✅ S3 Fokus-Tests grün (`test_skills_service`, `test_tool_execution_manager`), plus Regressions-Fokus (`test_prompt_kernel_builder`, `test_tools_handlers_context_config`, `test_planner_agent`, `test_session_inbox_service`).
+- ✅ T1 Typed Tool Schemas umgesetzt: Registry-basierte Function-Calling-Definitionen inkl. typed `parameters` aktiv.
+- ✅ T2 Directive Layer OOB + Reasoning Visibility umgesetzt: `/queue|/model|/reasoning|/verbose` parserbasiert, Prefix-Strip aktiv in WS/REST.
+- ✅ T2 Hardening nachgezogen: Background-Run Directive-Fehler gehen garantiert durch Fail-/Cleanup-Pfad; WS-Non-User-Pfade nutzen konsistent bereinigten Content/Model-Override.
+- ✅ API-Level Regression ergänzt: `run.start` + `run.wait` verifizieren Directive-only Fehlerpfad im Background-Run.
 
-Hinweis: Nächste offene Kernpunkte liegen in Welle B/C (Typed Tool Schemas, Directive Layer OOB, strict unknown-key fail-fast).
+Hinweis: Verbleibender priorisierter Kernpunkt ist T3 (strict unknown-key fail-fast + config.health-Validierungsstatus).
 
 ---
 
@@ -49,9 +53,9 @@ Legende: **Erfüllt**, **Teilweise**, **Fehlt**
    - Skills-Snapshot wird nur bei aktivem Gating geladen und in Tool-Selektion injiziert.  
    - `prompt_mode`-basiertes Segment-Contracting (`full|minimal|subagent`) ist implementiert; weitere Optimierung der Skills-Segmentierung bleibt möglich.
 
-4. **Typed Tools + Action-Space Shaping** → **Teilweise**  
-   - Function-calling Pfad ist vorhanden, aber Tool-Args bleiben weitgehend generisch.  
-   - Kein durchgängig enger JSON-Schema-Contract pro Tool aus Registry für Auswahl/Validierung.
+4. **Typed Tools + Action-Space Shaping** → **Teilweise bis gut**  
+   - Function-calling nutzt Registry-basierte typed Tool-Schemas (`required`, `enum`, Constraints, `additionalProperties=false` where safe).  
+   - Restarbeit liegt primär in weiterer Schema-Härtung/Provider-Kompatibilität, nicht mehr im Fehlen des Grundmechanismus.
 
 5. **Loop Guardrails** → **Erfüllt (stark)**  
    - `ToolCallGatekeeper` + Thresholds + lifecycle events sind implementiert.  
@@ -65,9 +69,9 @@ Legende: **Erfüllt**, **Teilweise**, **Fehlt**
    - Subrun-Lane, Depth-Guards, Child-Limits, Handover sind vorhanden.  
    - Harte Agent-Isolation (workspace/skills/credential-scope je Agent) ist noch nicht vollständig als Default-Contract umgesetzt.
 
-8. **Operator Controls (Directive Layer OOB)** → **Fehlt (kernig)**  
-   - Kein parserbasierter Strip für `/queue`, `/model`, `/reasoning`, `/verbose`.  
-   - Kein `reasoning_visibility`-Kontrollpfad im RequestContext.
+8. **Operator Controls (Directive Layer OOB)** → **Erfüllt (grundlegend)**  
+   - Parserbasierter Strip für `/queue`, `/model`, `/reasoning`, `/verbose` ist aktiv (Prefix-only Semantik).  
+   - `reasoning_visibility`-Kontrollpfad ist in `RequestContext` und Lifecycle-Details verdrahtet.
 
 9. **Predictability by Schema (strict config)** → **Fehlt/Teilweise**  
    - `config.health` Endpoint ist vorhanden.  
@@ -373,3 +377,109 @@ Abort-Kriterien:
 5. **P2/P3-QA:** KPI-baseline vs. delta report (mind. 3 Lastprofile)
 
 Damit sind Pattern 2 und 3 in einer Reihenfolge geplant, die erst Messbarkeit/Determinismus absichert und danach die Kosten/Qualität optimiert.
+
+---
+
+## 9) Verifikations-Evidenz (03.03.2026, codebasiert)
+
+### 9.1 Ausgeführte Fokusläufe
+
+Ausgeführt in Repo-Root mit `backend/.venv`:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_prompt_kernel_builder.py backend/tests/test_tools_handlers_context_config.py backend/tests/test_tool_execution_manager.py backend/tests/test_ws_handler.py --maxfail=1 -o faulthandler_timeout=20`
+- Ergebnis: **29 passed**
+
+Hinweis zur Reproduzierbarkeit:
+- Lauf mit Root-`.venv` (`.venv/Scripts/python.exe`) ist auf dieser Maschine wegen FastAPI/Pydantic/Typing-Inkompatibilität (Python 3.14 beta) nicht repräsentativ für Backend-Regressionen.
+- Verbindliche Verifikation für dieses Backend erfolgt daher über `backend/.venv`.
+
+### 9.2 Harte Codebelege für verbleibenden Gap (C)
+
+1. **Strict unknown-key fail-fast fehlt**
+   - `Settings` basiert auf `pydantic.BaseModel` mit env-basierter Feldbelegung.
+   - Ein explizites strict unknown-key fail-fast auf Gateway-Startpfad ist aktuell nicht implementiert.
+   - `config.health` ist vorhanden (inkl. `schema`, `active_overrides`, `risk_flags`), deckt Unknown-Key-Fail-Fast aber nicht als Enforcement ab.
+
+---
+
+## 10) Exakte Next-72h-Reihenfolge (nur verbleibender Kernpunkt)
+
+### T3) Strict Config Validation (P7)
+
+Ziel:
+- Unknown keys im Config-Pfad fail-fast (feature-flagged rolloutfähig).
+
+Dateien:
+- `backend/app/config.py`
+- `backend/app/main.py` (Startup-Validation Hook, falls benötigt)
+- `backend/app/handlers/tools_handlers.py` (`config.health` um Validierungsstatus ergänzen)
+- neue Tests: `backend/tests/test_config_validation.py` + Erweiterung `backend/tests/test_tools_handlers_context_config.py`
+
+Akzeptanz:
+- Unknown-Key führt (bei Flag aktiv) reproduzierbar zu Start-Fehler.
+- `config.health` zeigt Schema-/Validation-Status inkl. Risiken/Overrides.
+
+### T4) Pflicht-Verifikation nach Umsetzung
+
+Fokus:
+- `pytest -q backend/tests -k "tool_registry or planner_agent or directive or ws_handler or config_validation or context_config" --maxfail=1`
+
+Regression (Backend):
+- `pytest -q backend/tests --maxfail=1`
+
+Exit-Gates:
+- Keine Regression in bestehenden Lane/Steer/PromptKernel/Context-Tests.
+- Neue E2E-/Unit-Cases für Directive + Typed Schema + Config strict grün.
+- Event-/Audit-Vertrag dokumentiert (neue Stages/Details/Failure-Policy).
+
+---
+
+## 11) Fortschritt T1/T2 + Hardening (03.03.2026, verifiziert)
+
+### T1 – Typed Tool Schemas (Status: ✅ umgesetzt)
+
+Code:
+- `backend/app/services/tool_registry.py`: typed `parameters` pro Tool + `build_function_calling_tools(...)`.
+- `backend/app/agent.py`: Registry-basierte Tool-Definitionen in Tool-Selection verdrahtet.
+- `backend/app/services/tool_execution_manager.py`: typed Tool-Definitionen in Function-Calling-Pfad durchgereicht.
+- `backend/app/llm_client.py`: übergebene typed `tool_definitions` werden im Request-Payload genutzt.
+
+Tests:
+- `backend/tests/test_tool_registry.py`
+- `backend/tests/test_llm_client.py`
+
+### T2 – Directive Layer OOB + Reasoning Visibility (Status: ✅ umgesetzt)
+
+Code:
+- Neu: `backend/app/services/directive_parser.py`
+   - Parser + Strip für `/queue`, `/model`, `/reasoning`, `/verbose`.
+   - Prefix-only Semantik (Inline-Text bleibt unverändert, kein OOB-Effekt).
+- `backend/app/ws_handler.py`
+   - Directive-Parsing im Receive-Pfad vor Enqueue/Dispatch.
+   - Overrides + `directives_applied` in Lifecycle-Details.
+   - `reasoning_level` und `reasoning_visibility` in `RequestContext` durchgereicht.
+- `backend/app/handlers/run_handlers.py` und `backend/app/run_endpoints.py`
+   - Directive-Parsing auch im REST-/Background-Pfad.
+- `backend/app/interfaces/request_context.py`
+   - Neue Felder: `reasoning_level`, `reasoning_visibility`.
+
+Tests:
+- Neu: `backend/tests/test_directive_parser.py`
+- Erweiterung: `backend/tests/test_ws_handler.py`
+
+### Verifikationsläufe (grün)
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_directive_parser.py backend/tests/test_ws_handler.py --maxfail=1 -o faulthandler_timeout=20` → **12 passed**
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_backend_e2e.py -k "websocket_user_message_emits_final_and_request_completed or websocket_command_intent_policy_block_emits_tool_selection_empty or websocket_tool_selection_empty_triggers_single_replan_then_completes" --maxfail=1 -o faulthandler_timeout=20` → **3 passed**
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_prompt_kernel_builder.py backend/tests/test_tools_handlers_context_config.py backend/tests/test_tool_execution_manager.py backend/tests/test_ws_handler.py backend/tests/test_tool_registry.py backend/tests/test_llm_client.py backend/tests/test_directive_parser.py --maxfail=1 -o faulthandler_timeout=20` → **47 passed**
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_handlers_contracts.py backend/tests/test_run_state_machine.py backend/tests/test_ws_handler.py -o faulthandler_timeout=20 --maxfail=1` → **21 passed**
+
+### Zusatz-Hardening (nach T2)
+
+- `run_handlers._run_background_message(...)`: Directive-Parsing in den `try`-Block verschoben, damit `GuardrailViolation` deterministisch in Fail-/Cleanup-Pfad läuft.
+- `ws_handler`: Non-User-Pfade (`init_run`, Routing-Heuristik, `subrun_spawn`) nutzen nun konsistent bereinigten Directive-Content + Model-Override.
+- API-Regressionstest ergänzt (`run.start` + `run.wait`) für Directive-only Fehlerfall im Background-Run.
+
+### Verbleibender Kernpunkt
+
+- **T3 Strict Config Validation (unknown-key fail-fast)** ist weiterhin offen und bleibt nächster priorisierter Umsetzungsschritt.

@@ -282,6 +282,7 @@ class LlmClient:
         system_prompt: str,
         user_prompt: str,
         allowed_tools: list[str],
+        tool_definitions: list[dict] | None = None,
         model: str | None = None,
         temperature: float | None = None,
     ) -> list[dict]:
@@ -290,23 +291,30 @@ class LlmClient:
 
         active_model = model or self.model
         normalized_temperature = self._normalize_temperature(temperature)
-        tool_definitions = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool_name,
-                    "description": f"Execute tool '{tool_name}'",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": True,
-                    },
-                },
-            }
-            for tool_name in allowed_tools
-            if isinstance(tool_name, str) and tool_name.strip()
+        resolved_tool_definitions = [
+            item
+            for item in (tool_definitions or [])
+            if isinstance(item, dict)
         ]
-        if not tool_definitions:
+        if not resolved_tool_definitions:
+            resolved_tool_definitions = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": f"Execute tool '{tool_name}'",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": True,
+                        },
+                    },
+                }
+                for tool_name in allowed_tools
+                if isinstance(tool_name, str) and tool_name.strip()
+            ]
+
+        if not resolved_tool_definitions:
             return []
 
         payload = {
@@ -316,7 +324,7 @@ class LlmClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "tools": tool_definitions,
+            "tools": resolved_tool_definitions,
             "tool_choice": "auto",
         }
         if normalized_temperature is not None:

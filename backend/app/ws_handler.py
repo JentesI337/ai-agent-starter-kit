@@ -13,6 +13,11 @@ from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, T
 from app.interfaces import RequestContext
 from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestrator.events import build_lifecycle_event, classify_error
+from app.services.directive_parser import (
+    normalize_reasoning_level,
+    normalize_reasoning_visibility,
+    parse_directives_from_message,
+)
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.services.session_inbox_service import SessionInboxService
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
@@ -311,6 +316,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             tool_policy = None
         queue_mode = str(job.get("queue_mode") or deps.settings.queue_mode_default)
         prompt_mode = str(job.get("prompt_mode") or deps.settings.prompt_mode_default)
+        reasoning_level = normalize_reasoning_level(str(job.get("reasoning_level") or ""))
+        reasoning_visibility = normalize_reasoning_visibility(str(job.get("reasoning_visibility") or ""))
         applied_preset = (str(job.get("preset") or "").strip().lower() or None)
         incoming_also_allow = None
         if isinstance(tool_policy, dict):
@@ -364,6 +371,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 "preset": applied_preset,
                 "queue_mode": queue_mode,
                 "prompt_mode": prompt_mode,
+                "reasoning_level": reasoning_level,
+                "reasoning_visibility": reasoning_visibility,
             },
         )
 
@@ -431,6 +440,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
                 queue_mode=queue_mode,
                 prompt_mode=prompt_mode,
+                reasoning_level=reasoning_level,
+                reasoning_visibility=reasoning_visibility,
                 should_steer_interrupt=should_steer_interrupt,
             ),
         )
@@ -590,17 +601,28 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     )
                     continue
 
-                queue_mode = normalize_queue_mode(data.queue_mode, default=deps.settings.queue_mode_default)
+                directive_result = parse_directives_from_message(
+                    data.content or "",
+                    queue_mode_default=deps.settings.queue_mode_default,
+                )
+                content = directive_result.clean_content
+                queue_mode = normalize_queue_mode(
+                    data.queue_mode or directive_result.overrides.queue_mode,
+                    default=deps.settings.queue_mode_default,
+                )
                 prompt_mode = normalize_prompt_mode(data.prompt_mode, default=deps.settings.prompt_mode_default)
+                requested_model = (data.model or directive_result.overrides.model or "").strip() or None
+                reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
+                reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
                 if data.type == "user_message":
                     current_runtime_state = deps.runtime_manager.get_state()
                     deps.state_store.init_run(
                         run_id=request_id,
                         session_id=session_id,
                         request_id=request_id,
-                        user_message=data.content or "",
+                        user_message=content,
                         runtime=current_runtime_state.runtime,
-                        model=data.model or current_runtime_state.model,
+                        model=requested_model or current_runtime_state.model,
                     )
                     deps.state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
                     await send_lifecycle(
@@ -608,13 +630,16 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         request_id=request_id,
                         session_id=session_id,
                         details={
-                            "chars": len(data.content),
+                            "chars": len(content),
                             "requested_agent_id": requested_agent_id,
                             "effective_agent_id": requested_agent_id,
                             "routing_reason": None,
                             "preset": (data.preset or "").strip().lower() or None,
                             "queue_mode": queue_mode,
                             "prompt_mode": prompt_mode,
+                            "reasoning_level": reasoning_level,
+                            "reasoning_visibility": reasoning_visibility,
+                            "directives_applied": list(directive_result.applied),
                         },
                     )
 
@@ -623,17 +648,19 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         session_inbox.enqueue(
                             session_id=session_id,
                             run_id=request_id,
-                            message=data.content,
+                            message=content,
                             meta={
                                 "request_id": request_id,
                                 "session_id": session_id,
-                                "content": data.content,
-                                "model": data.model,
+                                "content": content,
+                                "model": requested_model,
                                 "preset": data.preset,
                                 "tool_policy": incoming_tool_policy,
                                 "requested_agent_id": requested_agent_id,
                                 "queue_mode": queue_mode,
                                 "prompt_mode": prompt_mode,
+                                "reasoning_level": reasoning_level,
+                                "reasoning_visibility": reasoning_visibility,
                             },
                         )
                     except OverflowError:
@@ -697,10 +724,10 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     if applied_preset == "review":
                         effective_agent_id = deps.review_agent_id
                         routing_reason = "preset_review"
-                    elif deps.looks_like_review_request(data.content or ""):
+                    elif deps.looks_like_review_request(content):
                         effective_agent_id = deps.review_agent_id
                         routing_reason = "review_intent"
-                    elif deps.looks_like_coding_request(data.content or ""):
+                    elif deps.looks_like_coding_request(content):
                         effective_agent_id = deps.coder_agent_id
                         routing_reason = "coding_intent"
 
@@ -723,9 +750,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     run_id=request_id,
                     session_id=session_id,
                     request_id=request_id,
-                    user_message=data.content or "",
+                    user_message=content,
                     runtime=current_runtime_state.runtime,
-                    model=data.model or current_runtime_state.model,
+                    model=requested_model or current_runtime_state.model,
                 )
                 deps.state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
                 await send_lifecycle(
@@ -733,11 +760,16 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     request_id=request_id,
                     session_id=session_id,
                     details={
-                        "chars": len(data.content),
+                        "chars": len(content),
                         "requested_agent_id": requested_agent_id,
                         "effective_agent_id": resolved_agent_id,
                         "routing_reason": routing_reason,
                         "preset": applied_preset,
+                        "queue_mode": queue_mode,
+                        "prompt_mode": prompt_mode,
+                        "reasoning_level": reasoning_level,
+                        "reasoning_visibility": reasoning_visibility,
+                        "directives_applied": list(directive_result.applied),
                     },
                 )
 
@@ -763,7 +795,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
                 if data.type == "subrun_spawn":
                     runtime_state = deps.runtime_manager.get_state()
-                    selected_model = (data.model or "").strip() or runtime_state.model
+                    selected_model = (requested_model or "").strip() or runtime_state.model
                     if runtime_state.runtime == "local":
                         selected_model = await deps.runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
                     else:
@@ -779,7 +811,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         run_id = await deps.subrun_lane.spawn(
                             parent_request_id=request_id,
                             parent_session_id=session_id,
-                            user_message=data.content,
+                            user_message=content,
                             runtime=runtime_state.runtime,
                             model=selected_model,
                             timeout_seconds=deps.settings.subrun_timeout_seconds,
@@ -861,11 +893,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     request_id=request_id,
                     session_id=session_id,
                     details={
-                        "model": data.model,
+                        "model": requested_model,
                         "requested_agent_id": requested_agent_id,
                         "effective_agent_id": resolved_agent_id,
                         "routing_reason": routing_reason,
                         "preset": applied_preset,
+                        "reasoning_level": reasoning_level,
+                        "reasoning_visibility": reasoning_visibility,
                     },
                 )
 
@@ -883,7 +917,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     model=runtime_state.model,
                 )
 
-                selected_model = (data.model or "").strip() or runtime_state.model
+                selected_model = (requested_model or "").strip() or runtime_state.model
                 if runtime_state.runtime == "local":
                     resolved_model = await deps.runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
                     if resolved_model != selected_model:
@@ -918,7 +952,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     selected_model,
                 )
                 await selected_orchestrator.run_user_message(
-                    user_message=data.content,
+                    user_message=content,
                     send_event=send_event,
                     request_context=RequestContext(
                         session_id=session_id,
@@ -933,6 +967,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
                         queue_mode=queue_mode,
                         prompt_mode=prompt_mode,
+                        reasoning_level=reasoning_level,
+                        reasoning_visibility=reasoning_visibility,
                     ),
                 )
                 deps.logger.info(

@@ -27,6 +27,11 @@ from app.orchestrator.run_state_machine import (
     is_allowed_run_state_transition,
     resolve_run_state_from_stage,
 )
+from app.services.directive_parser import (
+    normalize_reasoning_level,
+    normalize_reasoning_visibility,
+    parse_directives_from_message,
+)
 from app.services.request_normalization import normalize_idempotency_key, normalize_preset, normalize_prompt_mode, normalize_queue_mode
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
@@ -332,6 +337,7 @@ async def _run_background_message(
     tool_policy: ToolPolicyDict | None,
 ) -> None:
     deps = _require_deps()
+    selected_agent = None
 
     async def collect_event(payload: dict) -> None:
         if _is_run_state_hard_failed(run_id):
@@ -341,6 +347,19 @@ async def _run_background_message(
             raise RuntimeError("run_state_hard_failed")
 
     try:
+        directive_result = parse_directives_from_message(
+            message or "",
+            queue_mode_default=settings.queue_mode_default,
+        )
+        effective_message = directive_result.clean_content
+        effective_queue_mode = normalize_queue_mode(
+            queue_mode or directive_result.overrides.queue_mode,
+            default=settings.queue_mode_default,
+        )
+        effective_model = (model or directive_result.overrides.model or "").strip() or None
+        reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
+        reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(agent_id)
         applied_preset = normalize_preset(preset)
         deps.state_store.set_task_status(run_id=run_id, task_id="request", label="request", status="active")
@@ -350,13 +369,19 @@ async def _run_background_message(
                 request_id=run_id,
                 session_id=session_id,
                 stage="processing_started",
-                details={"preset": applied_preset, "agent_id": resolved_agent_id},
+                details={
+                    "preset": applied_preset,
+                    "agent_id": resolved_agent_id,
+                    "directives_applied": list(directive_result.applied),
+                    "reasoning_level": reasoning_level,
+                    "reasoning_visibility": reasoning_visibility,
+                },
                 agent=selected_agent.name,
             ),
         )
 
         runtime_state = deps.runtime_manager.get_state()
-        selected_model = (model or "").strip() or runtime_state.model
+        selected_model = effective_model or runtime_state.model
 
         selected_agent.configure_runtime(
             base_url=runtime_state.base_url,
@@ -369,7 +394,7 @@ async def _run_background_message(
             selected_model = await deps.runtime_manager.resolve_api_request_model(selected_model)
 
         await selected_orchestrator.run_user_message(
-            user_message=message,
+            user_message=effective_message,
             send_event=collect_event,
             request_context=RequestContext(
                 session_id=session_id,
@@ -382,8 +407,10 @@ async def _run_background_message(
                 depth=0,
                 preset=applied_preset,
                 orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
-                queue_mode=normalize_queue_mode(queue_mode, default=settings.queue_mode_default),
+                queue_mode=effective_queue_mode,
                 prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
+                reasoning_level=reasoning_level,
+                reasoning_visibility=reasoning_visibility,
             ),
         )
         state_mark_completed_safe(run_id=run_id)
@@ -406,7 +433,7 @@ async def _run_background_message(
                 session_id=session_id,
                 stage="processing_failed",
                 details={"error": str(exc)},
-                agent=(selected_agent.name if "selected_agent" in locals() else deps.agent.name),
+                agent=(selected_agent.name if selected_agent is not None else deps.agent.name),
             ),
         )
         deps.logger.exception("background_run_failed run_id=%s session_id=%s", run_id, session_id)

@@ -8,6 +8,8 @@ from app.tool_policy import ToolPolicyDict
 
 QueueMode = Literal["wait", "follow_up", "steer"]
 PromptMode = Literal["full", "minimal", "subagent"]
+ReasoningLevel = Literal["low", "medium", "high", "ultrathink", "adaptive"]
+ReasoningVisibility = Literal["off", "summary", "stream"]
 
 
 @dataclass(frozen=True)
@@ -24,4 +26,6 @@ class RequestContext:
     orchestrator_agent_ids: list[str] | None = None
     queue_mode: QueueMode = "wait"
     prompt_mode: PromptMode = "full"
+    reasoning_level: ReasoningLevel = "medium"
+    reasoning_visibility: ReasoningVisibility = "off"
     should_steer_interrupt: Callable[[], bool] | None = None

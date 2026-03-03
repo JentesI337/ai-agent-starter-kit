@@ -242,3 +242,63 @@ def test_background_collector_stops_after_hard_fail_violation() -> None:
     assert "request_received" in lifecycle_stages
     assert "planning_started" not in lifecycle_stages
     assert store.runs[run_id].get("status") == "failed"
+
+
+def test_background_run_directive_parse_failure_marks_failed_and_cleans_active_task() -> None:
+    store = _StateStore()
+    active_tasks: dict[str, object] = {}
+    run_id = "run-directive-failure"
+
+    run_handlers.configure(
+        run_handlers.RunHandlerDependencies(
+            logger=SimpleNamespace(debug=lambda *a, **k: None, exception=lambda *a, **k: None),
+            settings=SimpleNamespace(run_wait_default_timeout_ms=100, run_wait_poll_interval_ms=10),
+            runtime_manager=SimpleNamespace(get_state=lambda: SimpleNamespace(runtime="api", model="m", base_url="u")),
+            state_store=store,
+            agent=SimpleNamespace(name="head-agent"),
+            active_run_tasks=active_tasks,
+            idempotency_mgr=SimpleNamespace(),
+            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
+            effective_orchestrator_agent_ids=lambda: {"head-agent"},
+            build_run_start_fingerprint=lambda **kw: "fp",
+            extract_also_allow=lambda policy: None,
+        )
+    )
+
+    store.init_run(
+        run_id=run_id,
+        session_id="s1",
+        request_id=run_id,
+        user_message="/model gpt-oss",
+        runtime="api",
+        model="m",
+        meta={},
+    )
+    active_tasks[run_id] = object()
+
+    import asyncio
+
+    asyncio.run(
+        run_handlers._run_background_message(
+            agent_id="head-agent",
+            run_id=run_id,
+            session_id="s1",
+            message="/model gpt-oss",
+            model=None,
+            preset=None,
+            queue_mode="wait",
+            prompt_mode="full",
+            tool_policy=None,
+        )
+    )
+
+    assert store.runs[run_id].get("status") == "failed"
+    assert "Directive-only message" in str(store.runs[run_id].get("error") or "")
+    assert run_id not in active_tasks
+
+    lifecycle_stages = [
+        evt.get("stage")
+        for evt in store.runs[run_id].get("events", [])
+        if isinstance(evt, dict) and evt.get("type") == "lifecycle"
+    ]
+    assert "processing_failed" in lifecycle_stages
