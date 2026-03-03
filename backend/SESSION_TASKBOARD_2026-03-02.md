@@ -375,3 +375,177 @@ Dieses Taskboard hält den **arbeitsfähigen Next-Step-Backlog** für Folgesessi
   1. gezielte Tests
   2. kurze kritische Selbstprüfung (Impact, Restrisiko, Follow-up)
   3. Taskboard-Update
+
+## Fortsetzung (Session 9 — HA-02/HA-03, 03.03.2026)
+
+### Umgesetzt
+1. HA-01 (schema-first Output) umgesetzt
+   - Datei: `app/agents/planner_agent.py`
+     - Hard-Research-Schema-Erkennung ergänzt.
+     - Planner-Prompt für passende Hard-Requests um verbindlichen Struktur-Contract erweitert.
+   - Datei: `app/agents/synthesizer_agent.py`
+     - Hard-Research-Schema-Erkennung ergänzt.
+     - Final-Prompt-Builder eingeführt und bei passenden Hard-Requests mit verpflichtendem Output-Schema erweitert.
+   - Neue Tests:
+     - `tests/test_planner_agent.py`
+     - Erweiterung `tests/test_synthesizer_agent.py`
+
+2. HA-02 (tests-first) umgesetzt
+   - Neue Datei: `tests/test_hard_reasoning_output_contracts.py`
+   - Positiv-/Negativ-Contract-Tests für Hard-Reasoning-Ausgaben ergänzt.
+   - Drift-Schutz gegen Benchmark-Szenario eingebaut (Case-Contracts aus `benchmarks/scenarios/default.json`).
+
+3. HA-03 (Benchmark-Qualität) umgesetzt
+   - Datei: `benchmarks/scenarios/default.json`
+     - Hard-Case-Split eingeführt:
+       - `hard_reasoning_format` (gated)
+       - `hard_reasoning_depth` (gated)
+       - `hard_tools_diagnostic` (non-gated, bestehend)
+   - Datei: `benchmarks/run_benchmark.py`
+     - Latenz-Aggregation ergänzt: `p50/p95` für `duration_ms` und `first_token_ms`.
+     - Summary um `latency_ms`-Block erweitert (gesamt + by_level).
+     - CLI-Standard `--runs-per-case` von 1 auf 3 gesetzt.
+   - Datei: `BENCHMARK_STRATEGY.md`
+     - Strategie auf Hard-Case-Split und 3 Runs/Case als Standard aktualisiert.
+
+4. Tests für HA-03-Metriken ergänzt
+   - Neue Datei: `tests/test_run_benchmark_metrics.py`
+   - Unit-Tests für Percentile-Berechnung und Latenz-Aggregation ergänzt.
+
+### Verifikation
+- Ausgeführt: `./.venv/Scripts/python.exe -m pytest tests/test_planner_agent.py tests/test_synthesizer_agent.py tests/test_hard_reasoning_output_contracts.py tests/test_run_benchmark_metrics.py -q`
+- Ergebnis: **15 passed**
+
+### Kritische Selbstprüfung (Session 9)
+- Positiv:
+  - Hard-Failure-Root-Causes sind jetzt besser trennbar (Format vs. Depth vs. Tools).
+  - Benchmark-Reports enthalten robuste Latenzkennzahlen für Vergleich über Sprints.
+  - Hard-Research-Requests werden im Planner/Synthesizer nun schema-first behandelt.
+- Restrisiko:
+  - Neue Hard-Cases können in frühen Läufen initial niedrigere Erfolgsraten zeigen (strengere Messung).
+  - Schema-Erkennung basiert derzeit auf Keyword-Heuristik und kann bei stark abweichenden Formulierungen nicht triggern.
+- Follow-up:
+  - Nächster Slice: HA-04 (Recovery-Decision-Matrix) mit parametrierten Unit-Tests und Telemetrie-Abgleich.
+
+## Fortsetzung (Session 10 — HA-04/HA-05, 03.03.2026)
+
+### Umgesetzt
+1. HA-04 (Recovery-Telemetrie-Vereinheitlichung) umgesetzt
+   - Datei: `app/orchestrator/pipeline_runner.py`
+   - `model_recovery_summary.details` additiv erweitert um:
+     - `recovered_successfully`
+     - `terminal_reason`
+   - Semantik:
+     - bei `final_outcome=success` => `recovered_successfully=true`, `terminal_reason=recovered`
+     - bei `final_outcome=failure` => `recovered_successfully=false`, `terminal_reason=<final_reason|unknown>`
+
+2. HA-04 Tests erweitert
+   - Datei: `tests/test_pipeline_runner_recovery.py`
+   - Pflichtfeld-Prüfungen auf `recovered_successfully` und `terminal_reason` ergänzt.
+   - Failure-Pfad für `terminal_reason` explizit abgesichert.
+
+3. HA-05 (bounded Replan-Fallback) umgesetzt
+   - Datei: `app/agent.py`
+   - Tool-Resultat-Klassifikation formalisiert:
+     - `blocked`, `empty`, `error_only`, `usable`
+   - Replan-Entscheidung formalisiert über `_resolve_replan_reason(...)`.
+   - Neuer bounded Pfad:
+     - genau ein Zusatz-Replan bei `empty`-Tool-Resultat (`tool_selection_empty_replan`), auch wenn `RUN_MAX_REPLAN_ITERATIONS=1`.
+   - Replan-Telemetrie erweitert (`replanning_started`/`replanning_completed` Details mit Grund und Zählerständen).
+
+4. HA-05 Tests ergänzt
+   - Neue Datei: `tests/test_head_agent_replan_policy.py`
+   - Klassifikations- und Replan-Policy-Tests für bounded empty fallback ergänzt.
+
+5. HA-05 E2E-Nachweis (WS-Pfad) ergänzt
+  - Datei: `tests/test_backend_e2e.py`
+  - Neuer Test: `test_websocket_tool_selection_empty_triggers_single_replan_then_completes`
+  - Verifiziert:
+    - genau ein `replanning_started` mit `reason=tool_selection_empty_replan`
+    - korrespondierendes `replanning_completed`
+    - erfolgreicher Request-Abschluss (`request_completed`) ohne Endlosschleife
+
+### Verifikation
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_pipeline_runner_recovery.py tests/test_fallback_state_machine.py tests/test_recovery_strategy.py -q`
+- Ergebnis: **32 passed**
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_head_agent_replan_policy.py tests/test_pipeline_runner_recovery.py tests/test_fallback_state_machine.py tests/test_recovery_strategy.py -q`
+- Ergebnis: **35 passed**
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_backend_e2e.py::test_websocket_tool_selection_empty_triggers_single_replan_then_completes tests/test_planner_agent.py tests/test_synthesizer_agent.py tests/test_hard_reasoning_output_contracts.py tests/test_run_benchmark_metrics.py tests/test_pipeline_runner_recovery.py tests/test_fallback_state_machine.py tests/test_recovery_strategy.py tests/test_head_agent_replan_policy.py -q`
+- Ergebnis: **51 passed**
+
+### Kritische Selbstprüfung (Session 10)
+- Positiv:
+  - Recovery-Summary ist operativ klarer (direktes Signal, ob Recovery final erfolgreich war).
+  - Leere Tool-Selektion bekommt jetzt einen streng begrenzten Selbstheilungsversuch statt sofortigem Abbruch.
+  - E2E bestätigt den neuen bounded Replan-Pfad im produktionsnahen WS-Lauf.
+- Restrisiko:
+  - OK/ERROR-Heuristik in Tool-Resultat-Klassifikation bleibt textbasiert.
+- Follow-up:
+  - Nächster Slice: WS-D (Tool-Policy-Diagnostikprofile + Klassifikationsschärfung `security`/`unsupported`/`env-missing`).
+
+## Fortsetzung (Session 11 — WS-D Klassifikationsschärfung, 03.03.2026)
+
+### Umgesetzt
+1. WS-D Command-Policy-Kategorien in `run_command` implementiert
+   - Datei: `app/tools.py`
+   - Strukturierte Fehlercodes für Command-Policy-Pfade ergänzt:
+     - `command_policy_security`
+     - `command_policy_unsupported`
+     - `command_policy_env_missing`
+   - Einheitliche Fehlerdetails ergänzt (`details.category`, `details.leader`).
+
+2. Security-/Unsupported-Pfade auf strukturierte Fehler umgestellt
+   - Datei: `app/tools.py`
+   - `_enforce_command_allowlist(...)` liefert jetzt den normalisierten Command-Leader zurück.
+   - Safety- und Allowlist-Verstöße laufen über zentrale `_raise_command_policy_error(...)`.
+
+3. `env-missing`-Diagnostik ergänzt
+   - Datei: `app/tools.py`
+   - Bei nicht erfolgreichem Exit + typischen „command not found / not recognized“-Signalen wird ein expliziter `env-missing`-Fehler geworfen statt stiller Rückgabe als normales Tool-Ergebnis.
+
+4. Regressionstests für Kategorien ergänzt
+   - Datei: `tests/test_tools_command_security.py`
+   - Neue Tests validieren `error_code` und `details.category` für:
+     - Security-Block (`shell chaining`)
+     - Unsupported Command (`git` nicht allowlisted)
+     - Env-Missing-Fall (allowlisted Command, simuliert nicht verfügbar)
+
+### Verifikation
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_tools_command_security.py -q`
+- Ergebnis: **47 passed**
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_pipeline_runner_recovery.py tests/test_fallback_state_machine.py tests/test_head_agent_replan_policy.py -q`
+- Ergebnis: **31 passed**
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_hard_reasoning_output_contracts.py tests/test_run_benchmark_metrics.py tests/test_planner_agent.py tests/test_synthesizer_agent.py -q`
+- Ergebnis: **15 passed**
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_backend_e2e.py::test_websocket_tool_selection_empty_triggers_single_replan_then_completes -q`
+- Ergebnis: **1 passed**
+
+### Kritische Selbstprüfung (Session 11)
+- Positiv:
+  - Tool-Policy-Fehler sind jetzt operativ auswertbar und maschinenlesbar kategorisiert.
+  - Bestehende Blockierlogik bleibt strikt; es wurde keine Security-Lockerung eingeführt.
+- Restrisiko:
+  - `env-missing`-Erkennung basiert auf robusten, aber textbasierten Shell-Signalen.
+- Follow-up:
+  - Optional: Kategorie-Propagation in Lifecycle/Telemetry explizit aufnehmen (z. B. `tool_failed.details.error_code`).
+
+## Fortsetzung (Session 11b — WS-D Telemetry-Propagation, 03.03.2026)
+
+### Umgesetzt
+1. Kategorie-Propagation in Runtime-Telemetrie ergänzt
+   - Datei: `app/services/tool_execution_manager.py`
+   - Bei `ToolExecutionError` enthalten `error`-Event und `tool_failed`-Lifecycle jetzt additiv:
+     - `error_code`
+     - `error_category`
+
+2. Retry-Fehlerkette metadata-stabilisiert
+   - Datei: `app/services/tool_execution_manager.py`
+   - Bei Web-Fetch-Retry-Failure bleibt der ursprüngliche `error_code` erhalten; vorhandene Details werden additiv mit Retry-Details zusammengeführt.
+
+3. Regressionstest ergänzt
+   - Datei: `tests/test_tool_execution_manager.py`
+   - Neuer Test verifiziert, dass `tool_failed` und `error`-Event `command_policy_security` + `security` korrekt führen.
+
+### Verifikation
+- Ausgeführt: `./backend/.venv/Scripts/python.exe -m pytest tests/test_tool_execution_manager.py tests/test_tools_command_security.py -q`
+- Ergebnis: **55 passed**

@@ -873,7 +873,18 @@ class ToolExecutionManager:
                             )
                             retried_successfully = True
                         except ToolExecutionError as retry_exc:
-                            exc = ToolExecutionError(f"{exc} | retry_failed: {retry_exc}")
+                            merged_details: dict[str, object] = {}
+                            original_details = getattr(exc, "details", None)
+                            if isinstance(original_details, dict):
+                                merged_details.update(original_details)
+                            retry_details = getattr(retry_exc, "details", None)
+                            if isinstance(retry_details, dict):
+                                merged_details["retry_error"] = dict(retry_details)
+                            exc = ToolExecutionError(
+                                f"{exc} | retry_failed: {retry_exc}",
+                                error_code=getattr(exc, "error_code", None),
+                                details=merged_details,
+                            )
                             await emit_lifecycle(
                                 "tool_retry_failed",
                                 {
@@ -892,16 +903,34 @@ class ToolExecutionManager:
 
                 tool_error_count += 1
                 results.append(f"[{tool}] ERROR: {exc}")
+                error_code = getattr(exc, "error_code", None)
+                error_details = getattr(exc, "details", None)
+                error_category: str | None = None
+                if isinstance(error_details, dict):
+                    category_value = error_details.get("category")
+                    if isinstance(category_value, str) and category_value.strip():
+                        error_category = category_value.strip()
                 await send_event(
                     {
                         "type": "error",
                         "agent": agent_name,
                         "message": f"Tool error ({tool}): {exc}",
+                        **({"error_code": error_code} if isinstance(error_code, str) and error_code else {}),
+                        **({"error_category": error_category} if error_category else {}),
                     }
                 )
+                failed_details: dict[str, object] = {
+                    "tool": tool,
+                    "index": idx,
+                    "error": str(exc),
+                }
+                if isinstance(error_code, str) and error_code:
+                    failed_details["error_code"] = error_code
+                if error_category:
+                    failed_details["error_category"] = error_category
                 await emit_lifecycle(
                     "tool_failed",
-                    {"tool": tool, "index": idx, "error": str(exc)},
+                    failed_details,
                 )
                 await invoke_hooks(
                     "after_tool_call",
@@ -911,6 +940,8 @@ class ToolExecutionManager:
                         "index": idx,
                         "status": "error",
                         "error": str(exc),
+                        **({"error_code": error_code} if isinstance(error_code, str) and error_code else {}),
+                        **({"error_category": error_category} if error_category else {}),
                     },
                 )
 

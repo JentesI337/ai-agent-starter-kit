@@ -174,3 +174,45 @@ def test_run_command_blocks_non_allowlisted_even_when_safe(tmp_path, monkeypatch
 
     with pytest.raises(ToolExecutionError, match="is not allowed by command allowlist"):
         tooling.run_command("git status")
+
+
+def test_command_policy_category_for_security_block(tmp_path, monkeypatch) -> None:
+    tooling = _make_tooling(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tooling.run_command("echo hi ; echo bye")
+
+    assert exc_info.value.error_code == "command_policy_security"
+    assert exc_info.value.details.get("category") == "security"
+
+
+def test_command_policy_category_for_unsupported_command(tmp_path, monkeypatch) -> None:
+    tooling = _make_tooling(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tooling.run_command("git status")
+
+    assert exc_info.value.error_code == "command_policy_unsupported"
+    assert exc_info.value.details.get("category") == "unsupported"
+    assert exc_info.value.details.get("leader") == "git"
+
+
+def test_command_policy_category_for_env_missing(tmp_path, monkeypatch) -> None:
+    tooling = _make_tooling(tmp_path, monkeypatch)
+
+    def _fake_run(*args, **kwargs):
+        class _Completed:
+            returncode = 9009
+            stdout = ""
+            stderr = "'python' is not recognized as an internal or external command"
+
+        return _Completed()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tooling.run_command("python --version")
+
+    assert exc_info.value.error_code == "command_policy_env_missing"
+    assert exc_info.value.details.get("category") == "env-missing"
+    assert exc_info.value.details.get("leader") == "python"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import re
 import sys
 import time
@@ -348,7 +349,57 @@ def _group_by_level(results: list[BenchmarkRunResult]) -> dict[str, dict[str, in
     return grouped
 
 
+def _percentile(values: list[int], percentile: int) -> float | None:
+    if not values:
+        return None
+    if percentile <= 0:
+        return float(min(values))
+    if percentile >= 100:
+        return float(max(values))
+
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * (percentile / 100)
+    low = math.floor(rank)
+    high = math.ceil(rank)
+    if low == high:
+        return float(ordered[low])
+    fraction = rank - low
+    return float(ordered[low] + (ordered[high] - ordered[low]) * fraction)
+
+
+def _summarize_latency(values: list[int]) -> dict[str, float | int | None]:
+    return {
+        "count": len(values),
+        "p50": _percentile(values, 50),
+        "p95": _percentile(values, 95),
+    }
+
+
+def _build_latency_summary(results: list[BenchmarkRunResult]) -> dict[str, Any]:
+    duration_all = [item.duration_ms for item in results]
+    first_token_all = [item.first_token_ms for item in results if item.first_token_ms is not None]
+
+    by_level: dict[str, dict[str, dict[str, float | int | None]]] = {}
+    for level in sorted({item.level for item in results}):
+        level_results = [item for item in results if item.level == level]
+        level_duration = [item.duration_ms for item in level_results]
+        level_first_token = [item.first_token_ms for item in level_results if item.first_token_ms is not None]
+        by_level[level] = {
+            "duration_ms": _summarize_latency(level_duration),
+            "first_token_ms": _summarize_latency(level_first_token),
+        }
+
+    return {
+        "duration_ms": _summarize_latency(duration_all),
+        "first_token_ms": _summarize_latency(first_token_all),
+        "by_level": by_level,
+    }
+
+
 def _render_summary_md(summary: dict[str, Any], results: list[BenchmarkRunResult]) -> str:
+    latency = summary.get("latency_ms", {})
+    duration_latency = latency.get("duration_ms", {}) if isinstance(latency, dict) else {}
+    first_token_latency = latency.get("first_token_ms", {}) if isinstance(latency, dict) else {}
     lines = [
         "# Benchmark Summary",
         "",
@@ -362,6 +413,8 @@ def _render_summary_md(summary: dict[str, Any], results: list[BenchmarkRunResult
         f"- gated_passed_runs: {summary['gated_passed_runs']}",
         f"- gated_failed_runs: {summary['gated_failed_runs']}",
         f"- gated_success_rate: {summary['gated_success_rate_percent']:.1f}%",
+        f"- duration_ms p50/p95: {duration_latency.get('p50')} / {duration_latency.get('p95')}",
+        f"- first_token_ms p50/p95: {first_token_latency.get('p50')} / {first_token_latency.get('p95')}",
         "",
         "## Level Overview",
         "",
@@ -377,6 +430,23 @@ def _render_summary_md(summary: dict[str, Any], results: list[BenchmarkRunResult
         lines.append(
             f"- {level}: overall {passed}/{total} ({pct:.1f}%), gated {gated_passed}/{gated_total} ({gated_pct:.1f}%)"
         )
+
+    by_level_latency = latency.get("by_level", {}) if isinstance(latency, dict) else {}
+    if isinstance(by_level_latency, dict) and by_level_latency:
+        lines += [
+            "",
+            "## Latency Overview",
+            "",
+        ]
+        for level, metrics in by_level_latency.items():
+            if not isinstance(metrics, dict):
+                continue
+            duration = metrics.get("duration_ms", {})
+            first_token = metrics.get("first_token_ms", {})
+            lines.append(
+                f"- {level}: duration p50/p95={duration.get('p50')}/{duration.get('p95')}, "
+                f"first_token p50/p95={first_token.get('p50')}/{first_token.get('p95')}"
+            )
 
     lines += [
         "",
@@ -462,6 +532,7 @@ async def _run(args: argparse.Namespace) -> int:
         "gated_failed_runs": gated_failed_runs,
         "gated_success_rate_percent": (gated_passed_runs / gated_total_runs * 100) if gated_total_runs else 0.0,
         "by_level": _group_by_level(results),
+        "latency_ms": _build_latency_summary(results),
     }
 
     results_json = {
@@ -510,7 +581,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ws-url", default=None, help="Explicit WebSocket URL. Default derives from --base-url.")
     parser.add_argument("--scenario-file", default=None, help="Path to benchmark scenario JSON.")
     parser.add_argument("--levels", default="easy,mid,hard", help="Comma-separated levels to run.")
-    parser.add_argument("--runs-per-case", type=int, default=1, help="Number of runs per benchmark case.")
+    parser.add_argument("--runs-per-case", type=int, default=3, help="Number of runs per benchmark case.")
     parser.add_argument("--model", default=None, help="Override model for all benchmark cases.")
     parser.add_argument(
         "--output-dir",

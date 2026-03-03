@@ -79,10 +79,49 @@
       ]
     },
     {
-      "case_id": "hard_reasoning_research",
+      "case_id": "hard_reasoning_format",
       "level": "hard",
-      "description": "Long-form deep reasoning response without shell/tool side effects",
-      "prompt": "Erstelle eine umfangreiche technische Research-Analyse für das Backend-Agent-Framework rein textuell aus deinem Wissen. Verwende KEINE Tools, KEINE Shell/Systemkommandos, KEINE Dateizugriffe und fordere keine Policy-Freigabe an. Antworte ausschließlich als strukturierte Analyse mit den Abschnitten: Architektur-Risiken, Performance-Hotspots, Guardrail-Lücken, Priorisierte Maßnahmen (Top 10), Messbare KPIs und Rollout-Plan in 3 Phasen.",
+      "description": "Long-form reasoning with strict structural section requirements and no tool side effects",
+      "prompt": "Erstelle eine umfangreiche technische Analyse für das Backend-Agent-Framework rein textuell. Verwende KEINE Tools, KEINE Shell/Systemkommandos, KEINE Dateizugriffe und fordere keine Policy-Freigabe an. Nutze zwingend die Abschnitte: Architektur-Risiken, Performance-Hotspots, Guardrail-Lücken, Priorisierte Maßnahmen (Top 10), Messbare KPIs, Rollout-Plan.",
+      "gate": true,
+      "tool_policy": {
+        "deny": [
+          "run_command",
+          "start_background_command",
+          "kill_background_process",
+          "spawn_subrun",
+          "web_fetch",
+          "get_background_output"
+        ]
+      },
+      "timeout_ms": 180000,
+      "min_final_chars": 1000,
+      "min_event_count": 8,
+      "required_substrings": [
+        "Top 10",
+        "KPI"
+      ],
+      "required_regex_patterns": [
+        "(?i)architektur-risiken",
+        "(?i)performance-hotspots",
+        "(?i)guardrail-l\\u00fccken",
+        "(?i)priorisierte ma\\u00dfnahmen",
+        "(?i)messbare kpis",
+        "(?i)rollout-plan"
+      ],
+      "regex_min_match_counts": {
+        "(?m)^\\s*([1-9]|10)\\.": 8
+      },
+      "required_lifecycle_stages": [
+        "planning_completed",
+        "request_completed"
+      ]
+    },
+    {
+      "case_id": "hard_reasoning_depth",
+      "level": "hard",
+      "description": "Long-form reasoning depth with mandatory phased rollout and measurable KPIs, no tools",
+      "prompt": "Erstelle eine tiefe technische Research-Analyse für das Backend-Agent-Framework rein textuell. Verwende KEINE Tools, KEINE Shell/Systemkommandos, KEINE Dateizugriffe und fordere keine Policy-Freigabe an. Liefere einen Rollout-Plan in 3 Phasen und mindestens zwei messbare KPI-Ziele mit Prozent- oder Millisekunden-/Sekundenwert.",
       "gate": true,
       "tool_policy": {
         "deny": [
@@ -98,20 +137,10 @@
       "min_final_chars": 1200,
       "min_event_count": 8,
       "required_substrings": [
-        "Top 10",
-        "KPI",
-        "Phase"
-      ],
-      "required_regex_patterns": [
-        "(?i)architektur-risiken",
-        "(?i)performance-hotspots",
-        "(?i)guardrail-l\\u00fccken",
-        "(?i)priorisierte ma\\u00dfnahmen",
-        "(?i)messbare kpis",
-        "(?i)rollout-plan"
+        "Phase",
+        "KPI"
       ],
       "regex_min_match_counts": {
-        "(?m)^\\s*([1-9]|10)\\.": 8,
         "(?im)^\\s*phase\\s*[1-3]\\b": 3,
         "(?i)kpi[^\\n]{0,80}\\b(\\d+\\s*%|\\d+\\s*ms|\\d+\\s*s)": 2
       },

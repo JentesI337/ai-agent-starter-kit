@@ -289,7 +289,8 @@ def _looks_like_review_request(message: str) -> bool:
     text = (message or "").strip().lower()
     if not text:
         return False
-    keyword_markers = (
+
+    review_keywords = (
         "review",
         "code review",
         "audit",
@@ -300,7 +301,39 @@ def _looks_like_review_request(message: str) -> bool:
         "what is wrong",
         "smell",
     )
-    return any(marker in text for marker in keyword_markers)
+    if not any(marker in text for marker in review_keywords):
+        return False
+
+    evidence_patterns = (
+        r"https?://",
+        r"```",
+        r"diff\s+--git",
+        r"\b[a-f0-9]{7,40}\b",
+        r"\b[\w./-]+\.(py|ts|js|java|go|rs|json|yml|yaml|md|html|css)\b",
+        r"\b(\+\+\+|---|@@)\b",
+    )
+    has_evidence = any(re.search(pattern, text, re.IGNORECASE) for pattern in evidence_patterns)
+    if not has_evidence:
+        return False
+
+    execution_or_research_markers = (
+        "orchestrate",
+        "research",
+        "fact check",
+        "fact-check",
+        "write",
+        "save",
+        "create",
+        "build",
+        "implement",
+        "run",
+        "execute",
+        "generate",
+    )
+    if any(marker in text for marker in execution_or_research_markers):
+        return False
+
+    return True
 tools_handlers.configure(
     tools_handlers.ToolsHandlerDependencies(
         sync_custom_agents=_sync_custom_agents,

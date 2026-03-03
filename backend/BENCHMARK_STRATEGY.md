@@ -12,7 +12,8 @@ Wir nutzen ein **szenariobasiertes WebSocket-Benchmarking** mit drei Schwierigke
 
 - `easy`: deterministische Mini-Aufgabe (Antwortqualität + grundlegender Lifecycle)
 - `mid`: strukturierte Planungsaufgabe (mehrstufiges Reasoning)
-- `hard_reasoning` (gated): umfangreicher Research-Case ohne Shell/Tool-Seiteneffekte
+- `hard_reasoning_format` (gated): strukturtreuer Research-Case ohne Shell/Tool-Seiteneffekte
+- `hard_reasoning_depth` (gated): inhaltliche Tiefe mit KPI-/Phasenanforderungen ohne Shell/Tool-Seiteneffekte
 - `hard_tools_diagnostic` (non-gated): tool-lastiger Diagnosefall zur Umgebungs-/Policy-Beobachtung
 
 Zusätzlich ist ein dedizierter Orchestrierungs-Case enthalten:
@@ -56,7 +57,7 @@ Aggregiert:
 - Success-Rate pro Level (`easy`/`mid`/`hard`) inkl. gated-Sicht
 - tabellarische Run-Details
 
-## Pass/Fail-Definition v2
+## Pass/Fail-Definition v3
 
 Ein Run gilt als erfolgreich, wenn mindestens erfüllt ist:
 
@@ -82,7 +83,7 @@ Optional kann ein Case `allow_errors=true` setzen, wenn primär ein mechanischer
 
 Nächste sinnvolle Ausbaustufen:
 
-1. Mehrere Runs pro Case + Stabilitätskennzahlen (p50/p95-Latenz, Varianz).
+1. Mehrere Runs pro Case (Standard: **3**) + Stabilitätskennzahlen (p50/p95-Latenz, Varianz).
 2. Modellvergleich je Case (`small`, `mid`, `large`) in einem Lauf.
 3. Replay-Mode gegen gespeicherte Event-Traces.
 4. Optionales CI-Gating mit Schwellwerten pro Level.

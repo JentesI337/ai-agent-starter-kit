@@ -47,15 +47,18 @@ class SynthesizerAgent(AgentContract):
     def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(base_url=base_url, model=model)
 
-    async def execute(
-        self,
-        payload: SynthesizerInput,
-        *,
-        send_event: SendEvent,
-        session_id: str,
-        request_id: str,
-        model: str | None,
-    ) -> SynthesizerOutput:
+    @staticmethod
+    def _requires_hard_research_structure(user_message: str) -> bool:
+        normalized = (user_message or "").lower()
+        return (
+            "architektur-risiken" in normalized
+            and "performance-hotspots" in normalized
+            and "guardrail-lücken" in normalized
+            and "rollout-plan" in normalized
+            and "3 phasen" in normalized
+        )
+
+    def _build_final_prompt(self, payload: SynthesizerInput) -> str:
         final_prompt = (
             "User request:\n"
             f"{payload.user_message}\n\n"
@@ -74,6 +77,36 @@ class SynthesizerAgent(AgentContract):
             "Do not emit tool directives, no [TOOL_CALL] blocks, and no pseudo tool syntax.\n"
             "Only report completed actions and clear next steps."
         )
+
+        if self._requires_hard_research_structure(payload.user_message):
+            final_prompt += (
+                "\n\n"
+                "Mandatory output schema for this response (strict):\n"
+                "1) Architektur-Risiken\n"
+                "2) Performance-Hotspots\n"
+                "3) Guardrail-Lücken\n"
+                "4) Priorisierte Maßnahmen (Top 10)\n"
+                "5) Messbare KPIs\n"
+                "6) Rollout-Plan\n\n"
+                "Additional hard constraints:\n"
+                "- In 'Priorisierte Maßnahmen (Top 10)' include numbered items 1. to 10.\n"
+                "- In 'Rollout-Plan' include exactly: Phase 1, Phase 2, Phase 3.\n"
+                "- In 'Messbare KPIs' include at least two KPI lines with a number and unit (% or ms or s).\n"
+                "- Keep output text-only; no tool calls, no pseudo code blocks."
+            )
+
+        return final_prompt
+
+    async def execute(
+        self,
+        payload: SynthesizerInput,
+        *,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None,
+    ) -> SynthesizerOutput:
+        final_prompt = self._build_final_prompt(payload)
 
         await self._emit_lifecycle_fn(
             send_event,

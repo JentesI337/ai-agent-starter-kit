@@ -371,6 +371,8 @@ def test_recovery_summary_includes_applied_vs_not_applied_metrics(tmp_path) -> N
         "not_applicable": 0,
         "no_reorder": 1,
     }
+    assert details.get("recovered_successfully") is True
+    assert details.get("terminal_reason") == "recovered"
 
 
 def test_recovery_summary_contains_monitoring_required_keys(tmp_path) -> None:
@@ -423,6 +425,8 @@ def test_recovery_summary_contains_monitoring_required_keys(tmp_path) -> None:
         "final_outcome",
         "final_model",
         "final_reason",
+        "recovered_successfully",
+        "terminal_reason",
         "reason_counts",
         "branch_counts",
         "strategy_counts",
@@ -442,3 +446,50 @@ def test_recovery_summary_contains_monitoring_required_keys(tmp_path) -> None:
     ):
         breakdown = details.get(key, {})
         assert {"disabled", "not_applicable", "no_reorder"}.issubset(set(breakdown.keys()))
+
+
+def test_recovery_summary_sets_terminal_reason_for_failure(tmp_path) -> None:
+    runner = _runner(tmp_path)
+    events: list[dict] = []
+
+    async def _send_event(payload: dict) -> None:
+        events.append(payload)
+
+    asyncio.run(
+        runner._emit_recovery_summary_event(
+            send_event=_send_event,
+            request_id="req-3",
+            session_id="sess-3",
+            attempts=2,
+            max_attempts=2,
+            recovery_failures_total=2,
+            recovery_reason_counts={"rate_limited": 2},
+            recovery_branch_counts={"retry_with_fallback": 2},
+            recovery_strategy_counts={"overflow_fallback_retry": 2},
+            recovery_strategy_applied_total=2,
+            recovery_signal_priority_applied_total=0,
+            recovery_signal_priority_not_applied_disabled_total=1,
+            recovery_signal_priority_not_applied_not_applicable_total=0,
+            recovery_signal_priority_not_applied_no_reorder_total=1,
+            recovery_strategy_feedback_applied_total=0,
+            recovery_strategy_feedback_not_applied_disabled_total=1,
+            recovery_strategy_feedback_not_applied_not_applicable_total=0,
+            recovery_strategy_feedback_not_applied_no_reorder_total=1,
+            recovery_persistent_priority_applied_total=0,
+            recovery_persistent_priority_not_applied_disabled_total=1,
+            recovery_persistent_priority_not_applied_not_applicable_total=0,
+            recovery_persistent_priority_not_applied_no_reorder_total=1,
+            recovery_overflow_retry_applied_total=2,
+            recovery_compaction_recovery_applied_total=0,
+            recovery_truncation_recovery_applied_total=0,
+            recovery_prompt_compaction_applied_total=0,
+            recovery_payload_truncation_applied_total=0,
+            final_outcome="failure",
+            final_model="model-fallback",
+            final_reason="rate_limited",
+        )
+    )
+
+    details = events[0].get("details", {})
+    assert details.get("recovered_successfully") is False
+    assert details.get("terminal_reason") == "rate_limited"

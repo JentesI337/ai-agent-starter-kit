@@ -226,6 +226,7 @@ def test_state_machine_retries_with_fallback_model_and_succeeds() -> None:
     assert action_details.get("recovery_strategy") == "none"
     summary = hooks.summary_events[-1]
     assert summary["final_outcome"] == "success"
+    assert summary["final_reason"] == "rate_limited"
     assert summary["recovery_signal_priority_not_applied_not_applicable_total"] == 1
     assert summary["recovery_strategy_feedback_not_applied_disabled_total"] == 1
     assert summary["recovery_persistent_priority_not_applied_no_reorder_total"] == 1
@@ -272,3 +273,4 @@ def test_state_machine_fails_fast_when_not_retryable() -> None:
     assert action_details.get("action") == "fail_fast"
     assert action_details.get("recovery_strategy") == "none"
     assert hooks.summary_events[-1]["final_outcome"] == "failure"
+    assert hooks.summary_events[-1]["final_reason"] == "rate_limited"

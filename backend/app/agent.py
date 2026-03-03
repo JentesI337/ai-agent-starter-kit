@@ -408,8 +408,11 @@ class HeadAgent:
             )
 
             max_replan_iterations = max(1, int(settings.run_max_replan_iterations))
+            max_empty_tool_replan_attempts = 1
+            empty_tool_replan_attempts_used = 0
+            total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts
             tool_results = ""
-            for iteration in range(max_replan_iterations):
+            for iteration in range(total_replan_cycles):
                 tool_context_outputs = [plan_text]
                 if tool_results:
                     tool_context_outputs.append(tool_results)
@@ -433,18 +436,34 @@ class HeadAgent:
                     effective_allowed_tools,
                 )
 
-                if self._plan_still_valid(plan_text, tool_results):
+                tool_results_state = self._classify_tool_results_state(tool_results)
+                if tool_results_state in {"blocked", "usable"}:
                     break
 
-                if iteration >= max_replan_iterations - 1:
+                replan_reason = self._resolve_replan_reason(
+                    tool_results_state=tool_results_state,
+                    iteration=iteration,
+                    max_replan_iterations=max_replan_iterations,
+                    empty_tool_replan_attempts_used=empty_tool_replan_attempts_used,
+                    max_empty_tool_replan_attempts=max_empty_tool_replan_attempts,
+                )
+                if replan_reason is None:
                     break
+                if replan_reason == "tool_selection_empty_replan":
+                    empty_tool_replan_attempts_used += 1
 
                 await self._emit_lifecycle(
                     send_event,
                     stage="replanning_started",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"iteration": iteration + 1, "reason": "tool_results_invalidated_plan"},
+                    details={
+                        "iteration": iteration + 1,
+                        "reason": replan_reason,
+                        "tool_results_state": tool_results_state,
+                        "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
+                        "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
+                    },
                 )
                 replan_context = self.context_reducer.reduce(
                     budget_tokens=budgets["plan"],
@@ -465,7 +484,11 @@ class HeadAgent:
                     stage="replanning_completed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"iteration": iteration + 1, "plan_chars": len(plan_text)},
+                    details={
+                        "iteration": iteration + 1,
+                        "plan_chars": len(plan_text),
+                        "reason": replan_reason,
+                    },
                 )
 
             blocked_payload = self._parse_blocked_tool_result(tool_results)
@@ -949,17 +972,44 @@ class HeadAgent:
 
     def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
         _ = plan_text
+        state = self._classify_tool_results_state(tool_results)
+        return state in {"blocked", "usable"}
+
+    def _classify_tool_results_state(self, tool_results: str | None) -> str:
         if self._parse_blocked_tool_result(tool_results):
-            return True
+            return "blocked"
+
         normalized_results = (tool_results or "").strip()
         if not normalized_results:
-            return False
+            return "empty"
+
         lowered = normalized_results.lower()
-        has_ok = "[ok]" in lowered
-        has_error = "[error]" in lowered
+        has_ok = "[ok]" in lowered or re.search(r"\bok\b", lowered) is not None
+        has_error = "[error]" in lowered or " error:" in lowered
         if has_error and not has_ok:
-            return False
-        return True
+            return "error_only"
+        return "usable"
+
+    def _resolve_replan_reason(
+        self,
+        *,
+        tool_results_state: str,
+        iteration: int,
+        max_replan_iterations: int,
+        empty_tool_replan_attempts_used: int,
+        max_empty_tool_replan_attempts: int,
+    ) -> str | None:
+        regular_replan_budget_remaining = iteration < max_replan_iterations - 1
+        if regular_replan_budget_remaining:
+            return "tool_results_invalidated_plan"
+
+        if (
+            tool_results_state == "empty"
+            and empty_tool_replan_attempts_used < max_empty_tool_replan_attempts
+        ):
+            return "tool_selection_empty_replan"
+
+        return None
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         decision = self._intent.detect(user_message)

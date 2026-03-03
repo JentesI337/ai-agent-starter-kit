@@ -31,6 +31,17 @@ class PlannerAgent(AgentContract):
     def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(base_url=base_url, model=model)
 
+    @staticmethod
+    def _requires_hard_research_structure(user_message: str) -> bool:
+        normalized = (user_message or "").lower()
+        return (
+            "architektur-risiken" in normalized
+            and "performance-hotspots" in normalized
+            and "guardrail-lücken" in normalized
+            and "rollout-plan" in normalized
+            and "3 phasen" in normalized
+        )
+
     async def execute(self, payload: PlannerInput, model: str | None = None) -> PlannerOutput:
         planner_prompt = (
             "Create a short execution plan (2-5 bullets) for the user's request.\n"
@@ -41,6 +52,17 @@ class PlannerAgent(AgentContract):
             "Current task:\n"
             f"{payload.user_message}"
         )
+        if self._requires_hard_research_structure(payload.user_message):
+            planner_prompt += (
+                "\n\n"
+                "Mandatory response contract for this request:\n"
+                "- Ensure final answer contains these sections exactly once: "
+                "Architektur-Risiken, Performance-Hotspots, Guardrail-Lücken, "
+                "Priorisierte Maßnahmen (Top 10), Messbare KPIs, Rollout-Plan.\n"
+                "- Include Top 10 numbered items in the measures section.\n"
+                "- Include rollout phases explicitly named 'Phase 1', 'Phase 2', 'Phase 3'.\n"
+                "- Include at least two KPI lines with measurable values (% or ms or s)."
+            )
         plan = await self.client.complete_chat(
             self.system_prompt,
             planner_prompt,

@@ -321,6 +321,10 @@ class PipelineRunner:
         if recovery_failures_total <= 0:
             return
 
+        normalized_final_outcome = (final_outcome or "").strip().lower()
+        recovered_successfully = normalized_final_outcome == "success"
+        terminal_reason = "recovered" if recovered_successfully else (final_reason or "unknown")
+
         signal_not_applied_total = (
             recovery_signal_priority_not_applied_disabled_total
             + recovery_signal_priority_not_applied_not_applicable_total
@@ -389,6 +393,8 @@ class PipelineRunner:
                     "final_outcome": final_outcome,
                     "final_model": final_model,
                     "final_reason": final_reason,
+                    "recovered_successfully": recovered_successfully,
+                    "terminal_reason": terminal_reason,
                 },
                 agent=self.agent.name,
             )

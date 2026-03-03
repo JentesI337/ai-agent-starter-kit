@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from app.errors import ToolExecutionError
 from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
 
 
@@ -316,3 +317,72 @@ def test_run_tool_loop_respects_call_budget() -> None:
 
     assert "tool call budget exceeded (0)" in result
     assert any(stage == "tool_budget_exceeded" for stage, _ in lifecycle_events)
+
+
+def test_run_tool_loop_emits_error_code_and_category_on_tool_failed() -> None:
+    manager = ToolExecutionManager()
+    lifecycle_events: list[tuple[str, dict | None]] = []
+    sent_events: list[dict] = []
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    async def fake_send_event(payload: dict) -> None:
+        sent_events.append(payload)
+
+    async def fake_run_tool_with_policy(*, tool: str, args: dict, policy: object) -> str:
+        _ = (tool, args, policy)
+        raise ToolExecutionError(
+            "Command blocked by safety policy",
+            error_code="command_policy_security",
+            details={"category": "security", "leader": "bash"},
+        )
+
+    result = asyncio.run(
+        manager.run_tool_loop(
+            actions=[{"tool": "run_command", "args": {"command": "bash -c whoami"}}],
+            effective_allowed_tools={"run_command"},
+            config=ToolExecutionConfig(
+                call_cap=5,
+                time_cap_seconds=30.0,
+                loop_warn_threshold=2,
+                loop_critical_threshold=4,
+                loop_circuit_breaker_threshold=8,
+                generic_repeat_enabled=True,
+                ping_pong_enabled=True,
+                poll_no_progress_enabled=True,
+                poll_no_progress_threshold=3,
+                warning_bucket_size=10,
+            ),
+            user_message="run command",
+            model=None,
+            agent_name="head-agent",
+            normalize_tool_name=lambda tool: tool,
+            evaluate_action=lambda tool, args, allowed: (args, None),
+            build_execution_policy=lambda tool: object(),
+            run_tool_with_policy=fake_run_tool_with_policy,
+            invoke_spawn_subrun_tool=lambda **kwargs: asyncio.sleep(0),
+            should_retry_web_fetch_on_404=lambda error: False,
+            is_web_research_task=lambda message: False,
+            is_weather_lookup_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            memory_add=lambda tool, clipped: None,
+            emit_lifecycle=fake_emit_lifecycle,
+            send_event=fake_send_event,
+            invoke_hooks=lambda hook_name, payload: asyncio.sleep(0),
+        )
+    )
+
+    assert "ERROR" in result
+    failed_events = [
+        details
+        for stage, details in lifecycle_events
+        if stage == "tool_failed" and isinstance(details, dict)
+    ]
+    assert failed_events
+    assert failed_events[0].get("error_code") == "command_policy_security"
+    assert failed_events[0].get("error_category") == "security"
+    error_events = [evt for evt in sent_events if evt.get("type") == "error"]
+    assert error_events
+    assert error_events[0].get("error_code") == "command_policy_security"
+    assert error_events[0].get("error_category") == "security"

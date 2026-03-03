@@ -501,7 +501,7 @@ class AgentTooling:
             raise ToolExecutionError("Command must not be empty.")
         if len(command) > 1000:
             raise ToolExecutionError("Command is too long.")
-        self._enforce_command_allowlist(command)
+        leader = self._enforce_command_allowlist(command)
 
         run_cwd = self._resolve_command_cwd(cwd)
         try:
@@ -520,6 +520,7 @@ class AgentTooling:
 
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
         output = output.strip() or "(no output)"
+        self._raise_if_env_missing(command=command, leader=leader, returncode=completed.returncode, output=output)
         return f"exit_code={completed.returncode}\n{output[:12000]}"
 
     def _build_command_allowlist(self) -> set[str]:
@@ -528,13 +529,17 @@ class AgentTooling:
         values.extend(settings.command_allowlist_extra or [])
         return {item.strip().lower() for item in values if isinstance(item, str) and item.strip()}
 
-    def _enforce_command_allowlist(self, command: str) -> None:
+    def _enforce_command_allowlist(self, command: str) -> str:
         if not self._command_allowlist_enabled:
-            return
+            return self._extract_command_leader(command)
 
         leader = self._extract_command_leader(command)
         if not leader:
-            raise ToolExecutionError("Command must begin with an executable name.")
+            self._raise_command_policy_error(
+                category="unsupported",
+                message="Command must begin with an executable name.",
+                leader=leader,
+            )
 
         blocked_leaders = {
             "rm",
@@ -548,22 +553,66 @@ class AgentTooling:
             "diskpart",
         }
         if leader in blocked_leaders:
-            raise ToolExecutionError(f"Command '{leader}' is blocked by safety policy.")
+            self._raise_command_policy_error(
+                category="security",
+                message=f"Command '{leader}' is blocked by safety policy.",
+                leader=leader,
+            )
 
         self._enforce_command_safety(command=command, leader=leader)
 
         if leader not in self._command_allowlist:
-            raise ToolExecutionError(
-                f"Command '{leader}' is not allowed by command allowlist. "
-                "Set COMMAND_ALLOWLIST_EXTRA to permit it in development."
+            self._raise_command_policy_error(
+                category="unsupported",
+                message=(
+                    f"Command '{leader}' is not allowed by command allowlist. "
+                    "Set COMMAND_ALLOWLIST_EXTRA to permit it in development."
+                ),
+                leader=leader,
             )
+        return leader
 
     def _enforce_command_safety(self, *, command: str, leader: str) -> None:
         if not (command or "").strip():
             raise ToolExecutionError("Command must not be empty.")
         reason = find_command_safety_violation(command)
         if reason:
-            raise ToolExecutionError(f"Command blocked by safety policy: {reason}.")
+            self._raise_command_policy_error(
+                category="security",
+                message=f"Command blocked by safety policy: {reason}.",
+                leader=leader,
+            )
+
+    def _raise_if_env_missing(self, *, command: str, leader: str, returncode: int, output: str) -> None:
+        if returncode == 0:
+            return
+        normalized = (output or "").strip().lower()
+        env_missing_signals = (
+            "is not recognized as an internal or external command",
+            "command not found",
+            "not found",
+            "no such file or directory",
+        )
+        if any(signal in normalized for signal in env_missing_signals):
+            self._raise_command_policy_error(
+                category="env-missing",
+                message=(
+                    f"Command '{leader or command}' is allowlisted but unavailable in this environment. "
+                    "Install/configure the tool in the runtime environment and retry."
+                ),
+                leader=leader,
+            )
+
+    def _raise_command_policy_error(self, *, category: str, message: str, leader: str) -> None:
+        category_key = category.strip().lower().replace("_", "-") if category else "unsupported"
+        if category_key not in {"security", "unsupported", "env-missing"}:
+            category_key = "unsupported"
+        code_key = category_key.replace("-", "_")
+        raise ToolExecutionError(
+            message,
+            error_code=f"command_policy_{code_key}",
+            details={"category": category_key, "leader": leader},
+        )
 
     def _extract_command_leader(self, command: str) -> str:
         text = (command or "").strip()
