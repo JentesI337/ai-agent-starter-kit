@@ -197,6 +197,8 @@ class Settings(BaseModel):
     skills_mandatory_selection: bool = _parse_bool_env("SKILLS_MANDATORY_SELECTION", False)
     skills_max_discovered: int = int(os.getenv("SKILLS_MAX_DISCOVERED", "150"))
     skills_max_prompt_chars: int = int(os.getenv("SKILLS_MAX_PROMPT_CHARS", "30000"))
+    skills_snapshot_cache_ttl_seconds: float = float(os.getenv("SKILLS_SNAPSHOT_CACHE_TTL_SECONDS", "15"))
+    skills_snapshot_cache_use_mtime: bool = _parse_bool_env("SKILLS_SNAPSHOT_CACHE_USE_MTIME", True)
     orchestrator_state_reset_on_startup: bool = _parse_bool_env(
         "ORCHESTRATOR_STATE_RESET_ON_STARTUP",
         _default_reset_on_startup(app_env),

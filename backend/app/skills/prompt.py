@@ -33,7 +33,7 @@ def build_skills_prompt(skills: list[SkillDefinition], max_prompt_chars: int) ->
 
     prompt = (
         "## Skills (preview)\n"
-        "Prüfe zuerst die verfügbaren Skills. Wenn genau ein Skill klar passt, lies dessen SKILL.md.\n\n"
+        "Prüfe zuerst die verfügbaren Skills. Lies SKILL.md nur gezielt per read_file, wenn ein Skill klar passt.\n\n"
         f"{chr(10).join(chunks)}"
     )
     return prompt, selected, truncated

@@ -452,7 +452,15 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
     async def fake_plan_execute(payload, model=None):
         return "plan"
 
-    async def fake_tool_execute(payload, session_id, request_id, send_event, model, allowed_tools):
+    async def fake_tool_execute(
+        payload,
+        session_id,
+        request_id,
+        send_event,
+        model,
+        allowed_tools,
+        should_steer_interrupt=None,
+    ):
         return ""
 
     async def fake_synth_execute(payload, session_id, request_id, send_event, model):

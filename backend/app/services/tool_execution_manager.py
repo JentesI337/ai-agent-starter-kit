@@ -105,6 +105,40 @@ class ToolExecutionManager:
         self._send_event = send_event
         self._prompt_kernel_builder = PromptKernelBuilder()
 
+    @staticmethod
+    def _normalize_prompt_mode_for_skills(prompt_mode: str | None) -> str:
+        return normalize_prompt_mode(prompt_mode, default="minimal")
+
+    @staticmethod
+    def _should_inject_skills_preview_in_subagent(*, user_message: str, plan_text: str) -> bool:
+        text = f"{user_message}\n{plan_text}".lower()
+        markers = ("skill", "skills", "skill.md", "read_file", "manual", "runbook")
+        return any(marker in text for marker in markers)
+
+    @staticmethod
+    def _contract_skills_prompt(*, prompt: str, prompt_mode: str, max_prompt_chars: int) -> tuple[str, bool]:
+        source = (prompt or "").strip()
+        if not source:
+            return "", False
+
+        configured_cap = max(0, int(max_prompt_chars))
+        if configured_cap <= 0:
+            return "", True
+
+        normalized_mode = (prompt_mode or "minimal").strip().lower()
+        if normalized_mode == "full":
+            cap = configured_cap
+        elif normalized_mode == "subagent":
+            cap = min(configured_cap, 1200)
+        else:
+            cap = min(configured_cap, 3000)
+
+        if len(source) <= cap:
+            return source, False
+
+        omitted = len(source) - cap
+        return f"{source[:cap]}\n\n... [{omitted} chars truncated for {normalized_mode} skills mode]", True
+
     async def execute(
         self,
         *,
@@ -163,8 +197,26 @@ class ToolExecutionManager:
 
         intent_decision = detect_intent_gate(user_message)
         model_id = model or client_model
+        effective_prompt_mode = self._normalize_prompt_mode_for_skills(prompt_mode)
         skills_enabled, skills_gating_details = resolve_skills_enabled_for_request(model_id=model_id)
-        skills_snapshot = build_skills_snapshot() if skills_enabled else empty_skills_snapshot()
+        if skills_enabled:
+            skills_snapshot = build_skills_snapshot()
+            await emit_lifecycle(
+                "skills_snapshot_built",
+                {
+                    "prompt_mode": effective_prompt_mode,
+                    **skills_gating_details,
+                },
+            )
+        else:
+            skills_snapshot = empty_skills_snapshot()
+            await emit_lifecycle(
+                "skills_snapshot_skipped",
+                {
+                    "prompt_mode": effective_prompt_mode,
+                    **skills_gating_details,
+                },
+            )
 
         if skills_engine_enabled and skills_canary_enabled and not skills_enabled:
             await emit_lifecycle("skills_skipped_canary", skills_gating_details)
@@ -191,7 +243,44 @@ class ToolExecutionManager:
         effective_memory_context = memory_context
         snapshot_prompt = str(getattr(skills_snapshot, "prompt", "") or "").strip()
         if skills_enabled and snapshot_prompt:
-            effective_memory_context = f"{memory_context}\n\n{snapshot_prompt}"
+            if effective_prompt_mode == "subagent" and not self._should_inject_skills_preview_in_subagent(
+                user_message=user_message,
+                plan_text=plan_text,
+            ):
+                await emit_lifecycle(
+                    "skills_preview_omitted_by_prompt_mode",
+                    {
+                        "prompt_mode": effective_prompt_mode,
+                        "reason": "subagent_low_relevance",
+                        "source_chars": len(snapshot_prompt),
+                    },
+                )
+            else:
+                contracted_prompt, contracted = self._contract_skills_prompt(
+                    prompt=snapshot_prompt,
+                    prompt_mode=effective_prompt_mode,
+                    max_prompt_chars=skills_max_prompt_chars,
+                )
+                if contracted_prompt:
+                    effective_memory_context = f"{memory_context}\n\n{contracted_prompt}"
+                    await emit_lifecycle(
+                        "skills_preview_injected",
+                        {
+                            "prompt_mode": effective_prompt_mode,
+                            "source_chars": len(snapshot_prompt),
+                            "injected_chars": len(contracted_prompt),
+                            "contracted": contracted,
+                        },
+                    )
+                else:
+                    await emit_lifecycle(
+                        "skills_preview_omitted_by_prompt_mode",
+                        {
+                            "prompt_mode": effective_prompt_mode,
+                            "reason": "contracted_to_empty",
+                            "source_chars": len(snapshot_prompt),
+                        },
+                    )
 
         intent = getattr(intent_decision, "intent", None)
         confidence = getattr(intent_decision, "confidence", "low")
@@ -850,6 +939,18 @@ class ToolExecutionManager:
                         "result_chars": len(clipped),
                     },
                 )
+                if tool == "read_file":
+                    path_candidate = str(evaluated_args.get("path") or evaluated_args.get("filePath") or "").strip()
+                    if path_candidate.lower().endswith("skill.md"):
+                        await emit_lifecycle(
+                            "skills_manual_read",
+                            {
+                                "tool": tool,
+                                "index": idx,
+                                "call_id": call_id,
+                                "path": path_candidate,
+                            },
+                        )
                 if should_steer_interrupt is not None and should_steer_interrupt():
                     await emit_lifecycle(
                         "steer_detected",

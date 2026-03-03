@@ -1793,7 +1793,16 @@ def test_control_runs_status_normalizes_failed_to_error(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def failing_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def failing_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         raise RuntimeError("forced failure")
 
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)

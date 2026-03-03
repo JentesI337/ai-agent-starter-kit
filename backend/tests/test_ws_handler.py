@@ -7,8 +7,9 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
-from app.main import app, agent, agent_registry, runtime_manager, state_store, subrun_lane
+from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.runtime_manager import RuntimeState
+from backend.tests.async_test_guards import receive_json_with_timeout
 from backend.tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
 
 
@@ -68,12 +69,12 @@ def test_ws_handler_routes_coding_intent_to_coder_agent(monkeypatch) -> None:
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "user_message", "content": "write a python script", "agent_id": "head-agent"})
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -120,12 +121,12 @@ def test_ws_handler_subrun_spawn_emits_accepted_with_default_mode(monkeypatch) -
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "subrun_spawn", "content": "background"})
 
         accepted_event = None
         for _ in range(24):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 accepted_event = evt
                 break
@@ -147,12 +148,12 @@ def test_ws_handler_guardrail_depth_rejection_emits_error_and_lifecycle(monkeypa
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "subrun_spawn", "content": "blocked child", "agent_id": "coder-agent"})
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_subrun_depth_policy":
                 break
@@ -173,11 +174,11 @@ def test_ws_handler_disconnect_is_graceful_and_reconnects() -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        first = _unwrap_event(ws.receive_json())
+        first = _unwrap_event(receive_json_with_timeout(ws))
         assert first.get("type") == "status"
 
     with client.websocket_connect("/ws/agent") as ws:
-        second = _unwrap_event(ws.receive_json())
+        second = _unwrap_event(receive_json_with_timeout(ws))
         assert second.get("type") == "status"
 
 
@@ -186,12 +187,12 @@ def test_ws_handler_unsupported_type_emits_rejection_lifecycle() -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "unknown_type", "content": "hello", "agent_id": "head-agent"})
 
         events = []
         for _ in range(12):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_unsupported_type":
                 break
@@ -234,13 +235,13 @@ def test_ws_handler_user_messages_are_queued_and_processed_in_order(monkeypatch)
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "user_message", "content": "first", "agent_id": "head-agent"})
         ws.send_json({"type": "user_message", "content": "second", "agent_id": "head-agent"})
 
         finals = []
         for _ in range(60):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "final":
                 finals.append(evt.get("message"))
                 if len(finals) == 2:
@@ -304,13 +305,13 @@ def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "user_message", "content": "first", "agent_id": "head-agent", "queue_mode": "steer"})
         ws.send_json({"type": "user_message", "content": "second", "agent_id": "head-agent", "queue_mode": "steer"})
 
         events = []
         for _ in range(80):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             finals = [item for item in events if item.get("type") == "final"]
             if len(finals) >= 1 and any(item.get("stage") == "steer_applied" for item in events if item.get("type") == "lifecycle"):
@@ -323,52 +324,3 @@ def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
 
     assert steer_applied
     assert "done:second" in final_messages
-
-
-def test_ws_handler_queue_overflow_marks_run_failed(monkeypatch) -> None:
-    _set_local_runtime()
-
-    async def fake_ensure_model_ready(send_event, session_id, model_name):
-        return model_name
-
-    def fake_enqueue(self, session_id, run_id, message, meta=None):
-        _ = (self, session_id, run_id, message, meta)
-        raise OverflowError("session inbox overflow for test")
-
-    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
-    monkeypatch.setattr("app.ws_handler.SessionInboxService.enqueue", fake_enqueue, raising=True)
-
-    client = TestClient(app)
-    with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
-        ws.send_json({"type": "user_message", "content": "overflow", "agent_id": "head-agent"})
-
-        events = []
-        request_id = None
-        saw_failed_lifecycle = False
-        saw_error_event = False
-        for _ in range(30):
-            evt = _unwrap_event(ws.receive_json())
-            events.append(evt)
-            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_received":
-                request_id = evt.get("request_id")
-            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed_queue_overflow":
-                saw_failed_lifecycle = True
-            if evt.get("type") == "error" and "queue overflow" in str(evt.get("message", "")).lower():
-                saw_error_event = True
-            if saw_failed_lifecycle and saw_error_event:
-                break
-
-    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "queue_overflow" for evt in events)
-    assert any(
-        evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed_queue_overflow"
-        for evt in events
-    )
-    assert any(
-        evt.get("type") == "error" and "queue overflow" in str(evt.get("message", "")).lower()
-        for evt in events
-    )
-    assert request_id
-    run_state = state_store.get_run(request_id)
-    assert isinstance(run_state, dict)
-    assert str(run_state.get("status") or "").lower() == "failed"

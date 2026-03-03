@@ -98,16 +98,16 @@ class _HeadToolSelectorRuntime(ToolSelectorRuntime):
         if owner is None:
             raise RuntimeError("HeadAgent is no longer available for tool selection runtime.")
         return await owner._execute_tools(
-            payload.user_message,
-            payload.plan_text,
-            payload.reduced_context,
-            payload.prompt_mode,
-            session_id,
-            request_id,
-            send_event,
-            model,
-            allowed_tools,
-            should_steer_interrupt,
+            user_message=payload.user_message,
+            plan_text=payload.plan_text,
+            memory_context=payload.reduced_context,
+            session_id=session_id,
+            request_id=request_id,
+            send_event=send_event,
+            model=model,
+            allowed_tools=allowed_tools,
+            prompt_mode=payload.prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
 
 
@@ -158,6 +158,8 @@ class HeadAgent:
                 skills_dir=settings.skills_dir,
                 max_discovered=max(1, int(settings.skills_max_discovered)),
                 max_prompt_chars=max(1000, int(settings.skills_max_prompt_chars)),
+                snapshot_cache_ttl_seconds=max(0.0, float(settings.skills_snapshot_cache_ttl_seconds)),
+                snapshot_cache_use_mtime=bool(settings.skills_snapshot_cache_use_mtime),
             )
         )
         self._intent = IntentDetector()
@@ -374,6 +376,8 @@ class HeadAgent:
                 session_id=session_id,
                 details=self._build_context_segments(
                     phase="planning",
+                    prompt_mode=effective_prompt_mode,
+                    prompt_type="planning",
                     budget_tokens=budgets["plan"],
                     rendered_text=plan_context.rendered,
                     used_tokens=plan_context.used_tokens,
@@ -471,6 +475,8 @@ class HeadAgent:
                     session_id=session_id,
                     details=self._build_context_segments(
                         phase="tool_loop",
+                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
+                        prompt_type="tool_selection",
                         budget_tokens=budgets["tool"],
                         rendered_text=tool_context.rendered,
                         used_tokens=tool_context.used_tokens,
@@ -713,6 +719,8 @@ class HeadAgent:
                 session_id=session_id,
                 details=self._build_context_segments(
                     phase="synthesis",
+                    prompt_mode=effective_prompt_mode,
+                    prompt_type="synthesis",
                     budget_tokens=budgets["final"],
                     rendered_text=final_context.rendered,
                     used_tokens=final_context.used_tokens,
@@ -893,6 +901,8 @@ class HeadAgent:
         self,
         *,
         phase: str,
+        prompt_mode: str,
+        prompt_type: str,
         budget_tokens: int,
         rendered_text: str,
         used_tokens: int,
@@ -925,8 +935,24 @@ class HeadAgent:
         for value in segments.values():
             value["share_pct"] = round((int(value["tokens_est"]) / total) * 100.0, 2)
 
+        kernel = self.prompt_kernel_builder.build(
+            prompt_type=prompt_type,
+            prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
+            sections={
+                "system": system_prompt or "",
+                "context": rendered_text or "",
+                "task": user_message or "",
+                "tool_results": tool_text,
+                "snapshot": snapshot_text,
+            },
+        )
+
         return {
             "phase": phase,
+            "prompt_mode": kernel.prompt_mode,
+            "kernel_version": kernel.kernel_version,
+            "prompt_hash": kernel.prompt_hash,
+            "section_fingerprints": kernel.section_fingerprints,
             "budget_tokens": int(budget_tokens),
             "used_tokens": int(used_tokens),
             "segments": segments,
@@ -1058,12 +1084,12 @@ class HeadAgent:
         user_message: str,
         plan_text: str,
         memory_context: str,
-        prompt_mode: str,
         session_id: str,
         request_id: str,
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        prompt_mode: str | None = None,
         should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         async def _emit_lifecycle_proxy(stage: str, details: dict | None = None) -> None:

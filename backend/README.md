@@ -50,6 +50,15 @@ Direct run from `backend`:
 ./.venv/Scripts/python.exe scripts/check_coverage_thresholds.py --coverage-json coverage.json --global-min 70 --use-default-thresholds
 ```
 
+WebSocket test stability:
+- Use `receive_json_with_timeout` from `backend/tests/async_test_guards.py` in websocket tests.
+- Avoid direct `ws.receive_json()` calls in loops, because lifecycle/event volume can change and block indefinitely.
+- Recommended pytest flags for WS-focused runs:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ws_handler.py tests/test_backend_e2e.py -q -o faulthandler_timeout=20 --maxfail=1
+```
+
 ## WebSocket
 
 - Endpoint: `ws://localhost:8000/ws/agent`

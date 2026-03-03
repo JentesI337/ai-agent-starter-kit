@@ -5,6 +5,9 @@ import asyncio
 from threading import Lock
 from types import SimpleNamespace
 
+from fastapi import HTTPException
+import pytest
+
 from app.handlers import run_handlers, session_handlers, workflow_handlers
 from app.services.idempotency_manager import IdempotencyManager
 
@@ -183,3 +186,129 @@ def test_workflow_handler_contract_and_idempotency_replay() -> None:
     assert first["idempotency"]["reused"] is False
     assert second["idempotency"]["reused"] is True
     assert second["workflow"]["id"] == first["workflow"]["id"]
+
+
+def test_run_handler_idempotency_conflict_when_queue_mode_differs() -> None:
+    captured_queue_modes: list[str | None] = []
+
+    def _build_run_start_fingerprint(**kw) -> str:
+        captured_queue_modes.append(kw.get("queue_mode"))
+        return f"fp:{kw.get('message')}:{kw.get('session_id')}:{kw.get('runtime')}:{kw.get('queue_mode')}"
+
+    run_handlers.configure(
+        run_handlers.RunHandlerDependencies(
+            logger=SimpleNamespace(debug=lambda *a, **k: None, exception=lambda *a, **k: None),
+            settings=SimpleNamespace(run_wait_default_timeout_ms=100, run_wait_poll_interval_ms=10),
+            runtime_manager=_RuntimeManager(),
+            state_store=_RunStateStore(),
+            agent=SimpleNamespace(name="head-agent"),
+            active_run_tasks={},
+            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
+            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
+            effective_orchestrator_agent_ids=lambda: {"head-agent"},
+            build_run_start_fingerprint=_build_run_start_fingerprint,
+            extract_also_allow=lambda policy: None,
+        )
+    )
+
+    first = asyncio.run(
+        run_handlers.api_control_run_start(
+            request_data={
+                "message": "hello",
+                "queue_mode": "wait",
+                "idempotency_key": "idem-run-queue-mode",
+            },
+            idempotency_key_header=None,
+        )
+    )
+
+    assert first["status"] == "accepted"
+    assert captured_queue_modes == ["wait"]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            run_handlers.api_control_run_start(
+                request_data={
+                    "message": "hello",
+                    "queue_mode": "steer",
+                    "idempotency_key": "idem-run-queue-mode",
+                },
+                idempotency_key_header=None,
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert captured_queue_modes == ["wait", "steer"]
+
+
+def test_workflow_execute_idempotency_conflict_when_queue_mode_differs() -> None:
+    captured_queue_modes: list[str | None] = []
+
+    def _build_workflow_execute_fingerprint(**kw) -> str:
+        captured_queue_modes.append(kw.get("queue_mode"))
+        return f"wf-exec:{kw.get('workflow_id')}:{kw.get('queue_mode')}"
+
+    workflow_store = _WorkflowStore()
+    workflow_handlers.configure(
+        workflow_handlers.WorkflowHandlerDependencies(
+            settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
+            custom_agent_store=workflow_store,
+            agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
+            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
+            runtime_manager=_RuntimeManager(),
+            subrun_lane=SimpleNamespace(),
+            workflow_version_registry={},
+            workflow_version_lock=Lock(),
+            normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
+            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
+            sync_custom_agents=lambda: None,
+            effective_orchestrator_agent_ids=lambda: {"head-agent"},
+            start_run_background=lambda **kwargs: "run-workflow-queue-mode",
+            build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
+            build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
+            build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
+        )
+    )
+
+    created = workflow_handlers.api_control_workflows_create(
+        request_data={
+            "name": "QueueMode Workflow",
+            "description": "desc",
+            "base_agent_id": "head-agent",
+            "steps": ["step one"],
+            "idempotency_key": "idem-wf-create-queue-mode",
+        },
+        idempotency_key_header=None,
+    )
+    workflow_id = created["workflow"]["id"]
+
+    first = asyncio.run(
+        workflow_handlers.api_control_workflows_execute(
+            request_data={
+                "workflow_id": workflow_id,
+                "message": "run workflow",
+                "queue_mode": "wait",
+                "idempotency_key": "idem-wf-exec-queue-mode",
+            },
+            idempotency_key_header=None,
+        )
+    )
+
+    assert first["status"] == "accepted"
+    assert captured_queue_modes == ["wait"]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            workflow_handlers.api_control_workflows_execute(
+                request_data={
+                    "workflow_id": workflow_id,
+                    "message": "run workflow",
+                    "queue_mode": "follow_up",
+                    "idempotency_key": "idem-wf-exec-queue-mode",
+                },
+                idempotency_key_header=None,
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert captured_queue_modes == ["wait", "follow_up"]

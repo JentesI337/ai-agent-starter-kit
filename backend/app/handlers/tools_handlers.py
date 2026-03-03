@@ -335,7 +335,7 @@ def _estimate_tokens_from_chars(chars: int) -> int:
     return max(1, int(round(chars / 4.0)))
 
 
-def _build_context_segments(run_state: dict) -> dict:
+def _build_context_segments_payload(run_state: dict) -> dict:
     events = run_state.get("events") or []
     context_segmented_events = [
         evt
@@ -345,6 +345,28 @@ def _build_context_segments(run_state: dict) -> dict:
         and str(evt.get("stage") or "") == "context_segmented"
         and isinstance(evt.get("details"), dict)
     ]
+
+    phase_breakdown: dict[str, dict[str, float | int]] = {}
+    for event in context_segmented_events:
+        details = event.get("details") if isinstance(event.get("details"), dict) else {}
+        phase = str(details.get("phase") or "").strip().lower()
+        if not phase:
+            continue
+        used_tokens = int(details.get("used_tokens") or 0)
+        segments = details.get("segments") if isinstance(details.get("segments"), dict) else {}
+        rendered_prompt = segments.get("rendered_prompt") if isinstance(segments.get("rendered_prompt"), dict) else {}
+        chars = int(rendered_prompt.get("chars") or 0)
+
+        current = phase_breakdown.get(phase)
+        if current is None:
+            phase_breakdown[phase] = {
+                "tokens_est": used_tokens,
+                "chars": chars,
+            }
+        else:
+            current["tokens_est"] = int(current.get("tokens_est") or 0) + used_tokens
+            current["chars"] = int(current.get("chars") or 0) + chars
+
     if context_segmented_events:
         preferred = context_segmented_events[-1]
         details = preferred.get("details") if isinstance(preferred.get("details"), dict) else {}
@@ -362,7 +384,12 @@ def _build_context_segments(run_state: dict) -> dict:
                 "share_pct": round(share_pct, 2),
             }
         if result:
-            return result
+            return {
+                "segments": result,
+                "segment_source": "event",
+                "degraded_estimation": False,
+                "phase_breakdown": phase_breakdown,
+            }
 
     input_payload = run_state.get("input") or {}
     user_message = str(input_payload.get("user_message") or "")
@@ -405,7 +432,12 @@ def _build_context_segments(run_state: dict) -> dict:
     total_tokens = max(1, total_tokens)
     for item in segments.values():
         item["share_pct"] = round((item["tokens_est"] / total_tokens) * 100.0, 2)
-    return segments
+    return {
+        "segments": segments,
+        "segment_source": "fallback",
+        "degraded_estimation": True,
+        "phase_breakdown": phase_breakdown,
+    }
 
 
 def api_control_context_list(request_data: dict) -> dict:
@@ -420,7 +452,8 @@ def api_control_context_list(request_data: dict) -> dict:
     for run in runs:
         if not isinstance(run, dict):
             continue
-        segments = _build_context_segments(run)
+        context_payload = _build_context_segments_payload(run)
+        segments = context_payload["segments"]
         total_tokens_est = sum(item["tokens_est"] for item in segments.values())
         top_overhead = sorted(
             (
@@ -439,6 +472,9 @@ def api_control_context_list(request_data: dict) -> dict:
                 "created_at": run.get("created_at"),
                 "updated_at": run.get("updated_at"),
                 "total_tokens_est": total_tokens_est,
+                "segment_source": context_payload["segment_source"],
+                "degraded_estimation": context_payload["degraded_estimation"],
+                "phase_breakdown": context_payload["phase_breakdown"],
                 "top_overhead": top_overhead,
             }
         )
@@ -457,13 +493,17 @@ def api_control_context_detail(request_data: dict) -> dict:
     if run_state is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {request.run_id}")
 
-    segments = _build_context_segments(run_state)
+    context_payload = _build_context_segments_payload(run_state)
+    segments = context_payload["segments"]
     return {
         "schema": "context.detail.v1",
         "run_id": run_state.get("run_id"),
         "session_id": run_state.get("session_id"),
         "status": run_state.get("status"),
         "segments": segments,
+        "segment_source": context_payload["segment_source"],
+        "degraded_estimation": context_payload["degraded_estimation"],
+        "phase_breakdown": context_payload["phase_breakdown"],
         "total_tokens_est": sum(item["tokens_est"] for item in segments.values()),
     }
 

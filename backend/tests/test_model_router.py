@@ -44,7 +44,17 @@ class _FakeAgent(AgentContract):
     def configure_runtime(self, base_url: str, model: str) -> None:
         return
 
-    async def run(self, user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def run(
+        self,
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         active_model = model or ""
         self.calls.append(active_model)
         self.user_messages.append(str(user_message or ""))

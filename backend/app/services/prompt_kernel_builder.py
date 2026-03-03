@@ -7,7 +7,7 @@ from typing import Literal
 
 PromptMode = Literal["full", "minimal", "subagent"]
 
-_KERNEL_VERSION = "prompt-kernel.v1"
+_KERNEL_VERSION = "prompt-kernel.v1.1"
 
 _MODE_SECTION_LIMITS: dict[str, int | None] = {
     "full": None,
@@ -41,6 +41,7 @@ class PromptKernel:
     prompt_type: str
     prompt_mode: PromptMode
     prompt_hash: str
+    section_fingerprints: dict[str, str]
     rendered: str
 
 
@@ -63,6 +64,7 @@ class PromptKernelBuilder:
             prompt_mode=normalized_mode,
             sections=ordered_sections,
         )
+        section_fingerprints = self._build_section_fingerprints(sections=ordered_sections)
         rendered = self._render(
             prompt_type=normalized_type,
             prompt_mode=normalized_mode,
@@ -74,6 +76,7 @@ class PromptKernelBuilder:
             prompt_type=normalized_type,
             prompt_mode=normalized_mode,
             prompt_hash=prompt_hash,
+            section_fingerprints=section_fingerprints,
             rendered=rendered,
         )
 
@@ -111,6 +114,23 @@ class PromptKernelBuilder:
         }
         digest = hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         return digest
+
+    def _build_section_fingerprints(self, *, sections: list[tuple[str, str]]) -> dict[str, str]:
+        fingerprints: dict[str, str] = {}
+        for name, value in sections:
+            digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "kernel_version": _KERNEL_VERSION,
+                        "section": name,
+                        "value": value,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            fingerprints[name] = digest
+        return fingerprints
 
     def _render(
         self,

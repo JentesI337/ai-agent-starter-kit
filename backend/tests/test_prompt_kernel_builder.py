@@ -17,7 +17,8 @@ def test_prompt_kernel_builder_produces_stable_hash_for_same_input() -> None:
     )
 
     assert kernel_a.prompt_hash == kernel_b.prompt_hash
-    assert kernel_a.kernel_version == "prompt-kernel.v1"
+    assert kernel_a.kernel_version == "prompt-kernel.v1.1"
+    assert kernel_a.section_fingerprints == kernel_b.section_fingerprints
 
 
 def test_prompt_kernel_builder_truncates_in_minimal_mode() -> None:
@@ -70,3 +71,29 @@ def test_prompt_kernel_builder_orders_sections_by_contract() -> None:
         kernel.rendered.index("## zzz_extra"),
     ]
     assert order == sorted(order)
+
+
+def test_prompt_kernel_builder_section_fingerprint_changes_only_for_changed_section() -> None:
+    builder = PromptKernelBuilder()
+    base = builder.build(
+        prompt_type="planning",
+        prompt_mode="full",
+        sections={
+            "system": "rules",
+            "context": "ctx-a",
+            "task": "task-a",
+        },
+    )
+    changed = builder.build(
+        prompt_type="planning",
+        prompt_mode="full",
+        sections={
+            "system": "rules",
+            "context": "ctx-b",
+            "task": "task-a",
+        },
+    )
+
+    assert base.section_fingerprints["system"] == changed.section_fingerprints["system"]
+    assert base.section_fingerprints["task"] == changed.section_fingerprints["task"]
+    assert base.section_fingerprints["context"] != changed.section_fingerprints["context"]

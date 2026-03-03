@@ -13,6 +13,7 @@ from app.errors import GuardrailViolation
 from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor
 from app.runtime_manager import RuntimeState
 from app.skills.service import SkillsRuntimeConfig, SkillsService
+from backend.tests.async_test_guards import receive_json_with_timeout
 
 
 def _set_local_runtime() -> None:
@@ -103,7 +104,16 @@ def test_rest_agent_endpoint_with_agent(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -136,7 +146,7 @@ def test_websocket_connect_emits_status_event() -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        envelope = ws.receive_json()
+        envelope = receive_json_with_timeout(ws)
         event = _unwrap_event(envelope)
 
     assert event["type"] == "status"
@@ -150,7 +160,16 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -166,7 +185,7 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -177,8 +196,8 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
 
         events = []
         seq_values = []
-        for _ in range(12):
-            envelope = ws.receive_json()
+        for _ in range(24):
+            envelope = receive_json_with_timeout(ws)
             seq_values.append(envelope.get("seq"))
             evt = _unwrap_event(envelope)
             events.append(evt)
@@ -212,7 +231,7 @@ def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkey
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -223,7 +242,7 @@ def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkey
 
         events = []
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -244,6 +263,7 @@ def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkey
 
 def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkeypatch) -> None:
     _set_local_runtime()
+    monkeypatch.setattr(settings, "policy_approval_wait_seconds", 0.01)
 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
@@ -263,7 +283,7 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -275,7 +295,10 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
 
         events = []
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -296,6 +319,7 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
 
 def test_websocket_tool_selection_empty_triggers_single_replan_then_completes(monkeypatch) -> None:
     _set_local_runtime()
+    monkeypatch.setattr(settings, "policy_approval_wait_seconds", 0.01)
 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
@@ -309,8 +333,16 @@ def test_websocket_tool_selection_empty_triggers_single_replan_then_completes(mo
     async def fake_plan_execute(payload, model=None):
         return "execute requested command"
 
-    async def fake_tool_execute(payload, session_id, request_id, send_event, model, allowed_tools):
-        _ = (payload, session_id, request_id, send_event, model, allowed_tools)
+    async def fake_tool_execute(
+        payload,
+        session_id,
+        request_id,
+        send_event,
+        model,
+        allowed_tools,
+        should_steer_interrupt=None,
+    ):
+        _ = (payload, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
         tool_calls["count"] += 1
         if tool_calls["count"] == 1:
             return ""
@@ -330,7 +362,7 @@ def test_websocket_tool_selection_empty_triggers_single_replan_then_completes(mo
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -341,7 +373,10 @@ def test_websocket_tool_selection_empty_triggers_single_replan_then_completes(mo
 
         events = []
         for _ in range(80):
-            evt = _unwrap_event(ws.receive_json())
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -426,7 +461,7 @@ def test_websocket_emits_skills_lifecycle_when_enabled(monkeypatch, tmp_path) ->
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -436,8 +471,11 @@ def test_websocket_emits_skills_lifecycle_when_enabled(monkeypatch, tmp_path) ->
         )
 
         events = []
-        for _ in range(30):
-            evt = _unwrap_event(ws.receive_json())
+        for _ in range(80):
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -511,7 +549,7 @@ def test_websocket_skills_canary_gating_event(monkeypatch, tmp_path) -> None:
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -521,8 +559,11 @@ def test_websocket_skills_canary_gating_event(monkeypatch, tmp_path) -> None:
         )
 
         events = []
-        for _ in range(30):
-            evt = _unwrap_event(ws.receive_json())
+        for _ in range(80):
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -543,7 +584,16 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -561,7 +611,7 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "subrun_spawn",
@@ -572,7 +622,7 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
 
         events = []
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "subrun_announce":
                 break
@@ -596,7 +646,16 @@ def test_websocket_subrun_spawn_mode_session_reuses_parent_session(monkeypatch) 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -614,7 +673,7 @@ def test_websocket_subrun_spawn_mode_session_reuses_parent_session(monkeypatch) 
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "subrun_spawn",
@@ -625,7 +684,7 @@ def test_websocket_subrun_spawn_mode_session_reuses_parent_session(monkeypatch) 
 
         accepted_event = None
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 accepted_event = evt
                 break
@@ -648,7 +707,7 @@ def test_websocket_subrun_spawn_leaf_blocked_by_depth_guard(monkeypatch) -> None
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "subrun_spawn",
@@ -659,7 +718,7 @@ def test_websocket_subrun_spawn_leaf_blocked_by_depth_guard(monkeypatch) -> None
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_subrun_depth_policy":
                 break
@@ -682,7 +741,16 @@ def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_head_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -692,7 +760,16 @@ def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None
         )
         return "head-should-not-handle-coding"
 
-    async def fake_coder_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_coder_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -709,7 +786,7 @@ def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -720,7 +797,7 @@ def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -743,7 +820,16 @@ def test_runs_start_and_wait_returns_ok(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -778,7 +864,16 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -798,11 +893,11 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
     subrun_id = None
     parent_session_id = None
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "subrun_spawn", "content": "mgmt", "agent_id": "head-coder"})
 
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 subrun_id = evt.get("run_id")
                 parent_session_id = evt.get("parent_session_id")
@@ -849,12 +944,12 @@ def test_websocket_subrun_spawn_policy_rejected_emits_specific_lifecycle(monkeyp
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "subrun_spawn", "content": "blocked", "agent_id": "head-coder"})
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_subrun_policy":
                 break
@@ -869,7 +964,16 @@ def test_websocket_reply_shaping_suppression_emits_lifecycle(monkeypatch) -> Non
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "lifecycle",
@@ -912,12 +1016,12 @@ def test_websocket_reply_shaping_suppression_emits_lifecycle(monkeypatch) -> Non
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "user_message", "content": "hi", "agent_id": "head-coder"})
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -933,7 +1037,16 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -953,11 +1066,11 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
     subrun_id = None
     parent_session_id = None
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json({"type": "subrun_spawn", "content": "visible", "agent_id": "head-coder"})
 
         for _ in range(48):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "subrun_status" and evt.get("status") == "accepted":
                 subrun_id = evt.get("run_id")
                 parent_session_id = evt.get("parent_session_id")
@@ -1048,7 +1161,16 @@ def test_custom_agent_can_run_via_websocket(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_head_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1075,7 +1197,7 @@ def test_custom_agent_can_run_via_websocket(monkeypatch) -> None:
     custom_id = create.json()["id"]
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1086,7 +1208,7 @@ def test_custom_agent_can_run_via_websocket(monkeypatch) -> None:
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -1103,7 +1225,16 @@ def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_review_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_review_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1119,7 +1250,7 @@ def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) 
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1130,7 +1261,7 @@ def test_websocket_head_agent_routes_review_intent_to_review_agent(monkeypatch) 
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -1149,7 +1280,16 @@ def test_websocket_head_agent_mixed_research_review_intent_stays_head_agent(monk
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_head_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1169,7 +1309,7 @@ def test_websocket_head_agent_mixed_research_review_intent_stays_head_agent(monk
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1180,7 +1320,7 @@ def test_websocket_head_agent_mixed_research_review_intent_stays_head_agent(monk
 
         events = []
         for _ in range(24):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -1201,7 +1341,16 @@ def test_review_agent_enforces_read_only_policy(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_delegate_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_delegate_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         captured_policy["value"] = tool_policy or {}
         await send_event(
             {
@@ -1218,7 +1367,7 @@ def test_review_agent_enforces_read_only_policy(monkeypatch) -> None:
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1229,7 +1378,7 @@ def test_review_agent_enforces_read_only_policy(monkeypatch) -> None:
         )
 
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
 
@@ -1254,7 +1403,7 @@ def test_review_agent_requires_evidence_and_returns_guidance(monkeypatch) -> Non
     client = TestClient(app)
 
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1265,7 +1414,7 @@ def test_review_agent_requires_evidence_and_returns_guidance(monkeypatch) -> Non
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -1294,7 +1443,16 @@ def test_websocket_head_agent_preset_review_routes_to_review_agent(monkeypatch) 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_review_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_review_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -1309,7 +1467,7 @@ def test_websocket_head_agent_preset_review_routes_to_review_agent(monkeypatch) 
 
     client = TestClient(app)
     with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(ws.receive_json())
+        _ = _unwrap_event(receive_json_with_timeout(ws))
         ws.send_json(
             {
                 "type": "user_message",
@@ -1321,7 +1479,7 @@ def test_websocket_head_agent_preset_review_routes_to_review_agent(monkeypatch) 
 
         events = []
         for _ in range(20):
-            evt = _unwrap_event(ws.receive_json())
+            evt = _unwrap_event(receive_json_with_timeout(ws))
             events.append(evt)
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
@@ -1343,7 +1501,16 @@ def test_rest_agent_applies_research_preset_and_merges_policy(monkeypatch) -> No
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         captured["tool_policy"] = tool_policy
         await send_event(
             {

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -8,6 +7,7 @@ import pytest
 from app.errors import LlmClientError
 from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
+from backend.tests.async_test_guards import run_async_with_timeout
 
 
 @dataclass
@@ -30,7 +30,18 @@ class _FakeAgent:
         self._fail_first_attempt = fail_first_attempt
         self.calls: list[str] = []
 
-    async def run(self, *, user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def run(
+        self,
+        *,
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         _ = (user_message, send_event, session_id, request_id, tool_policy)
         model_name = str(model or "")
         self.calls.append(model_name)
@@ -173,15 +184,17 @@ def test_state_machine_retries_with_fallback_model_and_succeeds() -> None:
         route=route,
         runtime="api",
         user_message="please do task",
+        prompt_mode="full",
         send_event=_send_event,
         session_id="s-1",
         request_id="r-1",
+        should_steer_interrupt=None,
         tool_policy=None,
         max_attempts=3,
         config=_runtime_config(),
     )
 
-    result = asyncio.run(machine.run())
+    result = run_async_with_timeout(machine.run(), timeout_seconds=2.0)
 
     assert result == "ok:model-fallback"
     assert agent.calls == ["model-primary", "model-fallback"]
@@ -276,16 +289,18 @@ def test_state_machine_fails_fast_when_not_retryable() -> None:
         route=route,
         runtime="api",
         user_message="please do task",
+        prompt_mode="full",
         send_event=_send_event,
         session_id="s-2",
         request_id="r-2",
+        should_steer_interrupt=None,
         tool_policy=None,
         max_attempts=3,
         config=_runtime_config(),
     )
 
     with pytest.raises(LlmClientError):
-        asyncio.run(machine.run())
+        run_async_with_timeout(machine.run(), timeout_seconds=2.0)
 
     assert agent.calls == ["model-primary"]
     action_event = next(
@@ -333,15 +348,17 @@ def test_state_machine_emits_transform_event_when_compaction_applied() -> None:
         route=route,
         runtime="api",
         user_message="please do task",
+        prompt_mode="full",
         send_event=_send_event,
         session_id="s-3",
         request_id="r-3",
+        should_steer_interrupt=None,
         tool_policy=None,
         max_attempts=3,
         config=_runtime_config(),
     )
 
-    result = asyncio.run(machine.run())
+    result = run_async_with_timeout(machine.run(), timeout_seconds=2.0)
 
     assert result == "ok:model-fallback"
     transform_event = next(
@@ -354,3 +371,58 @@ def test_state_machine_emits_transform_event_when_compaction_applied() -> None:
     assert transform_details.get("reason_class") == "transient"
     assert transform_details.get("recovery_strategy") == "context_overflow:prompt_compaction"
     assert int(transform_details.get("chars_reduced", 0)) >= 0
+
+
+def test_state_machine_terminates_when_fallbacks_exhausted() -> None:
+    class _AlwaysFailAgent:
+        def __init__(self) -> None:
+            self.name = "always-fail-agent"
+            self.calls: list[str] = []
+
+        async def run(
+            self,
+            *,
+            user_message,
+            send_event,
+            session_id,
+            request_id,
+            model=None,
+            tool_policy=None,
+            prompt_mode=None,
+            should_steer_interrupt=None,
+        ):
+            _ = (user_message, send_event, session_id, request_id, tool_policy, prompt_mode, should_steer_interrupt)
+            model_name = str(model or "")
+            self.calls.append(model_name)
+            raise LlmClientError("temporary failure")
+
+    route = _Route(
+        primary_model="model-primary",
+        fallback_models=["model-fallback-a", "model-fallback-b"],
+        profile=_RouteProfile(),
+    )
+    agent = _AlwaysFailAgent()
+    hooks = _Hooks(agent, retryable=True)
+
+    async def _send_event(payload: dict) -> None:
+        _ = payload
+
+    machine = FallbackStateMachine(
+        hooks=hooks,
+        route=route,
+        runtime="api",
+        user_message="please do task",
+        prompt_mode="full",
+        send_event=_send_event,
+        session_id="s-4",
+        request_id="r-4",
+        should_steer_interrupt=None,
+        tool_policy=None,
+        max_attempts=6,
+        config=_runtime_config(),
+    )
+
+    with pytest.raises(LlmClientError):
+        run_async_with_timeout(machine.run(), timeout_seconds=2.0)
+
+    assert agent.calls == ["model-primary", "model-fallback-a", "model-fallback-b"]

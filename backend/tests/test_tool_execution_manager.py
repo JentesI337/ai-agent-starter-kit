@@ -18,11 +18,49 @@ def test_build_tool_selector_prompt_contains_allowed_tools_and_context() -> None
 
     assert '"tool":"read_file|web_fetch"' in prompt or '"tool":"web_fetch|read_file"' in prompt
     assert "Allowed tool names are exactly: read_file, web_fetch." in prompt or "Allowed tool names are exactly: web_fetch, read_file." in prompt
-    assert "[kernel_version=prompt-kernel.v1]" in prompt
+    assert "[kernel_version=prompt-kernel.v1.1]" in prompt
     assert "[prompt_type=tool_selection]" in prompt
     assert "## memory\ncontext-line" in prompt
     assert "## task\nplease research this" in prompt
     assert "## plan\n1) inspect" in prompt
+
+
+def test_contract_skills_prompt_respects_subagent_budget() -> None:
+    manager = ToolExecutionManager()
+    source = "x" * 5000
+
+    contracted, changed = manager._contract_skills_prompt(
+        prompt=source,
+        prompt_mode="subagent",
+        max_prompt_chars=30000,
+    )
+
+    assert changed is True
+    assert len(contracted) < len(source)
+    assert "chars truncated for subagent skills mode" in contracted
+
+
+def test_contract_skills_prompt_respects_configured_cap_without_minimum_floor() -> None:
+    manager = ToolExecutionManager()
+    source = "abcdefghijklmnopqrstuvwxyz"
+
+    contracted, changed = manager._contract_skills_prompt(
+        prompt=source,
+        prompt_mode="minimal",
+        max_prompt_chars=10,
+    )
+
+    assert changed is True
+    assert contracted.startswith("abcdefghij")
+
+    omitted, changed_omitted = manager._contract_skills_prompt(
+        prompt=source,
+        prompt_mode="minimal",
+        max_prompt_chars=0,
+    )
+
+    assert changed_omitted is True
+    assert omitted == ""
 
 
 def test_build_loop_gatekeeper_uses_config_values() -> None:
@@ -469,3 +507,56 @@ def test_run_tool_loop_applies_steer_interrupt_checkpoint() -> None:
     assert result == "__STEER_INTERRUPTED__"
     assert any(stage == "steer_detected" for stage, _ in lifecycle_events)
     assert any(stage == "steer_applied" for stage, _ in lifecycle_events)
+
+
+def test_run_tool_loop_emits_skills_manual_read_for_skill_md_path() -> None:
+    manager = ToolExecutionManager()
+    lifecycle_events: list[tuple[str, dict | None]] = []
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    async def fake_send_event(payload: dict) -> None:
+        _ = payload
+
+    async def fake_run_tool_with_policy(*, tool: str, args: dict, policy: object) -> str:
+        _ = (tool, args, policy)
+        return "ok"
+
+    result = asyncio.run(
+        manager.run_tool_loop(
+            actions=[{"tool": "read_file", "args": {"path": "skills/python/SKILL.md"}}],
+            effective_allowed_tools={"read_file"},
+            config=ToolExecutionConfig(
+                call_cap=5,
+                time_cap_seconds=30.0,
+                loop_warn_threshold=2,
+                loop_critical_threshold=4,
+                loop_circuit_breaker_threshold=8,
+                generic_repeat_enabled=True,
+                ping_pong_enabled=True,
+                poll_no_progress_enabled=True,
+                poll_no_progress_threshold=3,
+                warning_bucket_size=10,
+            ),
+            user_message="load skill manual",
+            model=None,
+            agent_name="head-agent",
+            normalize_tool_name=lambda tool: tool,
+            evaluate_action=lambda tool, args, allowed: (args, None),
+            build_execution_policy=lambda tool: object(),
+            run_tool_with_policy=fake_run_tool_with_policy,
+            invoke_spawn_subrun_tool=lambda **kwargs: asyncio.sleep(0),
+            should_retry_web_fetch_on_404=lambda error: False,
+            is_web_research_task=lambda message: False,
+            is_weather_lookup_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            memory_add=lambda tool, clipped: None,
+            emit_lifecycle=fake_emit_lifecycle,
+            send_event=fake_send_event,
+            invoke_hooks=lambda hook_name, payload: asyncio.sleep(0),
+        )
+    )
+
+    assert "[read_file]" in result
+    assert any(stage == "skills_manual_read" for stage, _ in lifecycle_events)
