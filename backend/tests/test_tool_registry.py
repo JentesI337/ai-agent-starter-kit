@@ -78,3 +78,24 @@ def test_build_function_calling_tools_uses_typed_parameters() -> None:
     assert spawn_schema["additionalProperties"] is False
     assert spawn_schema["required"] == ["message"]
     assert spawn_schema["properties"]["mode"]["enum"] == ["run", "wait"]
+
+
+def test_registry_exposes_tool_capabilities() -> None:
+    registry = build_default_tool_registry(command_timeout_seconds=30)
+
+    run_caps = set(registry.capabilities_for_tool("run_command"))
+    read_caps = set(registry.capabilities_for_tool("read_file"))
+
+    assert "command_execution" in run_caps
+    assert "filesystem_read" in read_caps
+
+
+def test_registry_filters_tools_by_capabilities() -> None:
+    registry = build_default_tool_registry(command_timeout_seconds=30)
+
+    filtered = registry.filter_tools_by_capabilities(
+        candidate_tools={"read_file", "run_command", "web_fetch"},
+        required_capabilities={"command_execution", "web_retrieval"},
+    )
+
+    assert filtered == {"run_command", "web_fetch"}

@@ -123,6 +123,7 @@ class WsHandlerDependencies:
     effective_orchestrator_agent_ids: Callable[[], set[str]]
     looks_like_review_request: Callable[[str], bool]
     looks_like_coding_request: Callable[[str], bool]
+    route_agent_for_message: Callable[[str | None, str, str | None], tuple[str, str | None, tuple[str, ...], list[dict[str, object]]]]
     resolve_agent: Callable[[str | None], tuple[str, AgentLike, OrchestratorLike]]
     state_append_event_safe: Callable[[str, EventPayload], None]
     state_mark_failed_safe: Callable[[str, str], None]
@@ -334,18 +335,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         def should_steer_interrupt() -> bool:
             return queue_mode == "steer" and session_inbox.has_newer_than(session_id, request_id)
 
-        effective_agent_id = requested_agent_id
-        routing_reason: str | None = None
-        if requested_agent_id == deps.primary_agent_id:
-            if applied_preset == "review":
-                effective_agent_id = deps.review_agent_id
-                routing_reason = "preset_review"
-            elif deps.looks_like_review_request(content):
-                effective_agent_id = deps.review_agent_id
-                routing_reason = "review_intent"
-            elif deps.looks_like_coding_request(content):
-                effective_agent_id = deps.coder_agent_id
-                routing_reason = "coding_intent"
+        effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = deps.route_agent_for_message(
+            requested_agent_id=requested_agent_id,
+            message=content,
+            preset=applied_preset,
+        )
 
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
 
@@ -370,6 +364,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 "requested_agent_id": requested_agent_id,
                 "effective_agent_id": resolved_agent_id,
                 "routing_reason": routing_reason,
+                "routing_capabilities": list(required_capabilities),
+                "routing_matches": ranked_capability_matches,
                 "preset": applied_preset,
                 "queue_mode": queue_mode,
                 "prompt_mode": prompt_mode,
@@ -752,18 +748,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         ]
                 applied_preset = (data.preset or "").strip().lower() or None
 
-                effective_agent_id = requested_agent_id
-                routing_reason: str | None = None
-                if requested_agent_id == deps.primary_agent_id:
-                    if applied_preset == "review":
-                        effective_agent_id = deps.review_agent_id
-                        routing_reason = "preset_review"
-                    elif deps.looks_like_review_request(content):
-                        effective_agent_id = deps.review_agent_id
-                        routing_reason = "review_intent"
-                    elif deps.looks_like_coding_request(content):
-                        effective_agent_id = deps.coder_agent_id
-                        routing_reason = "coding_intent"
+                effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = deps.route_agent_for_message(
+                    requested_agent_id=requested_agent_id,
+                    message=content,
+                    preset=applied_preset,
+                )
 
                 resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
                 active_event_agent_name = selected_agent.name
@@ -798,6 +787,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         "requested_agent_id": requested_agent_id,
                         "effective_agent_id": resolved_agent_id,
                         "routing_reason": routing_reason,
+                        "routing_capabilities": list(required_capabilities),
+                        "routing_matches": ranked_capability_matches,
                         "preset": applied_preset,
                         "queue_mode": queue_mode,
                         "prompt_mode": prompt_mode,

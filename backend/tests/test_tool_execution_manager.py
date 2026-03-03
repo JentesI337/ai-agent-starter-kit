@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from app.config import settings
 from app.errors import ToolExecutionError
+from app.services.tool_registry import build_default_tool_registry
 from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
 
 
@@ -278,6 +280,7 @@ def test_run_tool_loop_executes_action_and_emits_audit_summary() -> None:
                 poll_no_progress_threshold=3,
                 warning_bucket_size=10,
             ),
+            app_settings=settings,
             user_message="read file",
             model=None,
             agent_name="head-agent",
@@ -360,6 +363,7 @@ def test_run_tool_loop_respects_call_budget() -> None:
                 poll_no_progress_threshold=3,
                 warning_bucket_size=10,
             ),
+            app_settings=settings,
             user_message="read file",
             model=None,
             agent_name="head-agent",
@@ -418,6 +422,7 @@ def test_run_tool_loop_emits_error_code_and_category_on_tool_failed() -> None:
                 poll_no_progress_threshold=3,
                 warning_bucket_size=10,
             ),
+            app_settings=settings,
             user_message="run command",
             model=None,
             agent_name="head-agent",
@@ -484,6 +489,7 @@ def test_run_tool_loop_applies_steer_interrupt_checkpoint() -> None:
                 poll_no_progress_threshold=3,
                 warning_bucket_size=10,
             ),
+            app_settings=settings,
             user_message="read file",
             model=None,
             agent_name="head-agent",
@@ -539,6 +545,7 @@ def test_run_tool_loop_emits_skills_manual_read_for_skill_md_path() -> None:
                 poll_no_progress_threshold=3,
                 warning_bucket_size=10,
             ),
+            app_settings=settings,
             user_message="load skill manual",
             model=None,
             agent_name="head-agent",
@@ -560,3 +567,147 @@ def test_run_tool_loop_emits_skills_manual_read_for_skill_md_path() -> None:
 
     assert "[read_file]" in result
     assert any(stage == "skills_manual_read" for stage, _ in lifecycle_events)
+
+
+def test_run_tool_loop_applies_persist_transform_redaction_and_events() -> None:
+    manager = ToolExecutionManager()
+    lifecycle_events: list[tuple[str, dict | None]] = []
+    memory_entries: list[tuple[str, str]] = []
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    async def fake_send_event(payload: dict) -> None:
+        _ = payload
+
+    async def fake_run_tool_with_policy(*, tool: str, args: dict, policy: object) -> str:
+        _ = (tool, args, policy)
+        return "token=abc123\nBearer super-secret-token"
+
+    def fake_memory_add(tool: str, clipped: str) -> None:
+        memory_entries.append((tool, clipped))
+
+    result = asyncio.run(
+        manager.run_tool_loop(
+            actions=[{"tool": "read_file", "args": {"path": "README.md"}}],
+            effective_allowed_tools={"read_file"},
+            config=ToolExecutionConfig(
+                call_cap=5,
+                time_cap_seconds=30.0,
+                loop_warn_threshold=2,
+                loop_critical_threshold=4,
+                loop_circuit_breaker_threshold=8,
+                generic_repeat_enabled=True,
+                ping_pong_enabled=True,
+                poll_no_progress_enabled=True,
+                poll_no_progress_threshold=3,
+                warning_bucket_size=10,
+            ),
+            app_settings=settings,
+            user_message="read file",
+            model=None,
+            agent_name="head-agent",
+            normalize_tool_name=lambda tool: tool,
+            evaluate_action=lambda tool, args, allowed: (args, None),
+            build_execution_policy=lambda tool: object(),
+            run_tool_with_policy=fake_run_tool_with_policy,
+            invoke_spawn_subrun_tool=lambda **kwargs: asyncio.sleep(0),
+            should_retry_web_fetch_on_404=lambda error: False,
+            is_web_research_task=lambda message: False,
+            is_weather_lookup_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            memory_add=fake_memory_add,
+            emit_lifecycle=fake_emit_lifecycle,
+            send_event=fake_send_event,
+            invoke_hooks=lambda hook_name, payload: asyncio.sleep(0),
+        )
+    )
+
+    assert "[REDACTED]" in result
+    assert memory_entries and "[REDACTED]" in memory_entries[0][1]
+    transformed = [details for stage, details in lifecycle_events if stage == "tool_result_transformed"]
+    assert transformed and isinstance(transformed[0], dict)
+    assert transformed[0].get("redacted") is True
+    assert any(stage == "tool_result_persisted" for stage, _ in lifecycle_events)
+
+
+def test_transform_tool_result_for_persist_adds_chunking_and_summary_for_large_payload() -> None:
+    manager = ToolExecutionManager()
+    config = ToolExecutionConfig(
+        call_cap=5,
+        time_cap_seconds=30.0,
+        loop_warn_threshold=2,
+        loop_critical_threshold=4,
+        loop_circuit_breaker_threshold=8,
+        generic_repeat_enabled=True,
+        ping_pong_enabled=True,
+        poll_no_progress_enabled=True,
+        poll_no_progress_threshold=3,
+        warning_bucket_size=10,
+        result_max_chars=400,
+        smart_truncate_enabled=True,
+    )
+    large_text = "Line with content\n" * 300
+
+    clipped, metadata = manager._transform_tool_result_for_persist(
+        tool="web_fetch",
+        raw_result=large_text,
+        config=config,
+        app_settings=settings,
+    )
+
+    assert len(clipped) <= 400
+    assert metadata.get("chunked") is True
+    assert "summary:" in clipped
+
+
+def test_infer_required_capabilities_for_command_intent() -> None:
+    manager = ToolExecutionManager()
+
+    required = manager._infer_required_capabilities(
+        user_message="run `pytest -q` and show result",
+        plan_text="execute tests",
+        intent="execute_command",
+    )
+
+    assert "command_execution" in required
+
+
+def test_apply_capability_preselection_filters_tools() -> None:
+    lifecycle_events: list[tuple[str, dict | None]] = []
+    manager = ToolExecutionManager(registry=build_default_tool_registry(command_timeout_seconds=30))
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    selected = asyncio.run(
+        manager._apply_capability_preselection(
+            allowed_tools={"read_file", "run_command", "web_fetch"},
+            required_capabilities={"command_execution"},
+            intent="execute_command",
+            emit_lifecycle=fake_emit_lifecycle,
+        )
+    )
+
+    assert selected == {"run_command"}
+    assert any(stage == "tool_capability_preselection_applied" for stage, _ in lifecycle_events)
+
+
+def test_apply_capability_preselection_falls_back_when_no_match() -> None:
+    lifecycle_events: list[tuple[str, dict | None]] = []
+    manager = ToolExecutionManager(registry=build_default_tool_registry(command_timeout_seconds=30))
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    selected = asyncio.run(
+        manager._apply_capability_preselection(
+            allowed_tools={"read_file"},
+            required_capabilities={"agent_delegation"},
+            intent="delegate",
+            emit_lifecycle=fake_emit_lifecycle,
+        )
+    )
+
+    assert selected == {"read_file"}
+    assert any(stage == "tool_capability_preselection_empty" for stage, _ in lifecycle_events)

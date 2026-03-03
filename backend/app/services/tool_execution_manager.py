@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 import json
+import re
 from time import monotonic
 from uuid import uuid4
 
@@ -13,6 +14,11 @@ from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
 from app.services.tool_call_gatekeeper import ToolCallGatekeeper
 from app.services.tool_call_gatekeeper import prepare_action_for_execution
+from app.skills.retrieval import (
+    ReliableRetrievalConfig,
+    ReliableRetrievalService,
+    format_retrieval_sources_for_prompt,
+)
 
 STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 
@@ -104,6 +110,103 @@ class ToolExecutionManager:
         self._llm_client = llm_client
         self._send_event = send_event
         self._prompt_kernel_builder = PromptKernelBuilder()
+        self._retrieval_service: ReliableRetrievalService | None = None
+        self._retrieval_cache_key: tuple[bool, int, float, float, float] | None = None
+
+    @staticmethod
+    def _infer_required_capabilities(*, user_message: str, plan_text: str, intent: str | None) -> set[str]:
+        text = f"{user_message}\n{plan_text}".lower()
+        capabilities: set[str] = set()
+
+        if intent == "execute_command":
+            capabilities.add("command_execution")
+
+        if any(marker in text for marker in ("search", "research", "latest", "source", "web", "internet")):
+            capabilities.update({"web_retrieval", "knowledge_retrieval"})
+
+        if any(marker in text for marker in ("write", "create file", "update", "edit", "patch", "implement", "fix")):
+            capabilities.update({"filesystem_write", "code_modification"})
+
+        if any(marker in text for marker in ("read", "inspect", "analyze", "grep", "find", "search in files")):
+            capabilities.update({"filesystem_read", "code_search"})
+
+        if any(marker in text for marker in ("subrun", "delegate", "orchestrate", "parallel")):
+            capabilities.update({"agent_delegation", "orchestration"})
+
+        if not capabilities:
+            capabilities.add("filesystem_read")
+        return capabilities
+
+    async def _apply_capability_preselection(
+        self,
+        *,
+        allowed_tools: set[str],
+        required_capabilities: set[str],
+        intent: str | None,
+        emit_lifecycle: Callable[[str, dict | None], Awaitable[None]],
+    ) -> set[str]:
+        registry = self._registry
+        if registry is None or not hasattr(registry, "filter_tools_by_capabilities"):
+            await emit_lifecycle(
+                "tool_capability_preselection_skipped",
+                {
+                    "reason": "registry_missing_filter",
+                    "required_capabilities": sorted(required_capabilities),
+                    "allowed_before": len(allowed_tools),
+                },
+            )
+            return set(allowed_tools)
+
+        filtered_tools = registry.filter_tools_by_capabilities(
+            candidate_tools=set(allowed_tools),
+            required_capabilities=required_capabilities,
+        )
+        if filtered_tools:
+            await emit_lifecycle(
+                "tool_capability_preselection_applied",
+                {
+                    "intent": intent,
+                    "required_capabilities": sorted(required_capabilities),
+                    "allowed_before": len(allowed_tools),
+                    "allowed_after": len(filtered_tools),
+                    "selected_tools": sorted(filtered_tools),
+                },
+            )
+            return filtered_tools
+
+        await emit_lifecycle(
+            "tool_capability_preselection_empty",
+            {
+                "intent": intent,
+                "required_capabilities": sorted(required_capabilities),
+                "allowed_before": len(allowed_tools),
+                "fallback_to_allowed_tools": True,
+            },
+        )
+        return set(allowed_tools)
+
+    def _get_retrieval_service(self, app_settings: Settings) -> ReliableRetrievalService:
+        config_key = (
+            bool(getattr(app_settings, "reliable_retrieval_enabled", True)),
+            max(1, int(getattr(app_settings, "reliable_retrieval_max_sources", 4))),
+            max(0.0, float(getattr(app_settings, "reliable_retrieval_min_score", 0.02))),
+            max(0.0, float(getattr(app_settings, "reliable_retrieval_cache_ttl_seconds", 30.0))),
+            max(0.0, min(1.0, float(getattr(app_settings, "reliable_retrieval_default_source_trust", 0.8)))),
+        )
+        if self._retrieval_service is not None and self._retrieval_cache_key == config_key:
+            return self._retrieval_service
+
+        self._retrieval_cache_key = config_key
+        self._retrieval_service = ReliableRetrievalService(
+            ReliableRetrievalConfig(
+                enabled=config_key[0],
+                max_sources=config_key[1],
+                min_score=config_key[2],
+                cache_ttl_seconds=config_key[3],
+                default_source_trust=config_key[4],
+            )
+        )
+        return self._retrieval_service
 
     @staticmethod
     def _normalize_prompt_mode_for_skills(prompt_mode: str | None) -> str:
@@ -197,6 +300,22 @@ class ToolExecutionManager:
             return ""
 
         intent_decision = detect_intent_gate(user_message)
+        intent = getattr(intent_decision, "intent", None)
+        confidence = getattr(intent_decision, "confidence", "low")
+        extracted_command = getattr(intent_decision, "extracted_command", None)
+        missing_slots = tuple(getattr(intent_decision, "missing_slots", ()) or ())
+        required_capabilities = self._infer_required_capabilities(
+            user_message=user_message,
+            plan_text=plan_text,
+            intent=intent,
+        )
+        effective_allowed_tools = await self._apply_capability_preselection(
+            allowed_tools=effective_allowed_tools,
+            required_capabilities=required_capabilities,
+            intent=intent,
+            emit_lifecycle=emit_lifecycle,
+        )
+
         model_id = model or client_model
         effective_prompt_mode = self._normalize_prompt_mode_for_skills(prompt_mode)
         skills_enabled, skills_gating_details = resolve_skills_enabled_for_request(model_id=model_id)
@@ -241,8 +360,35 @@ class ToolExecutionManager:
                     },
                 )
 
+        retrieval_prompt = ""
+        retrieval_service = self._get_retrieval_service(app_settings)
+        retrieval_result = retrieval_service.retrieve(
+            query=f"{user_message}\n{plan_text}",
+            snapshot=skills_snapshot,
+        )
+        if retrieval_result.has_sources:
+            retrieval_prompt = format_retrieval_sources_for_prompt(retrieval_result)
+            await emit_lifecycle(
+                "retrieval_sources_selected",
+                {
+                    "source_count": len(retrieval_result.sources),
+                    "from_cache": retrieval_result.from_cache,
+                    "top_sources": [source.title for source in retrieval_result.sources[:3]],
+                },
+            )
+        else:
+            await emit_lifecycle(
+                "retrieval_sources_empty",
+                {
+                    "from_cache": retrieval_result.from_cache,
+                    "skills_selected": getattr(skills_snapshot, "selected_count", 0),
+                },
+            )
+
         effective_memory_context = memory_context
         snapshot_prompt = str(getattr(skills_snapshot, "prompt", "") or "").strip()
+        if retrieval_prompt:
+            effective_memory_context = f"{effective_memory_context}\n\n{retrieval_prompt}".strip()
         if skills_enabled and snapshot_prompt:
             if effective_prompt_mode == "subagent" and not self._should_inject_skills_preview_in_subagent(
                 user_message=user_message,
@@ -282,11 +428,6 @@ class ToolExecutionManager:
                             "source_chars": len(snapshot_prompt),
                         },
                     )
-
-        intent = getattr(intent_decision, "intent", None)
-        confidence = getattr(intent_decision, "confidence", "low")
-        extracted_command = getattr(intent_decision, "extracted_command", None)
-        missing_slots = tuple(getattr(intent_decision, "missing_slots", ()) or ())
 
         if intent == "execute_command" and "run_command" not in effective_allowed_tools:
             approved = await request_policy_override(tool="run_command", resource=(extracted_command or "(missing command)"))
@@ -413,6 +554,7 @@ class ToolExecutionManager:
             actions=actions,
             effective_allowed_tools=effective_allowed_tools,
             config=config,
+            app_settings=app_settings,
             user_message=user_message,
             model=model,
             agent_name=agent_name,
@@ -443,6 +585,129 @@ class ToolExecutionManager:
         omitted = max(0, len(text) - (head_size + tail_size))
         separator = f"\n\n... [{omitted} chars truncated] ...\n\n"
         return f"{text[:head_size]}{separator}{text[-tail_size:]}"
+
+    @staticmethod
+    def _redact_secret_like_values(value: str) -> str:
+        text = str(value)
+        text = re.sub(
+            r"(?i)(api[_-]?key|token|password|secret)\s*([:=])\s*([^\s,;\"']+)",
+            lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+            text,
+        )
+        text = re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
+        return text
+
+    @staticmethod
+    def _compact_result_text(value: str) -> str:
+        lines = [line.rstrip() for line in str(value).splitlines()]
+        compacted_lines: list[str] = []
+        blank_count = 0
+        for line in lines:
+            if not line.strip():
+                blank_count += 1
+                if blank_count <= 1:
+                    compacted_lines.append("")
+                continue
+            blank_count = 0
+            compacted_lines.append(line)
+        return "\n".join(compacted_lines).strip()
+
+    @staticmethod
+    def _chunk_for_persist(value: str, *, max_chars: int) -> tuple[str, int]:
+        text = str(value)
+        if len(text) <= max_chars:
+            return text, 1
+
+        chunk_size = max(512, min(2000, max_chars // 3))
+        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+        total_chunks = len(chunks)
+        selected: list[tuple[int, str]] = []
+        if total_chunks <= 3:
+            selected = list(enumerate(chunks, start=1))
+        else:
+            selected = [
+                (1, chunks[0]),
+                (2, chunks[1]),
+                (total_chunks, chunks[-1]),
+            ]
+
+        rendered = "\n\n".join(
+            f"--- chunk {index}/{total_chunks} ---\n{chunk_text}" for index, chunk_text in selected
+        )
+        return rendered, total_chunks
+
+    @staticmethod
+    def _build_semantic_summary(value: str) -> str:
+        lines = [line.strip() for line in str(value).splitlines() if line.strip()]
+        if not lines:
+            return ""
+
+        head = lines[:2]
+        tail: list[str] = []
+        if len(lines) > 4:
+            tail = [lines[-1]]
+        summary_lines = head + tail
+        summary = " | ".join(summary_lines)
+        if len(summary) > 280:
+            summary = f"{summary[:277]}..."
+        return f"summary: {summary}"
+
+    def _transform_tool_result_for_persist(
+        self,
+        *,
+        tool: str,
+        raw_result: str,
+        config: ToolExecutionConfig,
+        app_settings: Settings,
+    ) -> tuple[str, dict[str, object]]:
+        raw_text = str(raw_result or "")
+        transformed = raw_text
+        transform_stages: list[str] = []
+
+        if bool(getattr(app_settings, "persist_transform_redact_secrets", True)):
+            redacted = self._redact_secret_like_values(transformed)
+            if redacted != transformed:
+                transform_stages.append("redaction")
+            transformed = redacted
+
+        compacted = self._compact_result_text(transformed)
+        if compacted != transformed:
+            transform_stages.append("compaction")
+        transformed = compacted
+
+        chunk_count = 1
+        if len(transformed) > config.result_max_chars:
+            transformed, chunk_count = self._chunk_for_persist(
+                transformed,
+                max_chars=config.result_max_chars,
+            )
+            transform_stages.append("chunking")
+
+            summary_line = self._build_semantic_summary(raw_text)
+            if summary_line:
+                transformed = f"{summary_line}\n\n{transformed}"
+                transform_stages.append("semantic_summary")
+
+        clipped = (
+            self._smart_truncate(transformed, max_chars=config.result_max_chars)
+            if config.smart_truncate_enabled
+            else transformed[: config.result_max_chars]
+        )
+        if clipped != transformed and "chunking" not in transform_stages:
+            transform_stages.append("chunking")
+
+        metadata: dict[str, object] = {
+            "tool": tool,
+            "input_chars": len(raw_text),
+            "output_chars": len(clipped),
+            "transform_stages": transform_stages,
+            "chunk_count": chunk_count,
+            "redacted": "redaction" in transform_stages,
+            "compacted": "compaction" in transform_stages,
+            "chunked": "chunking" in transform_stages,
+            "summarized": "semantic_summary" in transform_stages,
+        }
+        return clipped, metadata
 
     def build_tool_selector_prompt(
         self,
@@ -706,6 +971,7 @@ class ToolExecutionManager:
         actions: list[dict],
         effective_allowed_tools: set[str],
         config: ToolExecutionConfig,
+        app_settings: Settings,
         user_message: str,
         model: str | None,
         agent_name: str,
@@ -769,6 +1035,7 @@ class ToolExecutionManager:
                             model=model,
                             max_chars=result_max_chars,
                             smart_truncate_enabled=config.smart_truncate_enabled,
+                            app_settings=app_settings,
                             memory_add=memory_add,
                         )
                         for action in read_only_actions
@@ -900,10 +1167,20 @@ class ToolExecutionManager:
                     result = await run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
                 tool_call_count += 1
                 tool_elapsed_ms = int((monotonic() - tool_started) * 1000)
-                clipped = (
-                    self._smart_truncate(result, max_chars=result_max_chars)
-                    if config.smart_truncate_enabled
-                    else result[:result_max_chars]
+                clipped, transform_meta = self._transform_tool_result_for_persist(
+                    tool=tool,
+                    raw_result=result,
+                    config=config,
+                    app_settings=app_settings,
+                )
+                await emit_lifecycle(
+                    "tool_result_transformed",
+                    {
+                        "tool": tool,
+                        "index": idx,
+                        "call_id": call_id,
+                        **transform_meta,
+                    },
                 )
                 await invoke_hooks(
                     "tool_result_persist",
@@ -917,6 +1194,16 @@ class ToolExecutionManager:
                     },
                 )
                 memory_add(tool, clipped)
+                await emit_lifecycle(
+                    "tool_result_persisted",
+                    {
+                        "tool": tool,
+                        "index": idx,
+                        "call_id": call_id,
+                        "result_chars": len(clipped),
+                        "status": "ok",
+                    },
+                )
                 results.append(f"[{tool}]\n{clipped}")
 
                 post_decision = loop_gatekeeper.after_tool_success(
@@ -1024,10 +1311,21 @@ class ToolExecutionManager:
                             retry_started = monotonic()
                             retry_result = await run_tool_with_policy(tool=tool, args=retry_args, policy=policy)
                             retry_elapsed_ms = int((monotonic() - retry_started) * 1000)
-                            clipped = (
-                                self._smart_truncate(retry_result, max_chars=result_max_chars)
-                                if config.smart_truncate_enabled
-                                else retry_result[:result_max_chars]
+                            clipped, transform_meta = self._transform_tool_result_for_persist(
+                                tool=tool,
+                                raw_result=retry_result,
+                                config=config,
+                                app_settings=app_settings,
+                            )
+                            await emit_lifecycle(
+                                "tool_result_transformed",
+                                {
+                                    "tool": tool,
+                                    "index": idx,
+                                    "call_id": call_id,
+                                    "retried": True,
+                                    **transform_meta,
+                                },
                             )
                             await invoke_hooks(
                                 "tool_result_persist",
@@ -1042,6 +1340,17 @@ class ToolExecutionManager:
                                 },
                             )
                             memory_add(tool, clipped)
+                            await emit_lifecycle(
+                                "tool_result_persisted",
+                                {
+                                    "tool": tool,
+                                    "index": idx,
+                                    "call_id": call_id,
+                                    "result_chars": len(clipped),
+                                    "status": "ok",
+                                    "retried": True,
+                                },
+                            )
                             results.append(f"[{tool}]\n{clipped}")
                             await emit_lifecycle(
                                 "tool_completed",
@@ -1207,6 +1516,7 @@ class ToolExecutionManager:
         model: str | None,
         max_chars: int,
         smart_truncate_enabled: bool,
+        app_settings: Settings,
         memory_add: Callable[[str, str], None],
     ) -> str | None:
         prep = prepare_action_for_execution(
@@ -1225,6 +1535,26 @@ class ToolExecutionManager:
             result = await invoke_spawn_subrun_tool(args=evaluated_args, model=model)
         else:
             result = await run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
-        clipped = self._smart_truncate(result, max_chars=max_chars) if smart_truncate_enabled else result[:max_chars]
+        temp_config = ToolExecutionConfig(
+            call_cap=1,
+            time_cap_seconds=1.0,
+            loop_warn_threshold=1,
+            loop_critical_threshold=2,
+            loop_circuit_breaker_threshold=3,
+            generic_repeat_enabled=True,
+            ping_pong_enabled=True,
+            poll_no_progress_enabled=True,
+            poll_no_progress_threshold=2,
+            warning_bucket_size=1,
+            result_max_chars=max_chars,
+            smart_truncate_enabled=smart_truncate_enabled,
+            parallel_read_only_enabled=False,
+        )
+        clipped, _ = self._transform_tool_result_for_persist(
+            tool=tool,
+            raw_result=result,
+            config=temp_config,
+            app_settings=app_settings,
+        )
         memory_add(tool, clipped)
         return f"[{tool}]\n{clipped}"

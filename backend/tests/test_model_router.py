@@ -113,6 +113,18 @@ def test_model_router_prefers_runtime_optimized_model_when_not_requested() -> No
     assert api_decision.primary_model != ""
 
 
+def test_model_router_reasoning_level_changes_scoring_bias() -> None:
+    router = ModelRouter()
+
+    high_reasoning = router.route(runtime="api", requested_model=None, reasoning_level="high")
+    low_reasoning = router.route(runtime="api", requested_model=None, reasoning_level="low")
+
+    assert high_reasoning.primary_model != ""
+    assert low_reasoning.primary_model != ""
+    assert high_reasoning.profile.reasoning_depth >= 0
+    assert low_reasoning.profile.reasoning_depth >= 0
+
+
 def test_pipeline_runner_retries_on_model_not_found(tmp_path) -> None:
     store = StateStore(persist_dir=str(tmp_path / "state"))
     agent = _FakeAgent()
@@ -144,6 +156,49 @@ def test_pipeline_runner_retries_on_model_not_found(tmp_path) -> None:
 
     assert result == "ok"
     assert len(agent.calls) == 2
+
+
+def test_pipeline_runner_emits_inference_budget_degraded_when_primary_exceeds_budget(tmp_path, monkeypatch) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    agent = _FakeAgent(failure_messages=[])
+    runner = PipelineRunner(agent=agent, state_store=store)
+
+    request_id = "req-budget"
+    store.init_run(
+        run_id=request_id,
+        session_id="sess-1",
+        request_id=request_id,
+        user_message="hi",
+        runtime="api",
+        model="qwen3-coder:480b-cloud",
+    )
+
+    monkeypatch.setattr(settings, "adaptive_inference_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "adaptive_inference_cost_budget_max", 0.2, raising=False)
+    monkeypatch.setattr(settings, "adaptive_inference_latency_budget_ms", 700, raising=False)
+
+    events: list[dict] = []
+
+    async def send_event(payload: dict):
+        events.append(payload)
+
+    result = asyncio.run(
+        runner.run(
+            user_message="analyze and respond",
+            send_event=send_event,
+            session_id="sess-1",
+            request_id=request_id,
+            runtime="api",
+            model="qwen3-coder:480b-cloud",
+            reasoning_level="low",
+        )
+    )
+
+    assert result == "ok"
+    assert any(
+        evt.get("type") == "lifecycle" and evt.get("stage") == "inference_budget_degraded"
+        for evt in events
+    )
 
 
 def test_pipeline_runner_retries_on_timeout_reason(tmp_path) -> None:

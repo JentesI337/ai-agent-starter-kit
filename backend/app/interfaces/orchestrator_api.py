@@ -138,6 +138,7 @@ class OrchestratorApi:
                 request_id=request_context.request_id,
                 runtime=request_context.runtime,
                 model=request_context.model,
+                reasoning_level=request_context.reasoning_level,
                 tool_policy=resolved_policy,
                 prompt_mode=request_context.prompt_mode,
                 should_steer_interrupt=request_context.should_steer_interrupt,

@@ -25,7 +25,7 @@ class SynthesizerAgent(AgentContract):
         max_context=8192,
         temperature=0.3,
         reasoning_depth=2,
-        reflection_passes=0,
+        reflection_passes=1,
         combine_steps=True,
     )
 

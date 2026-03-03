@@ -77,8 +77,6 @@ Ziel: von robustem Agent-Core zu einer Plattform, die komplexe, offene Aufgaben 
 
 #### 31–60 Tage (P1)
 
-**Status (03.03.2026):** ✅ P1.4 (`wait|follow_up|steer` Scheduling inkl. Fairness/Deferral-Events) umgesetzt und verifiziert; 🔜 P1.5 (Capability-basiertes Routing) bleibt als nächster Ausbaupunkt offen.
-
 4) **Queue-Semantik schärfen (`wait` vs `follow_up` vs `steer`)**
 - Ziel: `follow_up` darf nicht faktisch wie `wait` laufen.
 - Betroffene Bereiche:
@@ -105,8 +103,6 @@ Ziel: von robustem Agent-Core zu einer Plattform, die komplexe, offene Aufgaben 
    - sinkende `tool_selection_empty` / `replanning_started` Quote
 
 #### 61–90 Tage (P2)
-
-**Status (03.03.2026):** 🔄 strategisch offen; technische Vorarbeiten aus Pattern 2/3 (Prompt-Kernel v1.1, event-first Context-Metriken, Skills-Snapshot-Optimierung) sind bereits produktiv verdrahtet.
 
 6) **Reliable Retrieval Layer**
 - Ziel: bessere Problemlösung bei wissenslastigen Aufgaben.
@@ -188,19 +184,8 @@ Diese Reihenfolge maximiert Reliability zuerst und erhöht dann Problemlösefäh
 - ✅ T2 Directive Layer OOB + Reasoning Visibility umgesetzt: `/queue|/model|/reasoning|/verbose` parserbasiert, Prefix-Strip aktiv in WS/REST.
 - ✅ T2 Hardening nachgezogen: Background-Run Directive-Fehler gehen garantiert durch Fail-/Cleanup-Pfad; WS-Non-User-Pfade nutzen konsistent bereinigten Content/Model-Override.
 - ✅ API-Level Regression ergänzt: `run.start` + `run.wait` verifizieren Directive-only Fehlerpfad im Background-Run.
-- ✅ P0 Verifier-Layer V1 ergänzt: `verification_plan`, `verification_tool_result`, `verification_final` Lifecycle-Events im Agent-Loop integriert.
-- ✅ Queue-Semantik `follow_up` vs `wait` geschärft: priorisierte Dequeue-Logik mit starvation-sicherer Fairness (`SESSION_FOLLOW_UP_MAX_DEFERRALS`) und Events `follow_up_deferred`/`follow_up_scheduled`.
-- ✅ Config-Härtung 7.1+ erweitert: kritische Range-/Typ-Validierungen in `validate_environment_config(...)` + zusätzliche Isolation-Allowlist-Risk-Flags in `config.health`.
-- ✅ Eval-Gates als CI-Release-Kriterium ergänzt: `backend/scripts/run_eval_gates.py` (Golden-Suite + KPI-Schwellen) und Workflow-Verdrahtung in `.github/workflows/backend-tests.yml`.
-- ✅ Golden-Suite auf 30 repräsentative Flows erweitert und in separates Manifest ausgelagert: `backend/monitoring/eval_golden_suite.json`.
 
-### Statusdelta P1/P2/P3 (03.03.2026)
-
-- ✅ **P1**: deterministische Lane-Steuerung inkl. Queue-Semantik `wait|follow_up|steer` ist produktiv und getestet.
-- ✅ **P2**: Context Engineering ist mit `prompt-kernel.v1.1`, `context_segmented` und event-first `context.list/detail` operativ stabil.
-- ✅ **P3**: Typed Tool Schemas + Skills Lazy-Loading (Snapshot-Cache, Prompt-Mode-Kontraktion, Lifecycle-Events) sind integriert.
-
-Hinweis: T3 ist umgesetzt/verifiziert; verbleibende priorisierte Kernpunkte sind P1.5 (Capability-Routing) sowie P2-Roadmap-Themen (Retrieval-Layer, adaptive Inferenzsteuerung).
+Hinweis: T3 ist umgesetzt/verifiziert; verbleibende priorisierte Kernpunkte sind Hook-Contract/Safety (P4) und Multi-Agent-Isolation (P5).
 
 ---
 
@@ -403,8 +388,6 @@ Damit ist der Fahrplan verifiziert und auf eine unmittelbar umsetzbare Reihenfol
 
 ## 8) Umsetzungsplan Vertiefung (Pattern 2 + 3)
 
-**Status (03.03.2026):** ✅ S1/S2/S3 umgesetzt und über Fokusläufe verifiziert; der Abschnitt dient als nachvollziehbares Implementierungsprotokoll.
-
 Ziel: von „teilweise bis gut“ auf „stabil, messbar, reproduzierbar“ heben, ohne die bereits stabile Lane-/Steer-Logik zu gefährden.
 
 ### 8.1 Scope und Nicht-Ziele
@@ -540,11 +523,11 @@ Abort-Kriterien:
 
 ### 8.6 Ticket-Schnitt (direkt sprintfähig)
 
-1. **P2-S1:** PromptKernel V1.1 + section fingerprints + Tests ✅
-2. **P2-S2:** Context APIs: event-first aggregation + degraded fallback flags ✅
-3. **P3-S1:** Skills snapshot cache + skip-path verification ✅
-4. **P3-S2:** Prompt-mode Skills contraction + lifecycle events ✅
-5. **P2/P3-QA:** KPI-baseline vs. delta report (mind. 3 Lastprofile) 🔄 fortlaufend
+1. **P2-S1:** PromptKernel V1.1 + section fingerprints + Tests
+2. **P2-S2:** Context APIs: event-first aggregation + degraded fallback flags
+3. **P3-S1:** Skills snapshot cache + skip-path verification
+4. **P3-S2:** Prompt-mode Skills contraction + lifecycle events
+5. **P2/P3-QA:** KPI-baseline vs. delta report (mind. 3 Lastprofile)
 
 Damit sind Pattern 2 und 3 in einer Reihenfolge geplant, die erst Messbarkeit/Determinismus absichert und danach die Kosten/Qualität optimiert.
 

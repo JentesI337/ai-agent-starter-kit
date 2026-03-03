@@ -36,6 +36,7 @@ from app.services.action_parser import ActionParser
 from app.services.action_augmenter import ActionAugmenter
 from app.services.intent_detector import IntentDetector
 from app.services.prompt_kernel_builder import PromptKernelBuilder
+from app.services.reflection_service import ReflectionService
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
 from app.services.verification_service import VerificationService
@@ -172,6 +173,7 @@ class HeadAgent:
         self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
         self._reply_shaper = ReplyShaper()
         self._verification = VerificationService()
+        self._reflection_service = ReflectionService(client=self.client)
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
@@ -283,6 +285,8 @@ class HeadAgent:
             base_url=base_url,
             model=model,
         )
+        reflection_threshold = self._reflection_service.threshold if self._reflection_service is not None else 0.6
+        self._reflection_service = ReflectionService(client=self.client, threshold=reflection_threshold)
         self.planner_agent.configure_runtime(base_url=base_url, model=model)
         self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
 
@@ -858,6 +862,65 @@ class HeadAgent:
                 send_event,
                 model,
             )
+            reflection_passes = max(0, int(self.synthesizer_agent.constraints.reflection_passes))
+            if reflection_passes > 0 and self._reflection_service is not None:
+                for reflection_pass in range(reflection_passes):
+                    try:
+                        verdict = await self._reflection_service.reflect(
+                            user_message=user_message,
+                            plan_text=plan_text,
+                            tool_results=tool_results or "",
+                            final_answer=final_text,
+                            model=model,
+                        )
+                    except Exception as exc:
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="reflection_failed",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "pass": reflection_pass + 1,
+                                "error": str(exc),
+                            },
+                        )
+                        break
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="reflection_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "pass": reflection_pass + 1,
+                            "score": verdict.score,
+                            "goal_alignment": verdict.goal_alignment,
+                            "completeness": verdict.completeness,
+                            "issues": verdict.issues[:3],
+                            "should_retry": verdict.should_retry,
+                        },
+                    )
+                    if not verdict.should_retry:
+                        break
+
+                    feedback_lines = [issue for issue in verdict.issues if issue]
+                    if verdict.suggested_fix:
+                        feedback_lines.append(f"Suggested fix: {verdict.suggested_fix}")
+                    reflection_feedback = "\n".join(feedback_lines).strip() or "No specific issues provided."
+
+                    final_text = await self.synthesize_step_executor.execute(
+                        SynthesizerInput(
+                            user_message=user_message,
+                            plan_text=plan_text,
+                            tool_results=(tool_results or "") + f"\n\n[REFLECTION FEEDBACK]\n{reflection_feedback}",
+                            reduced_context=final_context.rendered,
+                            prompt_mode=effective_prompt_mode,
+                            task_type=synthesis_task_type,
+                        ),
+                        session_id,
+                        request_id,
+                        send_event,
+                        model,
+                    )
             await self._emit_lifecycle(
                 send_event,
                 stage="reply_shaping_started",

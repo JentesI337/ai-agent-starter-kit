@@ -345,7 +345,7 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## Phase 4 – Hook Middleware V2 + Persist-Transform (2 Wochen)
 
-**Status (03.03.2026):** ✅ P4.1/P4.2 umgesetzt und verifiziert (`test_hooks_contract_v2` + Fokusläufe grün). 🔜 P4.3 bleibt als gezielte Persist-Transform-Härtung offen.
+**Status (03.03.2026):** ✅ P4.1/P4.2/P4.3 umgesetzt und verifiziert (`test_hooks_contract_v2`, `test_tool_execution_manager`, `test_ws_handler`, `test_backend_e2e` Fokusläufe grün).
 
 ### Epic P4.1: Hook-Vertragsmodell erweitern
 **Outcome:** Saubere Middleware statt Ad-hoc-Eingriffe.
@@ -507,7 +507,7 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ## Sprint D (Hooks + Persist)
 - D1: Hook Contract V2 ✅
 - D2: Hook timeout/error isolation ✅
-- D3: tool_result_persist transform chain (gezielte Resthärtung offen)
+- D3: tool_result_persist transform chain ✅
 - D4: Audit Erweiterung für hook timings
 
 ## Sprint E (Operator + Config)

@@ -19,6 +19,7 @@ class CustomAgentDefinition(BaseModel):
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
+    capabilities: list[str] = Field(default_factory=list)
     workspace_scope: str | None = Field(default=None, min_length=1, max_length=120)
     skills_scope: str | None = Field(default=None, min_length=1, max_length=120)
     credential_scope: str | None = Field(default=None, min_length=1, max_length=120)
@@ -32,6 +33,7 @@ class CustomAgentCreateRequest(BaseModel):
     workflow_steps: list[str] = Field(default_factory=list)
     tool_policy: ToolPolicyDict | None = None
     allow_subrun_delegation: bool = False
+    capabilities: list[str] = Field(default_factory=list)
     workspace_scope: str | None = Field(default=None, min_length=1, max_length=120)
     skills_scope: str | None = Field(default=None, min_length=1, max_length=120)
     credential_scope: str | None = Field(default=None, min_length=1, max_length=120)
@@ -172,6 +174,11 @@ class CustomAgentStore:
             workflow_steps=[step.strip() for step in request.workflow_steps if isinstance(step, str) and step.strip()],
             tool_policy=request.tool_policy,
             allow_subrun_delegation=bool(request.allow_subrun_delegation),
+            capabilities=[
+                str(item).strip().lower()
+                for item in (request.capabilities or [])
+                if isinstance(item, str) and str(item).strip()
+            ],
             workspace_scope=(request.workspace_scope or "").strip() or None,
             skills_scope=(request.skills_scope or "").strip() or None,
             credential_scope=(request.credential_scope or "").strip() or None,

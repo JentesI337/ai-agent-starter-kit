@@ -19,7 +19,13 @@ class ModelRouter:
     def __init__(self, registry: ModelRegistry | None = None):
         self.registry = registry or ModelRegistry()
 
-    def route(self, *, runtime: str, requested_model: str | None) -> ModelRouteDecision:
+    def route(
+        self,
+        *,
+        runtime: str,
+        requested_model: str | None,
+        reasoning_level: str | None = None,
+    ) -> ModelRouteDecision:
         requested = (requested_model or "").strip()
         runtime_key = (runtime or "").strip().lower()
 
@@ -42,7 +48,10 @@ class ModelRouter:
         if not deduped:
             deduped = [settings.llm_model]
 
-        scores = {candidate: self._score_candidate(candidate, runtime_key) for candidate in deduped}
+        scores = {
+            candidate: self._score_candidate(candidate, runtime_key, reasoning_level=reasoning_level)
+            for candidate in deduped
+        }
         if requested:
             primary = requested
             fallbacks = [item for item in deduped if item != requested]
@@ -71,7 +80,14 @@ class ModelRouter:
             result.append(item)
         return result
 
-    def _score_candidate(self, model_id: str, runtime_key: str) -> float:
+    @staticmethod
+    def _normalize_reasoning_level(reasoning_level: str | None) -> str:
+        normalized = str(reasoning_level or "").strip().lower()
+        if normalized in {"low", "medium", "high", "ultrathink", "adaptive"}:
+            return normalized
+        return "medium"
+
+    def _score_candidate(self, model_id: str, runtime_key: str, *, reasoning_level: str | None = None) -> float:
         profile = self.registry.resolve(model_id)
         runtime_bonus = 0.0
         if runtime_key == "local" and model_id == settings.local_model:
@@ -79,9 +95,23 @@ class ModelRouter:
         elif runtime_key == "api" and model_id == settings.api_model:
             runtime_bonus = 6.0
 
+        normalized_reasoning_level = self._normalize_reasoning_level(reasoning_level)
+        reasoning_bonus = 0.0
+        if normalized_reasoning_level in {"high", "ultrathink"}:
+            reasoning_bonus += float(profile.reasoning_depth) * 10.0
+            reasoning_bonus += float(profile.max_context) / 8000.0
+        elif normalized_reasoning_level == "low":
+            reasoning_bonus -= float(profile.reasoning_depth) * 5.0
+            reasoning_bonus -= float(profile.cost_score) * 6.0
+            reasoning_bonus += max(0.0, 2000.0 - float(profile.expected_latency_ms)) / 400.0
+        elif normalized_reasoning_level == "adaptive":
+            reasoning_bonus += float(profile.reasoning_depth) * 3.0
+            reasoning_bonus -= float(profile.cost_score) * 2.0
+
         return (
             profile.health_score * 100.0
             - (profile.expected_latency_ms / 100.0)
             - (profile.cost_score * 10.0)
             + runtime_bonus
+            + reasoning_bonus
         )

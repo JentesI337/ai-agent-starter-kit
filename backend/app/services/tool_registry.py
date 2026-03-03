@@ -13,6 +13,7 @@ class ToolSpec:
     max_retries: int
     description: str = ""
     parameters: dict[str, Any] | None = None
+    capabilities: tuple[str, ...] = ()
 
     def function_parameters(self) -> dict[str, Any]:
         if isinstance(self.parameters, dict):
@@ -127,6 +128,33 @@ class ToolRegistry:
             )
         return definitions
 
+    def capabilities_for_tool(self, name: str) -> tuple[str, ...]:
+        spec = self._specs.get(name)
+        if spec is None:
+            return ()
+        return tuple(str(item).strip().lower() for item in (spec.capabilities or ()) if str(item).strip())
+
+    def filter_tools_by_capabilities(
+        self,
+        *,
+        candidate_tools: set[str],
+        required_capabilities: set[str] | tuple[str, ...],
+    ) -> set[str]:
+        required = {
+            str(item).strip().lower()
+            for item in (required_capabilities or set())
+            if str(item).strip()
+        }
+        if not required:
+            return set(candidate_tools)
+
+        matched: set[str] = set()
+        for tool_name in candidate_tools:
+            tool_caps = set(self.capabilities_for_tool(tool_name))
+            if tool_caps & required:
+                matched.add(tool_name)
+        return matched
+
 
 def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
     return {
@@ -145,6 +173,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": [],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_read", "workspace_navigation", "code_inspection"),
         ),
         "read_file": ToolSpec(
             name="read_file",
@@ -161,6 +190,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["path"],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_read", "code_inspection", "knowledge_retrieval"),
         ),
         "write_file": ToolSpec(
             name="write_file",
@@ -178,6 +208,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["path", "content"],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_write", "code_modification", "artifact_generation"),
         ),
         "run_command": ToolSpec(
             name="run_command",
@@ -195,6 +226,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["command"],
                 "additionalProperties": False,
             },
+            capabilities=("command_execution", "build_and_test", "environment_interaction"),
         ),
         "apply_patch": ToolSpec(
             name="apply_patch",
@@ -214,6 +246,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["path", "search", "replace"],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_write", "code_modification", "patching"),
         ),
         "file_search": ToolSpec(
             name="file_search",
@@ -231,6 +264,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["pattern"],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_read", "code_search", "knowledge_retrieval"),
         ),
         "grep_search": ToolSpec(
             name="grep_search",
@@ -250,6 +284,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["query"],
                 "additionalProperties": False,
             },
+            capabilities=("filesystem_read", "code_search", "knowledge_retrieval"),
         ),
         "list_code_usages": ToolSpec(
             name="list_code_usages",
@@ -268,6 +303,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["symbol"],
                 "additionalProperties": False,
             },
+            capabilities=("code_search", "static_analysis", "knowledge_retrieval"),
         ),
         "get_changed_files": ToolSpec(
             name="get_changed_files",
@@ -282,6 +318,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": [],
                 "additionalProperties": False,
             },
+            capabilities=("git_inspection", "code_inspection", "knowledge_retrieval"),
         ),
         "start_background_command": ToolSpec(
             name="start_background_command",
@@ -299,6 +336,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["command"],
                 "additionalProperties": False,
             },
+            capabilities=("command_execution", "async_execution", "build_and_test"),
         ),
         "get_background_output": ToolSpec(
             name="get_background_output",
@@ -316,6 +354,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["job_id"],
                 "additionalProperties": False,
             },
+            capabilities=("command_execution", "async_execution", "observability"),
         ),
         "kill_background_process": ToolSpec(
             name="kill_background_process",
@@ -332,6 +371,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["job_id"],
                 "additionalProperties": False,
             },
+            capabilities=("command_execution", "async_execution", "process_control"),
         ),
         "web_fetch": ToolSpec(
             name="web_fetch",
@@ -349,6 +389,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["url"],
                 "additionalProperties": False,
             },
+            capabilities=("web_retrieval", "knowledge_retrieval", "source_grounding"),
         ),
         "spawn_subrun": ToolSpec(
             name="spawn_subrun",
@@ -370,6 +411,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "required": ["message"],
                 "additionalProperties": False,
             },
+            capabilities=("agent_delegation", "orchestration", "parallelization"),
         ),
     }
 

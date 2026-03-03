@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -52,6 +53,17 @@ NON_RETRYABLE_FAIL_FAST_BRANCH_BY_REASON: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class AdaptiveInferenceResolution:
+    route: ModelRouteDecision
+    degraded: bool
+    reason: str
+    selected_model: str
+    requested_model: str
+    cost_budget_max: float
+    latency_budget_ms: int
+
+
 class PipelineRunner:
     def __init__(self, agent: AgentContract, state_store: StateStore):
         self.agent = agent
@@ -70,6 +82,7 @@ class PipelineRunner:
         request_id: str,
         runtime: str,
         model: str | None = None,
+        reasoning_level: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
         prompt_mode: str | None = None,
         should_steer_interrupt: Callable[[], bool] | None = None,
@@ -89,7 +102,39 @@ class PipelineRunner:
             status="active",
         )
 
-        route: ModelRouteDecision = self.model_router.route(runtime=runtime, requested_model=model)
+        try:
+            route: ModelRouteDecision = self.model_router.route(
+                runtime=runtime,
+                requested_model=model,
+                reasoning_level=reasoning_level,
+            )
+        except TypeError as exc:
+            if "reasoning_level" not in str(exc):
+                raise
+            route = self.model_router.route(runtime=runtime, requested_model=model)
+        adaptive_resolution = self._resolve_adaptive_inference(
+            route=route,
+            runtime=runtime,
+            reasoning_level=reasoning_level,
+        )
+        route = adaptive_resolution.route
+        if adaptive_resolution.degraded:
+            await send_event(
+                build_lifecycle_event(
+                    request_id=request_id,
+                    session_id=session_id,
+                    stage="inference_budget_degraded",
+                    details={
+                        "reason": adaptive_resolution.reason,
+                        "selected_model": adaptive_resolution.selected_model,
+                        "requested_model": adaptive_resolution.requested_model,
+                        "cost_budget_max": adaptive_resolution.cost_budget_max,
+                        "latency_budget_ms": adaptive_resolution.latency_budget_ms,
+                        "reasoning_level": reasoning_level,
+                    },
+                    agent=self.agent.name,
+                )
+            )
         await send_event(
             build_lifecycle_event(
                 request_id=request_id,
@@ -98,6 +143,8 @@ class PipelineRunner:
                 details={
                     "primary": route.primary_model,
                     "fallbacks": route.fallback_models,
+                    "reasoning_level": reasoning_level,
+                    "adaptive_inference_enabled": bool(settings.adaptive_inference_enabled),
                     "max_context": route.profile.max_context,
                     "reasoning_depth": route.profile.reasoning_depth,
                     "health_score": route.profile.health_score,
@@ -196,6 +243,110 @@ class PipelineRunner:
             )
 
         return final_text
+
+    def _resolve_adaptive_inference(
+        self,
+        *,
+        route: ModelRouteDecision,
+        runtime: str,
+        reasoning_level: str | None,
+    ) -> AdaptiveInferenceResolution:
+        _ = runtime
+        cost_budget_max = max(0.0, min(1.0, float(settings.adaptive_inference_cost_budget_max)))
+        latency_budget_ms = max(1, int(settings.adaptive_inference_latency_budget_ms))
+        selected_profile = route.profile
+        selected_model = route.primary_model
+
+        if not bool(settings.adaptive_inference_enabled):
+            return AdaptiveInferenceResolution(
+                route=route,
+                degraded=False,
+                reason="adaptive_inference_disabled",
+                selected_model=selected_model,
+                requested_model=route.primary_model,
+                cost_budget_max=cost_budget_max,
+                latency_budget_ms=latency_budget_ms,
+            )
+
+        normalized_reasoning = str(reasoning_level or "").strip().lower()
+        if normalized_reasoning in {"high", "ultrathink"}:
+            effective_cost_budget_max = min(1.0, cost_budget_max + 0.15)
+            effective_latency_budget_ms = int(latency_budget_ms * 1.25)
+        elif normalized_reasoning == "low":
+            effective_cost_budget_max = max(0.1, cost_budget_max - 0.15)
+            effective_latency_budget_ms = max(200, int(latency_budget_ms * 0.75))
+        else:
+            effective_cost_budget_max = cost_budget_max
+            effective_latency_budget_ms = latency_budget_ms
+
+        is_within_budget = (
+            float(selected_profile.cost_score) <= effective_cost_budget_max
+            and int(selected_profile.expected_latency_ms) <= effective_latency_budget_ms
+        )
+        if is_within_budget:
+            return AdaptiveInferenceResolution(
+                route=route,
+                degraded=False,
+                reason="within_budget",
+                selected_model=selected_model,
+                requested_model=route.primary_model,
+                cost_budget_max=effective_cost_budget_max,
+                latency_budget_ms=effective_latency_budget_ms,
+            )
+
+        candidates = [route.primary_model, *route.fallback_models]
+        budget_candidates: list[tuple[str, float]] = []
+        for candidate in candidates:
+            profile = self.model_router.registry.resolve(candidate)
+            if (
+                float(profile.cost_score) <= effective_cost_budget_max
+                and int(profile.expected_latency_ms) <= effective_latency_budget_ms
+            ):
+                budget_candidates.append((candidate, route.scores.get(candidate, float("-inf"))))
+
+        if budget_candidates:
+            budget_candidates.sort(key=lambda item: item[1], reverse=True)
+            selected_model = budget_candidates[0][0]
+            reason = "budget_compliant_candidate"
+        else:
+            fallback_rank = sorted(
+                candidates,
+                key=lambda candidate: (
+                    self.model_router.registry.resolve(candidate).cost_score,
+                    self.model_router.registry.resolve(candidate).expected_latency_ms,
+                ),
+            )
+            selected_model = fallback_rank[0]
+            reason = "graceful_degradation_lowest_cost"
+
+        if selected_model == route.primary_model:
+            return AdaptiveInferenceResolution(
+                route=route,
+                degraded=False,
+                reason="primary_retained",
+                selected_model=selected_model,
+                requested_model=route.primary_model,
+                cost_budget_max=effective_cost_budget_max,
+                latency_budget_ms=effective_latency_budget_ms,
+            )
+
+        selected_profile = self.model_router.registry.resolve(selected_model)
+        selected_fallbacks = [item for item in candidates if item != selected_model]
+        adapted_route = ModelRouteDecision(
+            primary_model=selected_model,
+            fallback_models=selected_fallbacks,
+            profile=selected_profile,
+            scores=route.scores,
+        )
+        return AdaptiveInferenceResolution(
+            route=adapted_route,
+            degraded=True,
+            reason=reason,
+            selected_model=selected_model,
+            requested_model=route.primary_model,
+            cost_budget_max=effective_cost_budget_max,
+            latency_budget_ms=effective_latency_budget_ms,
+        )
 
     async def _run_with_fallback(
         self,

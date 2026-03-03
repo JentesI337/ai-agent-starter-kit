@@ -57,6 +57,7 @@ from app.services import (
     build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
 )
 from app.services.agent_resolution import (
+    capability_route_agent,
     effective_orchestrator_agent_ids as _effective_orchestrator_agent_ids_impl,
     looks_like_coding_request,
     normalize_agent_id as _normalize_agent_id_impl,
@@ -390,6 +391,32 @@ def _resolve_agent(agent_id: str | None):
         agent_registry=agent_registry,
         orchestrator_registry=orchestrator_registry,
     )
+
+
+def _route_agent_for_message(
+    *,
+    requested_agent_id: str | None,
+    message: str,
+    preset: str | None,
+) -> tuple[str, str | None, tuple[str, ...], list[dict[str, object]]]:
+    _sync_custom_agents()
+    normalized_requested = _normalize_agent_id(requested_agent_id)
+    effective_agent_id, reason, required_capabilities, ranked_matches = capability_route_agent(
+        requested_agent_id=normalized_requested,
+        message=message,
+        preset=preset,
+        primary_agent_id=PRIMARY_AGENT_ID,
+        agent_registry=agent_registry,
+    )
+    ranked_payload = [
+        {
+            "agent_id": item.agent_id,
+            "score": item.score,
+            "matched_capabilities": list(item.matched_capabilities),
+        }
+        for item in ranked_matches[:5]
+    ]
+    return effective_agent_id, reason, required_capabilities, ranked_payload
 def _looks_like_review_request(message: str) -> bool:
     text = (message or "").strip().lower()
     if not text:
@@ -660,6 +687,7 @@ ws_handler_dependencies = WsHandlerDependencies(
     effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
     looks_like_review_request=_looks_like_review_request,
     looks_like_coding_request=looks_like_coding_request,
+    route_agent_for_message=_route_agent_for_message,
     resolve_agent=_resolve_agent,
     state_append_event_safe=run_handlers.state_append_event_safe,
     state_mark_failed_safe=run_handlers.state_mark_failed_safe,
