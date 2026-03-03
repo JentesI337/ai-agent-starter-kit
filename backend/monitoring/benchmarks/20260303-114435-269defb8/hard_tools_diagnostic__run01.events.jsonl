@@ -1,0 +1,494 @@
+{"t_ms": 52, "seq": 2, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "46f00eb2-0a44-4692-98d6-daf0db8e9ae9", "phase": "start", "stage": "request_received", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.622825+00:00", "details": {"chars": 208, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "accepted", "run_status": "accepted", "started_at": "2026-03-03T10:50:34.622825+00:00"}}
+{"t_ms": 357, "seq": 3, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "65f555f3-71a4-4afa-8de5-77674896acbb", "phase": "progress", "stage": "request_dispatched", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.635824+00:00", "details": {"model": null, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "running", "run_status": "running"}}
+{"t_ms": 357, "seq": 4, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d3197d71-45f6-4079-84e6-6e08a517fc32", "phase": "progress", "stage": "queued", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.650041+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 5, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cdffca31-00f1-4498-b09e-2c19c3598f11", "phase": "progress", "stage": "lane_acquired", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.650041+00:00", "details": {"queue_wait_ms": 0, "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 6, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cfa2bc56-5641-4724-a16d-d928a33770ee", "phase": "progress", "stage": "tool_policy_decision", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.650041+00:00", "details": {"preset": null, "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process"]}, "agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "warnings": ["deny overrides allow for: kill_background_process, start_background_command"]}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 7, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "146de60b-4f7d-42cd-b6ef-1fac23e6f2e8", "phase": "progress", "stage": "tool_policy_layers_logged", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.650969+00:00", "details": {"layers": [{"layer": "global", "id": "settings", "toolPolicy": {}}, {"layer": "profile", "id": null, "toolPolicy": {}}, {"layer": "preset", "id": null, "toolPolicy": {}}, {"layer": "provider", "id": "api", "toolPolicy": {"deny": ["start_background_command", "kill_background_process"]}}, {"layer": "model", "id": "qwen3-coder:480b-cloud", "toolPolicy": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"]}}, {"layer": "agent_depth", "id": "head-agent:0", "toolPolicy": {}}, {"layer": "request", "id": "inline", "toolPolicy": {}}], "warnings": ["deny overrides allow for: kill_background_process, start_background_command"], "also_allow": []}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 8, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "0df4e229-d298-4f66-97dc-563b642bf67f", "phase": "progress", "stage": "agent_depth_policy_applied", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.650969+00:00", "details": {"agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process"]}, "depth_layer": {"layer": "agent_depth", "id": "head-agent:0", "toolPolicy": {}}}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 9, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "3da2feec-c40d-4137-8525-580fc09af169", "phase": "progress", "stage": "model_route_selected", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.705208+00:00", "details": {"primary": "qwen3-coder:480b-cloud", "fallbacks": ["llama3.3:70b-instruct-q4_K_M"], "max_context": 16000, "reasoning_depth": 3, "health_score": 0.88, "expected_latency_ms": 700, "cost_score": 0.75, "scores": {"qwen3-coder:480b-cloud": 79.5, "llama3.3:70b-instruct-q4_K_M": 81.0}}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 10, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f3f67bf8-9c36-4842-b7a7-7d007a39e25c", "phase": "start", "stage": "run_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.705208+00:00", "details": {"model": "qwen3-coder:480b-cloud"}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 11, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d0357bcd-1c45-45a3-ac03-b7081a339aca", "phase": "progress", "stage": "guardrails_passed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.706200+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 12, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "b05e780c-9ab0-4ea5-a38b-4168cbd72de5", "phase": "progress", "stage": "tool_policy_resolved", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.706200+00:00", "details": {"allowed": ["get_background_output", "run_command", "spawn_subrun", "web_fetch"], "requested_allow": ["get_background_output", "kill_background_process", "run_command", "spawn_subrun", "start_background_command", "web_fetch"], "requested_deny": ["kill_background_process", "start_background_command"], "requested_also_allow": [], "request_allow_ignored_unknown_only": false, "unknown_requested_allow": [], "unknown_requested_deny": [], "unknown_requested_also_allow": [], "warnings": []}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 13, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "051a6d2d-235a-445b-aeed-8b73f464f3c2", "phase": "progress", "stage": "toolchain_checked", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.707207+00:00", "details": {"workspace_root": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend", "workspace_ok": true, "shell_ok": true, "tools": ["list_dir", "read_file", "write_file", "run_command", "apply_patch", "file_search", "grep_search", "list_code_usages", "get_changed_files", "start_background_command", "get_background_output", "kill_background_process", "web_fetch", "spawn_subrun"]}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 14, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "e6a33467-6b33-4d22-a14f-be09668479da", "phase": "progress", "stage": "memory_updated", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.719716+00:00", "details": {"memory_items": 1, "memory_chars": 448}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 15, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4cf55f80-bb1d-45ba-9477-3685e6daa136", "phase": "progress", "stage": "context_reduced", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.720756+00:00", "details": {"model": "qwen3-coder:480b-cloud", "max_context": 16000, "plan_budget": 4000, "tool_budget": 4800, "final_budget": 7200, "plan_used": 78}, "agent": "head-agent"}}
+{"t_ms": 357, "seq": 16, "event": {"type": "status", "agent": "head-agent", "message": "Analyzing your request and planning execution.", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 357, "seq": 17, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f922aa31-06e2-4983-a1a4-770e5dacb9fa", "phase": "start", "stage": "planning_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:34.720756+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 12334, "seq": 18, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "76b971e7-a6fc-44b5-8c85-de8397595dd1", "phase": "end", "stage": "planning_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:46.917678+00:00", "details": {"plan_chars": 650, "iteration": 0}, "agent": "head-agent"}}
+{"t_ms": 12669, "seq": 19, "event": {"type": "agent_step", "agent": "head-agent", "step": "Plan ready: • **Analyse-Orchestrierung starten**: Verfügbare Tools für Architektur-Analyse (z.B. Dependency-Scanner, Code-Qualitäts-Tools) aktivieren und ausführen\n\n• **Performance-Messung durchführen**: Load-Testing und Profiling-T", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 12669, "seq": 20, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cbb53243-8723-44e4-a70b-5c876fda98d6", "phase": "start", "stage": "tool_selection_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:46.935313+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 18998, "seq": 21, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "da6edd12-a021-4ccf-b953-73e926407ec5", "phase": "end", "stage": "tool_selection_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:53.581679+00:00", "details": {"actions": 3}, "agent": "head-agent"}}
+{"t_ms": 19003, "seq": 22, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 1: run_command", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 19003, "seq": 23, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4c6287f8-1fca-477f-b4d3-349690896e18", "phase": "start", "stage": "tool_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:53.585160+00:00", "details": {"tool": "run_command", "index": 1}, "agent": "head-agent"}}
+{"t_ms": 19367, "seq": 24, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4dec55ec-6d22-460c-b5ff-a15def46eb41", "phase": "end", "stage": "tool_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:53.950021+00:00", "details": {"tool": "run_command", "index": 1, "result_chars": 26, "elapsed_ms": 359}, "agent": "head-agent"}}
+{"t_ms": 19369, "seq": 25, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 2: run_command", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 19369, "seq": 26, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "298ce6b9-c564-45f2-9f5a-e1a168fc478e", "phase": "start", "stage": "tool_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:53.952043+00:00", "details": {"tool": "run_command", "index": 2}, "agent": "head-agent"}}
+{"t_ms": 20470, "seq": 27, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "858a8935-6ca8-4948-ac3e-35099d263e53", "phase": "end", "stage": "tool_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:55.053277+00:00", "details": {"tool": "run_command", "index": 2, "result_chars": 1010, "elapsed_ms": 1094}, "agent": "head-agent"}}
+{"t_ms": 21229, "seq": 28, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 3: web_fetch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 21229, "seq": 29, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "e042f336-6c9f-4e0b-af16-77637cd1ea73", "phase": "start", "stage": "tool_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:55.055274+00:00", "details": {"tool": "web_fetch", "index": 3}, "agent": "head-agent"}}
+{"t_ms": 21229, "seq": 30, "event": {"type": "error", "agent": "head-agent", "message": "Tool error (web_fetch): web_fetch hostname resolution failed for docs.example.com: [Errno 11001] getaddrinfo failed", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 21229, "seq": 31, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "91a0756f-fe46-488c-bb47-e440220d6701", "phase": "error", "stage": "tool_failed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:55.452069+00:00", "details": {"tool": "web_fetch", "index": 3, "error": "web_fetch hostname resolution failed for docs.example.com: [Errno 11001] getaddrinfo failed"}, "agent": "head-agent"}}
+{"t_ms": 21229, "seq": 32, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "61091758-3ae8-4326-b743-923ec5ea4d43", "phase": "progress", "stage": "tool_audit_summary", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:55.453198+00:00", "details": {"tool_calls": 3, "tool_errors": 1, "budget_blocked": 0, "elapsed_ms": 1859, "call_cap": 8, "time_cap_seconds": 90.0, "loop_blocked": 0, "loop_ping_pong_blocked": 0, "loop_poll_no_progress_blocked": 0, "loop_repeat_signature_hits": 0, "loop_reason_counts": {"generic_repeat": 0, "ping_pong": 0, "poll_no_progress": 0}, "loop_warn_threshold": 2, "loop_critical_threshold": 3, "loop_circuit_breaker_threshold": 6, "loop_detector_generic_repeat_enabled": true, "loop_detector_ping_pong_enabled": true, "loop_detector_poll_no_progress_enabled": true, "loop_poll_no_progress_threshold": 3, "loop_warning_bucket_size": 10}, "agent": "head-agent"}}
+{"t_ms": 21229, "seq": 33, "event": {"type": "agent_step", "agent": "head-agent", "step": "Reviewing results and building final response", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 21229, "seq": 34, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "908efad1-58f2-4f71-a20f-d2084d128ab8", "phase": "start", "stage": "streaming_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:50:55.458114+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 21965, "seq": 35, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22084, "seq": 36, "event": {"type": "token", "agent": "head-agent", "token": "Arch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22205, "seq": 37, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22333, "seq": 38, "event": {"type": "token", "agent": "head-agent", "token": "ur-,", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22447, "seq": 39, "event": {"type": "token", "agent": "head-agent", "token": " Performance- und Observ", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22568, "seq": 40, "event": {"type": "token", "agent": "head-agent", "token": "ability-An", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22690, "seq": 41, "event": {"type": "token", "agent": "head-agent", "token": "alyse –", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22812, "seq": 42, "event": {"type": "token", "agent": "head-agent", "token": " Ergebn", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 22935, "seq": 43, "event": {"type": "token", "agent": "head-agent", "token": "isse", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23058, "seq": 44, "event": {"type": "token", "agent": "head-agent", "token": " &", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23181, "seq": 45, "event": {"type": "token", "agent": "head-agent", "token": " Um", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23302, "seq": 46, "event": {"type": "token", "agent": "head-agent", "token": "gebung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23424, "seq": 47, "event": {"type": "token", "agent": "head-agent", "token": "sl", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23546, "seq": 48, "event": {"type": "token", "agent": "head-agent", "token": "imit", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23666, "seq": 49, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23785, "seq": 50, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 23904, "seq": 51, "event": {"type": "token", "agent": "head-agent", "token": "**\n\n###", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 24421, "seq": 52, "event": {"type": "token", "agent": "head-agent", "token": " 🔍 Zusammen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 24844, "seq": 53, "event": {"type": "token", "agent": "head-agent", "token": "f", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 25305, "seq": 54, "event": {"type": "token", "agent": "head-agent", "token": "assung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 25802, "seq": 55, "event": {"type": "token", "agent": "head-agent", "token": " der", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26190, "seq": 56, "event": {"type": "token", "agent": "head-agent", "token": " Analy", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26321, "seq": 57, "event": {"type": "token", "agent": "head-agent", "token": "seerge", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26444, "seq": 58, "event": {"type": "token", "agent": "head-agent", "token": "bn", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26567, "seq": 59, "event": {"type": "token", "agent": "head-agent", "token": "isse", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26692, "seq": 60, "event": {"type": "token", "agent": "head-agent", "token": "\n\n####", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26814, "seq": 61, "event": {"type": "token", "agent": "head-agent", "token": " 1. **Archite", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 26936, "seq": 62, "event": {"type": "token", "agent": "head-agent", "token": "kt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27059, "seq": 63, "event": {"type": "token", "agent": "head-agent", "token": "ur-An", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27183, "seq": 64, "event": {"type": "token", "agent": "head-agent", "token": "alyse**\nEs", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27320, "seq": 65, "event": {"type": "token", "agent": "head-agent", "token": " wurden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27440, "seq": 66, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27562, "seq": 67, "event": {"type": "token", "agent": "head-agent", "token": " spe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27686, "seq": 68, "event": {"type": "token", "agent": "head-agent", "token": "z", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27808, "seq": 69, "event": {"type": "token", "agent": "head-agent", "token": "ifischen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 27930, "seq": 70, "event": {"type": "token", "agent": "head-agent", "token": " Tools zur", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28054, "seq": 71, "event": {"type": "token", "agent": "head-agent", "token": " stat", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28219, "seq": 72, "event": {"type": "token", "agent": "head-agent", "token": "ischen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28347, "seq": 73, "event": {"type": "token", "agent": "head-agent", "token": " Code", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28472, "seq": 74, "event": {"type": "token", "agent": "head-agent", "token": "analy", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28594, "seq": 75, "event": {"type": "token", "agent": "head-agent", "token": "se oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28712, "seq": 76, "event": {"type": "token", "agent": "head-agent", "token": " Dependency", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 28884, "seq": 77, "event": {"type": "token", "agent": "head-agent", "token": "-Sc", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29003, "seq": 78, "event": {"type": "token", "agent": "head-agent", "token": "anning ausge", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29127, "seq": 79, "event": {"type": "token", "agent": "head-agent", "token": "führt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29247, "seq": 80, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29367, "seq": 81, "event": {"type": "token", "agent": "head-agent", "token": " Die", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29489, "seq": 82, "event": {"type": "token", "agent": "head-agent", "token": " Python", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29614, "seq": 83, "event": {"type": "token", "agent": "head-agent", "token": "-U", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29745, "seq": 84, "event": {"type": "token", "agent": "head-agent", "token": "m", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29863, "seq": 85, "event": {"type": "token", "agent": "head-agent", "token": "gebung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 29985, "seq": 86, "event": {"type": "token", "agent": "head-agent", "token": " enth", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30102, "seq": 87, "event": {"type": "token", "agent": "head-agent", "token": "ält", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30292, "seq": 88, "event": {"type": "token", "agent": "head-agent", "token": " jedoch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30416, "seq": 89, "event": {"type": "token", "agent": "head-agent", "token": " relev", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30534, "seq": 90, "event": {"type": "token", "agent": "head-agent", "token": "ante", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30654, "seq": 91, "event": {"type": "token", "agent": "head-agent", "token": " Bibli", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30780, "seq": 92, "event": {"type": "token", "agent": "head-agent", "token": "oth", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 30897, "seq": 93, "event": {"type": "token", "agent": "head-agent", "token": "eken", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31017, "seq": 94, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31136, "seq": 95, "event": {"type": "token", "agent": "head-agent", "token": " `py", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31262, "seq": 96, "event": {"type": "token", "agent": "head-agent", "token": "dantic`,", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31380, "seq": 97, "event": {"type": "token", "agent": "head-agent", "token": " `fastapi`", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31498, "seq": 98, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31624, "seq": 99, "event": {"type": "token", "agent": "head-agent", "token": " `requests", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31744, "seq": 100, "event": {"type": "token", "agent": "head-agent", "token": "`, was", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 31874, "seq": 101, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32202, "seq": 102, "event": {"type": "token", "agent": "head-agent", "token": " eine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32323, "seq": 103, "event": {"type": "token", "agent": "head-agent", "token": " moderne", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32451, "seq": 104, "event": {"type": "token", "agent": "head-agent", "token": " API-A", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32577, "seq": 105, "event": {"type": "token", "agent": "head-agent", "token": "rch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32748, "seq": 106, "event": {"type": "token", "agent": "head-agent", "token": "ite", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32875, "seq": 107, "event": {"type": "token", "agent": "head-agent", "token": "kt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 32994, "seq": 108, "event": {"type": "token", "agent": "head-agent", "token": "ur hin", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33120, "seq": 109, "event": {"type": "token", "agent": "head-agent", "token": "we", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33247, "seq": 110, "event": {"type": "token", "agent": "head-agent", "token": "ist", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33361, "seq": 111, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33485, "seq": 112, "event": {"type": "token", "agent": "head-agent", "token": " Oh", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33605, "seq": 113, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 33998, "seq": 114, "event": {"type": "token", "agent": "head-agent", "token": " expl", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 34427, "seq": 115, "event": {"type": "token", "agent": "head-agent", "token": "iz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 34891, "seq": 116, "event": {"type": "token", "agent": "head-agent", "token": "ite", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35112, "seq": 117, "event": {"type": "token", "agent": "head-agent", "token": " Tool", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35235, "seq": 118, "event": {"type": "token", "agent": "head-agent", "token": "-E", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35360, "seq": 119, "event": {"type": "token", "agent": "head-agent", "token": "ins", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35485, "seq": 120, "event": {"type": "token", "agent": "head-agent", "token": "ätze", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35606, "seq": 121, "event": {"type": "token", "agent": "head-agent", "token": " (", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35730, "seq": 122, "event": {"type": "token", "agent": "head-agent", "token": "wie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35850, "seq": 123, "event": {"type": "token", "agent": "head-agent", "token": " z", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 35974, "seq": 124, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 36797, "seq": 125, "event": {"type": "token", "agent": "head-agent", "token": " B", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 37257, "seq": 126, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 37750, "seq": 127, "event": {"type": "token", "agent": "head-agent", "token": " Band", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 38279, "seq": 128, "event": {"type": "token", "agent": "head-agent", "token": "it,", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 38685, "seq": 129, "event": {"type": "token", "agent": "head-agent", "token": " Son", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39113, "seq": 130, "event": {"type": "token", "agent": "head-agent", "token": "arQube", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39404, "seq": 131, "event": {"type": "token", "agent": "head-agent", "token": ")", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39529, "seq": 132, "event": {"type": "token", "agent": "head-agent", "token": " lie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39652, "seq": 133, "event": {"type": "token", "agent": "head-agent", "token": "gen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39777, "seq": 134, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 39901, "seq": 135, "event": {"type": "token", "agent": "head-agent", "token": " t", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40023, "seq": 136, "event": {"type": "token", "agent": "head-agent", "token": "ief", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40155, "seq": 137, "event": {"type": "token", "agent": "head-agent", "token": "geh", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40268, "seq": 138, "event": {"type": "token", "agent": "head-agent", "token": "enden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40394, "seq": 139, "event": {"type": "token", "agent": "head-agent", "token": " Arch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40515, "seq": 140, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40638, "seq": 141, "event": {"type": "token", "agent": "head-agent", "token": "urhin", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40835, "seq": 142, "event": {"type": "token", "agent": "head-agent", "token": "weise", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 40958, "seq": 143, "event": {"type": "token", "agent": "head-agent", "token": " vor", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41081, "seq": 144, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n#### 2.", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41207, "seq": 145, "event": {"type": "token", "agent": "head-agent", "token": " **Performance-Messung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41329, "seq": 146, "event": {"type": "token", "agent": "head-agent", "token": "**\nKe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41505, "seq": 147, "event": {"type": "token", "agent": "head-agent", "token": "ine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41629, "seq": 148, "event": {"type": "token", "agent": "head-agent", "token": " kon", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41754, "seq": 149, "event": {"type": "token", "agent": "head-agent", "token": "kre", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 41879, "seq": 150, "event": {"type": "token", "agent": "head-agent", "token": "ten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42003, "seq": 151, "event": {"type": "token", "agent": "head-agent", "token": " Last", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42129, "seq": 152, "event": {"type": "token", "agent": "head-agent", "token": "tests", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42257, "seq": 153, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42382, "seq": 154, "event": {"type": "token", "agent": "head-agent", "token": " Profiling", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42504, "seq": 155, "event": {"type": "token", "agent": "head-agent", "token": "-E", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 42629, "seq": 156, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 43037, "seq": 157, "event": {"type": "token", "agent": "head-agent", "token": "gebn", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 43471, "seq": 158, "event": {"type": "token", "agent": "head-agent", "token": "isse", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 43939, "seq": 159, "event": {"type": "token", "agent": "head-agent", "token": " wurden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 44208, "seq": 160, "event": {"type": "token", "agent": "head-agent", "token": " durch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 44332, "seq": 161, "event": {"type": "token", "agent": "head-agent", "token": "geführt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 44456, "seq": 162, "event": {"type": "token", "agent": "head-agent", "token": ". Es", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 44587, "seq": 163, "event": {"type": "token", "agent": "head-agent", "token": " stehen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 44989, "seq": 164, "event": {"type": "token", "agent": "head-agent", "token": " grund", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45166, "seq": 165, "event": {"type": "token", "agent": "head-agent", "token": "leg", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45291, "seq": 166, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45420, "seq": 167, "event": {"type": "token", "agent": "head-agent", "token": " HTTP", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45541, "seq": 168, "event": {"type": "token", "agent": "head-agent", "token": "-B", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45667, "seq": 169, "event": {"type": "token", "agent": "head-agent", "token": "ibli", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45795, "seq": 170, "event": {"type": "token", "agent": "head-agent", "token": "oth", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 45919, "seq": 171, "event": {"type": "token", "agent": "head-agent", "token": "eken", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46095, "seq": 172, "event": {"type": "token", "agent": "head-agent", "token": " (`httpx`,", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46218, "seq": 173, "event": {"type": "token", "agent": "head-agent", "token": " `requests`) zur", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46342, "seq": 174, "event": {"type": "token", "agent": "head-agent", "token": " Verfügung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46469, "seq": 175, "event": {"type": "token", "agent": "head-agent", "token": ", aber", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46592, "seq": 176, "event": {"type": "token", "agent": "head-agent", "token": " ohne", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46716, "seq": 177, "event": {"type": "token", "agent": "head-agent", "token": " Integration", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 46838, "seq": 178, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47005, "seq": 179, "event": {"type": "token", "agent": "head-agent", "token": " Tools", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47127, "seq": 180, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47256, "seq": 181, "event": {"type": "token", "agent": "head-agent", "token": " Loc", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47378, "seq": 182, "event": {"type": "token", "agent": "head-agent", "token": "ust oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47501, "seq": 183, "event": {"type": "token", "agent": "head-agent", "token": " Py", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47630, "seq": 184, "event": {"type": "token", "agent": "head-agent", "token": "-S", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47747, "seq": 185, "event": {"type": "token", "agent": "head-agent", "token": "py", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47869, "seq": 186, "event": {"type": "token", "agent": "head-agent", "token": " fe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 47994, "seq": 187, "event": {"type": "token", "agent": "head-agent", "token": "hlen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48118, "seq": 188, "event": {"type": "token", "agent": "head-agent", "token": " bel", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48240, "seq": 189, "event": {"type": "token", "agent": "head-agent", "token": "ast", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48362, "seq": 190, "event": {"type": "token", "agent": "head-agent", "token": "bare", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48485, "seq": 191, "event": {"type": "token", "agent": "head-agent", "token": " Performance-K", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48614, "seq": 192, "event": {"type": "token", "agent": "head-agent", "token": "enn", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48735, "seq": 193, "event": {"type": "token", "agent": "head-agent", "token": "z", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48855, "seq": 194, "event": {"type": "token", "agent": "head-agent", "token": "ahlen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 48977, "seq": 195, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n#### 3.", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49100, "seq": 196, "event": {"type": "token", "agent": "head-agent", "token": " **Observ", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49231, "seq": 197, "event": {"type": "token", "agent": "head-agent", "token": "ability-Daten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49355, "seq": 198, "event": {"type": "token", "agent": "head-agent", "token": "**\nMonitoring", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49479, "seq": 199, "event": {"type": "token", "agent": "head-agent", "token": "-F", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49599, "seq": 200, "event": {"type": "token", "agent": "head-agent", "token": "ramework", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49720, "seq": 201, "event": {"type": "token", "agent": "head-agent", "token": "s", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49842, "seq": 202, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 49963, "seq": 203, "event": {"type": "token", "agent": "head-agent", "token": " Logging", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50084, "seq": 204, "event": {"type": "token", "agent": "head-agent", "token": "-L", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50205, "seq": 205, "event": {"type": "token", "agent": "head-agent", "token": "ös", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50327, "seq": 206, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50448, "seq": 207, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50570, "seq": 208, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50695, "seq": 209, "event": {"type": "token", "agent": "head-agent", "token": " aktiv", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50834, "seq": 210, "event": {"type": "token", "agent": "head-agent", "token": " kon", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 50938, "seq": 211, "event": {"type": "token", "agent": "head-agent", "token": "fig", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51057, "seq": 212, "event": {"type": "token", "agent": "head-agent", "token": "uri", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51182, "seq": 213, "event": {"type": "token", "agent": "head-agent", "token": "ert", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51300, "seq": 214, "event": {"type": "token", "agent": "head-agent", "token": " worden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51431, "seq": 215, "event": {"type": "token", "agent": "head-agent", "token": ". Es", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51545, "seq": 216, "event": {"type": "token", "agent": "head-agent", "token": " gibt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51721, "seq": 217, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51839, "seq": 218, "event": {"type": "token", "agent": "head-agent", "token": " Hin", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 51963, "seq": 219, "event": {"type": "token", "agent": "head-agent", "token": "weise", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52087, "seq": 220, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52208, "seq": 221, "event": {"type": "token", "agent": "head-agent", "token": " Prometheus", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52331, "seq": 222, "event": {"type": "token", "agent": "head-agent", "token": ",", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52455, "seq": 223, "event": {"type": "token", "agent": "head-agent", "token": " Graf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52579, "seq": 224, "event": {"type": "token", "agent": "head-agent", "token": "ana, Open", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52700, "seq": 225, "event": {"type": "token", "agent": "head-agent", "token": "Te", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52823, "seq": 226, "event": {"type": "token", "agent": "head-agent", "token": "lemetry", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 52945, "seq": 227, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53068, "seq": 228, "event": {"type": "token", "agent": "head-agent", "token": " ähn", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53189, "seq": 229, "event": {"type": "token", "agent": "head-agent", "token": "liche", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53312, "seq": 230, "event": {"type": "token", "agent": "head-agent", "token": " System", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53433, "seq": 231, "event": {"type": "token", "agent": "head-agent", "token": "e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53553, "seq": 232, "event": {"type": "token", "agent": "head-agent", "token": ". Som", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53677, "seq": 233, "event": {"type": "token", "agent": "head-agent", "token": "it", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53797, "seq": 234, "event": {"type": "token", "agent": "head-agent", "token": " lie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 53919, "seq": 235, "event": {"type": "token", "agent": "head-agent", "token": "gen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 54325, "seq": 236, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 54763, "seq": 237, "event": {"type": "token", "agent": "head-agent", "token": " Logs", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 55232, "seq": 238, "event": {"type": "token", "agent": "head-agent", "token": ", Met", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 55739, "seq": 239, "event": {"type": "token", "agent": "head-agent", "token": "riken", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 56277, "seq": 240, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 56864, "seq": 241, "event": {"type": "token", "agent": "head-agent", "token": " Traces vor", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57125, "seq": 242, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57246, "seq": 243, "event": {"type": "token", "agent": "head-agent", "token": "\n\n###", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57370, "seq": 244, "event": {"type": "token", "agent": "head-agent", "token": " ⚠️ Gren", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57494, "seq": 245, "event": {"type": "token", "agent": "head-agent", "token": "zen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57615, "seq": 246, "event": {"type": "token", "agent": "head-agent", "token": " der", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57741, "seq": 247, "event": {"type": "token", "agent": "head-agent", "token": " Um", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57864, "seq": 248, "event": {"type": "token", "agent": "head-agent", "token": "gebung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 57990, "seq": 249, "event": {"type": "token", "agent": "head-agent", "token": "\n\nDie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58158, "seq": 250, "event": {"type": "token", "agent": "head-agent", "token": " fol", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58276, "seq": 251, "event": {"type": "token", "agent": "head-agent", "token": "genden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58400, "seq": 252, "event": {"type": "token", "agent": "head-agent", "token": " Eins", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58530, "seq": 253, "event": {"type": "token", "agent": "head-agent", "token": "chrän", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58649, "seq": 254, "event": {"type": "token", "agent": "head-agent", "token": "k", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58768, "seq": 255, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 58896, "seq": 256, "event": {"type": "token", "agent": "head-agent", "token": " wurden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59020, "seq": 257, "event": {"type": "token", "agent": "head-agent", "token": " ident", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59141, "seq": 258, "event": {"type": "token", "agent": "head-agent", "token": "ifiz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59263, "seq": 259, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59434, "seq": 260, "event": {"type": "token", "agent": "head-agent", "token": ":\n\n- **Ke", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59555, "seq": 261, "event": {"type": "token", "agent": "head-agent", "token": "in", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59678, "seq": 262, "event": {"type": "token", "agent": "head-agent", "token": " Netz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59802, "seq": 263, "event": {"type": "token", "agent": "head-agent", "token": "werk", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 59923, "seq": 264, "event": {"type": "token", "agent": "head-agent", "token": "zug", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60064, "seq": 265, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60167, "seq": 266, "event": {"type": "token", "agent": "head-agent", "token": "iff", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60289, "seq": 267, "event": {"type": "token", "agent": "head-agent", "token": "**: Ein", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60412, "seq": 268, "event": {"type": "token", "agent": "head-agent", "token": " Web", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60534, "seq": 269, "event": {"type": "token", "agent": "head-agent", "token": "-Z", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 60938, "seq": 270, "event": {"type": "token", "agent": "head-agent", "token": "ug", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 61364, "seq": 271, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 61831, "seq": 272, "event": {"type": "token", "agent": "head-agent", "token": "iff", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 62324, "seq": 273, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 62852, "seq": 274, "event": {"type": "token", "agent": "head-agent", "token": " exter", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 63415, "seq": 275, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 64020, "seq": 276, "event": {"type": "token", "agent": "head-agent", "token": " R", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 64646, "seq": 277, "event": {"type": "token", "agent": "head-agent", "token": "ess", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 65312, "seq": 278, "event": {"type": "token", "agent": "head-agent", "token": "our", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 66015, "seq": 279, "event": {"type": "token", "agent": "head-agent", "token": "cen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 66750, "seq": 280, "event": {"type": "token", "agent": "head-agent", "token": " sch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 67523, "seq": 281, "event": {"type": "token", "agent": "head-agent", "token": "lug", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 68334, "seq": 282, "event": {"type": "token", "agent": "head-agent", "token": " mit", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 69185, "seq": 283, "event": {"type": "token", "agent": "head-agent", "token": " einem", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 70078, "seq": 284, "event": {"type": "token", "agent": "head-agent", "token": " DNS-A", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 71008, "seq": 285, "event": {"type": "token", "agent": "head-agent", "token": "u", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 71977, "seq": 286, "event": {"type": "token", "agent": "head-agent", "token": "fl", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 72980, "seq": 287, "event": {"type": "token", "agent": "head-agent", "token": "ös", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 73601, "seq": 288, "event": {"type": "token", "agent": "head-agent", "token": "ungs", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 74160, "seq": 289, "event": {"type": "token", "agent": "head-agent", "token": "fe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 74754, "seq": 290, "event": {"type": "token", "agent": "head-agent", "token": "h", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 75385, "seq": 291, "event": {"type": "token", "agent": "head-agent", "token": "ler", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 76064, "seq": 292, "event": {"type": "token", "agent": "head-agent", "token": " fe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 76758, "seq": 293, "event": {"type": "token", "agent": "head-agent", "token": "hl", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 77494, "seq": 294, "event": {"type": "token", "agent": "head-agent", "token": ":", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 78263, "seq": 295, "event": {"type": "token", "agent": "head-agent", "token": "\n  ```\n  ERROR", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79073, "seq": 296, "event": {"type": "token", "agent": "head-agent", "token": ": web_fetch hostname resolution", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79352, "seq": 297, "event": {"type": "token", "agent": "head-agent", "token": " failed for docs.example.com", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79483, "seq": 298, "event": {"type": "token", "agent": "head-agent", "token": ": [Errno", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79611, "seq": 299, "event": {"type": "token", "agent": "head-agent", "token": " 11001", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79740, "seq": 300, "event": {"type": "token", "agent": "head-agent", "token": "] getaddrinfo failed", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79868, "seq": 301, "event": {"type": "token", "agent": "head-agent", "token": "\n  ```", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 79998, "seq": 302, "event": {"type": "token", "agent": "head-agent", "token": "\n  →", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80126, "seq": 303, "event": {"type": "token", "agent": "head-agent", "token": " Dies", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80257, "seq": 304, "event": {"type": "token", "agent": "head-agent", "token": " ver", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80384, "seq": 305, "event": {"type": "token", "agent": "head-agent", "token": "hind", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80511, "seq": 306, "event": {"type": "token", "agent": "head-agent", "token": "ert", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80639, "seq": 307, "event": {"type": "token", "agent": "head-agent", "token": " den", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80765, "seq": 308, "event": {"type": "token", "agent": "head-agent", "token": " Abr", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 80892, "seq": 309, "event": {"type": "token", "agent": "head-agent", "token": "uf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81126, "seq": 310, "event": {"type": "token", "agent": "head-agent", "token": " extern", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81255, "seq": 311, "event": {"type": "token", "agent": "head-agent", "token": "er Dok", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81380, "seq": 312, "event": {"type": "token", "agent": "head-agent", "token": "ument", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81508, "seq": 313, "event": {"type": "token", "agent": "head-agent", "token": "ationen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81636, "seq": 314, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81774, "seq": 315, "event": {"type": "token", "agent": "head-agent", "token": " APIs", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 81899, "seq": 316, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n- **E", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82027, "seq": 317, "event": {"type": "token", "agent": "head-agent", "token": "inges", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82156, "seq": 318, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82284, "seq": 319, "event": {"type": "token", "agent": "head-agent", "token": "än", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82410, "seq": 320, "event": {"type": "token", "agent": "head-agent", "token": "kte", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82539, "seq": 321, "event": {"type": "token", "agent": "head-agent", "token": " Tool", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 82947, "seq": 322, "event": {"type": "token", "agent": "head-agent", "token": "-N", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 83373, "seq": 323, "event": {"type": "token", "agent": "head-agent", "token": "utz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 83833, "seq": 324, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 84333, "seq": 325, "event": {"type": "token", "agent": "head-agent", "token": "**: Ob", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 84860, "seq": 326, "event": {"type": "token", "agent": "head-agent", "token": "wo", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 85421, "seq": 327, "event": {"type": "token", "agent": "head-agent", "token": "hl", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 86017, "seq": 328, "event": {"type": "token", "agent": "head-agent", "token": " g", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 86647, "seq": 329, "event": {"type": "token", "agent": "head-agent", "token": "äng", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 87313, "seq": 330, "event": {"type": "token", "agent": "head-agent", "token": "ige", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 88012, "seq": 331, "event": {"type": "token", "agent": "head-agent", "token": " Bibli", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 88751, "seq": 332, "event": {"type": "token", "agent": "head-agent", "token": "oth", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 89525, "seq": 333, "event": {"type": "token", "agent": "head-agent", "token": "eken", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 90341, "seq": 334, "event": {"type": "token", "agent": "head-agent", "token": " install", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 91194, "seq": 335, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 92086, "seq": 336, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 93021, "seq": 337, "event": {"type": "token", "agent": "head-agent", "token": ", wurden", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 93990, "seq": 338, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 95003, "seq": 339, "event": {"type": "token", "agent": "head-agent", "token": " ded", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 96056, "seq": 340, "event": {"type": "token", "agent": "head-agent", "token": "iz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 97162, "seq": 341, "event": {"type": "token", "agent": "head-agent", "token": "ierten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 98293, "seq": 342, "event": {"type": "token", "agent": "head-agent", "token": " Analy", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 99054, "seq": 343, "event": {"type": "token", "agent": "head-agent", "token": "se-", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 99478, "seq": 344, "event": {"type": "token", "agent": "head-agent", "token": "Tools (z.", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 99906, "seq": 345, "event": {"type": "token", "agent": "head-agent", "token": " B. für", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 100366, "seq": 346, "event": {"type": "token", "agent": "head-agent", "token": " Sicher", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 100857, "seq": 347, "event": {"type": "token", "agent": "head-agent", "token": "heit", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 101379, "seq": 348, "event": {"type": "token", "agent": "head-agent", "token": ", Ab", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 101820, "seq": 349, "event": {"type": "token", "agent": "head-agent", "token": "h", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 102645, "seq": 350, "event": {"type": "token", "agent": "head-agent", "token": "äng", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 102703, "seq": 351, "event": {"type": "token", "agent": "head-agent", "token": "ig", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103181, "seq": 352, "event": {"type": "token", "agent": "head-agent", "token": "keiten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103330, "seq": 353, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103465, "seq": 354, "event": {"type": "token", "agent": "head-agent", "token": " Performance) aktiv", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103600, "seq": 355, "event": {"type": "token", "agent": "head-agent", "token": " e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103734, "seq": 356, "event": {"type": "token", "agent": "head-agent", "token": "inges", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 103871, "seq": 357, "event": {"type": "token", "agent": "head-agent", "token": "etzt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104009, "seq": 358, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n-", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104144, "seq": 359, "event": {"type": "token", "agent": "head-agent", "token": " **F", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104284, "seq": 360, "event": {"type": "token", "agent": "head-agent", "token": "eh", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104416, "seq": 361, "event": {"type": "token", "agent": "head-agent", "token": "l", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104553, "seq": 362, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 104693, "seq": 363, "event": {"type": "token", "agent": "head-agent", "token": " Integr", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 105103, "seq": 364, "event": {"type": "token", "agent": "head-agent", "token": "ations", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 105537, "seq": 365, "event": {"type": "token", "agent": "head-agent", "token": "möglichkeiten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 106002, "seq": 366, "event": {"type": "token", "agent": "head-agent", "token": "**:", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 106504, "seq": 367, "event": {"type": "token", "agent": "head-agent", "token": " Ke", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 107036, "seq": 368, "event": {"type": "token", "agent": "head-agent", "token": "ine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 107576, "seq": 369, "event": {"type": "token", "agent": "head-agent", "token": " Hin", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 107790, "seq": 370, "event": {"type": "token", "agent": "head-agent", "token": "weise", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 107930, "seq": 371, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108065, "seq": 372, "event": {"type": "token", "agent": "head-agent", "token": " CI", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108200, "seq": 373, "event": {"type": "token", "agent": "head-agent", "token": "/CD-P", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108337, "seq": 374, "event": {"type": "token", "agent": "head-agent", "token": "ipelines", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108474, "seq": 375, "event": {"type": "token", "agent": "head-agent", "token": ", Container", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108608, "seq": 376, "event": {"type": "token", "agent": "head-agent", "token": "-U", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108743, "seq": 377, "event": {"type": "token", "agent": "head-agent", "token": "m", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 108878, "seq": 378, "event": {"type": "token", "agent": "head-agent", "token": "geb", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109012, "seq": 379, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109149, "seq": 380, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109282, "seq": 381, "event": {"type": "token", "agent": "head-agent", "token": " Cloud", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109421, "seq": 382, "event": {"type": "token", "agent": "head-agent", "token": "-M", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109556, "seq": 383, "event": {"type": "token", "agent": "head-agent", "token": "onitor", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109691, "seq": 384, "event": {"type": "token", "agent": "head-agent", "token": "ing-", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109826, "seq": 385, "event": {"type": "token", "agent": "head-agent", "token": "Integration", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 109964, "seq": 386, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110100, "seq": 387, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n###", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110247, "seq": 388, "event": {"type": "token", "agent": "head-agent", "token": " ✅ N", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110372, "seq": 389, "event": {"type": "token", "agent": "head-agent", "token": "äch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110508, "seq": 390, "event": {"type": "token", "agent": "head-agent", "token": "ste", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110641, "seq": 391, "event": {"type": "token", "agent": "head-agent", "token": " Sch", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110779, "seq": 392, "event": {"type": "token", "agent": "head-agent", "token": "ritte", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 110915, "seq": 393, "event": {"type": "token", "agent": "head-agent", "token": "\n\nSo", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111049, "seq": 394, "event": {"type": "token", "agent": "head-agent", "token": "fern", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111186, "seq": 395, "event": {"type": "token", "agent": "head-agent", "token": " weitere", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111320, "seq": 396, "event": {"type": "token", "agent": "head-agent", "token": " Anal", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111462, "seq": 397, "event": {"type": "token", "agent": "head-agent", "token": "ys", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111594, "seq": 398, "event": {"type": "token", "agent": "head-agent", "token": "en gew", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111729, "seq": 399, "event": {"type": "token", "agent": "head-agent", "token": "üns", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111863, "seq": 400, "event": {"type": "token", "agent": "head-agent", "token": "cht", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 111999, "seq": 401, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112140, "seq": 402, "event": {"type": "token", "agent": "head-agent", "token": ":", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112268, "seq": 403, "event": {"type": "token", "agent": "head-agent", "token": "\n\n1. **Dependency", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112402, "seq": 404, "event": {"type": "token", "agent": "head-agent", "token": "-Check", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112536, "seq": 405, "event": {"type": "token", "agent": "head-agent", "token": "** via", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112671, "seq": 406, "event": {"type": "token", "agent": "head-agent", "token": " `pip", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112810, "seq": 407, "event": {"type": "token", "agent": "head-agent", "token": "-a", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 112946, "seq": 408, "event": {"type": "token", "agent": "head-agent", "token": "udit", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113085, "seq": 409, "event": {"type": "token", "agent": "head-agent", "token": "` oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113217, "seq": 410, "event": {"type": "token", "agent": "head-agent", "token": " `safety", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113354, "seq": 411, "event": {"type": "token", "agent": "head-agent", "token": "`", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113490, "seq": 412, "event": {"type": "token", "agent": "head-agent", "token": " install", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113611, "seq": 413, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113725, "seq": 414, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113849, "seq": 415, "event": {"type": "token", "agent": "head-agent", "token": " aus", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 113971, "seq": 416, "event": {"type": "token", "agent": "head-agent", "token": "führen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114091, "seq": 417, "event": {"type": "token", "agent": "head-agent", "token": ".\n2", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114212, "seq": 418, "event": {"type": "token", "agent": "head-agent", "token": ". **Last", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114332, "seq": 419, "event": {"type": "token", "agent": "head-agent", "token": "test** mitt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114512, "seq": 420, "event": {"type": "token", "agent": "head-agent", "token": "els", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114634, "seq": 421, "event": {"type": "token", "agent": "head-agent", "token": " `loc", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114765, "seq": 422, "event": {"type": "token", "agent": "head-agent", "token": "ust` implement", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 114875, "seq": 423, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115004, "seq": 424, "event": {"type": "token", "agent": "head-agent", "token": ".\n3. **Profiler", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115119, "seq": 425, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115243, "seq": 426, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115365, "seq": 427, "event": {"type": "token", "agent": "head-agent", "token": " `c", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115484, "seq": 428, "event": {"type": "token", "agent": "head-agent", "token": "Profile` oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115603, "seq": 429, "event": {"type": "token", "agent": "head-agent", "token": " `py-s", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115738, "seq": 430, "event": {"type": "token", "agent": "head-agent", "token": "py` zur", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115848, "seq": 431, "event": {"type": "token", "agent": "head-agent", "token": " Performance", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 115973, "seq": 432, "event": {"type": "token", "agent": "head-agent", "token": "bew", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116087, "seq": 433, "event": {"type": "token", "agent": "head-agent", "token": "ert", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116207, "seq": 434, "event": {"type": "token", "agent": "head-agent", "token": "ung nutzen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116305, "seq": 435, "event": {"type": "token", "agent": "head-agent", "token": ".\n4. **Logging", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116419, "seq": 436, "event": {"type": "token", "agent": "head-agent", "token": " &", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116534, "seq": 437, "event": {"type": "token", "agent": "head-agent", "token": " Tracing** mit", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116646, "seq": 438, "event": {"type": "token", "agent": "head-agent", "token": " `", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116762, "seq": 439, "event": {"type": "token", "agent": "head-agent", "token": "struct", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116883, "seq": 440, "event": {"type": "token", "agent": "head-agent", "token": "log", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 116997, "seq": 441, "event": {"type": "token", "agent": "head-agent", "token": "` oder", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 117124, "seq": 442, "event": {"type": "token", "agent": "head-agent", "token": " Open", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 117225, "seq": 443, "event": {"type": "token", "agent": "head-agent", "token": "Te", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 117340, "seq": 444, "event": {"type": "token", "agent": "head-agent", "token": "lemetry", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 117452, "seq": 445, "event": {"type": "token", "agent": "head-agent", "token": " aktiv", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 117841, "seq": 446, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 118266, "seq": 447, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 118717, "seq": 448, "event": {"type": "token", "agent": "head-agent", "token": "\n5. Netz", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 119204, "seq": 449, "event": {"type": "token", "agent": "head-agent", "token": "wer", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 119688, "seq": 450, "event": {"type": "token", "agent": "head-agent", "token": "kk", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 119800, "seq": 451, "event": {"type": "token", "agent": "head-agent", "token": "onne", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 119916, "seq": 452, "event": {"type": "token", "agent": "head-agent", "token": "kt", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120036, "seq": 453, "event": {"type": "token", "agent": "head-agent", "token": "iv", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120145, "seq": 454, "event": {"type": "token", "agent": "head-agent", "token": "ität", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120269, "seq": 455, "event": {"type": "token", "agent": "head-agent", "token": " pr", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120368, "seq": 456, "event": {"type": "token", "agent": "head-agent", "token": "ü", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120481, "seq": 457, "event": {"type": "token", "agent": "head-agent", "token": "fen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120603, "seq": 458, "event": {"type": "token", "agent": "head-agent", "token": " bzw", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120708, "seq": 459, "event": {"type": "token", "agent": "head-agent", "token": ". lokale", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120820, "seq": 460, "event": {"type": "token", "agent": "head-agent", "token": " Mock", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 120933, "seq": 461, "event": {"type": "token", "agent": "head-agent", "token": "s bere", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121045, "seq": 462, "event": {"type": "token", "agent": "head-agent", "token": "it", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121161, "seq": 463, "event": {"type": "token", "agent": "head-agent", "token": "stellen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121273, "seq": 464, "event": {"type": "token", "agent": "head-agent", "token": ",", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121387, "seq": 465, "event": {"type": "token", "agent": "head-agent", "token": " um", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121500, "seq": 466, "event": {"type": "token", "agent": "head-agent", "token": " exter", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121612, "seq": 467, "event": {"type": "token", "agent": "head-agent", "token": "ne Ab", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121730, "seq": 468, "event": {"type": "token", "agent": "head-agent", "token": "h", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121843, "seq": 469, "event": {"type": "token", "agent": "head-agent", "token": "äng", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 121956, "seq": 470, "event": {"type": "token", "agent": "head-agent", "token": "ig", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122074, "seq": 471, "event": {"type": "token", "agent": "head-agent", "token": "keiten", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122285, "seq": 472, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122319, "seq": 473, "event": {"type": "token", "agent": "head-agent", "token": " simul", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122412, "seq": 474, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122595, "seq": 475, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n**", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122710, "seq": 476, "event": {"type": "token", "agent": "head-agent", "token": "Sources used:**", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122826, "seq": 477, "event": {"type": "token", "agent": "head-agent", "token": "  \nN", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 122940, "seq": 478, "event": {"type": "token", "agent": "head-agent", "token": "/A (", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123053, "seq": 479, "event": {"type": "token", "agent": "head-agent", "token": "ke", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123169, "seq": 480, "event": {"type": "token", "agent": "head-agent", "token": "ine", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123284, "seq": 481, "event": {"type": "token", "agent": "head-agent", "token": " erfolgre", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123405, "seq": 482, "event": {"type": "token", "agent": "head-agent", "token": "ichen", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123512, "seq": 483, "event": {"type": "token", "agent": "head-agent", "token": " `", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123630, "seq": 484, "event": {"type": "token", "agent": "head-agent", "token": "web_fetch`-", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123750, "seq": 485, "event": {"type": "token", "agent": "head-agent", "token": "Au", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123858, "seq": 486, "event": {"type": "token", "agent": "head-agent", "token": "fr", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 123972, "seq": 487, "event": {"type": "token", "agent": "head-agent", "token": "ufe", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 124090, "seq": 488, "event": {"type": "token", "agent": "head-agent", "token": ")", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 124303, "seq": 489, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "714d7255-3735-4264-8ca4-ea126f80fa78", "phase": "end", "stage": "streaming_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.886098+00:00", "details": {"output_chars": 2300}, "agent": "head-agent"}}
+{"t_ms": 124387, "seq": 490, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "bc3c9e1c-627c-418e-9ef8-a7c4b334bc8e", "phase": "start", "stage": "reply_shaping_started", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.886098+00:00", "details": {"input_chars": 2300}, "agent": "head-agent"}}
+{"t_ms": 124387, "seq": 491, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "a9fd8fe2-0b34-4a44-a732-a7874592f3fb", "phase": "end", "stage": "reply_shaping_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.887089+00:00", "details": {"original_chars": 2300, "shaped_chars": 2282, "suppressed": false, "reason": null, "removed_tokens": [], "deduped_lines": 0}, "agent": "head-agent"}}
+{"t_ms": 124387, "seq": 492, "event": {"type": "final", "agent": "head-agent", "message": "**Architektur-, Performance- und Observability-Analyse – Ergebnisse & Umgebungslimitierungen**\n### 🔍 Zusammenfassung der Analyseergebnisse\n#### 1. **Architektur-Analyse**\nEs wurden keine spezifischen Tools zur statischen Codeanalyse oder Dependency-Scanning ausgeführt. Die Python-Umgebung enthält jedoch relevante Bibliotheken wie `pydantic`, `fastapi` und `requests`, was auf eine moderne API-Architektur hinweist. Ohne explizite Tool-Einsätze (wie z. B. Bandit, SonarQube) liegen keine tiefgehenden Architekturhinweise vor.\n#### 2. **Performance-Messung**\nKeine konkreten Lasttests oder Profiling-Ergebnisse wurden durchgeführt. Es stehen grundlegende HTTP-Bibliotheken (`httpx`, `requests`) zur Verfügung, aber ohne Integration von Tools wie Locust oder Py-Spy fehlen belastbare Performance-Kennzahlen.\n#### 3. **Observability-Daten**\nMonitoring-Frameworks oder Logging-Lösungen sind nicht aktiv konfiguriert worden. Es gibt keine Hinweise auf Prometheus, Grafana, OpenTelemetry oder ähnliche Systeme. Somit liegen keine Logs, Metriken oder Traces vor.\n---\n### ⚠️ Grenzen der Umgebung\nDie folgenden Einschränkungen wurden identifiziert:\n- **Kein Netzwerkzugriff**: Ein Web-Zugriff auf externe Ressourcen schlug mit einem DNS-Auflösungsfehler fehl:\n  ```\n  ERROR: web_fetch hostname resolution failed for docs.example.com: [Errno 11001] getaddrinfo failed\n  ```\n  → Dies verhindert den Abruf externer Dokumentationen oder APIs.\n- **Eingeschränkte Tool-Nutzung**: Obwohl gängige Bibliotheken installiert sind, wurden keine dedizierten Analyse-Tools (z. B. für Sicherheit, Abhängigkeiten oder Performance) aktiv eingesetzt.\n- **Fehlende Integrationsmöglichkeiten**: Keine Hinweise auf CI/CD-Pipelines, Container-Umgebungen oder Cloud-Monitoring-Integrationen.\n---\n### ✅ Nächste Schritte\nSofern weitere Analysen gewünscht sind:\n1. **Dependency-Check** via `pip-audit` oder `safety` installieren und ausführen.\n2. **Lasttest** mittels `locust` implementieren.\n3. **Profiler** wie `cProfile` oder `py-spy` zur Performancebewertung nutzen.\n4. **Logging & Tracing** mit `structlog` oder OpenTelemetry aktivieren.\n5. Netzwerkkonnektivität prüfen bzw. lokale Mocks bereitstellen, um externe Abhängigkeiten zu simulieren.\n---\n**Sources used:**\nN/A (keine erfolgreichen `web_fetch`-Aufrufe)", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}}
+{"t_ms": 124387, "seq": 493, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f8033d38-f7a5-4077-9013-10a853aa5b15", "phase": "end", "stage": "run_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.906036+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 124387, "seq": 494, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "6779192a-eb45-46bc-9aa2-5ecd269a48f8", "phase": "progress", "stage": "lane_released", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.940313+00:00", "details": {"queue_wait_ms": 0, "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9"}, "agent": "head-agent"}}
+{"t_ms": 124387, "seq": 495, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "e8bf5804-eee4-4db3-b8dc-5b146f6d9dd7", "phase": "end", "stage": "request_completed", "request_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "run_id": "390a173b-d8d3-4d97-b8eb-56bc2fcb103e", "session_id": "fc4a66c1-4fa1-4fa4-8d4f-ff6120c5ded9", "ts": "2026-03-03T10:52:38.941274+00:00", "details": {}, "agent": "head-agent", "status": "completed", "run_status": "completed", "ended_at": "2026-03-03T10:52:38.941274+00:00"}}

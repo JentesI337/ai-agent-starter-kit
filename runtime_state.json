@@ -1,0 +1,5 @@
+{
+  "runtime": "local",
+  "base_url": "http://localhost:11434/v1",
+  "model": "llama3.3:70b-instruct-q4_K_M"
+}

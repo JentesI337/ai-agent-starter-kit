@@ -1,511 +1,570 @@
-from __future__ import annotations
-
-import json
+﻿from __future__ import annotations
 import logging
-import uuid
-from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from app.agent import HeadCodingAgent
-from app.config import settings
-from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
-from app.models import WsInboundMessage
+import re
+from collections.abc import MutableMapping
+from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
+from app.app_setup import build_fastapi_app, build_lifespan_context
+from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
+from app.config import resolved_prompt_settings, settings
+from app.control_router_wiring import include_control_routers
+from app.contracts.agent_contract import AgentContract
+from app.custom_agents import CustomAgentStore
+from app.errors import GuardrailViolation
+from app.handlers import (
+    agent_handlers,
+    policy_handlers,
+    run_handlers,
+    session_handlers,
+    skills_handlers,
+    tools_handlers,
+    workflow_handlers,
+)
+from app.interfaces import OrchestratorApi
+from app.control_models import AgentTestRequest, RunStartRequest
+from app.orchestrator.subrun_lane import SubrunLane
+from app.routers import (
+    build_agents_router,
+    build_run_api_router,
+    build_runtime_debug_router,
+    build_subruns_router,
+    build_ws_agent_router,
+)
+from app.routers.run_api import RunApiRouterHandlers
+from app.run_endpoints import (
+    AgentTestDependencies,
+    RunEndpointsDependencies,
+    run_agent_test,
+    start_run as run_endpoint_start,
+    wait_run as run_endpoint_wait,
+)
+from app.runtime_debug_endpoints import (
+    RuntimeDebugDependencies,
+    api_resolved_prompt_settings,
+    api_runtime_status,
+    api_test_ping,
+)
 from app.runtime_manager import RuntimeManager
-
+from app.services import (
+    PolicyApprovalService,
+    SessionQueryService,
+    build_run_start_fingerprint as _build_run_start_fingerprint,
+    build_session_patch_fingerprint as _build_session_patch_fingerprint,
+    build_session_reset_fingerprint as _build_session_reset_fingerprint,
+    build_workflow_create_fingerprint as _build_workflow_create_fingerprint,
+    build_workflow_delete_fingerprint as _build_workflow_delete_fingerprint,
+    build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
+)
+from app.services.agent_resolution import (
+    effective_orchestrator_agent_ids as _effective_orchestrator_agent_ids_impl,
+    looks_like_coding_request,
+    normalize_agent_id as _normalize_agent_id_impl,
+    resolve_agent as _resolve_agent_impl,
+    sync_custom_agents as _sync_custom_agents_impl,
+)
+from app.services.idempotency_manager import IdempotencyManager
+from app.services.request_normalization import normalize_preset
+from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
+from app.state import SqliteStateStore, StateStore
+from app.subrun_endpoints import (
+    SubrunEndpointsDependencies,
+    api_subruns_get,
+    api_subruns_kill,
+    api_subruns_kill_all_async,
+    api_subruns_list,
+    api_subruns_log,
+)
+from app.ws_handler import WsHandlerDependencies
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("app.main")
-
-app = FastAPI(title="AI Agent Starter Kit")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
+PRIMARY_AGENT_ID = "head-agent"
+CODER_AGENT_ID = "coder-agent"
+REVIEW_AGENT_ID = "review-agent"
+LEGACY_AGENT_ALIASES = {"head-coder": PRIMARY_AGENT_ID}
+control_plane_state = ControlPlaneState()
+idempotency_mgr = IdempotencyManager(
+    ttl_seconds=settings.idempotency_registry_ttl_seconds,
+    max_entries=settings.idempotency_registry_max_entries,
 )
-
-agent = HeadCodingAgent()
-runtime_manager = RuntimeManager()
-
-
-def _is_model_not_found_error(message: str) -> bool:
-    text = (message or "").lower()
-    return "model" in text and "not found" in text
-
-
-class AgentTestRequest(BaseModel):
-    message: str = "hi"
-    model: str | None = None
-
-
-@app.get("/api/agents")
-async def get_agents():
-    active = runtime_manager.get_state()
-    return [
-        {
-            "id": "head-coder",
-            "name": "Head Coding Agent",
-            "role": "coding-head-agent",
-            "status": "ready",
-            "defaultModel": active.model,
-        }
-    ]
-
-
-@app.get("/api/runtime/status")
-async def get_runtime_status():
-    state = runtime_manager.get_state()
-    api_models = await runtime_manager.get_api_models_summary()
-    return {
-        "runtime": state.runtime,
-        "baseUrl": state.base_url,
-        "model": state.model,
-        "authenticated": runtime_manager.is_runtime_authenticated(),
-        "apiModelsAvailable": api_models["available"],
-        "apiModelsCount": api_models["count"],
-        "apiModelsError": api_models["error"],
-    }
-
-
-@app.get("/api/test/ping")
-async def test_ping():
-    state = runtime_manager.get_state()
-    return {
-        "ok": True,
-        "service": "backend",
-        "runtime": state.runtime,
-        "model": state.model,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@app.post("/api/test/agent")
-async def test_agent(request: AgentTestRequest):
-    runtime_state = runtime_manager.get_state()
-    session_id = str(uuid.uuid4())
-    request_id = str(uuid.uuid4())
-    events: list[dict] = []
-    logger.info(
-        "agent_test_start request_id=%s session_id=%s runtime=%s model=%s message_len=%s",
-        request_id,
-        session_id,
-        runtime_state.runtime,
-        request.model or runtime_state.model,
-        len(request.message or ""),
+def _startup_sequence() -> None:
+    run_startup_sequence(
+        settings=settings,
+        logger=logger,
+        ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
-
-    async def collect_event(payload: dict):
-        events.append(payload)
-
-    agent.configure_runtime(
-        base_url=runtime_state.base_url,
-        model=runtime_state.model,
-    )
-
-    selected_model = (request.model or "").strip() or runtime_state.model
-    if runtime_state.runtime == "local":
-        selected_model = await runtime_manager.ensure_model_ready(collect_event, session_id, selected_model)
+def _shutdown_sequence() -> None:
+    run_shutdown_sequence(active_run_tasks=control_plane_state.active_run_tasks, logger=logger)
+app.router.lifespan_context = build_lifespan_context(
+    on_startup=_startup_sequence,
+    on_shutdown=_shutdown_sequence,
+)
+def _build_runtime_components() -> RuntimeComponents:
+    base_agent_registry: dict[str, AgentContract] = {
+        PRIMARY_AGENT_ID: HeadAgentAdapter(),
+        CODER_AGENT_ID: CoderAgentAdapter(),
+        REVIEW_AGENT_ID: ReviewAgentAdapter(),
+    }
+    runtime = RuntimeManager()
+    if settings.orchestrator_state_backend == "sqlite":
+        store = SqliteStateStore(persist_dir=settings.orchestrator_state_dir)
     else:
-        selected_model = await runtime_manager.resolve_api_request_model(selected_model)
-
-    try:
-        await agent.run(
-            request.message,
-            collect_event,
-            session_id=session_id,
-            request_id=request_id,
-            model=selected_model,
-        )
-    except (GuardrailViolation, ToolExecutionError, RuntimeSwitchError) as exc:
-        logger.warning(
-            "agent_test_client_error request_id=%s session_id=%s error=%s",
-            request_id,
-            session_id,
-            exc,
-        )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except LlmClientError as exc:
-        logger.warning(
-            "agent_test_llm_error request_id=%s session_id=%s error=%s",
-            request_id,
-            session_id,
-            exc,
-        )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception(
-            "agent_test_unhandled request_id=%s session_id=%s",
-            request_id,
-            session_id,
-        )
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    final_event = next((item for item in reversed(events) if item.get("type") == "final"), None)
-    return {
-        "ok": True,
-        "runtime": runtime_state.runtime,
-        "model": selected_model,
-        "sessionId": session_id,
-        "requestId": request_id,
-        "eventCount": len(events),
-        "final": final_event.get("message") if final_event else None,
+        store = StateStore(persist_dir=settings.orchestrator_state_dir)
+    query_service = SessionQueryService(state_store=store)
+    policy_approval_service = PolicyApprovalService()
+    orchestrators: dict[str, OrchestratorApi] = {
+        agent_id: OrchestratorApi(agent=agent_instance, state_store=store)
+        for agent_id, agent_instance in base_agent_registry.items()
     }
-
-
-@app.websocket("/ws/agent")
-async def agent_socket(websocket: WebSocket):
-    await websocket.accept()
-    connection_session_id = str(uuid.uuid4())
-    runtime_state = runtime_manager.get_state()
-    sequence_number = 0
-    logger.info(
-        "ws_connected session_id=%s runtime=%s model=%s",
-        connection_session_id,
-        runtime_state.runtime,
-        runtime_state.model,
+    custom_store = CustomAgentStore(persist_dir=settings.custom_agents_dir)
+    return RuntimeComponents(
+        agent_registry=base_agent_registry,
+        runtime_manager=runtime,
+        state_store=store,
+        session_query_service=query_service,
+        policy_approval_service=policy_approval_service,
+        orchestrator_registry=orchestrators,
+        custom_agent_store=custom_store,
     )
-
-    class ClientDisconnectedError(Exception):
-        pass
-
-    async def send_event(payload: dict):
-        nonlocal sequence_number
-        try:
-            sequence_number += 1
-            if "session_id" not in payload:
-                payload["session_id"] = connection_session_id
-            envelope = {
-                "seq": sequence_number,
-                "event": payload,
-            }
-            logger.debug(
-                "ws_send_event session_id=%s seq=%s type=%s request_id=%s",
-                payload.get("session_id", connection_session_id),
-                sequence_number,
-                payload.get("type"),
-                payload.get("request_id"),
-            )
-            await websocket.send_text(json.dumps(envelope))
-        except (WebSocketDisconnect, RuntimeError) as exc:
-            logger.info(
-                "ws_send_event_disconnected session_id=%s type=%s",
-                payload.get("session_id", connection_session_id),
-                payload.get("type"),
-            )
-            raise ClientDisconnectedError() from exc
-
-    await send_event(
-        {
-            "type": "status",
-            "agent": agent.name,
-            "message": "Connected to head agent.",
-            "session_id": connection_session_id,
-            "runtime": runtime_state.runtime,
-            "model": runtime_state.model,
+def _initialize_runtime_components(components: RuntimeComponents) -> None:
+    _sync_custom_agents(components)
+    components.agent = components.agent_registry[PRIMARY_AGENT_ID]
+    components.orchestrator_api = components.orchestrator_registry[PRIMARY_AGENT_ID]
+    components.subrun_lane = SubrunLane(
+        orchestrator_api=components.orchestrator_api,
+        state_store=components.state_store,
+        max_concurrent=settings.subrun_max_concurrent,
+        max_spawn_depth=settings.subrun_max_spawn_depth,
+        max_children_per_parent=settings.subrun_max_children_per_parent,
+        announce_retry_max_attempts=settings.subrun_announce_retry_max_attempts,
+        announce_retry_base_delay_ms=settings.subrun_announce_retry_base_delay_ms,
+        announce_retry_max_delay_ms=settings.subrun_announce_retry_max_delay_ms,
+        announce_retry_jitter=settings.subrun_announce_retry_jitter,
+        leaf_spawn_depth_guard_enabled=settings.subrun_leaf_spawn_depth_guard_enabled,
+        orchestrator_agent_ids=list(_effective_orchestrator_agent_ids(components)),
+        restore_orphan_reconcile_enabled=settings.subrun_restore_orphan_reconcile_enabled,
+        restore_orphan_grace_seconds=settings.subrun_restore_orphan_grace_seconds,
+        lifecycle_delivery_error_grace_enabled=settings.subrun_lifecycle_delivery_error_grace_enabled,
+    )
+    async def _spawn_subrun_from_agent(
+        *,
+        parent_request_id: str,
+        parent_session_id: str,
+        user_message: str,
+        model: str | None,
+        timeout_seconds: int,
+        tool_policy,
+        send_event,
+        agent_id: str,
+        mode: str,
+    ) -> dict:
+        _sync_custom_agents(components)
+        runtime_state = components.runtime_manager.get_state()
+        selected_model = (model or "").strip() or runtime_state.model
+        if runtime_state.runtime == "local":
+            selected_model = await components.runtime_manager.ensure_model_ready(send_event, parent_session_id, selected_model)
+        else:
+            selected_model = await components.runtime_manager.resolve_api_request_model(selected_model)
+        normalized_agent_id = _normalize_agent_id(agent_id)
+        selected_orchestrator = components.orchestrator_registry.get(normalized_agent_id)
+        if selected_orchestrator is None:
+            raise GuardrailViolation(f"Unsupported subrun agent: {agent_id}")
+        effective_timeout = max(0, int(timeout_seconds))
+        if effective_timeout == 0:
+            effective_timeout = int(settings.subrun_timeout_seconds)
+        run_id = await components.subrun_lane.spawn(
+            parent_request_id=parent_request_id,
+            parent_session_id=parent_session_id,
+            user_message=user_message,
+            runtime=runtime_state.runtime,
+            model=selected_model,
+            timeout_seconds=effective_timeout,
+            tool_policy=tool_policy,
+            preset=None,
+            send_event=send_event,
+            agent_id=normalized_agent_id,
+            mode=mode,
+            orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
+            orchestrator_api=selected_orchestrator,
+        )
+        return {
+            "run_id": run_id,
+            "mode": mode,
+            "agent_id": normalized_agent_id,
+            "handover": components.subrun_lane.get_handover_contract(run_id),
         }
-    )
-
-    async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None):
+    async def _request_policy_override_from_agent(
+        *,
+        send_event,
+        session_id: str,
+        request_id: str,
+        agent_name: str,
+        tool: str,
+        resource: str,
+        display_text: str,
+    ) -> bool:
+        if await components.policy_approval_service.is_preapproved(tool=tool, resource=resource, session_id=session_id):
+            return True
+        approval = await components.policy_approval_service.create(
+            run_id=request_id,
+            session_id=session_id,
+            agent_name=agent_name,
+            tool=tool,
+            resource=resource,
+            display_text=display_text,
+        )
         await send_event(
             {
-                "type": "lifecycle",
-                "agent": agent.name,
-                "stage": stage,
+                "type": "policy_approval_required",
+                "agent": agent_name,
                 "request_id": request_id,
                 "session_id": session_id,
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "details": details or {},
+                "approval": {
+                    "approval_id": approval["approval_id"],
+                    "tool": tool,
+                    "resource": resource,
+                    "display_text": display_text,
+                    "options": ["allow_once", "allow_always", "deny"],
+                    "scope": "tool_resource",
+                    "status": "pending",
+                },
             }
         )
+        decision = await components.policy_approval_service.wait_for_decision(
+            approval_id=approval["approval_id"],
+            timeout_seconds=settings.policy_approval_wait_seconds,
+        )
+        return decision in {"allow_once", "allow_always"}
+    for agent_instance in components.agent_registry.values():
+        set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
+        if callable(set_handler):
+            set_handler(_spawn_subrun_from_agent)
+        set_policy_handler = getattr(agent_instance, "set_policy_approval_handler", None)
+        if callable(set_policy_handler):
+            set_policy_handler(_request_policy_override_from_agent)
+_runtime_registry = LazyRuntimeRegistry(builder=_build_runtime_components, initializer=_initialize_runtime_components)
+def _get_runtime_components() -> RuntimeComponents:
+    return _runtime_registry.get_components()
+def _ensure_runtime_components_initialized() -> RuntimeComponents:
+    return _runtime_registry.ensure_initialized()
+agent_registry: MutableMapping[str, AgentContract] = LazyMappingProxy(lambda: _get_runtime_components().agent_registry)
+runtime_manager = LazyObjectProxy(lambda: _get_runtime_components().runtime_manager)
+state_store = LazyObjectProxy(lambda: _get_runtime_components().state_store)
+session_query_service = LazyObjectProxy(lambda: _get_runtime_components().session_query_service)
+policy_approval_service = LazyObjectProxy(lambda: _get_runtime_components().policy_approval_service)
+orchestrator_registry: MutableMapping[str, OrchestratorApi] = LazyMappingProxy(lambda: _get_runtime_components().orchestrator_registry)
+custom_agent_store = LazyObjectProxy(lambda: _get_runtime_components().custom_agent_store)
+agent = LazyObjectProxy(lambda: _get_runtime_components().agent)
+orchestrator_api = LazyObjectProxy(lambda: _get_runtime_components().orchestrator_api)
+subrun_lane = LazyObjectProxy(lambda: _get_runtime_components().subrun_lane)
+def _normalize_agent_id(agent_id: str | None) -> str:
+    return _normalize_agent_id_impl(
+        agent_id,
+        primary_agent_id=PRIMARY_AGENT_ID,
+        legacy_agent_aliases=LEGACY_AGENT_ALIASES,
+    )
+def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = None) -> set[str]:
+    if components is None:
+        components = _get_runtime_components()
+    return _effective_orchestrator_agent_ids_impl(
+        configured_agent_ids=settings.subrun_orchestrator_agent_ids,
+        primary_agent_id=PRIMARY_AGENT_ID,
+        custom_orchestrator_agent_ids=components.custom_orchestrator_agent_ids,
+    )
+def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
+    if components is None:
+        components = _get_runtime_components()
+    _sync_custom_agents_impl(
+        components=components,
+        normalize_agent_id_fn=_normalize_agent_id,
+        primary_agent_id=PRIMARY_AGENT_ID,
+        coder_agent_id=CODER_AGENT_ID,
+        review_agent_id=REVIEW_AGENT_ID,
+        effective_orchestrator_agent_ids_fn=_effective_orchestrator_agent_ids,
+    )
+def _resolve_agent(agent_id: str | None):
+    return _resolve_agent_impl(
+        agent_id=agent_id,
+        sync_custom_agents_fn=_sync_custom_agents,
+        normalize_agent_id_fn=_normalize_agent_id,
+        agent_registry=agent_registry,
+        orchestrator_registry=orchestrator_registry,
+    )
+def _looks_like_review_request(message: str) -> bool:
+    text = (message or "").strip().lower()
+    if not text:
+        return False
 
-    try:
-        while True:
-            request_id = str(uuid.uuid4())
-            session_id = connection_session_id
-            try:
-                raw = await websocket.receive_text()
-                data = WsInboundMessage.model_validate_json(raw)
-                session_id = data.session_id or connection_session_id
-                logger.info(
-                    "ws_message_received request_id=%s session_id=%s type=%s agent_id=%s content_len=%s requested_model=%s",
-                    request_id,
-                    session_id,
-                    data.type,
-                    data.agent_id or "head-coder",
-                    len(data.content or ""),
-                    data.model,
-                )
-                await send_lifecycle(
-                    stage="request_received",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"chars": len(data.content), "agent_id": data.agent_id or "head-coder"},
-                )
+    review_keywords = (
+        "review",
+        "code review",
+        "audit",
+        "critique",
+        "quality check",
+        "security review",
+        "find issues",
+        "what is wrong",
+        "smell",
+    )
+    if not any(marker in text for marker in review_keywords):
+        return False
 
-                if data.type == "runtime_switch_request":
-                    target = (data.runtime_target or "").strip().lower()
-                    await send_lifecycle(
-                        stage="runtime_switch_requested",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={"target": target},
-                    )
-                    state = await runtime_manager.switch_runtime(target, send_event, session_id)
-                    await send_event(
-                        {
-                            "type": "runtime_switch_done",
-                            "session_id": session_id,
-                            "runtime": state.runtime,
-                            "model": state.model,
-                            "base_url": state.base_url,
-                        }
-                    )
-                    continue
+    evidence_patterns = (
+        r"https?://",
+        r"```",
+        r"diff\s+--git",
+        r"\b[a-f0-9]{7,40}\b",
+        r"\b[\w./-]+\.(py|ts|js|java|go|rs|json|yml|yaml|md|html|css)\b",
+        r"\b(\+\+\+|---|@@)\b",
+    )
+    has_evidence = any(re.search(pattern, text, re.IGNORECASE) for pattern in evidence_patterns)
+    if not has_evidence:
+        return False
 
-                if data.type != "user_message":
-                    await send_event(
-                        {
-                            "type": "status",
-                            "agent": agent.name,
-                            "message": f"Unsupported message type: {data.type}",
-                        }
-                    )
-                    await send_lifecycle(
-                        stage="request_rejected_unsupported_type",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={"type": data.type},
-                    )
-                    continue
+    execution_or_research_markers = (
+        "orchestrate",
+        "research",
+        "fact check",
+        "fact-check",
+        "write",
+        "save",
+        "create",
+        "build",
+        "implement",
+        "run",
+        "execute",
+        "generate",
+    )
+    if any(marker in text for marker in execution_or_research_markers):
+        return False
 
-                if data.agent_id and data.agent_id != "head-coder":
-                    await send_event(
-                        {
-                            "type": "status",
-                            "agent": agent.name,
-                            "message": f"Unsupported agent: {data.agent_id}",
-                        }
-                    )
-                    await send_lifecycle(
-                        stage="request_rejected_unsupported_agent",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={"agent_id": data.agent_id},
-                    )
-                    continue
-
-                await send_lifecycle(
-                    stage="request_dispatched",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"model": data.model},
-                )
-
-                runtime_state = runtime_manager.get_state()
-                logger.info(
-                    "ws_request_dispatch request_id=%s session_id=%s runtime=%s active_model=%s",
-                    request_id,
-                    session_id,
-                    runtime_state.runtime,
-                    runtime_state.model,
-                )
-
-                agent.configure_runtime(
-                    base_url=runtime_state.base_url,
-                    model=runtime_state.model,
-                )
-
-                selected_model = (data.model or "").strip() or runtime_state.model
-                if runtime_state.runtime == "local":
-                    resolved_model = await runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
-                    if resolved_model != selected_model:
-                        await send_event(
-                            {
-                                "type": "status",
-                                "agent": agent.name,
-                                "message": f"Model '{selected_model}' not available. Using '{resolved_model}'.",
-                            }
-                        )
-                        selected_model = resolved_model
-                        if runtime_state.model != resolved_model:
-                            runtime_manager.set_active_model(resolved_model)
-                else:
-                    resolved_model = await runtime_manager.resolve_api_request_model(selected_model)
-                    if resolved_model != selected_model:
-                        await send_event(
-                            {
-                                "type": "status",
-                                "agent": agent.name,
-                                "message": f"API model '{selected_model}' not available. Using '{resolved_model}'.",
-                            }
-                        )
-                        selected_model = resolved_model
-                        if runtime_state.model != resolved_model:
-                            runtime_manager.set_active_model(resolved_model)
-
-                try:
-                    logger.info(
-                        "ws_agent_run_start request_id=%s session_id=%s selected_model=%s",
-                        request_id,
-                        session_id,
-                        selected_model,
-                    )
-                    await agent.run(
-                        data.content,
-                        send_event,
-                        session_id=session_id,
-                        request_id=request_id,
-                        model=selected_model,
-                    )
-                    logger.info(
-                        "ws_agent_run_done request_id=%s session_id=%s selected_model=%s",
-                        request_id,
-                        session_id,
-                        selected_model,
-                    )
-                except LlmClientError as exc:
-                    if selected_model != runtime_state.model and _is_model_not_found_error(str(exc)):
-                        logger.warning(
-                            "ws_model_fallback request_id=%s session_id=%s from_model=%s to_model=%s error=%s",
-                            request_id,
-                            session_id,
-                            selected_model,
-                            runtime_state.model,
-                            exc,
-                        )
-                        await send_event(
-                            {
-                                "type": "status",
-                                "agent": agent.name,
-                                "message": f"Model '{selected_model}' not found. Retrying with active runtime model '{runtime_state.model}'.",
-                            }
-                        )
-                        await send_lifecycle(
-                            stage="model_fallback_retry",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={"from": selected_model, "to": runtime_state.model},
-                        )
-                        await agent.run(
-                            data.content,
-                            send_event,
-                            session_id=session_id,
-                            request_id=request_id,
-                            model=runtime_state.model,
-                        )
-                    else:
-                        logger.warning(
-                            "ws_llm_error request_id=%s session_id=%s model=%s error=%s",
-                            request_id,
-                            session_id,
-                            selected_model,
-                            exc,
-                        )
-                        raise
-                await send_lifecycle(
-                    stage="request_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                )
-            except (WebSocketDisconnect, ClientDisconnectedError):
-                logger.info("ws_disconnected session_id=%s", session_id)
-                break
-            except GuardrailViolation as exc:
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": agent.name,
-                        "message": f"Guardrail blocked request: {exc}",
-                    }
-                )
-                await send_lifecycle(
-                    stage="request_failed_guardrail",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc)},
-                )
-            except ToolExecutionError as exc:
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": agent.name,
-                        "message": f"Toolchain error: {exc}",
-                    }
-                )
-                await send_lifecycle(
-                    stage="request_failed_toolchain",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc)},
-                )
-            except RuntimeSwitchError as exc:
-                await send_event(
-                    {
-                        "type": "runtime_switch_error",
-                        "session_id": session_id,
-                        "message": str(exc),
-                    }
-                )
-                await send_lifecycle(
-                    stage="runtime_switch_failed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc)},
-                )
-            except LlmClientError as exc:
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": agent.name,
-                        "message": f"LLM error: {exc}",
-                    }
-                )
-                await send_lifecycle(
-                    stage="request_failed_llm",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc)},
-                )
-            except Exception as exc:
-                logger.exception(
-                    "ws_unhandled_error request_id=%s session_id=%s",
-                    request_id,
-                    session_id,
-                )
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": agent.name,
-                        "message": f"Request error: {exc}",
-                    }
-                )
-                await send_lifecycle(
-                    stage="request_failed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc)},
-                )
-    except WebSocketDisconnect:
-        logger.info("ws_outer_disconnect session_id=%s", connection_session_id)
-        return
-    except ClientDisconnectedError:
-        logger.info("ws_outer_client_disconnected session_id=%s", connection_session_id)
-        return
-    except Exception as exc:
-        logger.exception("ws_server_error session_id=%s", connection_session_id)
-        try:
-            await send_event(
-                {
-                    "type": "error",
-                    "agent": agent.name,
-                    "message": f"Server error: {exc}",
-                }
-            )
-        except ClientDisconnectedError:
-            return
+    return True
+tools_handlers.configure(
+    tools_handlers.ToolsHandlerDependencies(
+        sync_custom_agents=_sync_custom_agents,
+        normalize_agent_id=_normalize_agent_id,
+        resolve_agent=_resolve_agent,
+        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        agent_registry=agent_registry,
+    )
+)
+run_handlers.configure(
+    run_handlers.RunHandlerDependencies(
+        logger=logger,
+        settings=settings,
+        runtime_manager=runtime_manager,
+        state_store=state_store,
+        agent=agent,
+        active_run_tasks=control_plane_state.active_run_tasks,
+        idempotency_mgr=idempotency_mgr,
+        resolve_agent=_resolve_agent,
+        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        build_run_start_fingerprint=_build_run_start_fingerprint,
+        extract_also_allow=tools_handlers.extract_also_allow,
+    )
+)
+session_handlers.configure(
+    session_handlers.SessionHandlerDependencies(
+        runtime_manager=runtime_manager,
+        state_store=state_store,
+        session_query_service=session_query_service,
+        idempotency_mgr=idempotency_mgr,
+        build_run_start_fingerprint=_build_run_start_fingerprint,
+        build_session_patch_fingerprint=_build_session_patch_fingerprint,
+        build_session_reset_fingerprint=_build_session_reset_fingerprint,
+        start_run_background=run_handlers.start_run_background,
+    )
+)
+workflow_handlers.configure(
+    workflow_handlers.WorkflowHandlerDependencies(
+        settings=settings,
+        custom_agent_store=custom_agent_store,
+        agent_registry=agent_registry,
+        idempotency_mgr=idempotency_mgr,
+        runtime_manager=runtime_manager,
+        subrun_lane=subrun_lane,
+        workflow_version_registry=control_plane_state.workflow_version_registry,
+        workflow_version_lock=control_plane_state.workflow_version_lock,
+        normalize_agent_id=_normalize_agent_id,
+        resolve_agent=_resolve_agent,
+        sync_custom_agents=_sync_custom_agents,
+        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        start_run_background=run_handlers.start_run_background,
+        build_workflow_create_fingerprint=_build_workflow_create_fingerprint,
+        build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
+        build_workflow_delete_fingerprint=_build_workflow_delete_fingerprint,
+    )
+)
+policy_handlers.configure(policy_handlers.PolicyHandlerDependencies(policy_approval_service=policy_approval_service))
+skills_handlers.configure(skills_handlers.SkillsHandlerDependencies())
+agent_handlers.configure(
+    agent_handlers.AgentHandlerDependencies(
+        runtime_manager=runtime_manager,
+        agent_registry=agent_registry,
+        custom_agent_store=custom_agent_store,
+        sync_custom_agents=_sync_custom_agents,
+        normalize_agent_id=_normalize_agent_id,
+        get_agent_tools=tools_handlers.get_agent_tools,
+        primary_agent_id=PRIMARY_AGENT_ID,
+        coder_agent_id=CODER_AGENT_ID,
+        review_agent_id=REVIEW_AGENT_ID,
+    )
+)
+app.include_router(
+    build_agents_router(
+        agents_list_handler=agent_handlers.api_agents_list,
+        presets_list_handler=agent_handlers.api_presets_list,
+        custom_agents_list_handler=agent_handlers.api_custom_agents_list,
+        custom_agents_create_handler=agent_handlers.api_custom_agents_create,
+        custom_agents_delete_handler=agent_handlers.api_custom_agents_delete,
+        monitoring_schema_handler=agent_handlers.api_monitoring_schema,
+    )
+)
+_agent_test_dependencies = AgentTestDependencies(
+    logger=logger,
+    runtime_manager=runtime_manager,
+    state_store=state_store,
+    agent=agent,
+    orchestrator_api=orchestrator_api,
+    normalize_preset=normalize_preset,
+    extract_also_allow=tools_handlers.extract_also_allow,
+    effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+    mark_completed=run_handlers.state_mark_completed_safe,
+    mark_failed=run_handlers.state_mark_failed_safe,
+    primary_agent_id=PRIMARY_AGENT_ID,
+)
+_run_endpoint_dependencies = RunEndpointsDependencies(
+    start_run_background=run_handlers.start_run_background,
+    wait_for_run_result=run_handlers.wait_for_run_result,
+)
+_runtime_debug_dependencies = RuntimeDebugDependencies(
+    runtime_manager=runtime_manager,
+    settings=settings,
+    resolved_prompt_settings=resolved_prompt_settings,
+)
+_subrun_endpoint_dependencies = SubrunEndpointsDependencies(
+    subrun_lane=subrun_lane,
+    session_visibility_default=settings.session_visibility_default,
+    state_append_event_safe=run_handlers.state_append_event_safe,
+)
+app.include_router(
+    build_run_api_router(
+        handlers=RunApiRouterHandlers(
+            agent_test_handler=lambda request_data: run_agent_test(
+                request=AgentTestRequest.model_validate(request_data),
+                deps=_agent_test_dependencies,
+            ),
+            start_run_handler=lambda request_data: run_endpoint_start(
+                request=RunStartRequest.model_validate(request_data),
+                deps=_run_endpoint_dependencies,
+            ),
+            wait_run_handler=lambda run_id, timeout_ms, poll_interval_ms: run_endpoint_wait(
+                run_id=run_id,
+                timeout_ms=timeout_ms,
+                poll_interval_ms=poll_interval_ms,
+                deps=_run_endpoint_dependencies,
+            ),
+        )
+    )
+)
+include_control_routers(
+    app,
+    run_start_handler=run_handlers.api_control_run_start,
+    run_wait_handler=run_handlers.api_control_run_wait,
+    agent_run_handler=run_handlers.api_control_agent_run,
+    agent_wait_handler=run_handlers.api_control_agent_wait,
+    runs_get_handler=run_handlers.api_control_runs_get,
+    runs_list_handler=run_handlers.api_control_runs_list,
+    runs_events_handler=run_handlers.api_control_runs_events,
+    runs_audit_handler=run_handlers.api_control_runs_audit,
+    policy_approvals_pending_handler=policy_handlers.api_control_policy_approvals_pending,
+    policy_approvals_allow_handler=policy_handlers.api_control_policy_approvals_allow,
+    policy_approvals_decide_handler=policy_handlers.api_control_policy_approvals_decide,
+    sessions_list_handler=session_handlers.api_control_sessions_list,
+    sessions_resolve_handler=session_handlers.api_control_sessions_resolve,
+    sessions_history_handler=session_handlers.api_control_sessions_history,
+    sessions_send_handler=session_handlers.api_control_sessions_send,
+    sessions_spawn_handler=session_handlers.api_control_sessions_spawn,
+    sessions_status_handler=session_handlers.api_control_sessions_status,
+    sessions_get_handler=session_handlers.api_control_sessions_get,
+    sessions_patch_handler=session_handlers.api_control_sessions_patch,
+    sessions_reset_handler=session_handlers.api_control_sessions_reset,
+    workflows_list_handler=workflow_handlers.api_control_workflows_list,
+    workflows_get_handler=workflow_handlers.api_control_workflows_get,
+    workflows_create_handler=workflow_handlers.api_control_workflows_create,
+    workflows_update_handler=workflow_handlers.api_control_workflows_update,
+    workflows_execute_handler=workflow_handlers.api_control_workflows_execute,
+    workflows_delete_handler=workflow_handlers.api_control_workflows_delete,
+    tools_catalog_handler=tools_handlers.api_control_tools_catalog,
+    tools_profile_handler=tools_handlers.api_control_tools_profile,
+    tools_policy_matrix_handler=tools_handlers.api_control_tools_policy_matrix,
+    tools_policy_preview_handler=tools_handlers.api_control_tools_policy_preview,
+    skills_list_handler=skills_handlers.api_control_skills_list,
+    skills_preview_handler=skills_handlers.api_control_skills_preview,
+    skills_check_handler=skills_handlers.api_control_skills_check,
+    skills_sync_handler=skills_handlers.api_control_skills_sync,
+)
+app.include_router(
+    build_runtime_debug_router(
+        runtime_status_handler=lambda: api_runtime_status(_runtime_debug_dependencies),
+        resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
+        ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
+    )
+)
+app.include_router(
+    build_subruns_router(
+        subruns_list_handler=lambda parent_session_id, parent_request_id, requester_session_id, visibility_scope, limit: api_subruns_list(
+            parent_session_id=parent_session_id,
+            parent_request_id=parent_request_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            limit=limit,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_get_handler=lambda run_id, requester_session_id, visibility_scope: api_subruns_get(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_log_handler=lambda run_id, requester_session_id, visibility_scope: api_subruns_log(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_kill_handler=lambda run_id, requester_session_id, visibility_scope, cascade: api_subruns_kill(
+            run_id=run_id,
+            requester_session_id=requester_session_id,
+            visibility_scope=visibility_scope,
+            cascade=cascade,
+            deps=_subrun_endpoint_dependencies,
+        ),
+        subrun_kill_all_handler=lambda request_data: api_subruns_kill_all_async(request_data, _subrun_endpoint_dependencies),
+    )
+)
+ws_handler_dependencies = WsHandlerDependencies(
+    logger=logger,
+    settings=settings,
+    agent=agent,
+    agent_registry=agent_registry,
+    runtime_manager=runtime_manager,
+    state_store=state_store,
+    subrun_lane=subrun_lane,
+    sync_custom_agents=_sync_custom_agents,
+    normalize_agent_id=_normalize_agent_id,
+    effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+    looks_like_review_request=_looks_like_review_request,
+    looks_like_coding_request=looks_like_coding_request,
+    resolve_agent=_resolve_agent,
+    state_append_event_safe=run_handlers.state_append_event_safe,
+    state_mark_failed_safe=run_handlers.state_mark_failed_safe,
+    state_mark_completed_safe=run_handlers.state_mark_completed_safe,
+    lifecycle_status_from_stage=run_handlers.lifecycle_status_from_stage,
+    primary_agent_id=PRIMARY_AGENT_ID,
+    coder_agent_id=CODER_AGENT_ID,
+    review_agent_id=REVIEW_AGENT_ID,
+)
+app.include_router(build_ws_agent_router(dependencies=ws_handler_dependencies))

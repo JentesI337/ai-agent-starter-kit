@@ -1,0 +1,324 @@
+from __future__ import annotations
+
+from collections.abc import Callable, MutableMapping
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import HTTPException
+
+from app.config import settings
+from app.control_models import (
+    ControlToolsCatalogRequest,
+    ControlToolsPolicyMatrixRequest,
+    ControlToolsPolicyPreviewRequest,
+    ControlToolsProfileRequest,
+)
+from app.services import (
+    PRESET_TOOL_POLICIES,
+    TOOL_POLICY_BY_MODEL,
+    TOOL_POLICY_BY_PROVIDER,
+    TOOL_POLICY_RESOLUTION_ORDER,
+    TOOL_PROFILES,
+    normalize_policy_values,
+    resolve_tool_policy,
+)
+from app.tool_policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
+
+
+@dataclass
+class ToolsHandlerDependencies:
+    sync_custom_agents: Callable[[], None]
+    normalize_agent_id: Callable[[str | None], str]
+    resolve_agent: Callable[[str | None], tuple[str, Any, Any]]
+    effective_orchestrator_agent_ids: Callable[[], set[str]]
+    agent_registry: MutableMapping[str, Any]
+
+
+_deps: ToolsHandlerDependencies | None = None
+
+
+def configure(deps: ToolsHandlerDependencies) -> None:
+    global _deps
+    _deps = deps
+
+
+def _require_deps() -> ToolsHandlerDependencies:
+    if _deps is None:
+        raise RuntimeError("tools_handlers is not configured")
+    return _deps
+
+
+def get_agent_tools(agent_contract) -> list[str]:
+    delegate = getattr(agent_contract, "_delegate", None)
+    if delegate is None:
+        delegate = getattr(agent_contract, "_base_agent", None)
+    if delegate is not None:
+        nested_delegate = getattr(delegate, "_delegate", None)
+        if nested_delegate is not None:
+            delegate = nested_delegate
+    registry = getattr(delegate, "tool_registry", None)
+    if isinstance(registry, dict):
+        return sorted(str(name) for name in registry.keys())
+    if registry is not None:
+        keys = getattr(registry, "keys", None)
+        if callable(keys):
+            try:
+                return sorted(str(name) for name in keys())
+            except Exception:
+                return []
+        try:
+            return sorted(str(name) for name in registry)
+        except Exception:
+            return []
+    return []
+
+
+def extract_also_allow(tool_policy: ToolPolicyDict | None) -> list[str] | None:
+    if not isinstance(tool_policy, dict):
+        return None
+    raw = tool_policy.get("also_allow")
+    if not isinstance(raw, list):
+        return None
+    values = [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
+    return values or None
+
+
+def normalize_tool_policy_payload(value: ToolPolicyPayload | ToolPolicyDict | None) -> ToolPolicyDict | None:
+    return tool_policy_to_dict(value, include_also_allow=True)
+
+
+def _build_tools_catalog(*, agent_id: str | None = None) -> dict:
+    deps = _require_deps()
+    deps.sync_custom_agents()
+
+    agents: list[dict] = []
+    selected_ids: set[str] | None = None
+    if agent_id:
+        normalized = deps.normalize_agent_id(agent_id)
+        if normalized not in deps.agent_registry:
+            raise HTTPException(status_code=400, detail=f"Unsupported agent: {agent_id}")
+        selected_ids = {normalized}
+
+    for item_agent_id, item_agent in sorted(deps.agent_registry.items(), key=lambda pair: pair[0]):
+        if selected_ids is not None and item_agent_id not in selected_ids:
+            continue
+        agents.append(
+            {
+                "id": item_agent_id,
+                "role": getattr(item_agent, "role", "agent"),
+                "tools": get_agent_tools(item_agent),
+            }
+        )
+
+    all_tools: set[str] = set()
+    for item in agents:
+        all_tools |= set(item.get("tools") or [])
+
+    return {
+        "schema": "tools.catalog.v1",
+        "count": len(agents),
+        "agents": agents,
+        "presets": [
+            {
+                "id": preset_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for preset_id, policy in sorted(PRESET_TOOL_POLICIES.items(), key=lambda pair: pair[0])
+        ],
+        "globalPolicy": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+        "tools": sorted(all_tools),
+    }
+
+
+def _build_tools_profiles(*, profile_id: str | None = None) -> dict:
+    normalized_profile = (profile_id or "").strip().lower() or None
+    if normalized_profile and normalized_profile not in TOOL_PROFILES:
+        raise HTTPException(status_code=400, detail=f"Unsupported profile: {profile_id}")
+
+    profiles = []
+    for item_id, policy in sorted(TOOL_PROFILES.items(), key=lambda pair: pair[0]):
+        if normalized_profile and item_id != normalized_profile:
+            continue
+        profiles.append(
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+        )
+
+    return {
+        "schema": "tools.profile.v1",
+        "count": len(profiles),
+        "profiles": profiles,
+        "selected": normalized_profile,
+    }
+
+
+def _build_tools_policy_matrix(*, agent_id: str | None = None) -> dict:
+    deps = _require_deps()
+    normalized_agent_id = None
+    selected_tools: list[str] = []
+    if agent_id is not None:
+        try:
+            normalized_agent_id, selected_agent, _ = deps.resolve_agent(agent_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        selected_tools = get_agent_tools(selected_agent)
+
+    return {
+        "schema": "tools.policy.matrix.v1",
+        "agent_id": normalized_agent_id,
+        "base_tools": selected_tools,
+        "resolution_order": list(TOOL_POLICY_RESOLUTION_ORDER),
+        "global": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+        "profiles": [
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for item_id, policy in sorted(TOOL_PROFILES.items(), key=lambda pair: pair[0])
+        ],
+        "presets": [
+            {
+                "id": item_id,
+                "toolPolicy": {
+                    "allow": list(policy.get("allow") or []),
+                    "deny": list(policy.get("deny") or []),
+                },
+            }
+            for item_id, policy in sorted(PRESET_TOOL_POLICIES.items(), key=lambda pair: pair[0])
+        ],
+        "by_provider": {
+            item_id: {
+                "allow": list(policy.get("allow") or []),
+                "deny": list(policy.get("deny") or []),
+            }
+            for item_id, policy in sorted(TOOL_POLICY_BY_PROVIDER.items(), key=lambda pair: pair[0])
+        },
+        "by_model": {
+            item_id: {
+                "allow": list(policy.get("allow") or []),
+                "deny": list(policy.get("deny") or []),
+            }
+            for item_id, policy in sorted(TOOL_POLICY_BY_MODEL.items(), key=lambda pair: pair[0])
+        },
+    }
+
+
+def _build_tools_policy_preview(
+    *,
+    agent_id: str | None,
+    profile: str | None,
+    preset: str | None,
+    provider: str | None,
+    model: str | None,
+    tool_policy: ToolPolicyDict | None,
+    also_allow: list[str] | None,
+) -> dict:
+    deps = _require_deps()
+    try:
+        resolved_agent_id, selected_agent, _ = deps.resolve_agent(agent_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    base_tools = set(get_agent_tools(selected_agent))
+
+    resolved = resolve_tool_policy(
+        profile=profile,
+        preset=preset,
+        provider=provider,
+        model=model,
+        request_policy=tool_policy,
+        also_allow=also_allow,
+        agent_id=resolved_agent_id,
+        depth=0,
+        orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+    )
+
+    merged_policy = resolved["merged_policy"]
+    applied_preset = resolved["applied_preset"]
+    normalized_profile = resolved["profile"]
+    normalized_provider = resolved["provider"]
+    normalized_model = resolved["model"]
+
+    merged_policy = selected_agent.normalize_tool_policy(merged_policy)
+
+    effective = set(base_tools)
+    config_allow = normalize_policy_values(settings.agent_tools_allow, base_tools)
+    if config_allow is not None:
+        effective &= config_allow
+
+    requested_allow = normalize_policy_values((merged_policy or {}).get("allow"), base_tools)
+    if requested_allow is not None:
+        effective &= requested_allow
+
+    deny = set()
+    deny |= normalize_policy_values(settings.agent_tools_deny, base_tools) or set()
+    deny |= normalize_policy_values((merged_policy or {}).get("deny"), base_tools) or set()
+    effective -= deny
+
+    also_allow_set = normalize_policy_values(also_allow, base_tools) or set()
+    effective |= (also_allow_set - deny)
+
+    return {
+        "schema": "tools.policy.preview.v1",
+        "agent_id": resolved_agent_id,
+        "profile": normalized_profile,
+        "preset": applied_preset,
+        "provider": normalized_provider,
+        "model": normalized_model,
+        "base_tools": sorted(base_tools),
+        "effective_allow": sorted(effective),
+        "effective_deny": sorted(deny),
+        "also_allow": sorted(also_allow_set),
+        "scoped": resolved["scoped"],
+        "requested": merged_policy or {},
+        "explain": resolved["explain"],
+        "global": {
+            "allow": list(settings.agent_tools_allow or []),
+            "deny": list(settings.agent_tools_deny or []),
+        },
+    }
+
+
+def api_control_tools_catalog(request_data: dict) -> dict:
+    request = ControlToolsCatalogRequest.model_validate(request_data)
+    return _build_tools_catalog(agent_id=request.agent_id)
+
+
+def api_control_tools_profile(request_data: dict) -> dict:
+    request = ControlToolsProfileRequest.model_validate(request_data)
+    return _build_tools_profiles(profile_id=request.profile_id)
+
+
+def api_control_tools_policy_matrix(request_data: dict) -> dict:
+    request = ControlToolsPolicyMatrixRequest.model_validate(request_data)
+    return _build_tools_policy_matrix(agent_id=request.agent_id)
+
+
+def api_control_tools_policy_preview(request_data: dict) -> dict:
+    request = ControlToolsPolicyPreviewRequest.model_validate(request_data)
+    normalized_tool_policy = normalize_tool_policy_payload(request.tool_policy)
+    return _build_tools_policy_preview(
+        agent_id=request.agent_id,
+        profile=request.profile,
+        preset=request.preset,
+        provider=request.provider,
+        model=request.model,
+        tool_policy=normalized_tool_policy,
+        also_allow=request.also_allow,
+    )

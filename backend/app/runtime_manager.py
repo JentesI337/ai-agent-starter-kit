@@ -4,12 +4,13 @@ import asyncio
 import json
 import os
 import shutil
-from dataclasses import dataclass, asdict
-from pathlib import Path
 import socket
 import subprocess
-from typing import Callable, Awaitable
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Awaitable, Callable
 from urllib.parse import urlparse
+
 import httpx
 
 from app.config import settings
@@ -47,11 +48,27 @@ class RuntimeManager:
         self._state.model = model.strip()
         self._persist_state()
 
-    def is_runtime_authenticated(self) -> bool:
-        return True
+    def _is_runtime_authenticated(self, runtime: str | None) -> bool:
+        active_runtime = (runtime or "").strip().lower()
+        if active_runtime != "api":
+            return True
+        if not settings.api_auth_required:
+            return True
+        return bool((settings.api_auth_token or "").strip())
 
-    async def ensure_api_runtime_authenticated(self) -> None:
-        return
+    def is_runtime_authenticated(self) -> bool:
+        return self._is_runtime_authenticated(self._state.runtime)
+
+    async def ensure_api_runtime_authenticated(self, runtime: str | None = None) -> None:
+        active_runtime = (runtime or self._state.runtime or "").strip().lower()
+        if active_runtime != "api":
+            return
+        if self._is_runtime_authenticated(active_runtime):
+            return
+        raise RuntimeSwitchError(
+            "API runtime authentication required but no token configured. "
+            "Set API_AUTH_TOKEN (or OLLAMA_API_KEY) or disable API_AUTH_REQUIRED."
+        )
 
     async def switch_runtime(self, target: str, send_event: SendEvent, session_id: str) -> RuntimeState:
         if target not in ("local", "api"):
@@ -66,6 +83,7 @@ class RuntimeManager:
                 next_state = self._build_target_state(target)
 
                 if target == "api":
+                    await self.ensure_api_runtime_authenticated(runtime=target)
                     await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
                     await self._log(send_event, session_id, "api_model_selected", attempt, f"Using API model {settings.api_model}")
                     next_state.model = settings.api_model
@@ -90,6 +108,7 @@ class RuntimeManager:
         return await self._ensure_model_available(send_event, session_id, 1, model_name)
 
     async def resolve_api_request_model(self, model_name: str) -> str:
+        await self.ensure_api_runtime_authenticated()
         requested = (model_name or self._state.model or settings.api_model).strip()
         return requested or settings.api_model
 
@@ -102,6 +121,7 @@ class RuntimeManager:
             }
 
         try:
+            await self.ensure_api_runtime_authenticated()
             models = await self._fetch_available_api_models()
             if models:
                 return {
@@ -129,32 +149,6 @@ class RuntimeManager:
                 "count": 0,
                 "error": str(exc),
             }
-
-    async def _stop_ollama_if_running(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
-        await self._log(send_event, session_id, "stop_local_process", attempt, "Stopping local ollama process if running")
-        try:
-            if os.name == "nt":
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["taskkill", "/F", "/IM", "ollama.exe"],
-                    capture_output=True,
-                    text=True,
-                )
-            else:
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["pkill", "-f", "ollama"],
-                    capture_output=True,
-                    text=True,
-                )
-        except Exception:
-            pass
-
-    async def _verify_ollama_stopped(self, send_event: SendEvent, session_id: str, attempt: int) -> None:
-        port = self._extract_port(settings.llm_base_url)
-        if self._is_port_open(port):
-            raise RuntimeSwitchError(f"Local process still active on port {port}")
-        await self._log(send_event, session_id, "verify_local_stopped", attempt, "Local process stopped")
 
     async def _start_gateway(self, send_event: SendEvent, session_id: str, attempt: int, base_url: str) -> None:
         port = self._extract_port(base_url)
@@ -339,6 +333,9 @@ class RuntimeManager:
         url = f"{base_url}/tags" if native_api else f"{base_url}/models"
 
         headers: dict[str, str] = {}
+        auth_token = (settings.api_auth_token or "").strip()
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
 
         try:
             async with httpx.AsyncClient(timeout=12) as client:
@@ -375,4 +372,3 @@ class RuntimeManager:
 
     def _is_ollama_native_api(self, base_url: str) -> bool:
         return base_url.lower().rstrip("/").endswith("/api")
-

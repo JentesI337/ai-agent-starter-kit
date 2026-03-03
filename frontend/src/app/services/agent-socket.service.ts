@@ -18,6 +18,29 @@ export interface AgentSocketEvent {
   attempt?: number;
   level?: string;
   seq?: number;
+  run_id?: string;
+  parent_request_id?: string;
+  parent_session_id?: string;
+  child_session_id?: string;
+  status?: string;
+  result?: string;
+  notes?: string;
+  stats?: Record<string, unknown>;
+  usage?: unknown;
+  approval?: {
+    approval_id?: string;
+    tool?: string;
+    resource?: string;
+    display_text?: string;
+    options?: string[];
+    scope?: string;
+    status?: string;
+  };
+}
+
+export interface ToolPolicyPayload {
+  allow?: string[];
+  deny?: string[];
 }
 
 interface AgentSocketEnvelope {
@@ -136,7 +159,10 @@ export class AgentSocketService {
     this.lastSequence = seq;
   }
 
-  sendUserMessage(content: string, options?: { agentId?: string; model?: string; sessionId?: string }): void {
+  sendUserMessage(
+    content: string,
+    options?: { agentId?: string; preset?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
+  ): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error('Socket is not connected.');
     }
@@ -146,8 +172,31 @@ export class AgentSocketService {
         type: 'user_message',
         content,
         agent_id: options?.agentId,
+        preset: options?.preset,
         model: options?.model,
         session_id: options?.sessionId,
+        tool_policy: options?.toolPolicy,
+      })
+    );
+  }
+
+  sendSubrunSpawn(
+    content: string,
+    options?: { agentId?: string; preset?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
+  ): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+
+    this.socket.send(
+      JSON.stringify({
+        type: 'subrun_spawn',
+        content,
+        agent_id: options?.agentId,
+        preset: options?.preset,
+        model: options?.model,
+        session_id: options?.sessionId,
+        tool_policy: options?.toolPolicy,
       })
     );
   }

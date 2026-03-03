@@ -1,0 +1,46 @@
+name: Backend Tests
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - "pytest.ini"
+      - ".github/workflows/backend-tests.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "pytest.ini"
+      - ".github/workflows/backend-tests.yml"
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-test.txt
+
+      - name: Run backend tests with coverage gate
+        run: |
+          pytest backend/tests -q \
+            --cov=backend/app \
+            --cov-report=term-missing \
+            --cov-report=json:backend/coverage.json \
+            --cov-fail-under=70
+          python backend/scripts/check_coverage_thresholds.py \
+            --coverage-json backend/coverage.json \
+            --global-min 70 \
+            --use-default-thresholds

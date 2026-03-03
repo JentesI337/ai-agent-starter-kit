@@ -1,0 +1,10 @@
+{
+  "id": "workflow-delete-idemp-6268f65e",
+  "name": "Workflow Delete Idemp 6268f65e",
+  "description": "",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "x"
+  ],
+  "tool_policy": null
+}

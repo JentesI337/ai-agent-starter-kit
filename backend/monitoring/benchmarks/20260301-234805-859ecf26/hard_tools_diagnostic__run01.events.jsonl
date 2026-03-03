@@ -1,0 +1,471 @@
+{"t_ms": 35, "seq": 2, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d4edc3e4-c7e1-4a0c-8e69-f3e8f931ea29", "phase": "start", "stage": "request_received", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.227099+00:00", "details": {"chars": 208, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "accepted", "run_status": "accepted", "started_at": "2026-03-01T22:49:08.227099+00:00"}}
+{"t_ms": 491, "seq": 3, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "b71dcf2f-15cd-4c1a-8a03-2569424f0499", "phase": "progress", "stage": "request_dispatched", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.239154+00:00", "details": {"model": null, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "running", "run_status": "running"}}
+{"t_ms": 491, "seq": 4, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "a4307624-8785-4fb2-9e99-26b45acac2a8", "phase": "progress", "stage": "queued", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.272976+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 5, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "935d10ec-e975-42a9-bc52-70b5abababf1", "phase": "progress", "stage": "lane_acquired", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.272976+00:00", "details": {"queue_wait_ms": 0, "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 6, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "a3fea179-f8a7-41c8-87be-a72844fa2631", "phase": "progress", "stage": "tool_policy_decision", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.273995+00:00", "details": {"preset": null, "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process"]}, "agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud"}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 7, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "df36b091-afa2-4104-a886-4e46a4a1c7f8", "phase": "progress", "stage": "agent_depth_policy_applied", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.273995+00:00", "details": {"agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "requested": {}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process"]}, "depth_layer": {"layer": "agent_depth", "id": "head-agent:0", "toolPolicy": {}}}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 8, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f3224486-69b2-4530-b3ba-d2a860b04225", "phase": "progress", "stage": "model_route_selected", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.339032+00:00", "details": {"primary": "qwen3-coder:480b-cloud", "fallbacks": ["llama3.3:70b-instruct-q4_K_M"], "max_context": 16000, "reasoning_depth": 3, "health_score": 0.88, "expected_latency_ms": 700, "cost_score": 0.75, "scores": {"qwen3-coder:480b-cloud": 79.5, "llama3.3:70b-instruct-q4_K_M": 81.0}}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 9, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "443bf095-1ed9-4901-ac3e-89d2bd25b871", "phase": "start", "stage": "run_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.339032+00:00", "details": {"model": "qwen3-coder:480b-cloud"}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 10, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "b65d93a1-99f0-4587-9800-0fc0c933a5aa", "phase": "progress", "stage": "guardrails_passed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.340047+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 11, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "21501d2b-f153-45a3-a875-3037ecbe740b", "phase": "progress", "stage": "tool_policy_resolved", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.341033+00:00", "details": {"allowed": ["get_background_output", "run_command", "spawn_subrun", "web_fetch"], "requested_allow": ["get_background_output", "kill_background_process", "run_command", "spawn_subrun", "start_background_command", "web_fetch"], "requested_deny": ["kill_background_process", "start_background_command"]}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 12, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "4c514570-50e9-4c5b-8c1d-12b587ff6f14", "phase": "progress", "stage": "toolchain_checked", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.342033+00:00", "details": {"workspace_root": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend", "workspace_ok": true, "shell_ok": true, "tools": ["list_dir", "read_file", "write_file", "run_command", "apply_patch", "file_search", "grep_search", "list_code_usages", "get_changed_files", "start_background_command", "get_background_output", "kill_background_process", "web_fetch", "spawn_subrun"]}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 13, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "af1ad02f-d506-4950-99ab-b391653a60ea", "phase": "progress", "stage": "memory_updated", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.352113+00:00", "details": {"memory_items": 1, "memory_chars": 448}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 14, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "834e68eb-c7a5-4709-bbd9-cbbac4d0c641", "phase": "progress", "stage": "context_reduced", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.353141+00:00", "details": {"model": "qwen3-coder:480b-cloud", "max_context": 16000, "plan_budget": 4000, "tool_budget": 4800, "final_budget": 7200, "plan_used": 78}, "agent": "head-agent"}}
+{"t_ms": 491, "seq": 15, "event": {"type": "status", "agent": "head-agent", "message": "Analyzing your request and planning execution.", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 491, "seq": 16, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cd266eac-adcd-463a-af5a-c4381bc07d08", "phase": "start", "stage": "planning_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:08.354111+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 8387, "seq": 17, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d56cdf56-b8e8-48f0-816d-f9e326af8c21", "phase": "end", "stage": "planning_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:16.591610+00:00", "details": {"plan_chars": 599}, "agent": "head-agent"}}
+{"t_ms": 8686, "seq": 18, "event": {"type": "agent_step", "agent": "head-agent", "step": "Plan ready: • **Architekturanalyse**: Nutze Tools wie `docker inspect`, `kubectl describe`, oder Architektur-Mappings zur Erfassung der Systemstruktur\n• **Performance-Messung**: Implementiere Monitoring mit Prometheus/Grafana oder ä", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 8687, "seq": 19, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "c6aac0bb-755c-44be-910a-8532f44ba520", "phase": "start", "stage": "tool_selection_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:16.601042+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 10388, "seq": 20, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "3b05eb2e-5c98-4757-a039-d7c00eb1f983", "phase": "end", "stage": "tool_selection_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.591174+00:00", "details": {"actions": 3}, "agent": "head-agent"}}
+{"t_ms": 10391, "seq": 21, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 1: run_command", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 10392, "seq": 22, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "a8f2a54e-23d8-4f96-8ee9-574626202d4b", "phase": "start", "stage": "tool_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.592977+00:00", "details": {"tool": "run_command", "index": 1}, "agent": "head-agent"}}
+{"t_ms": 10474, "seq": 23, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "54fad05d-ef01-484b-95f2-4ab63e21346c", "phase": "end", "stage": "tool_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.677577+00:00", "details": {"tool": "run_command", "index": 1, "result_chars": 98, "elapsed_ms": 78}, "agent": "head-agent"}}
+{"t_ms": 10476, "seq": 24, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 2: run_command", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 10476, "seq": 25, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cd4552f9-513b-4a12-bc4a-3a917cba990c", "phase": "start", "stage": "tool_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.679084+00:00", "details": {"tool": "run_command", "index": 2}, "agent": "head-agent"}}
+{"t_ms": 10477, "seq": 26, "event": {"type": "error", "agent": "head-agent", "message": "Tool error (run_command): Command 'kubectl' is not allowed by command allowlist. Set COMMAND_ALLOWLIST_EXTRA to permit it in development.", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 10478, "seq": 27, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "91c270d4-8c7b-4fd6-995c-de7496af7fd2", "phase": "error", "stage": "tool_failed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.681090+00:00", "details": {"tool": "run_command", "index": 2, "error": "Command 'kubectl' is not allowed by command allowlist. Set COMMAND_ALLOWLIST_EXTRA to permit it in development."}, "agent": "head-agent"}}
+{"t_ms": 10478, "seq": 28, "event": {"type": "agent_step", "agent": "head-agent", "step": "Tool 3: web_fetch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 10478, "seq": 29, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "ceacb053-6ed9-4b04-9294-f66965afaaef", "phase": "start", "stage": "tool_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.682090+00:00", "details": {"tool": "web_fetch", "index": 3}, "agent": "head-agent"}}
+{"t_ms": 10639, "seq": 30, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "8911bfd9-bbf2-4db2-9dde-31aa8f07f3aa", "phase": "end", "stage": "tool_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.841620+00:00", "details": {"tool": "web_fetch", "index": 3, "result_chars": 484, "elapsed_ms": 140}, "agent": "head-agent"}}
+{"t_ms": 10942, "seq": 31, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "30d5e9d4-f80b-4885-ad97-1506401dff2d", "phase": "progress", "stage": "tool_audit_summary", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.842611+00:00", "details": {"tool_calls": 3, "tool_errors": 1, "loop_blocked": 0, "budget_blocked": 0, "elapsed_ms": 250, "call_cap": 8, "time_cap_seconds": 90.0, "loop_warn_threshold": 2, "loop_critical_threshold": 3}, "agent": "head-agent"}}
+{"t_ms": 10942, "seq": 32, "event": {"type": "agent_step", "agent": "head-agent", "step": "Reviewing results and building final response", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 10942, "seq": 33, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "98ad401e-736c-4377-b6c8-97b521b6a3cc", "phase": "start", "stage": "streaming_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:49:18.848104+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 11620, "seq": 34, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 11690, "seq": 35, "event": {"type": "token", "agent": "head-agent", "token": "Final", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 11766, "seq": 36, "event": {"type": "token", "agent": "head-agent", "token": " Answer:**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 11840, "seq": 37, "event": {"type": "token", "agent": "head-agent", "token": "\n\nDie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 11915, "seq": 38, "event": {"type": "token", "agent": "head-agent", "token": " tool", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 11990, "seq": 39, "event": {"type": "token", "agent": "head-agent", "token": "gest", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12067, "seq": 40, "event": {"type": "token", "agent": "head-agent", "token": "üt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12166, "seq": 41, "event": {"type": "token", "agent": "head-agent", "token": "zte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12331, "seq": 42, "event": {"type": "token", "agent": "head-agent", "token": " Analy", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12408, "seq": 43, "event": {"type": "token", "agent": "head-agent", "token": "se zur", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12486, "seq": 44, "event": {"type": "token", "agent": "head-agent", "token": " Er", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12565, "seq": 45, "event": {"type": "token", "agent": "head-agent", "token": "he", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12644, "seq": 46, "event": {"type": "token", "agent": "head-agent", "token": "bung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12724, "seq": 47, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12800, "seq": 48, "event": {"type": "token", "agent": "head-agent", "token": " Arch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12877, "seq": 49, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 12958, "seq": 50, "event": {"type": "token", "agent": "head-agent", "token": "ur-,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13025, "seq": 51, "event": {"type": "token", "agent": "head-agent", "token": " Performance- und Observ", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13100, "seq": 52, "event": {"type": "token", "agent": "head-agent", "token": "ability-Hinweisen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13179, "seq": 53, "event": {"type": "token", "agent": "head-agent", "token": " wurde", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13251, "seq": 54, "event": {"type": "token", "agent": "head-agent", "token": " e", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13325, "seq": 55, "event": {"type": "token", "agent": "head-agent", "token": "inges", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13400, "seq": 56, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13475, "seq": 57, "event": {"type": "token", "agent": "head-agent", "token": "än", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13552, "seq": 58, "event": {"type": "token", "agent": "head-agent", "token": "kt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13627, "seq": 59, "event": {"type": "token", "agent": "head-agent", "token": " durch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13701, "seq": 60, "event": {"type": "token", "agent": "head-agent", "token": " Um", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13777, "seq": 61, "event": {"type": "token", "agent": "head-agent", "token": "geb", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13854, "seq": 62, "event": {"type": "token", "agent": "head-agent", "token": "ungs", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 13929, "seq": 63, "event": {"type": "token", "agent": "head-agent", "token": "bed", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14006, "seq": 64, "event": {"type": "token", "agent": "head-agent", "token": "ing", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14083, "seq": 65, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14159, "seq": 66, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14234, "seq": 67, "event": {"type": "token", "agent": "head-agent", "token": " Die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14310, "seq": 68, "event": {"type": "token", "agent": "head-agent", "token": " ge", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14395, "seq": 69, "event": {"type": "token", "agent": "head-agent", "token": "plant", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14462, "seq": 70, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14539, "seq": 71, "event": {"type": "token", "agent": "head-agent", "token": " Tools", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14616, "seq": 72, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14696, "seq": 73, "event": {"type": "token", "agent": "head-agent", "token": " `kubectl", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 14768, "seq": 74, "event": {"type": "token", "agent": "head-agent", "token": "`,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15061, "seq": 75, "event": {"type": "token", "agent": "head-agent", "token": " `docker inspect`", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15133, "seq": 76, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15210, "seq": 77, "event": {"type": "token", "agent": "head-agent", "token": " Monitoring", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15295, "seq": 78, "event": {"type": "token", "agent": "head-agent", "token": "-L", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15360, "seq": 79, "event": {"type": "token", "agent": "head-agent", "token": "ös", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15435, "seq": 80, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15510, "seq": 81, "event": {"type": "token", "agent": "head-agent", "token": " kon", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15589, "seq": 82, "event": {"type": "token", "agent": "head-agent", "token": "nten", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15669, "seq": 83, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15745, "seq": 84, "event": {"type": "token", "agent": "head-agent", "token": " direkt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15820, "seq": 85, "event": {"type": "token", "agent": "head-agent", "token": " verwendet", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15895, "seq": 86, "event": {"type": "token", "agent": "head-agent", "token": " werden", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 15971, "seq": 87, "event": {"type": "token", "agent": "head-agent", "token": ", da", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16046, "seq": 88, "event": {"type": "token", "agent": "head-agent", "token": " wicht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16119, "seq": 89, "event": {"type": "token", "agent": "head-agent", "token": "ige", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16194, "seq": 90, "event": {"type": "token", "agent": "head-agent", "token": " B", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16269, "seq": 91, "event": {"type": "token", "agent": "head-agent", "token": "efehle", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16345, "seq": 92, "event": {"type": "token", "agent": "head-agent", "token": " ent", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16423, "seq": 93, "event": {"type": "token", "agent": "head-agent", "token": "weder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16497, "seq": 94, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16574, "seq": 95, "event": {"type": "token", "agent": "head-agent", "token": " erla", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16650, "seq": 96, "event": {"type": "token", "agent": "head-agent", "token": "ub", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16723, "seq": 97, "event": {"type": "token", "agent": "head-agent", "token": "t", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16800, "seq": 98, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16875, "seq": 99, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 16949, "seq": 100, "event": {"type": "token", "agent": "head-agent", "token": " fe", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17026, "seq": 101, "event": {"type": "token", "agent": "head-agent", "token": "hlen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17101, "seq": 102, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17176, "seq": 103, "event": {"type": "token", "agent": "head-agent", "token": "\n\n###", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17251, "seq": 104, "event": {"type": "token", "agent": "head-agent", "token": " Arch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17326, "seq": 105, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17400, "seq": 106, "event": {"type": "token", "agent": "head-agent", "token": "uran", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17478, "seq": 107, "event": {"type": "token", "agent": "head-agent", "token": "alyse", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17553, "seq": 108, "event": {"type": "token", "agent": "head-agent", "token": "\n- **E", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17735, "seq": 109, "event": {"type": "token", "agent": "head-agent", "token": "ins", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17814, "seq": 110, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17891, "seq": 111, "event": {"type": "token", "agent": "head-agent", "token": "än", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 17970, "seq": 112, "event": {"type": "token", "agent": "head-agent", "token": "kung:**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18046, "seq": 113, "event": {"type": "token", "agent": "head-agent", "token": " `kubectl", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18124, "seq": 114, "event": {"type": "token", "agent": "head-agent", "token": "` ist", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18201, "seq": 115, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18280, "seq": 116, "event": {"type": "token", "agent": "head-agent", "token": " in", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18358, "seq": 117, "event": {"type": "token", "agent": "head-agent", "token": " der", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18436, "seq": 118, "event": {"type": "token", "agent": "head-agent", "token": " er", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18511, "seq": 119, "event": {"type": "token", "agent": "head-agent", "token": "laub", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18587, "seq": 120, "event": {"type": "token", "agent": "head-agent", "token": "ten", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18665, "seq": 121, "event": {"type": "token", "agent": "head-agent", "token": " B", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18739, "seq": 122, "event": {"type": "token", "agent": "head-agent", "token": "efehls", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18821, "seq": 123, "event": {"type": "token", "agent": "head-agent", "token": "liste", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18901, "seq": 124, "event": {"type": "token", "agent": "head-agent", "token": " ent", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 18977, "seq": 125, "event": {"type": "token", "agent": "head-agent", "token": "halten", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19054, "seq": 126, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19130, "seq": 127, "event": {"type": "token", "agent": "head-agent", "token": " Som", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19207, "seq": 128, "event": {"type": "token", "agent": "head-agent", "token": "it", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19283, "seq": 129, "event": {"type": "token", "agent": "head-agent", "token": " kann", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19359, "seq": 130, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19434, "seq": 131, "event": {"type": "token", "agent": "head-agent", "token": " Kubernetes", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19511, "seq": 132, "event": {"type": "token", "agent": "head-agent", "token": "-A", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19585, "seq": 133, "event": {"type": "token", "agent": "head-agent", "token": "rch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19663, "seq": 134, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19731, "seq": 135, "event": {"type": "token", "agent": "head-agent", "token": "ur direkt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19803, "seq": 136, "event": {"type": "token", "agent": "head-agent", "token": " ins", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 19877, "seq": 137, "event": {"type": "token", "agent": "head-agent", "token": "p", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 20306, "seq": 138, "event": {"type": "token", "agent": "head-agent", "token": "iz", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 20629, "seq": 139, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 21056, "seq": 140, "event": {"type": "token", "agent": "head-agent", "token": " werden", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 21503, "seq": 141, "event": {"type": "token", "agent": "head-agent", "token": ".\n- **Altern", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 21978, "seq": 142, "event": {"type": "token", "agent": "head-agent", "token": "at", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 22499, "seq": 143, "event": {"type": "token", "agent": "head-agent", "token": "iven", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 23053, "seq": 144, "event": {"type": "token", "agent": "head-agent", "token": ":**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 23642, "seq": 145, "event": {"type": "token", "agent": "head-agent", "token": " Oh", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 24309, "seq": 146, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 24929, "seq": 147, "event": {"type": "token", "agent": "head-agent", "token": " Zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 25629, "seq": 148, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 26371, "seq": 149, "event": {"type": "token", "agent": "head-agent", "token": "iff", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 27151, "seq": 150, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 27968, "seq": 151, "event": {"type": "token", "agent": "head-agent", "token": " Cluster", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 28831, "seq": 152, "event": {"type": "token", "agent": "head-agent", "token": "-B", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 29741, "seq": 153, "event": {"type": "token", "agent": "head-agent", "token": "efehle bleibt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 30489, "seq": 154, "event": {"type": "token", "agent": "head-agent", "token": " die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 30903, "seq": 155, "event": {"type": "token", "agent": "head-agent", "token": " Arch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 31340, "seq": 156, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 31696, "seq": 157, "event": {"type": "token", "agent": "head-agent", "token": "urer", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 32087, "seq": 158, "event": {"type": "token", "agent": "head-agent", "token": "f", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 32511, "seq": 159, "event": {"type": "token", "agent": "head-agent", "token": "ass", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 32967, "seq": 160, "event": {"type": "token", "agent": "head-agent", "token": "ung auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 33459, "seq": 161, "event": {"type": "token", "agent": "head-agent", "token": " man", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 33983, "seq": 162, "event": {"type": "token", "agent": "head-agent", "token": "uelle", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 34547, "seq": 163, "event": {"type": "token", "agent": "head-agent", "token": " Dok", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 35142, "seq": 164, "event": {"type": "token", "agent": "head-agent", "token": "ument", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 35729, "seq": 165, "event": {"type": "token", "agent": "head-agent", "token": "ation oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36086, "seq": 166, "event": {"type": "token", "agent": "head-agent", "token": " vorhand", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36470, "seq": 167, "event": {"type": "token", "agent": "head-agent", "token": "ene", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36546, "seq": 168, "event": {"type": "token", "agent": "head-agent", "token": " exter", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36624, "seq": 169, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36703, "seq": 170, "event": {"type": "token", "agent": "head-agent", "token": " M", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36778, "seq": 171, "event": {"type": "token", "agent": "head-agent", "token": "appings", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36855, "seq": 172, "event": {"type": "token", "agent": "head-agent", "token": " bes", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 36934, "seq": 173, "event": {"type": "token", "agent": "head-agent", "token": "chrän", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37014, "seq": 174, "event": {"type": "token", "agent": "head-agent", "token": "kt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37089, "seq": 175, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n### Performance-Mess", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37167, "seq": 176, "event": {"type": "token", "agent": "head-agent", "token": "ung\n- **Information", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37244, "seq": 177, "event": {"type": "token", "agent": "head-agent", "token": " aus", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37320, "seq": 178, "event": {"type": "token", "agent": "head-agent", "token": " Prometheus", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37397, "seq": 179, "event": {"type": "token", "agent": "head-agent", "token": "-D", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37475, "seq": 180, "event": {"type": "token", "agent": "head-agent", "token": "ocs", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37554, "seq": 181, "event": {"type": "token", "agent": "head-agent", "token": ":** Die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37631, "seq": 182, "event": {"type": "token", "agent": "head-agent", "token": " Webseite", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37708, "seq": 183, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37784, "seq": 184, "event": {"type": "token", "agent": "head-agent", "token": " Prometheus", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37861, "seq": 185, "event": {"type": "token", "agent": "head-agent", "token": " erklärt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 37933, "seq": 186, "event": {"type": "token", "agent": "head-agent", "token": " all", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38010, "seq": 187, "event": {"type": "token", "agent": "head-agent", "token": "geme", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38084, "seq": 188, "event": {"type": "token", "agent": "head-agent", "token": "ine", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38159, "seq": 189, "event": {"type": "token", "agent": "head-agent", "token": " Kon", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38232, "seq": 190, "event": {"type": "token", "agent": "head-agent", "token": "ze", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38308, "seq": 191, "event": {"type": "token", "agent": "head-agent", "token": "pte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38385, "seq": 192, "event": {"type": "token", "agent": "head-agent", "token": ",", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38459, "seq": 193, "event": {"type": "token", "agent": "head-agent", "token": " aber", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38535, "seq": 194, "event": {"type": "token", "agent": "head-agent", "token": " ohne", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38609, "seq": 195, "event": {"type": "token", "agent": "head-agent", "token": " dire", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38684, "seq": 196, "event": {"type": "token", "agent": "head-agent", "token": "k", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38759, "seq": 197, "event": {"type": "token", "agent": "head-agent", "token": "ten Zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38838, "seq": 198, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38910, "seq": 199, "event": {"type": "token", "agent": "head-agent", "token": "iff", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 38985, "seq": 200, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39061, "seq": 201, "event": {"type": "token", "agent": "head-agent", "token": " Inst", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39143, "seq": 202, "event": {"type": "token", "agent": "head-agent", "token": "an", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39222, "seq": 203, "event": {"type": "token", "agent": "head-agent", "token": "zen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39299, "seq": 204, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39373, "seq": 205, "event": {"type": "token", "agent": "head-agent", "token": " Export", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39448, "seq": 206, "event": {"type": "token", "agent": "head-agent", "token": "er", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39524, "seq": 207, "event": {"type": "token", "agent": "head-agent", "token": " können", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39600, "seq": 208, "event": {"type": "token", "agent": "head-agent", "token": " keine", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39676, "seq": 209, "event": {"type": "token", "agent": "head-agent", "token": " Met", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39759, "seq": 210, "event": {"type": "token", "agent": "head-agent", "token": "ri", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39829, "seq": 211, "event": {"type": "token", "agent": "head-agent", "token": "ken", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39905, "seq": 212, "event": {"type": "token", "agent": "head-agent", "token": " erh", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 39979, "seq": 213, "event": {"type": "token", "agent": "head-agent", "token": "ob", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40054, "seq": 214, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40129, "seq": 215, "event": {"type": "token", "agent": "head-agent", "token": " werden", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40204, "seq": 216, "event": {"type": "token", "agent": "head-agent", "token": ".\n- **F", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40286, "seq": 217, "event": {"type": "token", "agent": "head-agent", "token": "az", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40363, "seq": 218, "event": {"type": "token", "agent": "head-agent", "token": "it", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40430, "seq": 219, "event": {"type": "token", "agent": "head-agent", "token": ":** Ein", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40506, "seq": 220, "event": {"type": "token", "agent": "head-agent", "token": " Prometheus", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40583, "seq": 221, "event": {"type": "token", "agent": "head-agent", "token": "-b", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40662, "seq": 222, "event": {"type": "token", "agent": "head-agent", "token": "asi", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40740, "seq": 223, "event": {"type": "token", "agent": "head-agent", "token": "ert", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40816, "seq": 224, "event": {"type": "token", "agent": "head-agent", "token": "es", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40896, "seq": 225, "event": {"type": "token", "agent": "head-agent", "token": " Monitoring ist", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 40971, "seq": 226, "event": {"type": "token", "agent": "head-agent", "token": " akt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41043, "seq": 227, "event": {"type": "token", "agent": "head-agent", "token": "uell", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41116, "seq": 228, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41188, "seq": 229, "event": {"type": "token", "agent": "head-agent", "token": " um", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41261, "seq": 230, "event": {"type": "token", "agent": "head-agent", "token": "set", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41334, "seq": 231, "event": {"type": "token", "agent": "head-agent", "token": "zbar", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41408, "seq": 232, "event": {"type": "token", "agent": "head-agent", "token": ",", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41480, "seq": 233, "event": {"type": "token", "agent": "head-agent", "token": " da", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41551, "seq": 234, "event": {"type": "token", "agent": "head-agent", "token": " w", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41624, "seq": 235, "event": {"type": "token", "agent": "head-agent", "token": "eder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41695, "seq": 236, "event": {"type": "token", "agent": "head-agent", "token": " die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41768, "seq": 237, "event": {"type": "token", "agent": "head-agent", "token": " Inf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41841, "seq": 238, "event": {"type": "token", "agent": "head-agent", "token": "ra", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41916, "seq": 239, "event": {"type": "token", "agent": "head-agent", "token": "str", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 41986, "seq": 240, "event": {"type": "token", "agent": "head-agent", "token": "uktur", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42059, "seq": 241, "event": {"type": "token", "agent": "head-agent", "token": " noch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42140, "seq": 242, "event": {"type": "token", "agent": "head-agent", "token": " die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42217, "seq": 243, "event": {"type": "token", "agent": "head-agent", "token": " not", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42293, "seq": 244, "event": {"type": "token", "agent": "head-agent", "token": "wend", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42369, "seq": 245, "event": {"type": "token", "agent": "head-agent", "token": "igen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42446, "seq": 246, "event": {"type": "token", "agent": "head-agent", "token": " Zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42525, "seq": 247, "event": {"type": "token", "agent": "head-agent", "token": "riffs", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42596, "seq": 248, "event": {"type": "token", "agent": "head-agent", "token": "re", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42670, "seq": 249, "event": {"type": "token", "agent": "head-agent", "token": "chte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42742, "seq": 250, "event": {"type": "token", "agent": "head-agent", "token": " vor", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42813, "seq": 251, "event": {"type": "token", "agent": "head-agent", "token": "lie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42888, "seq": 252, "event": {"type": "token", "agent": "head-agent", "token": "gen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 42977, "seq": 253, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n### Observ", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43033, "seq": 254, "event": {"type": "token", "agent": "head-agent", "token": "ability-E", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43108, "seq": 255, "event": {"type": "token", "agent": "head-agent", "token": "rhebung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43177, "seq": 256, "event": {"type": "token", "agent": "head-agent", "token": "\n- **Logging", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43248, "seq": 257, "event": {"type": "token", "agent": "head-agent", "token": " &", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43322, "seq": 258, "event": {"type": "token", "agent": "head-agent", "token": " Tracing:**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43394, "seq": 259, "event": {"type": "token", "agent": "head-agent", "token": " Ke", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43468, "seq": 260, "event": {"type": "token", "agent": "head-agent", "token": "in", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43542, "seq": 261, "event": {"type": "token", "agent": "head-agent", "token": " Zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43613, "seq": 262, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43686, "seq": 263, "event": {"type": "token", "agent": "head-agent", "token": "iff auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43759, "seq": 264, "event": {"type": "token", "agent": "head-agent", "token": " Tools", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43832, "seq": 265, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43905, "seq": 266, "event": {"type": "token", "agent": "head-agent", "token": " EL", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 43980, "seq": 267, "event": {"type": "token", "agent": "head-agent", "token": "K-", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44088, "seq": 268, "event": {"type": "token", "agent": "head-agent", "token": "Stack,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44158, "seq": 269, "event": {"type": "token", "agent": "head-agent", "token": " Ja", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44230, "seq": 270, "event": {"type": "token", "agent": "head-agent", "token": "eger", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44307, "seq": 271, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44378, "seq": 272, "event": {"type": "token", "agent": "head-agent", "token": " Zip", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44428, "seq": 273, "event": {"type": "token", "agent": "head-agent", "token": "kin", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44490, "seq": 274, "event": {"type": "token", "agent": "head-agent", "token": " fest", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44561, "seq": 275, "event": {"type": "token", "agent": "head-agent", "token": "gest", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44649, "seq": 276, "event": {"type": "token", "agent": "head-agent", "token": "ellt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44709, "seq": 277, "event": {"type": "token", "agent": "head-agent", "token": ".\n- **E", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44781, "seq": 278, "event": {"type": "token", "agent": "head-agent", "token": "inschrän", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44852, "seq": 279, "event": {"type": "token", "agent": "head-agent", "token": "kung:** Oh", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44928, "seq": 280, "event": {"type": "token", "agent": "head-agent", "token": "ne install", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 44998, "seq": 281, "event": {"type": "token", "agent": "head-agent", "token": "ierte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45071, "seq": 282, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45150, "seq": 283, "event": {"type": "token", "agent": "head-agent", "token": " kon", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45226, "seq": 284, "event": {"type": "token", "agent": "head-agent", "token": "fig", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45302, "seq": 285, "event": {"type": "token", "agent": "head-agent", "token": "uri", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45380, "seq": 286, "event": {"type": "token", "agent": "head-agent", "token": "erte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45459, "seq": 287, "event": {"type": "token", "agent": "head-agent", "token": " Observ", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45536, "seq": 288, "event": {"type": "token", "agent": "head-agent", "token": "ability-K", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45608, "seq": 289, "event": {"type": "token", "agent": "head-agent", "token": "om", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45681, "seq": 290, "event": {"type": "token", "agent": "head-agent", "token": "ponent", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45755, "seq": 291, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45826, "seq": 292, "event": {"type": "token", "agent": "head-agent", "token": " bleibt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45897, "seq": 293, "event": {"type": "token", "agent": "head-agent", "token": " eine", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 45971, "seq": 294, "event": {"type": "token", "agent": "head-agent", "token": " End-to-End", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46042, "seq": 295, "event": {"type": "token", "agent": "head-agent", "token": "-An", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46113, "seq": 296, "event": {"type": "token", "agent": "head-agent", "token": "aly", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46187, "seq": 297, "event": {"type": "token", "agent": "head-agent", "token": "se", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46264, "seq": 298, "event": {"type": "token", "agent": "head-agent", "token": " un", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46331, "seq": 299, "event": {"type": "token", "agent": "head-agent", "token": "v", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46404, "seq": 300, "event": {"type": "token", "agent": "head-agent", "token": "oll", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46481, "seq": 301, "event": {"type": "token", "agent": "head-agent", "token": "ständ", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46536, "seq": 302, "event": {"type": "token", "agent": "head-agent", "token": "ig", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46585, "seq": 303, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n### Limitationen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46633, "seq": 304, "event": {"type": "token", "agent": "head-agent", "token": " der", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46683, "seq": 305, "event": {"type": "token", "agent": "head-agent", "token": " Um", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46732, "seq": 306, "event": {"type": "token", "agent": "head-agent", "token": "gebung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46786, "seq": 307, "event": {"type": "token", "agent": "head-agent", "token": "\n1", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46896, "seq": 308, "event": {"type": "token", "agent": "head-agent", "token": ". **Command", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46947, "seq": 309, "event": {"type": "token", "agent": "head-agent", "token": " Allow", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46989, "seq": 310, "event": {"type": "token", "agent": "head-agent", "token": "list:** W", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 46991, "seq": 311, "event": {"type": "token", "agent": "head-agent", "token": "icht", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47031, "seq": 312, "event": {"type": "token", "agent": "head-agent", "token": "ige", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47083, "seq": 313, "event": {"type": "token", "agent": "head-agent", "token": " B", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47195, "seq": 314, "event": {"type": "token", "agent": "head-agent", "token": "efehle wie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47225, "seq": 315, "event": {"type": "token", "agent": "head-agent", "token": " `kubectl` sind", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47231, "seq": 316, "event": {"type": "token", "agent": "head-agent", "token": " block", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47590, "seq": 317, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 47971, "seq": 318, "event": {"type": "token", "agent": "head-agent", "token": ".\n2. **F", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 48353, "seq": 319, "event": {"type": "token", "agent": "head-agent", "token": "eh", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 48686, "seq": 320, "event": {"type": "token", "agent": "head-agent", "token": "l", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 49086, "seq": 321, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 49469, "seq": 322, "event": {"type": "token", "agent": "head-agent", "token": " Tools:** Wed", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 49916, "seq": 323, "event": {"type": "token", "agent": "head-agent", "token": "er", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 50395, "seq": 324, "event": {"type": "token", "agent": "head-agent", "token": " `", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 50914, "seq": 325, "event": {"type": "token", "agent": "head-agent", "token": "docker`,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 51463, "seq": 326, "event": {"type": "token", "agent": "head-agent", "token": " `kubectl", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 52050, "seq": 327, "event": {"type": "token", "agent": "head-agent", "token": "`,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 52671, "seq": 328, "event": {"type": "token", "agent": "head-agent", "token": " noch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 53334, "seq": 329, "event": {"type": "token", "agent": "head-agent", "token": " Monitoring-/", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 54028, "seq": 330, "event": {"type": "token", "agent": "head-agent", "token": "Tr", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 54766, "seq": 331, "event": {"type": "token", "agent": "head-agent", "token": "acing-W", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 55541, "seq": 332, "event": {"type": "token", "agent": "head-agent", "token": "erk", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 56356, "seq": 333, "event": {"type": "token", "agent": "head-agent", "token": "ze", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57136, "seq": 334, "event": {"type": "token", "agent": "head-agent", "token": "uge", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57302, "seq": 335, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57377, "seq": 336, "event": {"type": "token", "agent": "head-agent", "token": " aktiv", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57453, "seq": 337, "event": {"type": "token", "agent": "head-agent", "token": " nut", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57528, "seq": 338, "event": {"type": "token", "agent": "head-agent", "token": "z", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57603, "seq": 339, "event": {"type": "token", "agent": "head-agent", "token": "bar.\n3. **", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57680, "seq": 340, "event": {"type": "token", "agent": "head-agent", "token": "Ke", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57755, "seq": 341, "event": {"type": "token", "agent": "head-agent", "token": "in", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57831, "seq": 342, "event": {"type": "token", "agent": "head-agent", "token": " Root", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57906, "seq": 343, "event": {"type": "token", "agent": "head-agent", "token": "-/", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 57982, "seq": 344, "event": {"type": "token", "agent": "head-agent", "token": "System", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58056, "seq": 345, "event": {"type": "token", "agent": "head-agent", "token": "zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58136, "seq": 346, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58207, "seq": 347, "event": {"type": "token", "agent": "head-agent", "token": "iff", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58371, "seq": 348, "event": {"type": "token", "agent": "head-agent", "token": ":** Fehler", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58450, "seq": 349, "event": {"type": "token", "agent": "head-agent", "token": "meldung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58528, "seq": 350, "event": {"type": "token", "agent": "head-agent", "token": " beim", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58605, "seq": 351, "event": {"type": "token", "agent": "head-agent", "token": " `", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58684, "seq": 352, "event": {"type": "token", "agent": "head-agent", "token": "head`-", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58762, "seq": 353, "event": {"type": "token", "agent": "head-agent", "token": "Befehl", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58839, "seq": 354, "event": {"type": "token", "agent": "head-agent", "token": " de", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58915, "seq": 355, "event": {"type": "token", "agent": "head-agent", "token": "uten", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 58994, "seq": 356, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59070, "seq": 357, "event": {"type": "token", "agent": "head-agent", "token": " fe", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59148, "seq": 358, "event": {"type": "token", "agent": "head-agent", "token": "hl", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59225, "seq": 359, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59302, "seq": 360, "event": {"type": "token", "agent": "head-agent", "token": " grund", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59380, "seq": 361, "event": {"type": "token", "agent": "head-agent", "token": "leg", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59459, "seq": 362, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59536, "seq": 363, "event": {"type": "token", "agent": "head-agent", "token": " Shell", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59613, "seq": 364, "event": {"type": "token", "agent": "head-agent", "token": "-F", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59692, "seq": 365, "event": {"type": "token", "agent": "head-agent", "token": "unk", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59772, "seq": 366, "event": {"type": "token", "agent": "head-agent", "token": "tion", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59849, "seq": 367, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 59925, "seq": 368, "event": {"type": "token", "agent": "head-agent", "token": " hin", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60003, "seq": 369, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60082, "seq": 370, "event": {"type": "token", "agent": "head-agent", "token": "\n4. **Ent", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60160, "seq": 371, "event": {"type": "token", "agent": "head-agent", "token": "wicklung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60236, "seq": 372, "event": {"type": "token", "agent": "head-agent", "token": "sum", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60314, "seq": 373, "event": {"type": "token", "agent": "head-agent", "token": "gebung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60391, "seq": 374, "event": {"type": "token", "agent": "head-agent", "token": ":**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60469, "seq": 375, "event": {"type": "token", "agent": "head-agent", "token": " Led", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60546, "seq": 376, "event": {"type": "token", "agent": "head-agent", "token": "ig", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60626, "seq": 377, "event": {"type": "token", "agent": "head-agent", "token": "lich", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60703, "seq": 378, "event": {"type": "token", "agent": "head-agent", "token": " L", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60778, "seq": 379, "event": {"type": "token", "agent": "head-agent", "token": "ese", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 60945, "seq": 380, "event": {"type": "token", "agent": "head-agent", "token": "zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61021, "seq": 381, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61098, "seq": 382, "event": {"type": "token", "agent": "head-agent", "token": "iff auf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61174, "seq": 383, "event": {"type": "token", "agent": "head-agent", "token": " einige", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61252, "seq": 384, "event": {"type": "token", "agent": "head-agent", "token": " Dok", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61329, "seq": 385, "event": {"type": "token", "agent": "head-agent", "token": "ument", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61404, "seq": 386, "event": {"type": "token", "agent": "head-agent", "token": "ations", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61481, "seq": 387, "event": {"type": "token", "agent": "head-agent", "token": "qu", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61558, "seq": 388, "event": {"type": "token", "agent": "head-agent", "token": "ellen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61634, "seq": 389, "event": {"type": "token", "agent": "head-agent", "token": " möglich", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61712, "seq": 390, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n**N", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61790, "seq": 391, "event": {"type": "token", "agent": "head-agent", "token": "äch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61866, "seq": 392, "event": {"type": "token", "agent": "head-agent", "token": "ste", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 61944, "seq": 393, "event": {"type": "token", "agent": "head-agent", "token": " Sch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62022, "seq": 394, "event": {"type": "token", "agent": "head-agent", "token": "ritte", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62100, "seq": 395, "event": {"type": "token", "agent": "head-agent", "token": ":**\n- Bean", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62178, "seq": 396, "event": {"type": "token", "agent": "head-agent", "token": "tr", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62256, "seq": 397, "event": {"type": "token", "agent": "head-agent", "token": "agen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62332, "seq": 398, "event": {"type": "token", "agent": "head-agent", "token": " Sie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62409, "seq": 399, "event": {"type": "token", "agent": "head-agent", "token": " die", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62484, "seq": 400, "event": {"type": "token", "agent": "head-agent", "token": " Fre", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62560, "seq": 401, "event": {"type": "token", "agent": "head-agent", "token": "isch", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62644, "seq": 402, "event": {"type": "token", "agent": "head-agent", "token": "altung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62710, "seq": 403, "event": {"type": "token", "agent": "head-agent", "token": " benöt", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62793, "seq": 404, "event": {"type": "token", "agent": "head-agent", "token": "igter", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62870, "seq": 405, "event": {"type": "token", "agent": "head-agent", "token": " B", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 62946, "seq": 406, "event": {"type": "token", "agent": "head-agent", "token": "efehle (`", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63032, "seq": 407, "event": {"type": "token", "agent": "head-agent", "token": "COMMAND", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63097, "seq": 408, "event": {"type": "token", "agent": "head-agent", "token": "_ALLOW", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63173, "seq": 409, "event": {"type": "token", "agent": "head-agent", "token": "LIST_EXTRA", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63250, "seq": 410, "event": {"type": "token", "agent": "head-agent", "token": "`) für", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63329, "seq": 411, "event": {"type": "token", "agent": "head-agent", "token": " Entwicklung", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63402, "seq": 412, "event": {"type": "token", "agent": "head-agent", "token": "sz", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63477, "seq": 413, "event": {"type": "token", "agent": "head-agent", "token": "we", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63552, "seq": 414, "event": {"type": "token", "agent": "head-agent", "token": "cke", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63626, "seq": 415, "event": {"type": "token", "agent": "head-agent", "token": ".\n- St", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63705, "seq": 416, "event": {"type": "token", "agent": "head-agent", "token": "ellen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63776, "seq": 417, "event": {"type": "token", "agent": "head-agent", "token": " Sie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63852, "seq": 418, "event": {"type": "token", "agent": "head-agent", "token": " sicher", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 63928, "seq": 419, "event": {"type": "token", "agent": "head-agent", "token": ", dass", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64004, "seq": 420, "event": {"type": "token", "agent": "head-agent", "token": " g", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64079, "seq": 421, "event": {"type": "token", "agent": "head-agent", "token": "äng", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64155, "seq": 422, "event": {"type": "token", "agent": "head-agent", "token": "ige", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64229, "seq": 423, "event": {"type": "token", "agent": "head-agent", "token": " Analy", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64306, "seq": 424, "event": {"type": "token", "agent": "head-agent", "token": "sewerk", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64379, "seq": 425, "event": {"type": "token", "agent": "head-agent", "token": "ze", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64454, "seq": 426, "event": {"type": "token", "agent": "head-agent", "token": "uge", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64531, "seq": 427, "event": {"type": "token", "agent": "head-agent", "token": " wie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64607, "seq": 428, "event": {"type": "token", "agent": "head-agent", "token": " `", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64682, "seq": 429, "event": {"type": "token", "agent": "head-agent", "token": "docker`,", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64758, "seq": 430, "event": {"type": "token", "agent": "head-agent", "token": " `kubectl`, Prometheus", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64833, "seq": 431, "event": {"type": "token", "agent": "head-agent", "token": "/G", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64909, "seq": 432, "event": {"type": "token", "agent": "head-agent", "token": "raf", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 64985, "seq": 433, "event": {"type": "token", "agent": "head-agent", "token": "ana sowie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65060, "seq": 434, "event": {"type": "token", "agent": "head-agent", "token": " Ja", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65136, "seq": 435, "event": {"type": "token", "agent": "head-agent", "token": "eger", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65212, "seq": 436, "event": {"type": "token", "agent": "head-agent", "token": "/EL", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65288, "seq": 437, "event": {"type": "token", "agent": "head-agent", "token": "K install", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65365, "seq": 438, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65439, "seq": 439, "event": {"type": "token", "agent": "head-agent", "token": " und kon", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65517, "seq": 440, "event": {"type": "token", "agent": "head-agent", "token": "fig", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65592, "seq": 441, "event": {"type": "token", "agent": "head-agent", "token": "uri", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65774, "seq": 442, "event": {"type": "token", "agent": "head-agent", "token": "ert", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65852, "seq": 443, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 65928, "seq": 444, "event": {"type": "token", "agent": "head-agent", "token": ".\n- Falls", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66008, "seq": 445, "event": {"type": "token", "agent": "head-agent", "token": " möglich", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66086, "seq": 446, "event": {"type": "token", "agent": "head-agent", "token": ", erhalten", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66160, "seq": 447, "event": {"type": "token", "agent": "head-agent", "token": " Sie", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66237, "seq": 448, "event": {"type": "token", "agent": "head-agent", "token": " Zug", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66310, "seq": 449, "event": {"type": "token", "agent": "head-agent", "token": "ang", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66392, "seq": 450, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66466, "seq": 451, "event": {"type": "token", "agent": "head-agent", "token": " Cluster", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66544, "seq": 452, "event": {"type": "token", "agent": "head-agent", "token": "-R", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66622, "seq": 453, "event": {"type": "token", "agent": "head-agent", "token": "essour", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66700, "seq": 454, "event": {"type": "token", "agent": "head-agent", "token": "cen", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66779, "seq": 455, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66856, "seq": 456, "event": {"type": "token", "agent": "head-agent", "token": " Met", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 66933, "seq": 457, "event": {"type": "token", "agent": "head-agent", "token": "rik", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67011, "seq": 458, "event": {"type": "token", "agent": "head-agent", "token": "end", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67090, "seq": 459, "event": {"type": "token", "agent": "head-agent", "token": "points", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67168, "seq": 460, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n**", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67245, "seq": 461, "event": {"type": "token", "agent": "head-agent", "token": "Sources used:", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67322, "seq": 462, "event": {"type": "token", "agent": "head-agent", "token": "**\n- https://prom", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67404, "seq": 463, "event": {"type": "token", "agent": "head-agent", "token": "etheus.io/docs/introduction", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67479, "seq": 464, "event": {"type": "token", "agent": "head-agent", "token": "/overview", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67557, "seq": 465, "event": {"type": "token", "agent": "head-agent", "token": "/", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67758, "seq": 466, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "8edac9ce-5b55-4664-a1d4-2b5d0fc897c1", "phase": "end", "stage": "streaming_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:15.961468+00:00", "details": {"output_chars": 2145}, "agent": "head-agent"}}
+{"t_ms": 67864, "seq": 467, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "fce924a0-fc25-4a13-a970-3045cc24646e", "phase": "start", "stage": "reply_shaping_started", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:15.962475+00:00", "details": {"input_chars": 2145}, "agent": "head-agent"}}
+{"t_ms": 67864, "seq": 468, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "5d16a3b6-5e5d-431d-aa4d-68101169467a", "phase": "end", "stage": "reply_shaping_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:15.962475+00:00", "details": {"original_chars": 2145, "shaped_chars": 2137, "suppressed": false, "reason": null, "removed_tokens": [], "deduped_lines": 0}, "agent": "head-agent"}}
+{"t_ms": 67864, "seq": 469, "event": {"type": "final", "agent": "head-agent", "message": "**Final Answer:**\nDie toolgestützte Analyse zur Erhebung von Architektur-, Performance- und Observability-Hinweisen wurde eingeschränkt durch Umgebungsbedingungen. Die geplanten Tools wie `kubectl`, `docker inspect` oder Monitoring-Lösungen konnten nicht direkt verwendet werden, da wichtige Befehle entweder nicht erlaubt sind oder fehlen.\n### Architekturanalyse\n- **Einschränkung:** `kubectl` ist nicht in der erlaubten Befehlsliste enthalten. Somit kann keine Kubernetes-Architektur direkt inspiziert werden.\n- **Alternativen:** Ohne Zugriff auf Cluster-Befehle bleibt die Architekturerfassung auf manuelle Dokumentation oder vorhandene externe Mappings beschränkt.\n### Performance-Messung\n- **Information aus Prometheus-Docs:** Die Webseite zu Prometheus erklärt allgemeine Konzepte, aber ohne direkten Zugriff auf Instanzen oder Exporter können keine Metriken erhoben werden.\n- **Fazit:** Ein Prometheus-basiertes Monitoring ist aktuell nicht umsetzbar, da weder die Infrastruktur noch die notwendigen Zugriffsrechte vorliegen.\n### Observability-Erhebung\n- **Logging & Tracing:** Kein Zugriff auf Tools wie ELK-Stack, Jaeger oder Zipkin festgestellt.\n- **Einschränkung:** Ohne installierte oder konfigurierte Observability-Komponenten bleibt eine End-to-End-Analyse unvollständig.\n### Limitationen der Umgebung\n1. **Command Allowlist:** Wichtige Befehle wie `kubectl` sind blockiert.\n2. **Fehlende Tools:** Weder `docker`, `kubectl`, noch Monitoring-/Tracing-Werkzeuge sind aktiv nutzbar.\n3. **Kein Root-/Systemzugriff:** Fehlermeldung beim `head`-Befehl deuten auf fehlende grundlegende Shell-Funktionen hin.\n4. **Entwicklungsumgebung:** Lediglich Lesezugriff auf einige Dokumentationsquellen möglich.\n---\n**Nächste Schritte:**\n- Beantragen Sie die Freischaltung benötigter Befehle (`COMMAND_ALLOWLIST_EXTRA`) für Entwicklungszwecke.\n- Stellen Sie sicher, dass gängige Analysewerkzeuge wie `docker`, `kubectl`, Prometheus/Grafana sowie Jaeger/ELK installiert und konfiguriert sind.\n- Falls möglich, erhalten Sie Zugang zu Cluster-Ressourcen und Metrikendpoints.\n**Sources used:**\n- https://prometheus.io/docs/introduction/overview/", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}}
+{"t_ms": 67864, "seq": 470, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "ecfaa3a9-059a-4295-9159-4c87146b0d03", "phase": "end", "stage": "run_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:15.982748+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 67864, "seq": 471, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "72487296-2f81-4646-a7b2-0fc91bd69601", "phase": "progress", "stage": "lane_released", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:16.035944+00:00", "details": {"queue_wait_ms": 0, "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab"}, "agent": "head-agent"}}
+{"t_ms": 67864, "seq": 472, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "183cc644-96f8-4964-a92e-97cf098e9dcc", "phase": "end", "stage": "request_completed", "request_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "run_id": "aa3a238e-7fd6-4b51-a35b-0f62adbc5fe5", "session_id": "48786fbe-4b9d-4c2b-a0ac-56b9674bbfab", "ts": "2026-03-01T22:50:16.037949+00:00", "details": {}, "agent": "head-agent", "status": "completed", "run_status": "completed", "ended_at": "2026-03-01T22:50:16.037949+00:00"}}

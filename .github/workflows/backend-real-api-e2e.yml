@@ -1,0 +1,52 @@
+name: Backend Real API E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Ollama/OpenAI-compatible API base URL"
+        required: false
+        default: "http://localhost:11434/api"
+      small_model:
+        description: "Small model for orchestration smoke"
+        required: false
+        default: "minimax-m2:cloud"
+      large_model:
+        description: "Large model for orchestration/subrun smoke"
+        required: false
+        default: "qwen3-coder:480b-cloud"
+      wait_timeout_ms:
+        description: "Subrun wait timeout (ms)"
+        required: false
+        default: "120000"
+
+jobs:
+  real-api-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-test.txt
+
+      - name: Run real API E2E tests
+        env:
+          RUN_REAL_OLLAMA_API_E2E: "1"
+          OLLAMA_CLOUD_API_BASE_URL: ${{ inputs.api_base_url }}
+          OLLAMA_CLOUD_MODEL_SMALL: ${{ inputs.small_model }}
+          OLLAMA_CLOUD_MODEL_LARGE: ${{ inputs.large_model }}
+          REAL_API_E2E_WAIT_TIMEOUT_MS: ${{ inputs.wait_timeout_ms }}
+        run: |
+          pytest backend/tests/test_backend_e2e_real_api.py -q -rs
