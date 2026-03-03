@@ -167,6 +167,36 @@ async def _inline_runner(
     return "inline"
 
 
+async def _steer_aware_runner(
+    user_message: str,
+    plan_text: str,
+    reduced_context: str,
+    session_id: str,
+    request_id: str,
+    send_event,
+    model: str | None,
+    allowed_tools: set[str],
+    should_steer_interrupt,
+) -> str:
+    _ = (user_message, plan_text, reduced_context, session_id, request_id, send_event, model, allowed_tools)
+    return "steer-aware" if callable(should_steer_interrupt) and should_steer_interrupt() else "no-steer"
+
+
+async def _steer_aware_runner_with_internal_type_error(
+    user_message: str,
+    plan_text: str,
+    reduced_context: str,
+    session_id: str,
+    request_id: str,
+    send_event,
+    model: str | None,
+    allowed_tools: set[str],
+    should_steer_interrupt,
+) -> str:
+    _ = (user_message, plan_text, reduced_context, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
+    raise TypeError("internal runner failure")
+
+
 class _Runtime:
     async def run_tools(
         self,
@@ -266,5 +296,40 @@ def test_execute_with_bound_runner_expires_when_owner_gone() -> None:
                 send_event=lambda _payload: None,
                 model=None,
                 allowed_tools={"list_dir"},
+            )
+        )
+
+
+def test_execute_passes_steer_callback_when_runner_supports_it() -> None:
+    agent = ToolSelectorAgent(execute_tools_fn=_steer_aware_runner)
+
+    output = asyncio.run(
+        agent.execute(
+            ToolSelectorInput(user_message="u", plan_text="p", reduced_context="c"),
+            session_id="s1",
+            request_id="r1",
+            send_event=lambda _payload: None,
+            model=None,
+            allowed_tools={"list_dir"},
+            should_steer_interrupt=lambda: True,
+        )
+    )
+
+    assert output.tool_results == "steer-aware"
+
+
+def test_execute_does_not_mask_internal_type_error_from_runner() -> None:
+    agent = ToolSelectorAgent(execute_tools_fn=_steer_aware_runner_with_internal_type_error)
+
+    with pytest.raises(TypeError, match="internal runner failure"):
+        asyncio.run(
+            agent.execute(
+                ToolSelectorInput(user_message="u", plan_text="p", reduced_context="c"),
+                session_id="s1",
+                request_id="r1",
+                send_event=lambda _payload: None,
+                model=None,
+                allowed_tools={"list_dir"},
+                should_steer_interrupt=lambda: True,
             )
         )

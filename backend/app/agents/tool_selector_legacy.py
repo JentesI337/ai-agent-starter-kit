@@ -5,7 +5,7 @@ from weakref import WeakMethod
 
 from app.contracts.agent_contract import SendEvent
 
-ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str]], Awaitable[str]]
+ExecuteToolsFn = Callable[[str, str, str, str, str, SendEvent, str | None, set[str], Callable[[], bool] | None], Awaitable[str]]
 
 
 class LegacyRunnerBinding:

@@ -9,7 +9,9 @@ from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEv
 from app.contracts.schemas import SynthesizerInput, SynthesizerOutput
 from app.errors import LlmClientError
 from app.llm_client import LlmClient
+from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reply_shaper import ReplyShaper
+from app.services.request_normalization import normalize_prompt_mode
 from app.tool_policy import ToolPolicyDict
 
 EmitLifecycleFn = Callable[[SendEvent, str, str, str, dict | None], Awaitable[None]]
@@ -43,6 +45,7 @@ class SynthesizerAgent(AgentContract):
         self.system_prompt = system_prompt
         self.stream_timeout_seconds = max(0.01, float(stream_timeout_seconds))
         self._reply_shaper = reply_shaper or ReplyShaper()
+        self._kernel_builder = PromptKernelBuilder()
 
     @property
     def name(self) -> str:
@@ -87,15 +90,8 @@ class SynthesizerAgent(AgentContract):
 
     def _build_final_prompt(self, payload: SynthesizerInput) -> str:
         task_type = self._resolve_task_type(payload)
-        final_prompt = (
+        instructions = (
             "User request:\n"
-            f"{payload.user_message}\n\n"
-            "Plan:\n"
-            f"{payload.plan_text}\n\n"
-            "Tool outputs:\n"
-            f"{payload.tool_results or '(no tool outputs)'}\n\n"
-            "Relevant memory:\n"
-            f"{payload.reduced_context}\n\n"
             "Generate a concise, helpful final answer.\n"
             "For general requests, respond naturally without forcing implementation steps.\n"
             "For coding/technical requests, include concrete next implementation steps.\n"
@@ -105,10 +101,16 @@ class SynthesizerAgent(AgentContract):
             "Do not emit tool directives, no [TOOL_CALL] blocks, and no pseudo tool syntax.\n"
             "Only report completed actions and clear next steps."
         )
+        sections = {
+            "instructions": instructions,
+            "user_request": payload.user_message,
+            "plan": payload.plan_text,
+            "tool_outputs": payload.tool_results or "(no tool outputs)",
+            "relevant_memory": payload.reduced_context,
+        }
 
         if task_type == "hard_research":
-            final_prompt += (
-                "\n\n"
+            sections["hard_contract"] = (
                 "Mandatory output schema for this response (strict):\n"
                 "1) Architektur-Risiken\n"
                 "2) Performance-Hotspots\n"
@@ -124,11 +126,15 @@ class SynthesizerAgent(AgentContract):
                 "- Each KPI line must contain both the word 'KPI' and its numeric target on the same line (e.g., 'KPI: latency <= 120 ms').\n"
                 "- Keep output text-only; no tool calls, no pseudo code blocks."
             )
-            return final_prompt
+        else:
+            sections["section_contract"] = self._build_section_contract_prompt(task_type).strip()
 
-        final_prompt += self._build_section_contract_prompt(task_type)
-
-        return final_prompt
+        kernel = self._kernel_builder.build(
+            prompt_type="synthesis",
+            prompt_mode=normalize_prompt_mode(payload.prompt_mode, default="full"),
+            sections=sections,
+        )
+        return kernel.rendered
 
     def _resolve_task_type(self, payload: SynthesizerInput) -> str:
         hinted = (payload.task_type or "").strip().lower()
@@ -433,8 +439,11 @@ class SynthesizerAgent(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
     ) -> str:
         payload = SynthesizerInput.model_validate_json(user_message)
+        if prompt_mode:
+            payload = payload.model_copy(update={"prompt_mode": prompt_mode})
         result = await self.execute(
             payload,
             send_event=send_event,

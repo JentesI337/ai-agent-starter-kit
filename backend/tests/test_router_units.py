@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.routers import (
     build_agents_router,
+    build_control_tools_router,
     build_control_runs_router,
     build_runtime_debug_router,
     build_subruns_router,
@@ -158,3 +159,27 @@ def test_control_runs_router_forwards_idempotency_key_header() -> None:
     assert response.json() == {"ok": True}
     assert captured["key"] == "abc-123"
     assert captured["message"] == "hello"
+
+
+def test_control_tools_router_exposes_context_and_config_endpoints() -> None:
+    app = FastAPI()
+    app.include_router(
+        build_control_tools_router(
+            tools_catalog_handler=lambda payload: {"ok": "catalog", "payload": payload},
+            tools_profile_handler=lambda payload: {"ok": "profile", "payload": payload},
+            tools_policy_matrix_handler=lambda payload: {"ok": "matrix", "payload": payload},
+            tools_policy_preview_handler=lambda payload: {"ok": "preview", "payload": payload},
+            skills_list_handler=lambda payload: {"ok": "skills.list", "payload": payload},
+            skills_preview_handler=lambda payload: {"ok": "skills.preview", "payload": payload},
+            skills_check_handler=lambda payload: {"ok": "skills.check", "payload": payload},
+            skills_sync_handler=lambda payload: {"ok": "skills.sync", "payload": payload},
+            context_list_handler=lambda payload: {"ok": "context.list", "payload": payload},
+            context_detail_handler=lambda payload: {"ok": "context.detail", "payload": payload},
+            config_health_handler=lambda payload: {"ok": "config.health", "payload": payload},
+        )
+    )
+
+    client = TestClient(app)
+    assert client.post("/api/control/context.list", json={"limit": 5}).json()["ok"] == "context.list"
+    assert client.post("/api/control/context.detail", json={"run_id": "r1"}).json()["ok"] == "context.detail"
+    assert client.post("/api/control/config.health", json={}).json()["ok"] == "config.health"

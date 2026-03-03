@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+import inspect
 import json
 
 from app.agents.tool_selector_legacy import ExecuteToolsFn, LegacyRunnerBinding
@@ -52,6 +54,32 @@ class ToolSelectorAgent(AgentContract):
             return None
         return resolved
 
+    @staticmethod
+    def _accepts_positional_arity(fn: Callable, arity: int) -> bool:
+        try:
+            signature = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return True
+        positional = [
+            parameter
+            for parameter in signature.parameters.values()
+            if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        has_varargs = any(parameter.kind == inspect.Parameter.VAR_POSITIONAL for parameter in signature.parameters.values())
+        if has_varargs:
+            return True
+        return len(positional) >= arity
+
+    @staticmethod
+    def _accepts_keyword(fn: Callable, name: str) -> bool:
+        try:
+            signature = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return True
+        if name in signature.parameters:
+            return True
+        return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
+
     async def _execute_with_inline_runner(
         self,
         *,
@@ -62,7 +90,20 @@ class ToolSelectorAgent(AgentContract):
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
+        if self._accepts_positional_arity(execute_tools_fn, 9):
+            return await execute_tools_fn(
+                payload.user_message,
+                payload.plan_text,
+                payload.reduced_context,
+                session_id,
+                request_id,
+                send_event,
+                model,
+                allowed_tools,
+                should_steer_interrupt,
+            )
         return await execute_tools_fn(
             payload.user_message,
             payload.plan_text,
@@ -83,17 +124,22 @@ class ToolSelectorAgent(AgentContract):
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
         if self._runtime is None:
             raise RuntimeError("tool selector runtime is not configured")
-        return await self._runtime.run_tools(
-            payload=payload,
-            session_id=session_id,
-            request_id=request_id,
-            send_event=send_event,
-            model=model,
-            allowed_tools=allowed_tools,
-        )
+        runtime_run_tools = self._runtime.run_tools
+        runtime_kwargs = {
+            "payload": payload,
+            "session_id": session_id,
+            "request_id": request_id,
+            "send_event": send_event,
+            "model": model,
+            "allowed_tools": allowed_tools,
+        }
+        if self._accepts_keyword(runtime_run_tools, "should_steer_interrupt"):
+            runtime_kwargs["should_steer_interrupt"] = should_steer_interrupt
+        return await runtime_run_tools(**runtime_kwargs)
 
     async def _execute_with_legacy_runner(
         self,
@@ -104,10 +150,23 @@ class ToolSelectorAgent(AgentContract):
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
         runner = self._resolve_configured_runner()
         if runner is None:
             raise RuntimeError("ToolSelectorAgent.execute requires runtime or execute_tools_fn")
+        if self._accepts_positional_arity(runner, 9):
+            return await runner(
+                payload.user_message,
+                payload.plan_text,
+                payload.reduced_context,
+                session_id,
+                request_id,
+                send_event,
+                model,
+                allowed_tools,
+                should_steer_interrupt,
+            )
         return await runner(
             payload.user_message,
             payload.plan_text,
@@ -167,6 +226,7 @@ class ToolSelectorAgent(AgentContract):
         model: str | None,
         allowed_tools: set[str],
         execute_tools_fn: ExecuteToolsFn | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> ToolSelectorOutput:
         if execute_tools_fn is not None:
             results = await self._execute_with_inline_runner(
@@ -177,6 +237,7 @@ class ToolSelectorAgent(AgentContract):
                 send_event=send_event,
                 model=model,
                 allowed_tools=allowed_tools,
+                should_steer_interrupt=should_steer_interrupt,
             )
         elif self._runtime is not None:
             results = await self._execute_with_runtime(
@@ -186,6 +247,7 @@ class ToolSelectorAgent(AgentContract):
                 send_event=send_event,
                 model=model,
                 allowed_tools=allowed_tools,
+                should_steer_interrupt=should_steer_interrupt,
             )
         else:
             results = await self._execute_with_legacy_runner(
@@ -195,6 +257,7 @@ class ToolSelectorAgent(AgentContract):
                 send_event=send_event,
                 model=model,
                 allowed_tools=allowed_tools,
+                should_steer_interrupt=should_steer_interrupt,
             )
         return ToolSelectorOutput(tool_results=results)
 
@@ -207,8 +270,12 @@ class ToolSelectorAgent(AgentContract):
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
         execute_tools_fn: ExecuteToolsFn | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         payload = ToolSelectorInput.model_validate_json(user_message)
+        if prompt_mode:
+            payload = payload.model_copy(update={"prompt_mode": prompt_mode})
         effective_allowed_tools = self._resolve_effective_allowed_tools(tool_policy)
         result = await self.execute(
             payload,
@@ -218,5 +285,6 @@ class ToolSelectorAgent(AgentContract):
             model=model,
             allowed_tools=effective_allowed_tools,
             execute_tools_fn=execute_tools_fn,
+            should_steer_interrupt=should_steer_interrupt,
         )
         return json.dumps(result.model_dump(), ensure_ascii=False)

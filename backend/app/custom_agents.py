@@ -62,6 +62,8 @@ class CustomAgentAdapter(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         flow_instruction = self._build_flow_instruction()
         enriched_user_message = user_message.strip()
@@ -80,6 +82,8 @@ class CustomAgentAdapter(AgentContract):
             request_id=request_id,
             model=model,
             tool_policy=merged_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
 
     def _build_flow_instruction(self) -> str:

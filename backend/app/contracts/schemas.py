@@ -30,6 +30,7 @@ class CoderAgentOutput(BaseModel):
 class PlannerInput(BaseModel):
     user_message: str = Field(min_length=1)
     reduced_context: str = Field(min_length=1)
+    prompt_mode: str = Field(default="full")
 
 
 class PlannerOutput(BaseModel):
@@ -40,6 +41,7 @@ class ToolSelectorInput(BaseModel):
     user_message: str = Field(min_length=1)
     plan_text: str
     reduced_context: str = Field(min_length=1)
+    prompt_mode: str = Field(default="minimal")
 
 
 class ToolSelectorOutput(BaseModel):
@@ -51,6 +53,7 @@ class SynthesizerInput(BaseModel):
     plan_text: str
     tool_results: str
     reduced_context: str = Field(min_length=1)
+    prompt_mode: str = Field(default="full")
     task_type: str | None = None
 
 

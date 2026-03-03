@@ -24,6 +24,9 @@ def build_control_tools_router(
     skills_preview_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     skills_check_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     skills_sync_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    context_list_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    context_detail_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    config_health_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
 ) -> APIRouter:
     router = APIRouter()
 
@@ -72,6 +75,24 @@ def build_control_tools_router(
     @router.post("/api/control/skills.sync")
     async def control_skills_sync(request: JsonDict = Body(...)):
         result = skills_sync_handler(request)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
+
+    @router.post("/api/control/context.list")
+    async def control_context_list(request: JsonDict = Body(...)):
+        result = context_list_handler(request)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
+
+    @router.post("/api/control/context.detail")
+    async def control_context_detail(request: JsonDict = Body(...)):
+        result = context_detail_handler(request)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
+
+    @router.post("/api/control/config.health")
+    async def control_config_health(request: JsonDict = Body(...)):
+        result = config_health_handler(request)
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
 

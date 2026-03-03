@@ -192,6 +192,7 @@ def _send_session_minimal(*, request: ControlSessionsSendRequest, idempotency_ke
         session_id=session_id,
         model=request.model,
         preset=request.preset,
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
@@ -208,6 +209,8 @@ def _send_session_minimal(*, request: ControlSessionsSendRequest, idempotency_ke
         session_id=session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
     )
     _register_idempotent_run(
@@ -243,6 +246,7 @@ def _spawn_session_minimal(*, request: ControlSessionsSpawnRequest, idempotency_
         session_id=parent_session_id,
         model=request.model,
         preset=request.preset,
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
@@ -264,6 +268,8 @@ def _spawn_session_minimal(*, request: ControlSessionsSpawnRequest, idempotency_
         session_id=child_session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         meta={
             "source": "control.sessions.spawn",

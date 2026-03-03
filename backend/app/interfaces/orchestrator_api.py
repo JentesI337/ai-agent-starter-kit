@@ -139,6 +139,8 @@ class OrchestratorApi:
                 runtime=request_context.runtime,
                 model=request_context.model,
                 tool_policy=resolved_policy,
+                prompt_mode=request_context.prompt_mode,
+                should_steer_interrupt=request_context.should_steer_interrupt,
             )
 
         return await self._lane_manager.run_in_lane(

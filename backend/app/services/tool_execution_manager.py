@@ -9,8 +9,12 @@ from uuid import uuid4
 
 from app.config import Settings
 from app.errors import ToolExecutionError
+from app.services.prompt_kernel_builder import PromptKernelBuilder
+from app.services.request_normalization import normalize_prompt_mode
 from app.services.tool_call_gatekeeper import ToolCallGatekeeper
 from app.services.tool_call_gatekeeper import prepare_action_for_execution
+
+STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,7 @@ class ToolExecutionManager:
         self._action_augmenter = action_augmenter
         self._llm_client = llm_client
         self._send_event = send_event
+        self._prompt_kernel_builder = PromptKernelBuilder()
 
     async def execute(
         self,
@@ -106,6 +111,7 @@ class ToolExecutionManager:
         user_message: str,
         plan_text: str,
         memory_context: str,
+        prompt_mode: str,
         app_settings: Settings,
         model: str | None,
         allowed_tools: set[str],
@@ -146,6 +152,7 @@ class ToolExecutionManager:
         is_weather_lookup_task: Callable[[str], bool],
         build_web_research_url: Callable[[str], str],
         memory_add: Callable[[str, str], None],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         effective_allowed_tools = set(allowed_tools)
         await emit_lifecycle("tool_selection_started", None)
@@ -240,6 +247,7 @@ class ToolExecutionManager:
             {
                 "prompt_type": "tool_selection",
                 "model": model,
+                "prompt_mode": prompt_mode,
                 "context_chars": len(effective_memory_context),
                 "allowed_tools": sorted(effective_allowed_tools),
             },
@@ -250,6 +258,7 @@ class ToolExecutionManager:
             memory_context=effective_memory_context,
             user_message=user_message,
             plan_text=plan_text,
+            prompt_mode=prompt_mode,
         )
 
         actions = await self.select_actions_with_repair(
@@ -329,6 +338,7 @@ class ToolExecutionManager:
             emit_lifecycle=emit_lifecycle,
             send_event=send_event,
             invoke_hooks=invoke_hooks,
+            should_steer_interrupt=should_steer_interrupt,
         )
 
     @staticmethod
@@ -350,9 +360,10 @@ class ToolExecutionManager:
         memory_context: str,
         user_message: str,
         plan_text: str,
+        prompt_mode: str = "minimal",
     ) -> str:
         allowed_text = "|".join(sorted(allowed_tools)) if allowed_tools else "(none)"
-        return (
+        instructions = (
             "Choose up to 3 tool calls to support this task.\n"
             "Return strict JSON only in this schema:\n"
             f"{{\"actions\":[{{\"tool\":\"{allowed_text}\",\"args\":{{}}}}]}}\n"
@@ -369,14 +380,19 @@ class ToolExecutionManager:
             "- get_background_output/kill_background_process: job_id\n"
             "- web_fetch: url, optional max_chars\n\n"
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
-            f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}.\n\n"
-            "Memory:\n"
-            f"{memory_context}\n\n"
-            "Task:\n"
-            f"{user_message}\n\n"
-            "Plan:\n"
-            f"{plan_text}"
+            f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}."
         )
+        kernel = self._prompt_kernel_builder.build(
+            prompt_type="tool_selection",
+            prompt_mode=normalize_prompt_mode(prompt_mode, default="minimal"),
+            sections={
+                "instructions": instructions,
+                "memory": memory_context,
+                "task": user_message,
+                "plan": plan_text,
+            },
+        )
+        return kernel.rendered
 
     def _build_tool_selection_prompt(
         self,
@@ -385,12 +401,14 @@ class ToolExecutionManager:
         memory_context: str,
         user_message: str,
         plan_text: str,
+        prompt_mode: str = "minimal",
     ) -> str:
         return self.build_tool_selector_prompt(
             allowed_tools=allowed_tools,
             memory_context=memory_context,
             user_message=user_message,
             plan_text=plan_text,
+            prompt_mode=prompt_mode,
         )
 
     def build_loop_gatekeeper(self, config: ToolExecutionConfig) -> ToolCallGatekeeper:
@@ -608,6 +626,7 @@ class ToolExecutionManager:
         emit_lifecycle: Callable[[str, dict | None], Awaitable[None]],
         send_event: Callable[[dict], Awaitable[None]],
         invoke_hooks: Callable[[str, dict], Awaitable[None]],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         results: list[str] = []
         tool_call_cap = config.call_cap
@@ -831,6 +850,24 @@ class ToolExecutionManager:
                         "result_chars": len(clipped),
                     },
                 )
+                if should_steer_interrupt is not None and should_steer_interrupt():
+                    await emit_lifecycle(
+                        "steer_detected",
+                        {
+                            "checkpoint_stage": "tool_completed",
+                            "index": idx,
+                            "tool": tool,
+                        },
+                    )
+                    await emit_lifecycle(
+                        "steer_applied",
+                        {
+                            "checkpoint_stage": "tool_completed",
+                            "index": idx,
+                            "tool": tool,
+                        },
+                    )
+                    return STEER_INTERRUPTED_MARKER
             except ToolExecutionError as exc:
                 error_elapsed_ms = int((monotonic() - tool_started) * 1000)
                 attempt_calls = 1
@@ -991,6 +1028,24 @@ class ToolExecutionManager:
                         **({"error_category": error_category} if error_category else {}),
                     },
                 )
+                if should_steer_interrupt is not None and should_steer_interrupt():
+                    await emit_lifecycle(
+                        "steer_detected",
+                        {
+                            "checkpoint_stage": "tool_failed",
+                            "index": idx,
+                            "tool": tool,
+                        },
+                    )
+                    await emit_lifecycle(
+                        "steer_applied",
+                        {
+                            "checkpoint_stage": "tool_failed",
+                            "index": idx,
+                            "tool": tool,
+                        },
+                    )
+                    return STEER_INTERRUPTED_MARKER
 
         total_elapsed_ms = int((monotonic() - started_at) * 1000)
         await emit_lifecycle(

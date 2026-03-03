@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 import random
+from collections.abc import Callable
 from typing import Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -134,6 +135,8 @@ class FallbackStateMachine:
         session_id: str,
         request_id: str,
         tool_policy: ToolPolicyDict | None,
+        prompt_mode: str | None,
+        should_steer_interrupt: Callable[[], bool] | None,
         max_attempts: int,
         config: FallbackRuntimeConfig,
     ) -> None:
@@ -144,6 +147,8 @@ class FallbackStateMachine:
         self._session_id = session_id
         self._request_id = request_id
         self._tool_policy = tool_policy
+        self._prompt_mode = prompt_mode
+        self._should_steer_interrupt = should_steer_interrupt
         self._models = [route.primary_model, *route.fallback_models]
         self._config = config
         self._state = FallbackState.INIT
@@ -227,6 +232,8 @@ class FallbackStateMachine:
                         request_id=self._request_id,
                         model=self._current_candidate_model,
                         tool_policy=self._tool_policy,
+                        prompt_mode=self._prompt_mode,
+                        should_steer_interrupt=self._should_steer_interrupt,
                     )
                     self._state = FallbackState.HANDLE_SUCCESS
                     continue

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Awaitable, Callable
@@ -12,6 +13,8 @@ from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, T
 from app.interfaces import RequestContext
 from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestrator.events import build_lifecycle_event, classify_error
+from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
+from app.services.session_inbox_service import SessionInboxService
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 EventPayload = dict[str, Any]
@@ -94,6 +97,10 @@ class SubrunLaneLike(Protocol):
 
 class SettingsLike(Protocol):
     subrun_timeout_seconds: float
+    queue_mode_default: str
+    prompt_mode_default: str
+    session_inbox_max_queue_length: int
+    session_inbox_ttl_seconds: int
 
 
 @dataclass
@@ -125,6 +132,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     connection_session_id = str(uuid.uuid4())
     runtime_state = deps.runtime_manager.get_state()
     sequence_number = 0
+    session_inbox = SessionInboxService(
+        max_queue_length=deps.settings.session_inbox_max_queue_length,
+        ttl_seconds=deps.settings.session_inbox_ttl_seconds,
+    )
+    session_workers: dict[str, Any] = {}
     deps.logger.info(
         "ws_connected session_id=%s runtime=%s model=%s",
         connection_session_id,
@@ -196,6 +208,279 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         await send_event(
             lifecycle_event
         )
+
+    async def handle_request_failure(*, request_id: str, session_id: str, exc: Exception) -> None:
+        if isinstance(exc, GuardrailViolation):
+            deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+            await send_event(
+                {
+                    "type": "error",
+                    "agent": deps.agent.name,
+                    "message": f"Guardrail blocked request: {exc}",
+                    "error_category": classify_error(exc),
+                }
+            )
+            await send_lifecycle(
+                stage="request_failed_guardrail",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": str(exc), "error_category": classify_error(exc)},
+            )
+            return
+        if isinstance(exc, ToolExecutionError):
+            deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+            await send_event(
+                {
+                    "type": "error",
+                    "agent": deps.agent.name,
+                    "message": f"Toolchain error: {exc}",
+                    "error_category": classify_error(exc),
+                }
+            )
+            await send_lifecycle(
+                stage="request_failed_toolchain",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": str(exc), "error_category": classify_error(exc)},
+            )
+            return
+        if isinstance(exc, RuntimeSwitchError):
+            deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+            await send_event(
+                {
+                    "type": "runtime_switch_error",
+                    "session_id": session_id,
+                    "message": str(exc),
+                    "error_category": classify_error(exc),
+                }
+            )
+            await send_lifecycle(
+                stage="runtime_switch_failed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": str(exc), "error_category": classify_error(exc)},
+            )
+            return
+        if isinstance(exc, LlmClientError):
+            deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+            await send_event(
+                {
+                    "type": "error",
+                    "agent": deps.agent.name,
+                    "message": f"LLM error: {exc}",
+                    "error_category": classify_error(exc),
+                }
+            )
+            await send_lifecycle(
+                stage="request_failed_llm",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": str(exc), "error_category": classify_error(exc)},
+            )
+            return
+
+        deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+        deps.logger.exception(
+            "ws_unhandled_error request_id=%s session_id=%s",
+            request_id,
+            session_id,
+        )
+        await send_event(
+            {
+                "type": "error",
+                "agent": deps.agent.name,
+                "message": f"Request error: {exc}",
+                "error_category": classify_error(exc),
+            }
+        )
+        await send_lifecycle(
+            stage="request_failed",
+            request_id=request_id,
+            session_id=session_id,
+            details={"error": str(exc), "error_category": classify_error(exc)},
+        )
+
+    async def execute_user_message_job(job: dict[str, Any]) -> None:
+        request_id = str(job.get("request_id") or "")
+        session_id = str(job.get("session_id") or connection_session_id)
+        content = str(job.get("content") or "")
+        model = job.get("model")
+        requested_agent_id = str(job.get("requested_agent_id") or deps.primary_agent_id)
+        tool_policy = job.get("tool_policy")
+        if not isinstance(tool_policy, dict):
+            tool_policy = None
+        queue_mode = str(job.get("queue_mode") or deps.settings.queue_mode_default)
+        prompt_mode = str(job.get("prompt_mode") or deps.settings.prompt_mode_default)
+        applied_preset = (str(job.get("preset") or "").strip().lower() or None)
+        incoming_also_allow = None
+        if isinstance(tool_policy, dict):
+            raw_also_allow = tool_policy.get("also_allow")
+            if isinstance(raw_also_allow, list):
+                incoming_also_allow = [
+                    str(item).strip()
+                    for item in raw_also_allow
+                    if isinstance(item, str) and str(item).strip()
+                ]
+
+        def should_steer_interrupt() -> bool:
+            return queue_mode == "steer" and session_inbox.has_newer_than(session_id, request_id)
+
+        effective_agent_id = requested_agent_id
+        routing_reason: str | None = None
+        if requested_agent_id == deps.primary_agent_id:
+            if applied_preset == "review":
+                effective_agent_id = deps.review_agent_id
+                routing_reason = "preset_review"
+            elif deps.looks_like_review_request(content):
+                effective_agent_id = deps.review_agent_id
+                routing_reason = "review_intent"
+            elif deps.looks_like_coding_request(content):
+                effective_agent_id = deps.coder_agent_id
+                routing_reason = "coding_intent"
+
+        resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
+
+        if routing_reason:
+            await send_event(
+                {
+                    "type": "status",
+                    "agent": deps.agent.name,
+                    "message": f"Head agent delegated this request to {resolved_agent_id}.",
+                    "routing_reason": routing_reason,
+                    "requested_agent_id": requested_agent_id,
+                    "effective_agent_id": resolved_agent_id,
+                }
+            )
+
+        await send_lifecycle(
+            stage="request_dispatched",
+            request_id=request_id,
+            session_id=session_id,
+            details={
+                "model": model,
+                "requested_agent_id": requested_agent_id,
+                "effective_agent_id": resolved_agent_id,
+                "routing_reason": routing_reason,
+                "preset": applied_preset,
+                "queue_mode": queue_mode,
+                "prompt_mode": prompt_mode,
+            },
+        )
+
+        runtime_state = deps.runtime_manager.get_state()
+        deps.logger.info(
+            "ws_request_dispatch request_id=%s session_id=%s runtime=%s active_model=%s",
+            request_id,
+            session_id,
+            runtime_state.runtime,
+            runtime_state.model,
+        )
+
+        selected_agent.configure_runtime(
+            base_url=runtime_state.base_url,
+            model=runtime_state.model,
+        )
+
+        selected_model = (str(model or "")).strip() or runtime_state.model
+        if runtime_state.runtime == "local":
+            resolved_model = await deps.runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
+            if resolved_model != selected_model:
+                await send_event(
+                    {
+                        "type": "status",
+                        "agent": selected_agent.name,
+                        "message": f"Model '{selected_model}' not available. Using '{resolved_model}'.",
+                    }
+                )
+                selected_model = resolved_model
+                if runtime_state.model != resolved_model:
+                    deps.runtime_manager.set_active_model(resolved_model)
+        else:
+            resolved_model = await deps.runtime_manager.resolve_api_request_model(selected_model)
+            if resolved_model != selected_model:
+                await send_event(
+                    {
+                        "type": "status",
+                        "agent": selected_agent.name,
+                        "message": f"API model '{selected_model}' not available. Using '{resolved_model}'.",
+                    }
+                )
+                selected_model = resolved_model
+                if runtime_state.model != resolved_model:
+                    deps.runtime_manager.set_active_model(resolved_model)
+
+        deps.logger.info(
+            "ws_agent_run_start request_id=%s session_id=%s selected_model=%s",
+            request_id,
+            session_id,
+            selected_model,
+        )
+        await selected_orchestrator.run_user_message(
+            user_message=content,
+            send_event=send_event,
+            request_context=RequestContext(
+                session_id=session_id,
+                request_id=request_id,
+                runtime=runtime_state.runtime,
+                model=selected_model,
+                tool_policy=tool_policy,
+                also_allow=incoming_also_allow,
+                agent_id=resolved_agent_id,
+                depth=0,
+                preset=applied_preset,
+                orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+                queue_mode=queue_mode,
+                prompt_mode=prompt_mode,
+                should_steer_interrupt=should_steer_interrupt,
+            ),
+        )
+        deps.logger.info(
+            "ws_agent_run_done request_id=%s session_id=%s selected_model=%s",
+            request_id,
+            session_id,
+            selected_model,
+        )
+        await send_lifecycle(
+            stage="request_completed",
+            request_id=request_id,
+            session_id=session_id,
+        )
+        deps.state_mark_completed_safe(run_id=request_id)
+
+    async def drain_session_queue(session_id: str) -> None:
+        current_task = asyncio.current_task()
+        try:
+            while True:
+                dequeued = session_inbox.dequeue(session_id)
+                if dequeued is None:
+                    return
+                request_id = str(dequeued.meta.get("request_id") or dequeued.run_id or "")
+                queue_mode = str(dequeued.meta.get("queue_mode") or deps.settings.queue_mode_default)
+                prompt_mode = str(dequeued.meta.get("prompt_mode") or deps.settings.prompt_mode_default)
+                await send_lifecycle(
+                    stage="run_dequeued",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "queue_mode": queue_mode,
+                        "prompt_mode": prompt_mode,
+                        "queue_size": session_inbox.size(session_id),
+                    },
+                )
+                try:
+                    await execute_user_message_job(dict(dequeued.meta))
+                except Exception as exc:
+                    await handle_request_failure(request_id=request_id, session_id=session_id, exc=exc)
+        finally:
+            worker = session_workers.get(session_id)
+            if worker is current_task:
+                session_workers.pop(session_id, None)
+
+    def ensure_session_worker(session_id: str) -> None:
+        existing = session_workers.get(session_id)
+        if existing is not None and not existing.done():
+            return
+        session_workers[session_id] = asyncio.create_task(drain_session_queue(session_id))
 
     try:
         while True:
@@ -303,6 +588,84 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         session_id=session_id,
                         details={"agent_id": data.agent_id},
                     )
+                    continue
+
+                queue_mode = normalize_queue_mode(data.queue_mode, default=deps.settings.queue_mode_default)
+                prompt_mode = normalize_prompt_mode(data.prompt_mode, default=deps.settings.prompt_mode_default)
+                if data.type == "user_message":
+                    current_runtime_state = deps.runtime_manager.get_state()
+                    deps.state_store.init_run(
+                        run_id=request_id,
+                        session_id=session_id,
+                        request_id=request_id,
+                        user_message=data.content or "",
+                        runtime=current_runtime_state.runtime,
+                        model=data.model or current_runtime_state.model,
+                    )
+                    deps.state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
+                    await send_lifecycle(
+                        stage="request_received",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "chars": len(data.content),
+                            "requested_agent_id": requested_agent_id,
+                            "effective_agent_id": requested_agent_id,
+                            "routing_reason": None,
+                            "preset": (data.preset or "").strip().lower() or None,
+                            "queue_mode": queue_mode,
+                            "prompt_mode": prompt_mode,
+                        },
+                    )
+
+                    incoming_tool_policy = tool_policy_to_dict(data.tool_policy, include_also_allow=True)
+                    try:
+                        session_inbox.enqueue(
+                            session_id=session_id,
+                            run_id=request_id,
+                            message=data.content,
+                            meta={
+                                "request_id": request_id,
+                                "session_id": session_id,
+                                "content": data.content,
+                                "model": data.model,
+                                "preset": data.preset,
+                                "tool_policy": incoming_tool_policy,
+                                "requested_agent_id": requested_agent_id,
+                                "queue_mode": queue_mode,
+                                "prompt_mode": prompt_mode,
+                            },
+                        )
+                    except OverflowError:
+                        await send_lifecycle(
+                            stage="queue_overflow",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "queue_mode": queue_mode,
+                                "max_queue_length": deps.settings.session_inbox_max_queue_length,
+                            },
+                        )
+                        await send_event(
+                            {
+                                "type": "error",
+                                "agent": deps.agent.name,
+                                "message": "Session queue overflow. Please retry shortly.",
+                            }
+                        )
+                        continue
+
+                    await send_lifecycle(
+                        stage="inbox_enqueued",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "queue_mode": queue_mode,
+                            "prompt_mode": prompt_mode,
+                            "queue_size": session_inbox.size(session_id),
+                        },
+                    )
+                    ensure_session_worker(session_id)
                     continue
 
                 incoming_tool_policy = tool_policy_to_dict(data.tool_policy, include_also_allow=True)
@@ -557,6 +920,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         depth=0,
                         preset=applied_preset,
                         orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+                        queue_mode=queue_mode,
+                        prompt_mode=prompt_mode,
                     ),
                 )
                 deps.logger.info(
@@ -677,3 +1042,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             )
         except ClientDisconnectedError:
             return
+    finally:
+        workers = [task for task in session_workers.values() if task is not None and not task.done()]
+        for task in workers:
+            task.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)

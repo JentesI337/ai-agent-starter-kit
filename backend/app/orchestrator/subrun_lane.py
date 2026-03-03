@@ -676,6 +676,8 @@ class SubrunLane:
                 depth=spec.depth,
                 preset=spec.preset,
                 orchestrator_agent_ids=spec.orchestrator_agent_ids,
+                queue_mode="wait",
+                prompt_mode="subagent",
             ),
         )
 

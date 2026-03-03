@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -70,6 +71,8 @@ class PipelineRunner:
         runtime: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
             self.state_store.set_task_status(
@@ -167,6 +170,8 @@ class PipelineRunner:
             runtime=runtime,
             route=route,
             tool_policy=tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
 
         await send_event(
@@ -202,6 +207,8 @@ class PipelineRunner:
         runtime: str,
         route: ModelRouteDecision,
         tool_policy: ToolPolicyDict | None,
+        prompt_mode: str | None,
+        should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
         max_attempts = max(1, int(settings.pipeline_runner_max_attempts))
         machine = FallbackStateMachine(
@@ -213,6 +220,8 @@ class PipelineRunner:
             session_id=session_id,
             request_id=request_id,
             tool_policy=tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
             max_attempts=max_attempts,
             config=FallbackRuntimeConfig(
                 overflow_fallback_retry_enabled=bool(settings.pipeline_runner_context_overflow_fallback_retry_enabled),

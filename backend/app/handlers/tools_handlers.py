@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
 from typing import Any
@@ -8,6 +9,9 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.control_models import (
+    ControlConfigHealthRequest,
+    ControlContextDetailRequest,
+    ControlContextListRequest,
     ControlToolsCatalogRequest,
     ControlToolsPolicyMatrixRequest,
     ControlToolsPolicyPreviewRequest,
@@ -32,6 +36,7 @@ class ToolsHandlerDependencies:
     resolve_agent: Callable[[str | None], tuple[str, Any, Any]]
     effective_orchestrator_agent_ids: Callable[[], set[str]]
     agent_registry: MutableMapping[str, Any]
+    state_store: Any
 
 
 _deps: ToolsHandlerDependencies | None = None
@@ -322,3 +327,170 @@ def api_control_tools_policy_preview(request_data: dict) -> dict:
         tool_policy=normalized_tool_policy,
         also_allow=request.also_allow,
     )
+
+
+def _estimate_tokens_from_chars(chars: int) -> int:
+    if chars <= 0:
+        return 0
+    return max(1, int(round(chars / 4.0)))
+
+
+def _build_context_segments(run_state: dict) -> dict:
+    events = run_state.get("events") or []
+    context_segmented_events = [
+        evt
+        for evt in events
+        if isinstance(evt, dict)
+        and str(evt.get("type") or "") == "lifecycle"
+        and str(evt.get("stage") or "") == "context_segmented"
+        and isinstance(evt.get("details"), dict)
+    ]
+    if context_segmented_events:
+        preferred = context_segmented_events[-1]
+        details = preferred.get("details") if isinstance(preferred.get("details"), dict) else {}
+        raw_segments = details.get("segments") if isinstance(details.get("segments"), dict) else {}
+        result: dict[str, dict] = {}
+        for name, value in raw_segments.items():
+            if not isinstance(name, str) or not isinstance(value, dict):
+                continue
+            tokens_est = int(value.get("tokens_est") or 0)
+            chars = int(value.get("chars") or 0)
+            share_pct = float(value.get("share_pct") or 0.0)
+            result[name] = {
+                "tokens_est": tokens_est,
+                "chars": chars,
+                "share_pct": round(share_pct, 2),
+            }
+        if result:
+            return result
+
+    input_payload = run_state.get("input") or {}
+    user_message = str(input_payload.get("user_message") or "")
+
+    memory_chars = 0
+    plan_chars = 0
+    tool_chars = 0
+    response_chars = 0
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        stage = str(event.get("stage") or "")
+        details = event.get("details") if isinstance(event.get("details"), dict) else {}
+        if stage == "memory_updated":
+            memory_chars += int(details.get("memory_chars") or 0)
+        if stage in {"planning_completed", "replanning_completed"}:
+            plan_chars += int(details.get("plan_chars") or 0)
+        if stage == "tool_completed":
+            tool_chars += int(details.get("result_chars") or 0)
+        if stage == "run_completed":
+            response_chars += int(details.get("response_chars") or 0)
+
+    final_events = [evt for evt in events if isinstance(evt, dict) and evt.get("type") == "final"]
+    if final_events:
+        final_text = str(final_events[-1].get("message") or "")
+        if response_chars <= 0:
+            response_chars = len(final_text)
+
+    segments = {
+        "system_prompt": {"chars": 0, "tokens_est": 0},
+        "policy": {"chars": 0, "tokens_est": 0},
+        "user_payload": {"chars": len(user_message), "tokens_est": _estimate_tokens_from_chars(len(user_message))},
+        "memory": {"chars": memory_chars, "tokens_est": _estimate_tokens_from_chars(memory_chars)},
+        "planning": {"chars": plan_chars, "tokens_est": _estimate_tokens_from_chars(plan_chars)},
+        "tool_results": {"chars": tool_chars, "tokens_est": _estimate_tokens_from_chars(tool_chars)},
+        "response": {"chars": response_chars, "tokens_est": _estimate_tokens_from_chars(response_chars)},
+    }
+    total_tokens = sum(item["tokens_est"] for item in segments.values())
+    total_tokens = max(1, total_tokens)
+    for item in segments.values():
+        item["share_pct"] = round((item["tokens_est"] / total_tokens) * 100.0, 2)
+    return segments
+
+
+def api_control_context_list(request_data: dict) -> dict:
+    deps = _require_deps()
+    request = ControlContextListRequest.model_validate(request_data)
+    runs = deps.state_store.list_runs(limit=max(1, int(request.limit)))
+    if request.session_id:
+        target = request.session_id.strip()
+        runs = [item for item in runs if isinstance(item, dict) and str(item.get("session_id") or "") == target]
+
+    items: list[dict] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        segments = _build_context_segments(run)
+        total_tokens_est = sum(item["tokens_est"] for item in segments.values())
+        top_overhead = sorted(
+            (
+                {"segment": name, "tokens_est": value["tokens_est"], "share_pct": value["share_pct"]}
+                for name, value in segments.items()
+                if name != "user_payload"
+            ),
+            key=lambda item: item["tokens_est"],
+            reverse=True,
+        )[:3]
+        items.append(
+            {
+                "run_id": run.get("run_id"),
+                "session_id": run.get("session_id"),
+                "status": run.get("status"),
+                "created_at": run.get("created_at"),
+                "updated_at": run.get("updated_at"),
+                "total_tokens_est": total_tokens_est,
+                "top_overhead": top_overhead,
+            }
+        )
+
+    return {
+        "schema": "context.list.v1",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def api_control_context_detail(request_data: dict) -> dict:
+    deps = _require_deps()
+    request = ControlContextDetailRequest.model_validate(request_data)
+    run_state = deps.state_store.get_run(request.run_id)
+    if run_state is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {request.run_id}")
+
+    segments = _build_context_segments(run_state)
+    return {
+        "schema": "context.detail.v1",
+        "run_id": run_state.get("run_id"),
+        "session_id": run_state.get("session_id"),
+        "status": run_state.get("status"),
+        "segments": segments,
+        "total_tokens_est": sum(item["tokens_est"] for item in segments.values()),
+    }
+
+
+def api_control_config_health(request_data: dict) -> dict:
+    request = ControlConfigHealthRequest.model_validate(request_data)
+    config_dump = settings.model_dump()
+
+    active_overrides: dict[str, str] = {}
+    for key in config_dump.keys():
+        env_key = str(key).upper()
+        if env_key in os.environ:
+            active_overrides[key] = env_key
+
+    risk_flags = {
+        "run_state_violation_hard_fail_enabled": bool(getattr(settings, "run_state_violation_hard_fail_enabled", False)),
+        "skills_engine_enabled": bool(getattr(settings, "skills_engine_enabled", False)),
+        "queue_mode_default": str(getattr(settings, "queue_mode_default", "wait")),
+    }
+
+    payload = {
+        "schema": "config.health.v1",
+        "schema_version": "config.v1",
+        "active_overrides": active_overrides,
+        "invalid_or_unknown": [],
+        "risk_flags": risk_flags,
+    }
+    if request.include_effective_values:
+        payload["effective_values"] = config_dump
+    return payload

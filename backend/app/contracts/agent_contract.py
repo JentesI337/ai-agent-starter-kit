@@ -44,5 +44,7 @@ class AgentContract(ABC):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         raise NotImplementedError

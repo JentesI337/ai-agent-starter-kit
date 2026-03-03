@@ -48,6 +48,9 @@ def include_control_routers(
     skills_preview_handler,
     skills_check_handler,
     skills_sync_handler,
+    context_list_handler,
+    context_detail_handler,
+    config_health_handler,
 ) -> None:
     app.include_router(
         build_control_runs_router(
@@ -105,5 +108,8 @@ def include_control_routers(
             skills_preview_handler=skills_preview_handler,
             skills_check_handler=skills_check_handler,
             skills_sync_handler=skills_sync_handler,
+            context_list_handler=context_list_handler,
+            context_detail_handler=context_detail_handler,
+            config_health_handler=config_health_handler,
         )
     )

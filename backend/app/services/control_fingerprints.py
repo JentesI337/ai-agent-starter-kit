@@ -11,6 +11,7 @@ def build_run_start_fingerprint(
     session_id: str | None,
     model: str | None,
     preset: str | None,
+    prompt_mode: str | None,
     tool_policy: ToolPolicyDict | None,
     runtime: str,
 ) -> str:
@@ -19,6 +20,7 @@ def build_run_start_fingerprint(
         "session_id": session_id,
         "model": model,
         "preset": preset,
+        "prompt_mode": prompt_mode,
         "tool_policy": tool_policy,
         "runtime": runtime,
     }
@@ -71,6 +73,7 @@ def build_workflow_execute_fingerprint(
     session_id: str | None,
     model: str | None,
     preset: str | None,
+    prompt_mode: str | None,
     tool_policy: ToolPolicyDict | None,
     allow_subrun_delegation: bool,
     runtime: str,
@@ -82,6 +85,7 @@ def build_workflow_execute_fingerprint(
         "session_id": session_id,
         "model": model,
         "preset": preset,
+        "prompt_mode": prompt_mode,
         "tool_policy": tool_policy,
         "allow_subrun_delegation": allow_subrun_delegation,
         "runtime": runtime,

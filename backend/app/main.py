@@ -348,6 +348,7 @@ tools_handlers.configure(
         resolve_agent=_resolve_agent,
         effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
         agent_registry=agent_registry,
+        state_store=state_store,
     )
 )
 run_handlers.configure(
@@ -505,6 +506,9 @@ include_control_routers(
     skills_preview_handler=skills_handlers.api_control_skills_preview,
     skills_check_handler=skills_handlers.api_control_skills_check,
     skills_sync_handler=skills_handlers.api_control_skills_sync,
+    context_list_handler=tools_handlers.api_control_context_list,
+    context_detail_handler=tools_handlers.api_control_context_detail,
+    config_health_handler=tools_handlers.api_control_config_health,
 )
 app.include_router(
     build_runtime_debug_router(

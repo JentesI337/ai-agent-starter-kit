@@ -18,9 +18,11 @@ def test_build_tool_selector_prompt_contains_allowed_tools_and_context() -> None
 
     assert '"tool":"read_file|web_fetch"' in prompt or '"tool":"web_fetch|read_file"' in prompt
     assert "Allowed tool names are exactly: read_file, web_fetch." in prompt or "Allowed tool names are exactly: web_fetch, read_file." in prompt
-    assert "Memory:\ncontext-line" in prompt
-    assert "Task:\nplease research this" in prompt
-    assert "Plan:\n1) inspect" in prompt
+    assert "[kernel_version=prompt-kernel.v1]" in prompt
+    assert "[prompt_type=tool_selection]" in prompt
+    assert "## memory\ncontext-line" in prompt
+    assert "## task\nplease research this" in prompt
+    assert "## plan\n1) inspect" in prompt
 
 
 def test_build_loop_gatekeeper_uses_config_values() -> None:
@@ -412,3 +414,58 @@ def test_run_tool_loop_emits_error_code_and_category_on_tool_failed() -> None:
     assert error_events
     assert error_events[0].get("error_code") == "command_policy_security"
     assert error_events[0].get("error_category") == "security"
+
+
+def test_run_tool_loop_applies_steer_interrupt_checkpoint() -> None:
+    manager = ToolExecutionManager()
+    lifecycle_events: list[tuple[str, dict | None]] = []
+
+    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
+        lifecycle_events.append((stage, details))
+
+    async def fake_send_event(payload: dict) -> None:
+        _ = payload
+
+    async def fake_run_tool_with_policy(*, tool: str, args: dict, policy: object) -> str:
+        _ = (tool, args, policy)
+        return "ok"
+
+    result = asyncio.run(
+        manager.run_tool_loop(
+            actions=[{"tool": "read_file", "args": {"path": "README.md"}}],
+            effective_allowed_tools={"read_file"},
+            config=ToolExecutionConfig(
+                call_cap=5,
+                time_cap_seconds=30.0,
+                loop_warn_threshold=2,
+                loop_critical_threshold=4,
+                loop_circuit_breaker_threshold=8,
+                generic_repeat_enabled=True,
+                ping_pong_enabled=True,
+                poll_no_progress_enabled=True,
+                poll_no_progress_threshold=3,
+                warning_bucket_size=10,
+            ),
+            user_message="read file",
+            model=None,
+            agent_name="head-agent",
+            normalize_tool_name=lambda tool: tool,
+            evaluate_action=lambda tool, args, allowed: (args, None),
+            build_execution_policy=lambda tool: object(),
+            run_tool_with_policy=fake_run_tool_with_policy,
+            invoke_spawn_subrun_tool=lambda **kwargs: asyncio.sleep(0),
+            should_retry_web_fetch_on_404=lambda error: False,
+            is_web_research_task=lambda message: False,
+            is_weather_lookup_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            memory_add=lambda tool, clipped: None,
+            emit_lifecycle=fake_emit_lifecycle,
+            send_event=fake_send_event,
+            invoke_hooks=lambda hook_name, payload: asyncio.sleep(0),
+            should_steer_interrupt=lambda: True,
+        )
+    )
+
+    assert result == "__STEER_INTERRUPTED__"
+    assert any(stage == "steer_detected" for stage, _ in lifecycle_events)
+    assert any(stage == "steer_applied" for stage, _ in lifecycle_events)

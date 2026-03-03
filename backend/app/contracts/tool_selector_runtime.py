@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from app.contracts.agent_contract import SendEvent
@@ -16,4 +17,5 @@ class ToolSelectorRuntime(Protocol):
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str: ...

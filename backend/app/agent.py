@@ -33,7 +33,9 @@ from app.services.tool_call_gatekeeper import (
 from app.services.action_parser import ActionParser
 from app.services.action_augmenter import ActionAugmenter
 from app.services.intent_detector import IntentDetector
+from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reply_shaper import ReplyShaper
+from app.services.request_normalization import normalize_prompt_mode
 from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
@@ -48,6 +50,7 @@ SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]
 PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
+STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,7 @@ class _HeadToolSelectorRuntime(ToolSelectorRuntime):
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         owner = self._owner_ref()
         if owner is None:
@@ -97,11 +101,13 @@ class _HeadToolSelectorRuntime(ToolSelectorRuntime):
             payload.user_message,
             payload.plan_text,
             payload.reduced_context,
+            payload.prompt_mode,
             session_id,
             request_id,
             send_event,
             model,
             allowed_tools,
+            should_steer_interrupt,
         )
 
 
@@ -143,6 +149,7 @@ class HeadAgent:
         )
         self.model_registry = model_registry or ModelRegistry()
         self.context_reducer = context_reducer or ContextReducer()
+        self.prompt_kernel_builder = PromptKernelBuilder()
         self._spawn_subrun_handler = spawn_subrun_handler
         self._policy_approval_handler = policy_approval_handler
         self.skills_service = SkillsService(
@@ -275,6 +282,8 @@ class HeadAgent:
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         status = "failed"
         error_text: str | None = None
@@ -324,6 +333,7 @@ class HeadAgent:
 
             self.memory.add(session_id, "user", user_message)
             model_id = model or self.client.model
+            effective_prompt_mode = normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default)
             profile = self.model_registry.resolve(model_id)
             budgets = self._step_budgets(profile.max_context)
             memory_items = self.memory.get_items(session_id)
@@ -349,12 +359,30 @@ class HeadAgent:
                 session_id=session_id,
                 details={
                     "model": model_id,
+                    "prompt_mode": effective_prompt_mode,
                     "max_context": profile.max_context,
                     "plan_budget": budgets["plan"],
                     "tool_budget": budgets["tool"],
                     "final_budget": budgets["final"],
                     "plan_used": plan_context.used_tokens,
                 },
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="context_segmented",
+                request_id=request_id,
+                session_id=session_id,
+                details=self._build_context_segments(
+                    phase="planning",
+                    budget_tokens=budgets["plan"],
+                    rendered_text=plan_context.rendered,
+                    used_tokens=plan_context.used_tokens,
+                    user_message=user_message,
+                    memory_lines=memory_lines,
+                    tool_outputs=[],
+                    snapshot_lines=None,
+                    system_prompt=self.prompt_profile.plan_prompt,
+                ),
             )
 
             await self._invoke_hooks(
@@ -365,6 +393,7 @@ class HeadAgent:
                 payload={
                     "prompt_type": "planning",
                     "model": model,
+                    "prompt_mode": effective_prompt_mode,
                     "context_chars": len(plan_context.rendered),
                     "budget_tokens": budgets["plan"],
                 },
@@ -388,6 +417,7 @@ class HeadAgent:
                 PlannerInput(
                     user_message=user_message,
                     reduced_context=plan_context.rendered,
+                    prompt_mode=effective_prompt_mode,
                 ),
                 model,
             )
@@ -434,22 +464,41 @@ class HeadAgent:
                     memory_lines=memory_lines,
                     tool_outputs=tool_context_outputs,
                 )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="context_segmented",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details=self._build_context_segments(
+                        phase="tool_loop",
+                        budget_tokens=budgets["tool"],
+                        rendered_text=tool_context.rendered,
+                        used_tokens=tool_context.used_tokens,
+                        user_message=user_message,
+                        memory_lines=memory_lines,
+                        tool_outputs=tool_context_outputs,
+                        snapshot_lines=None,
+                        system_prompt=self.prompt_profile.tool_selector_prompt,
+                    ),
+                )
 
                 tool_results = await self.tool_step_executor.execute(
                     ToolSelectorInput(
                         user_message=user_message,
                         plan_text=plan_text,
                         reduced_context=tool_context.rendered,
+                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
                     ),
                     session_id,
                     request_id,
                     send_event,
                     model,
                     effective_allowed_tools,
+                    should_steer_interrupt,
                 )
 
                 tool_results_state = self._classify_tool_results_state(tool_results)
-                if tool_results_state in {"blocked", "usable"}:
+                if tool_results_state in {"blocked", "usable", "steer_interrupted"}:
                     break
 
                 replan_reason = self._resolve_replan_reason(
@@ -507,6 +556,7 @@ class HeadAgent:
                     PlannerInput(
                         user_message=user_message,
                         reduced_context=replan_context.rendered,
+                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
                     ),
                     model,
                 )
@@ -564,6 +614,55 @@ class HeadAgent:
                 status = "completed"
                 return final_text
 
+            if self._is_steer_interrupted(tool_results):
+                interrupted_message = "Run interrupted due to newer input (steer). Processing latest message now."
+                await send_event(
+                    {
+                        "type": "status",
+                        "agent": self.name,
+                        "message": interrupted_message,
+                    }
+                )
+                await send_event(
+                    {
+                        "type": "final",
+                        "agent": self.name,
+                        "message": interrupted_message,
+                        "interrupted": True,
+                    }
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="response_emitted",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "response_chars": len(interrupted_message),
+                        "interrupted": True,
+                        "reason": "steer",
+                    },
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_interrupted",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"reason": "steer"},
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "steer_interrupt": True,
+                        "superseded_by_new_input": True,
+                        "response_chars": len(interrupted_message),
+                    },
+                )
+                status = "completed"
+                return interrupted_message
+
             if self._is_web_research_task(user_message) and not self._has_successful_web_fetch(tool_results or ""):
                 web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_fetch")
                 await self._emit_lifecycle(
@@ -606,6 +705,24 @@ class HeadAgent:
                 tool_outputs=[tool_results] if tool_results else [],
                 snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
             )
+            final_snapshot_lines = [f"plan: {plan_text[:500]}"] if plan_text else None
+            await self._emit_lifecycle(
+                send_event,
+                stage="context_segmented",
+                request_id=request_id,
+                session_id=session_id,
+                details=self._build_context_segments(
+                    phase="synthesis",
+                    budget_tokens=budgets["final"],
+                    rendered_text=final_context.rendered,
+                    used_tokens=final_context.used_tokens,
+                    user_message=user_message,
+                    memory_lines=memory_lines,
+                    tool_outputs=[tool_results] if tool_results else [],
+                    snapshot_lines=final_snapshot_lines,
+                    system_prompt=self.prompt_profile.final_prompt,
+                ),
+            )
             synthesis_task_type = self._resolve_synthesis_task_type(
                 user_message=user_message,
                 tool_results=tool_results or "",
@@ -619,6 +736,7 @@ class HeadAgent:
                 payload={
                     "prompt_type": "synthesize",
                     "model": model,
+                    "prompt_mode": effective_prompt_mode,
                     "context_chars": len(final_context.rendered),
                     "budget_tokens": budgets["final"],
                     "task_type": synthesis_task_type,
@@ -631,6 +749,7 @@ class HeadAgent:
                     plan_text=plan_text,
                     tool_results=tool_results or "",
                     reduced_context=final_context.rendered,
+                    prompt_mode=effective_prompt_mode,
                     task_type=synthesis_task_type,
                 ),
                 session_id,
@@ -729,6 +848,7 @@ class HeadAgent:
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
         tool_selector_output = await self.tool_selector_agent.execute(
             payload,
@@ -737,6 +857,7 @@ class HeadAgent:
             send_event=send_event,
             model=model,
             allowed_tools=allowed_tools,
+            should_steer_interrupt=should_steer_interrupt,
         )
         return tool_selector_output.tool_results
 
@@ -766,6 +887,49 @@ class HeadAgent:
             "plan": plan_budget,
             "tool": tool_budget,
             "final": final_budget,
+        }
+
+    def _build_context_segments(
+        self,
+        *,
+        phase: str,
+        budget_tokens: int,
+        rendered_text: str,
+        used_tokens: int,
+        user_message: str,
+        memory_lines: list[str],
+        tool_outputs: list[str],
+        snapshot_lines: list[str] | None,
+        system_prompt: str,
+    ) -> dict[str, object]:
+        estimate = self.context_reducer.estimate_tokens
+        user_tokens = estimate(user_message or "")
+        memory_text = "\n".join(memory_lines or [])
+        memory_tokens = estimate(memory_text)
+        tool_text = "\n\n".join(tool_outputs or [])
+        tool_tokens = estimate(tool_text)
+        snapshot_text = "\n".join(snapshot_lines or [])
+        snapshot_tokens = estimate(snapshot_text)
+        system_tokens = estimate(system_prompt or "")
+
+        segments: dict[str, dict[str, int | float]] = {
+            "system_prompt": {"tokens_est": system_tokens, "chars": len(system_prompt or "")},
+            "user_payload": {"tokens_est": user_tokens, "chars": len(user_message or "")},
+            "memory": {"tokens_est": memory_tokens, "chars": len(memory_text)},
+            "tool_results": {"tokens_est": tool_tokens, "chars": len(tool_text)},
+            "snapshot": {"tokens_est": snapshot_tokens, "chars": len(snapshot_text)},
+            "rendered_prompt": {"tokens_est": used_tokens, "chars": len(rendered_text or "")},
+        }
+
+        total = max(1, sum(int(item["tokens_est"]) for item in segments.values()))
+        for value in segments.values():
+            value["share_pct"] = round((int(value["tokens_est"]) / total) * 100.0, 2)
+
+        return {
+            "phase": phase,
+            "budget_tokens": int(budget_tokens),
+            "used_tokens": int(used_tokens),
+            "segments": segments,
         }
 
     def _validate_guardrails(self, user_message: str, session_id: str, model: str | None) -> None:
@@ -894,11 +1058,13 @@ class HeadAgent:
         user_message: str,
         plan_text: str,
         memory_context: str,
+        prompt_mode: str,
         session_id: str,
         request_id: str,
         send_event: SendEvent,
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         async def _emit_lifecycle_proxy(stage: str, details: dict | None = None) -> None:
             await self._emit_lifecycle(
@@ -982,6 +1148,7 @@ class HeadAgent:
             user_message=user_message,
             plan_text=plan_text,
             memory_context=memory_context,
+            prompt_mode=prompt_mode,
             app_settings=settings,
             model=model,
             allowed_tools=allowed_tools,
@@ -1022,6 +1189,7 @@ class HeadAgent:
             is_weather_lookup_task=self._is_weather_lookup_task,
             build_web_research_url=self._build_web_research_url,
             memory_add=_memory_add_proxy,
+            should_steer_interrupt=should_steer_interrupt,
         )
 
     def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
@@ -1030,6 +1198,9 @@ class HeadAgent:
         return state in {"blocked", "usable"}
 
     def _classify_tool_results_state(self, tool_results: str | None) -> str:
+        if self._is_steer_interrupted(tool_results):
+            return "steer_interrupted"
+
         if self._parse_blocked_tool_result(tool_results):
             return "blocked"
 
@@ -1043,6 +1214,9 @@ class HeadAgent:
         if has_error and not has_ok:
             return "error_only"
         return "usable"
+
+    def _is_steer_interrupted(self, tool_results: str | None) -> bool:
+        return (tool_results or "").startswith(STEER_INTERRUPTED_MARKER)
 
     def _resolve_replan_reason(
         self,

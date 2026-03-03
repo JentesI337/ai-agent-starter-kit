@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
 
 PlanFn = Callable[[PlannerInput, str | None], Awaitable[str]]
-ToolFn = Callable[[ToolSelectorInput, str, str, Callable[[dict], Awaitable[None]], str | None, set[str]], Awaitable[str]]
+ToolFn = Callable[[ToolSelectorInput, str, str, Callable[[dict], Awaitable[None]], str | None, set[str], Callable[[], bool] | None], Awaitable[str]]
 SynthesizeFn = Callable[[SynthesizerInput, str, str, Callable[[dict], Awaitable[None]], str | None], Awaitable[str]]
 
 
@@ -30,8 +30,9 @@ class ToolStepExecutor:
         send_event: Callable[[dict], Awaitable[None]],
         model: str | None,
         allowed_tools: set[str],
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
-        return await self.execute_fn(payload, session_id, request_id, send_event, model, allowed_tools)
+        return await self.execute_fn(payload, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,8 @@ from fastapi import HTTPException
 
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import RequestContext
+from app.config import settings
+from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.tool_policy import ToolPolicyDict
 from app.tool_policy import tool_policy_to_dict
 
@@ -89,6 +91,14 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
                 depth=0,
                 preset=applied_preset,
                 orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+                queue_mode=normalize_queue_mode(
+                    getattr(request, "queue_mode", None),
+                    default=settings.queue_mode_default,
+                ),
+                prompt_mode=normalize_prompt_mode(
+                    getattr(request, "prompt_mode", None),
+                    default=settings.prompt_mode_default,
+                ),
             ),
         )
         deps.mark_completed(run_id=request_id)
@@ -141,6 +151,8 @@ def start_run(request: Any, deps: RunEndpointsDependencies) -> dict:
         session_id=session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
     )
 

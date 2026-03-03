@@ -11,6 +11,8 @@ class AgentTestRequest(BaseModel):
     message: str = "hi"
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
 
 
@@ -19,6 +21,8 @@ class RunStartRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
 
 
@@ -27,6 +31,8 @@ class ControlRunStartRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
@@ -57,6 +63,8 @@ class ControlSessionsSendRequest(BaseModel):
     message: str
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
@@ -66,6 +74,8 @@ class ControlSessionsSpawnRequest(BaseModel):
     message: str
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
@@ -164,6 +174,8 @@ class ControlWorkflowsExecuteRequest(BaseModel):
     session_id: str | None = None
     model: str | None = None
     preset: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
     idempotency_key: str | None = None
 
@@ -199,6 +211,19 @@ class ControlToolsPolicyPreviewRequest(BaseModel):
     model: str | None = None
     tool_policy: ToolPolicyPayload | None = None
     also_allow: list[str] | None = None
+
+
+class ControlContextListRequest(BaseModel):
+    session_id: str | None = None
+    limit: int = 50
+
+
+class ControlContextDetailRequest(BaseModel):
+    run_id: str
+
+
+class ControlConfigHealthRequest(BaseModel):
+    include_effective_values: bool = False
 
 
 class ControlPolicyApprovalsPendingRequest(BaseModel):

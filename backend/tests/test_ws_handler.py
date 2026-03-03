@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 
 os.environ.setdefault("OLLAMA_BIN", "python")
 
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.runtime_manager import RuntimeState
+from backend.tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
 
 
 def _set_local_runtime() -> None:
@@ -31,13 +33,34 @@ def test_ws_handler_routes_coding_intent_to_coder_agent(monkeypatch) -> None:
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_head_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_head_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event({"type": "final", "agent": "head-agent", "message": "head-should-not-handle"})
         return "head-should-not-handle"
 
-    async def fake_coder_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_coder_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event({"type": "final", "agent": "coder-agent", "message": f"coder:{user_message}"})
         return f"coder:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_head_run)
+    assert_agent_run_mock_signature_compatible(fake_coder_run)
 
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
     monkeypatch.setattr(agent_registry["head-agent"], "run", fake_head_run)
@@ -69,7 +92,16 @@ def test_ws_handler_subrun_spawn_emits_accepted_with_default_mode(monkeypatch) -
     async def fake_ensure_model_ready(send_event, session_id, model_name):
         return model_name
 
-    async def fake_run(user_message, send_event, session_id, request_id, model=None, tool_policy=None):
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
         await send_event(
             {
                 "type": "final",
@@ -80,6 +112,8 @@ def test_ws_handler_subrun_spawn_emits_accepted_with_default_mode(monkeypatch) -
             }
         )
         return f"subrun:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_run)
 
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
     monkeypatch.setattr(agent, "run", fake_run)
@@ -170,3 +204,122 @@ def test_ws_handler_unsupported_type_emits_rejection_lifecycle() -> None:
         evt.get("type") == "lifecycle" and evt.get("stage") == "request_rejected_unsupported_type"
         for evt in events
     )
+
+
+def test_ws_handler_user_messages_are_queued_and_processed_in_order(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
+        if user_message == "first":
+            await asyncio.sleep(0.05)
+        await send_event({"type": "final", "agent": "head-agent", "message": f"done:{user_message}"})
+        return f"done:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_run)
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_run)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json({"type": "user_message", "content": "first", "agent_id": "head-agent"})
+        ws.send_json({"type": "user_message", "content": "second", "agent_id": "head-agent"})
+
+        finals = []
+        for _ in range(60):
+            evt = _unwrap_event(ws.receive_json())
+            if evt.get("type") == "final":
+                finals.append(evt.get("message"))
+                if len(finals) == 2:
+                    break
+
+    assert finals == ["done:first", "done:second"]
+
+
+def test_ws_handler_steer_interrupts_running_request(monkeypatch) -> None:
+    _set_local_runtime()
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    async def fake_run(
+        user_message,
+        send_event,
+        session_id,
+        request_id,
+        model=None,
+        tool_policy=None,
+        prompt_mode=None,
+        should_steer_interrupt=None,
+    ):
+        await send_event(
+            {
+                "type": "lifecycle",
+                "stage": "tool_completed",
+                "request_id": request_id,
+                "session_id": session_id,
+                "details": {"tool": "read_file"},
+            }
+        )
+        if callable(should_steer_interrupt) and should_steer_interrupt():
+            await send_event(
+                {
+                    "type": "lifecycle",
+                    "stage": "steer_detected",
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "details": {"checkpoint_stage": "tool_completed"},
+                }
+            )
+            await send_event(
+                {
+                    "type": "lifecycle",
+                    "stage": "steer_applied",
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "details": {"checkpoint_stage": "tool_completed"},
+                }
+            )
+            return ""
+        await send_event({"type": "final", "agent": "head-agent", "message": f"done:{user_message}"})
+        return f"done:{user_message}"
+
+    assert_agent_run_mock_signature_compatible(fake_run)
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "run", fake_run)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(ws.receive_json())
+        ws.send_json({"type": "user_message", "content": "first", "agent_id": "head-agent", "queue_mode": "steer"})
+        ws.send_json({"type": "user_message", "content": "second", "agent_id": "head-agent", "queue_mode": "steer"})
+
+        events = []
+        for _ in range(80):
+            evt = _unwrap_event(ws.receive_json())
+            events.append(evt)
+            finals = [item for item in events if item.get("type") == "final"]
+            if len(finals) >= 1 and any(item.get("stage") == "steer_applied" for item in events if item.get("type") == "lifecycle"):
+                break
+
+    steer_applied = [
+        evt for evt in events if evt.get("type") == "lifecycle" and evt.get("stage") == "steer_applied"
+    ]
+    final_messages = [evt.get("message") for evt in events if evt.get("type") == "final"]
+
+    assert steer_applied
+    assert "done:second" in final_messages

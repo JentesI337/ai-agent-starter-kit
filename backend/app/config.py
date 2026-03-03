@@ -201,6 +201,14 @@ class Settings(BaseModel):
         "ORCHESTRATOR_STATE_RESET_ON_STARTUP",
         _default_reset_on_startup(app_env),
     )
+    run_state_violation_hard_fail_enabled: bool = _parse_bool_env(
+        "RUN_STATE_VIOLATION_HARD_FAIL_ENABLED",
+        False,
+    )
+    queue_mode_default: str = os.getenv("QUEUE_MODE_DEFAULT", "wait").strip().lower()
+    prompt_mode_default: str = os.getenv("PROMPT_MODE_DEFAULT", "full").strip().lower()
+    session_inbox_max_queue_length: int = int(os.getenv("SESSION_INBOX_MAX_QUEUE_LENGTH", "100"))
+    session_inbox_ttl_seconds: int = int(os.getenv("SESSION_INBOX_TTL_SECONDS", "600"))
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
     web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
     web_fetch_blocked_content_types: list[str] = _parse_csv_env(

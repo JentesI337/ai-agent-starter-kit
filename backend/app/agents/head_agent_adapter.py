@@ -49,6 +49,8 @@ class HeadAgentAdapter(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         payload = self.input_schema(
             user_message=user_message,
@@ -64,6 +66,8 @@ class HeadAgentAdapter(AgentContract):
             request_id=payload.request_id,
             model=payload.model,
             tool_policy=payload.tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
         output = self.output_schema(final_text=final_text)
         return output.final_text
@@ -99,6 +103,8 @@ class CoderAgentAdapter(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         payload = self.input_schema(
             user_message=user_message,
@@ -114,6 +120,8 @@ class CoderAgentAdapter(AgentContract):
             request_id=payload.request_id,
             model=payload.model,
             tool_policy=payload.tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
         output = self.output_schema(final_text=final_text)
         return output.final_text
@@ -160,6 +168,8 @@ class ReviewAgentAdapter(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         if not self._has_review_evidence(user_message):
             message = (
@@ -183,6 +193,8 @@ class ReviewAgentAdapter(AgentContract):
             request_id=payload.request_id,
             model=payload.model,
             tool_policy=payload.tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
         )
         output = self.output_schema(final_text=final_text)
         return output.final_text

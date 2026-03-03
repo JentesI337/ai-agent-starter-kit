@@ -395,6 +395,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         session_id=request.session_id,
         model=request.model,
         preset=request.preset,
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         allow_subrun_delegation=bool(getattr(workflow, "allow_subrun_delegation", False)),
         runtime=runtime_state.runtime,
@@ -410,6 +411,8 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         session_id=session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         meta={
             "workflow_execute": True,

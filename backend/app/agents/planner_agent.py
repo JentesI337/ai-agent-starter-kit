@@ -5,6 +5,8 @@ import json
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import PlannerInput, PlannerOutput
 from app.llm_client import LlmClient
+from app.services.prompt_kernel_builder import PromptKernelBuilder
+from app.services.request_normalization import normalize_prompt_mode
 from app.tool_policy import ToolPolicyDict
 
 
@@ -23,6 +25,7 @@ class PlannerAgent(AgentContract):
     def __init__(self, client: LlmClient, system_prompt: str):
         self.client = client
         self.system_prompt = system_prompt
+        self._kernel_builder = PromptKernelBuilder()
 
     @property
     def name(self) -> str:
@@ -43,18 +46,19 @@ class PlannerAgent(AgentContract):
         )
 
     async def execute(self, payload: PlannerInput, model: str | None = None) -> PlannerOutput:
-        planner_prompt = (
+        planner_instructions = (
             "Create a short execution plan (2-5 bullets) for the user's request.\n"
             "If the request is simple (greeting, small talk, or direct question), keep the plan minimal.\n"
-            "If the request is technical or coding-related, include actionable implementation steps.\n\n"
-            "Reduced context:\n"
-            f"{payload.reduced_context}\n\n"
-            "Current task:\n"
-            f"{payload.user_message}"
+            "If the request is technical or coding-related, include actionable implementation steps."
         )
+        prompt_mode = normalize_prompt_mode(payload.prompt_mode, default="full")
+        sections = {
+            "instructions": planner_instructions,
+            "reduced_context": payload.reduced_context,
+            "current_task": payload.user_message,
+        }
         if self._requires_hard_research_structure(payload.user_message):
-            planner_prompt += (
-                "\n\n"
+            sections["hard_contract"] = (
                 "Mandatory response contract for this request:\n"
                 "- Ensure final answer contains these sections exactly once: "
                 "Architektur-Risiken, Performance-Hotspots, Guardrail-Lücken, "
@@ -63,9 +67,14 @@ class PlannerAgent(AgentContract):
                 "- Include rollout phases explicitly named 'Phase 1', 'Phase 2', 'Phase 3'.\n"
                 "- Include at least two KPI lines with measurable values (% or ms or s)."
             )
+        kernel = self._kernel_builder.build(
+            prompt_type="planning",
+            prompt_mode=prompt_mode,
+            sections=sections,
+        )
         plan = await self.client.complete_chat(
             self.system_prompt,
-            planner_prompt,
+            kernel.rendered,
             model=model,
             temperature=self.constraints.temperature,
         )
@@ -79,7 +88,10 @@ class PlannerAgent(AgentContract):
         request_id: str,
         model: str | None = None,
         tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
     ) -> str:
         payload = PlannerInput.model_validate_json(user_message)
+        if prompt_mode:
+            payload = payload.model_copy(update={"prompt_mode": prompt_mode})
         result = await self.execute(payload, model=model)
         return json.dumps(result.model_dump(), ensure_ascii=False)

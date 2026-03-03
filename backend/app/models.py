@@ -14,6 +14,8 @@ class WsInboundEnvelope(BaseModel):
     model: str | None = None
     session_id: str | None = None
     runtime_target: str | None = None
+    queue_mode: str | None = None
+    prompt_mode: str | None = None
     tool_policy: ToolPolicyPayload | None = None
 
 

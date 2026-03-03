@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.interfaces import RequestContext
+from app.config import settings
 from app.control_models import (
     ControlRunsAuditRequest,
     ControlRunsEventsRequest,
@@ -19,7 +20,14 @@ from app.control_models import (
     ControlRunWaitRequest,
 )
 from app.orchestrator.events import build_lifecycle_event
-from app.services.request_normalization import normalize_idempotency_key, normalize_preset
+from app.orchestrator.run_state_machine import (
+    build_run_state_event,
+    build_run_state_violation,
+    build_stage_event,
+    is_allowed_run_state_transition,
+    resolve_run_state_from_stage,
+)
+from app.services.request_normalization import normalize_idempotency_key, normalize_preset, normalize_prompt_mode, normalize_queue_mode
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 
@@ -59,6 +67,20 @@ def _normalize_tool_policy_payload(value) -> ToolPolicyDict | None:
 def _remove_active_task(run_id: str) -> None:
     deps = _require_deps()
     deps.active_run_tasks.pop(run_id, None)
+
+
+def _is_run_state_hard_failed(run_id: str) -> bool:
+    deps = _require_deps()
+    get_run = getattr(deps.state_store, "get_run", None)
+    if not callable(get_run):
+        return False
+    run_state = get_run(run_id)
+    if not isinstance(run_state, dict):
+        return False
+    meta = run_state.get("meta")
+    if not isinstance(meta, dict):
+        return False
+    return bool(meta.get("run_state_hard_failed"))
 
 
 def normalize_contract_run_status(status: str | None) -> str | None:
@@ -138,8 +160,105 @@ def state_append_event_safe(run_id: str, event: dict) -> None:
     deps = _require_deps()
     try:
         deps.state_store.append_event(run_id=run_id, event=event)
+        _append_derived_stage_and_run_state_events(run_id=run_id, event=event)
     except Exception:
         deps.logger.debug("state_append_event_failed run_id=%s", run_id, exc_info=True)
+
+
+def _append_derived_stage_and_run_state_events(*, run_id: str, event: dict) -> None:
+    deps = _require_deps()
+    if not isinstance(event, dict):
+        return
+    if str(event.get("type") or "") != "lifecycle":
+        return
+
+    stage = str(event.get("stage") or "").strip()
+    if not stage:
+        return
+
+    session_id = str(event.get("session_id") or "")
+    timestamp = event.get("ts") if isinstance(event.get("ts"), str) else None
+    status = event.get("status") if isinstance(event.get("status"), str) else None
+
+    deps.state_store.append_event(
+        run_id=run_id,
+        event=build_stage_event(
+            run_id=run_id,
+            session_id=session_id,
+            stage=stage,
+            status=status,
+            ts=timestamp,
+        ),
+    )
+
+    target_state = resolve_run_state_from_stage(stage)
+    if target_state is None:
+        return
+
+    previous_state: str | None = None
+    get_run = getattr(deps.state_store, "get_run", None)
+    if callable(get_run):
+        run_state = get_run(run_id)
+        if isinstance(run_state, dict):
+            meta = run_state.get("meta")
+            if isinstance(meta, dict):
+                value = meta.get("run_state")
+                if isinstance(value, str) and value.strip():
+                    previous_state = value.strip().lower()
+
+    allowed = is_allowed_run_state_transition(previous_state, target_state)
+    deps.state_store.append_event(
+        run_id=run_id,
+        event=build_run_state_event(
+            run_id=run_id,
+            session_id=session_id,
+            stage=stage,
+            previous_state=previous_state,
+            target_state=target_state,
+            allowed=allowed,
+            reason=None if allowed else "invalid_transition",
+            ts=timestamp,
+        ),
+    )
+    if not allowed:
+        deps.state_store.append_event(
+            run_id=run_id,
+            event=build_run_state_violation(
+                run_id=run_id,
+                session_id=session_id,
+                stage=stage,
+                previous_state=previous_state,
+                target_state=target_state,
+                ts=timestamp,
+            ),
+        )
+        if bool(getattr(settings, "run_state_violation_hard_fail_enabled", False)):
+            mark_failed = getattr(deps.state_store, "mark_failed", None)
+            if callable(mark_failed):
+                mark_failed(run_id=run_id, error=f"run_state_violation: {previous_state} -> {target_state} on stage {stage}")
+            patch_run_meta = getattr(deps.state_store, "patch_run_meta", None)
+            if callable(patch_run_meta):
+                patch_run_meta(
+                    run_id,
+                    {
+                        "run_state_hard_failed": True,
+                        "run_state_hard_failed_stage": stage,
+                        "run_state_hard_failed_from": previous_state,
+                        "run_state_hard_failed_to": target_state,
+                    },
+                )
+        return
+
+    patch_run_meta = getattr(deps.state_store, "patch_run_meta", None)
+    if callable(patch_run_meta):
+        patch_run_meta(
+            run_id,
+            {
+                "run_state": target_state,
+                "run_state_last_stage": stage,
+                "run_state_contract_version": "run-state.v1",
+            },
+        )
 
 
 def state_mark_failed_safe(run_id: str, error: str) -> None:
@@ -208,12 +327,18 @@ async def _run_background_message(
     message: str,
     model: str | None,
     preset: str | None,
+    queue_mode: str | None,
+    prompt_mode: str | None,
     tool_policy: ToolPolicyDict | None,
 ) -> None:
     deps = _require_deps()
 
     async def collect_event(payload: dict) -> None:
+        if _is_run_state_hard_failed(run_id):
+            raise RuntimeError("run_state_hard_failed")
         state_append_event_safe(run_id=run_id, event=payload)
+        if _is_run_state_hard_failed(run_id):
+            raise RuntimeError("run_state_hard_failed")
 
     try:
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(agent_id)
@@ -257,6 +382,8 @@ async def _run_background_message(
                 depth=0,
                 preset=applied_preset,
                 orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+                queue_mode=normalize_queue_mode(queue_mode, default=settings.queue_mode_default),
+                prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
             ),
         )
         state_mark_completed_safe(run_id=run_id)
@@ -294,6 +421,8 @@ def start_run_background(
     session_id: str,
     model: str | None,
     preset: str | None,
+    queue_mode: str | None,
+    prompt_mode: str | None,
     tool_policy: ToolPolicyDict | None,
     meta: dict | None = None,
 ) -> str:
@@ -330,6 +459,8 @@ def start_run_background(
             message=message,
             model=model,
             preset=preset,
+            queue_mode=queue_mode,
+            prompt_mode=prompt_mode,
             tool_policy=tool_policy,
         )
     )
@@ -555,6 +686,7 @@ async def api_control_run_start(request_data: dict, idempotency_key_header: str 
         session_id=request.session_id,
         model=request.model,
         preset=request.preset,
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
         runtime=runtime_state.runtime,
     )
@@ -571,6 +703,8 @@ async def api_control_run_start(request_data: dict, idempotency_key_header: str 
         session_id=session_id,
         model=request.model,
         preset=request.preset,
+        queue_mode=getattr(request, "queue_mode", None),
+        prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
     )
     _register_idempotent_run(
