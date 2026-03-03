@@ -146,6 +146,19 @@ class PipelineRunner:
                     f"Model context window too small ({guard.tokens} tokens, min {settings.context_window_hard_min_tokens})."
                 )
 
+        await send_event(
+            build_lifecycle_event(
+                request_id=request_id,
+                session_id=session_id,
+                stage="terminal_wait_started",
+                details={
+                    "scope": "pipeline",
+                    "reason": "await_agent_terminal_state",
+                },
+                agent=self.agent.name,
+            )
+        )
+
         final_text = await self._run_with_fallback(
             user_message=user_message,
             send_event=send_event,
@@ -154,6 +167,19 @@ class PipelineRunner:
             runtime=runtime,
             route=route,
             tool_policy=tool_policy,
+        )
+
+        await send_event(
+            build_lifecycle_event(
+                request_id=request_id,
+                session_id=session_id,
+                stage="terminal_wait_completed",
+                details={
+                    "scope": "pipeline",
+                    "terminal_stage": "agent_run_completed",
+                },
+                agent=self.agent.name,
+            )
         )
 
         for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
@@ -245,6 +271,17 @@ class PipelineRunner:
                     1,
                     int(settings.pipeline_runner_persistent_priority_min_samples),
                 ),
+                recovery_backoff_enabled=bool(settings.pipeline_runner_recovery_backoff_enabled),
+                recovery_backoff_base_ms=max(0, int(settings.pipeline_runner_recovery_backoff_base_ms)),
+                recovery_backoff_max_ms=max(
+                    0,
+                    int(settings.pipeline_runner_recovery_backoff_max_ms),
+                ),
+                recovery_backoff_multiplier=max(
+                    1.0,
+                    float(settings.pipeline_runner_recovery_backoff_multiplier),
+                ),
+                recovery_backoff_jitter=bool(settings.pipeline_runner_recovery_backoff_jitter),
             ),
         )
         return await machine.run()

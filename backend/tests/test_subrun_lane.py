@@ -76,7 +76,12 @@ def test_subrun_lane_completes_and_announces(tmp_path) -> None:
     assert any(event.get("type") == "subrun_status" and event.get("status") == "accepted" for event in events)
     assert any(event.get("type") == "subrun_status" and event.get("status") == "running" for event in events)
     assert any(event.get("type") == "subrun_status" and event.get("status") == "completed" for event in events)
-    assert any(event.get("type") == "subrun_announce" and event.get("status") == "completed" for event in events)
+    completed_announce = next(
+        event for event in events if event.get("type") == "subrun_announce" and event.get("status") == "completed"
+    )
+    assert completed_announce["handover"]["terminal_reason"] == "subrun-complete"
+    assert completed_announce["handover"]["confidence"] > 0.5
+    assert completed_announce["handover"]["result"] == "done:build feature"
 
 
 def test_subrun_lane_times_out_and_announces(tmp_path) -> None:
@@ -115,7 +120,53 @@ def test_subrun_lane_times_out_and_announces(tmp_path) -> None:
 
     assert status is not None
     assert status["status"] == "timed_out"
-    assert any(event.get("type") == "subrun_announce" and event.get("status") == "timed_out" for event in events)
+    timed_out_announce = next(
+        event for event in events if event.get("type") == "subrun_announce" and event.get("status") == "timed_out"
+    )
+    assert timed_out_announce["handover"]["terminal_reason"] == "subrun-timeout"
+    assert timed_out_announce["handover"]["result"] is None
+
+
+def test_subrun_lane_get_handover_contract_pending_and_terminal(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(delay_seconds=0.05),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=5,
+        announce_retry_base_delay_ms=10,
+        announce_retry_max_delay_ms=50,
+        announce_retry_jitter=False,
+    )
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> tuple[dict, dict | None]:
+        run_id = await lane.spawn(
+            parent_request_id="req-parent",
+            parent_session_id="sess-parent",
+            user_message="contract",
+            runtime="local",
+            model="llama",
+            timeout_seconds=2,
+            tool_policy=None,
+            send_event=send_event,
+        )
+        pending = lane.get_handover_contract(run_id)
+        await lane.wait_for_completion(run_id, timeout=5)
+        terminal = lane.get_handover_contract(run_id)
+        return pending or {}, terminal
+
+    pending_contract, terminal_contract = asyncio.run(run_case())
+
+    assert pending_contract["terminal_reason"] in {"subrun-accepted", "subrun-running"}
+    assert pending_contract["result"] is None
+    assert terminal_contract is not None
+    assert terminal_contract["terminal_reason"] == "subrun-complete"
+    assert terminal_contract["result"] == "done:contract"
 
 
 def test_subrun_lane_rejects_depth_overflow(tmp_path) -> None:
@@ -648,7 +699,8 @@ def test_subrun_lane_lifecycle_delivery_error_grace_can_be_disabled(tmp_path) ->
     status = lane.get_status(run_id)
     assert status is not None
     assert status.get("status") == "failed"
-    assert any(evt.get("type") == "subrun_announce" and evt.get("status") == "failed" for evt in events)
+    failed_announce = next(evt for evt in events if evt.get("type") == "subrun_announce" and evt.get("status") == "failed")
+    assert failed_announce["handover"]["terminal_reason"] == "subrun-error"
 
 
 def test_subrun_lane_retention_prunes_terminal_status_maps(tmp_path) -> None:

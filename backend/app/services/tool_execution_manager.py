@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 import json
 from time import monotonic
+from uuid import uuid4
 
 from app.config import Settings
 from app.errors import ToolExecutionError
@@ -618,6 +619,15 @@ class ToolExecutionManager:
         tool_error_count = 0
         started_at = monotonic()
 
+        await emit_lifecycle(
+            "tool_loop_started",
+            {
+                "total_actions": len(actions),
+                "call_cap": tool_call_cap,
+                "time_cap_seconds": tool_time_cap_seconds,
+            },
+        )
+
         if config.parallel_read_only_enabled:
             read_only_actions = [
                 action
@@ -666,6 +676,7 @@ class ToolExecutionManager:
             actions = mutating_actions
 
         for idx, action in enumerate(actions, start=1):
+            call_id = f"tool-call-{idx}-{uuid4().hex[:8]}"
             prep = prepare_action_for_execution(
                 action=action,
                 allowed_tools=effective_allowed_tools,
@@ -685,6 +696,7 @@ class ToolExecutionManager:
                     {
                         "tool": tool,
                         "index": idx,
+                        "call_id": call_id,
                         "budget_type": "time",
                         "elapsed_seconds": round(elapsed, 3),
                         "limit_seconds": tool_time_cap_seconds,
@@ -701,6 +713,7 @@ class ToolExecutionManager:
                     {
                         "tool": tool,
                         "index": idx,
+                        "call_id": call_id,
                         "budget_type": "call_count",
                         "used_calls": tool_call_count,
                         "limit_calls": tool_call_cap,
@@ -719,7 +732,7 @@ class ToolExecutionManager:
                 )
                 await emit_lifecycle(
                     "tool_blocked",
-                    {"tool": tool, "index": idx, "error": prep.error},
+                    {"tool": tool, "index": idx, "call_id": call_id, "error": prep.error},
                 )
                 continue
             evaluated_args = prep.normalized_args
@@ -743,7 +756,16 @@ class ToolExecutionManager:
                     "step": f"Tool {idx}: {tool}",
                 }
             )
-            await emit_lifecycle("tool_started", {"tool": tool, "index": idx})
+            await emit_lifecycle(
+                "tool_started",
+                {
+                    "tool": tool,
+                    "index": idx,
+                    "call_id": call_id,
+                    "status": "started",
+                    "duration_ms": 0,
+                },
+            )
 
             await invoke_hooks(
                 "before_tool_call",
@@ -751,6 +773,7 @@ class ToolExecutionManager:
                     "tool": tool,
                     "args": dict(evaluated_args),
                     "index": idx,
+                    "call_id": call_id,
                 },
             )
 
@@ -786,7 +809,15 @@ class ToolExecutionManager:
 
                 await emit_lifecycle(
                     "tool_completed",
-                    {"tool": tool, "index": idx, "result_chars": len(clipped), "elapsed_ms": tool_elapsed_ms},
+                    {
+                        "tool": tool,
+                        "index": idx,
+                        "call_id": call_id,
+                        "status": "ok",
+                        "result_chars": len(clipped),
+                        "duration_ms": tool_elapsed_ms,
+                        "elapsed_ms": tool_elapsed_ms,
+                    },
                 )
                 await invoke_hooks(
                     "after_tool_call",
@@ -794,11 +825,14 @@ class ToolExecutionManager:
                         "tool": tool,
                         "args": dict(evaluated_args),
                         "index": idx,
+                        "call_id": call_id,
                         "status": "ok",
+                        "duration_ms": tool_elapsed_ms,
                         "result_chars": len(clipped),
                     },
                 )
             except ToolExecutionError as exc:
+                error_elapsed_ms = int((monotonic() - tool_started) * 1000)
                 attempt_calls = 1
                 retried_successfully = False
                 if (
@@ -821,6 +855,7 @@ class ToolExecutionManager:
                             {
                                 "tool": tool,
                                 "index": idx,
+                                "call_id": call_id,
                                 "reason": "http_404",
                                 "from_url": primary_url,
                                 "to_url": fallback_url,
@@ -845,7 +880,10 @@ class ToolExecutionManager:
                                 {
                                     "tool": tool,
                                     "index": idx,
+                                    "call_id": call_id,
+                                    "status": "ok",
                                     "result_chars": len(clipped),
+                                    "duration_ms": retry_elapsed_ms,
                                     "elapsed_ms": retry_elapsed_ms,
                                     "retried": True,
                                 },
@@ -855,6 +893,7 @@ class ToolExecutionManager:
                                 {
                                     "tool": tool,
                                     "index": idx,
+                                    "call_id": call_id,
                                     "reason": "http_404",
                                     "from_url": primary_url,
                                     "to_url": fallback_url,
@@ -866,7 +905,9 @@ class ToolExecutionManager:
                                     "tool": tool,
                                     "args": dict(retry_args),
                                     "index": idx,
+                                    "call_id": call_id,
                                     "status": "ok",
+                                    "duration_ms": retry_elapsed_ms,
                                     "result_chars": len(clipped),
                                     "retried": True,
                                 },
@@ -890,6 +931,7 @@ class ToolExecutionManager:
                                 {
                                     "tool": tool,
                                     "index": idx,
+                                    "call_id": call_id,
                                     "reason": "http_404",
                                     "from_url": primary_url,
                                     "to_url": fallback_url,
@@ -922,6 +964,9 @@ class ToolExecutionManager:
                 failed_details: dict[str, object] = {
                     "tool": tool,
                     "index": idx,
+                    "call_id": call_id,
+                    "status": "error",
+                    "duration_ms": error_elapsed_ms,
                     "error": str(exc),
                 }
                 if isinstance(error_code, str) and error_code:
@@ -938,7 +983,9 @@ class ToolExecutionManager:
                         "tool": tool,
                         "args": dict(evaluated_args),
                         "index": idx,
+                        "call_id": call_id,
                         "status": "error",
+                        "duration_ms": error_elapsed_ms,
                         "error": str(exc),
                         **({"error_code": error_code} if isinstance(error_code, str) and error_code else {}),
                         **({"error_category": error_category} if error_category else {}),

@@ -70,6 +70,72 @@ def test_augment_adds_spawn_subrun_when_missing() -> None:
     assert any(action.get("tool") == "spawn_subrun" for action in actions)
 
 
+def test_augment_skips_spawn_subrun_for_too_short_orchestration_prompt() -> None:
+    augmenter = ActionAugmenter()
+    lifecycle_events: list[tuple[str, dict | None]] = []
+
+    async def emit(stage: str, details: dict | None = None) -> None:
+        lifecycle_events.append((stage, details))
+
+    actions = asyncio.run(
+        augmenter.augment_actions(
+            actions=[],
+            user_message="orchestrate quickly",
+            plan_text="",
+            memory_context="",
+            model=None,
+            allowed_tools={"spawn_subrun"},
+            complete_chat=_fake_complete_chat,
+            tool_selector_system_prompt="system",
+            extract_actions=lambda raw: ([], None),
+            validate_actions=lambda actions, allowed: (actions, 0),
+            emit_lifecycle=emit,
+            is_web_research_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            is_subrun_orchestration_task=lambda message: True,
+            is_file_creation_task=lambda message: False,
+        )
+    )
+
+    assert not any(action.get("tool") == "spawn_subrun" for action in actions)
+    assert any(stage == "subrun_delegation_skipped" for stage, _ in lifecycle_events)
+
+
+def test_augment_applies_spawn_subrun_quota() -> None:
+    augmenter = ActionAugmenter(max_spawn_subrun_actions=1)
+    lifecycle_events: list[tuple[str, dict | None]] = []
+
+    async def emit(stage: str, details: dict | None = None) -> None:
+        lifecycle_events.append((stage, details))
+
+    actions = asyncio.run(
+        augmenter.augment_actions(
+            actions=[
+                {"tool": "spawn_subrun", "args": {"message": "task A", "mode": "run", "agent_id": "head-agent"}},
+                {"tool": "spawn_subrun", "args": {"message": "task B", "mode": "run", "agent_id": "head-agent"}},
+            ],
+            user_message="orchestrate a complex multi-step parallel research plan",
+            plan_text="",
+            memory_context="",
+            model=None,
+            allowed_tools={"spawn_subrun"},
+            complete_chat=_fake_complete_chat,
+            tool_selector_system_prompt="system",
+            extract_actions=lambda raw: ([], None),
+            validate_actions=lambda actions, allowed: (actions, 0),
+            emit_lifecycle=emit,
+            is_web_research_task=lambda message: False,
+            build_web_research_url=lambda message: "",
+            is_subrun_orchestration_task=lambda message: True,
+            is_file_creation_task=lambda message: False,
+        )
+    )
+
+    spawn_actions = [action for action in actions if action.get("tool") == "spawn_subrun"]
+    assert len(spawn_actions) == 1
+    assert any(stage == "subrun_governance_applied" for stage, _ in lifecycle_events)
+
+
 def test_augment_file_task_merges_validated_followups() -> None:
     augmenter = ActionAugmenter()
     lifecycle_events: list[tuple[str, dict | None]] = []

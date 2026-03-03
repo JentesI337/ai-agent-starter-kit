@@ -493,3 +493,42 @@ def test_recovery_summary_sets_terminal_reason_for_failure(tmp_path) -> None:
     details = events[0].get("details", {})
     assert details.get("recovered_successfully") is False
     assert details.get("terminal_reason") == "rate_limited"
+
+
+def test_pipeline_runner_emits_terminal_wait_lifecycle(tmp_path) -> None:
+    runner = _runner(tmp_path)
+    events: list[dict] = []
+
+    runner.state_store.init_run(
+        run_id="req-1",
+        session_id="sess-1",
+        request_id="req-1",
+        user_message="hello",
+        runtime="local",
+        model="openai:gpt-5",
+    )
+
+    async def _send_event(payload: dict) -> None:
+        events.append(payload)
+
+    result = asyncio.run(
+        runner.run(
+            user_message="hello",
+            send_event=_send_event,
+            session_id="sess-1",
+            request_id="req-1",
+            runtime="local",
+            model=None,
+            tool_policy=None,
+        )
+    )
+
+    assert result == "ok"
+    lifecycle_stages = [
+        evt.get("stage")
+        for evt in events
+        if evt.get("type") == "lifecycle"
+    ]
+    assert "terminal_wait_started" in lifecycle_stages
+    assert "terminal_wait_completed" in lifecycle_stages
+    assert lifecycle_stages.index("terminal_wait_started") < lifecycle_stages.index("terminal_wait_completed")

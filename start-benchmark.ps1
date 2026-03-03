@@ -78,7 +78,7 @@ try {
         }
 
         $baseUri = [Uri]$BaseUrl
-        $host = $baseUri.Host
+        $bindHost = $baseUri.Host
         $port = if ($baseUri.IsDefaultPort) {
             if ($baseUri.Scheme -eq 'https') { 443 } else { 80 }
         }
@@ -86,8 +86,8 @@ try {
             $baseUri.Port
         }
 
-        Write-Step "Starting backend server at $host`:$port"
-        $backendProcess = Start-Process -FilePath $venvPython -ArgumentList '-m', 'uvicorn', 'app.main:app', '--host', $host, '--port', "$port" -WorkingDirectory $backendDir -PassThru
+        Write-Step "Starting backend server at $bindHost`:$port"
+        $backendProcess = Start-Process -FilePath $venvPython -ArgumentList '-m', 'uvicorn', 'app.main:app', '--host', $bindHost, '--port', "$port" -WorkingDirectory $backendDir -PassThru
         $backendStartedHere = $true
 
         $deadline = (Get-Date).AddSeconds(30)

@@ -1,0 +1,942 @@
+{"t_ms": 64, "seq": 2, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "9e297be6-3553-41c1-8bbf-9ec2765f83a1", "phase": "start", "stage": "request_received", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.496764+00:00", "details": {"chars": 355, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "accepted", "run_status": "accepted", "started_at": "2026-03-03T10:53:58.496764+00:00"}}
+{"t_ms": 472, "seq": 3, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "54e17449-ebb4-4faf-bbf0-ce37757f52b8", "phase": "progress", "stage": "request_dispatched", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.504187+00:00", "details": {"model": null, "requested_agent_id": "head-agent", "effective_agent_id": "head-agent", "routing_reason": null, "preset": null}, "agent": "head-agent", "status": "running", "run_status": "running"}}
+{"t_ms": 472, "seq": 4, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f20a3312-4f46-4a99-819b-befb47085ed1", "phase": "progress", "stage": "queued", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.518412+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 5, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "1fb4d111-fe29-4462-b091-08618b96de90", "phase": "progress", "stage": "lane_acquired", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.518412+00:00", "details": {"queue_wait_ms": 0, "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 6, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "3a09792c-886d-4667-a36f-4f7d883c9788", "phase": "progress", "stage": "tool_policy_decision", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.519423+00:00", "details": {"preset": null, "requested": {"deny": ["run_command", "start_background_command", "kill_background_process", "spawn_subrun", "web_fetch", "get_background_output"]}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process", "run_command", "spawn_subrun", "web_fetch", "get_background_output"]}, "agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "warnings": ["deny overrides allow for: get_background_output, kill_background_process, run_command, spawn_subrun, start_background_command, web_fetch"]}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 7, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "20dcd052-ea61-4100-a784-aa4b81839a1e", "phase": "progress", "stage": "tool_policy_layers_logged", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.519423+00:00", "details": {"layers": [{"layer": "global", "id": "settings", "toolPolicy": {}}, {"layer": "profile", "id": null, "toolPolicy": {}}, {"layer": "preset", "id": null, "toolPolicy": {}}, {"layer": "provider", "id": "api", "toolPolicy": {"deny": ["start_background_command", "kill_background_process"]}}, {"layer": "model", "id": "qwen3-coder:480b-cloud", "toolPolicy": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"]}}, {"layer": "agent_depth", "id": "head-agent:0", "toolPolicy": {}}, {"layer": "request", "id": "inline", "toolPolicy": {"deny": ["run_command", "start_background_command", "kill_background_process", "spawn_subrun", "web_fetch", "get_background_output"]}}], "warnings": ["deny overrides allow for: get_background_output, kill_background_process, run_command, spawn_subrun, start_background_command, web_fetch"], "also_allow": []}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 8, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "8d816982-2d15-49dc-844b-db796680ea9f", "phase": "progress", "stage": "agent_depth_policy_applied", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.520421+00:00", "details": {"agent_id": "head-agent", "depth": 0, "provider": "api", "model": "qwen3-coder:480b-cloud", "requested": {"deny": ["run_command", "start_background_command", "kill_background_process", "spawn_subrun", "web_fetch", "get_background_output"]}, "resolved": {"allow": ["run_command", "start_background_command", "get_background_output", "kill_background_process", "spawn_subrun", "web_fetch"], "deny": ["start_background_command", "kill_background_process", "run_command", "spawn_subrun", "web_fetch", "get_background_output"]}, "depth_layer": {"layer": "agent_depth", "id": "head-agent:0", "toolPolicy": {}}}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 9, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "66860a8f-ff6e-4701-81d9-f97a03f54dff", "phase": "progress", "stage": "model_route_selected", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.576031+00:00", "details": {"primary": "qwen3-coder:480b-cloud", "fallbacks": ["llama3.3:70b-instruct-q4_K_M"], "max_context": 16000, "reasoning_depth": 3, "health_score": 0.88, "expected_latency_ms": 700, "cost_score": 0.75, "scores": {"qwen3-coder:480b-cloud": 79.5, "llama3.3:70b-instruct-q4_K_M": 81.0}}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 10, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cf2b57ca-f50d-4bb4-9d41-16cc35e3a1c4", "phase": "start", "stage": "run_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.577934+00:00", "details": {"model": "qwen3-coder:480b-cloud"}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 11, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "eb68c698-1d2d-4829-86f4-ecc153b136d0", "phase": "progress", "stage": "guardrails_passed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.578932+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 12, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "d85f3710-e502-4e67-b074-6661b9cf7d88", "phase": "progress", "stage": "tool_policy_resolved", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.579933+00:00", "details": {"allowed": [], "requested_allow": ["get_background_output", "kill_background_process", "run_command", "spawn_subrun", "start_background_command", "web_fetch"], "requested_deny": ["get_background_output", "kill_background_process", "run_command", "spawn_subrun", "start_background_command", "web_fetch"], "requested_also_allow": [], "request_allow_ignored_unknown_only": false, "unknown_requested_allow": [], "unknown_requested_deny": [], "unknown_requested_also_allow": [], "warnings": []}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 13, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "8f1d8941-2bb4-40fd-8c08-9685a7d32b67", "phase": "progress", "stage": "toolchain_checked", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.579933+00:00", "details": {"workspace_root": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend", "workspace_ok": true, "shell_ok": true, "tools": ["list_dir", "read_file", "write_file", "run_command", "apply_patch", "file_search", "grep_search", "list_code_usages", "get_changed_files", "start_background_command", "get_background_output", "kill_background_process", "web_fetch", "spawn_subrun"]}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 14, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "98e0c18a-93a2-4045-94ec-14bdde0a0e73", "phase": "progress", "stage": "memory_updated", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.584491+00:00", "details": {"memory_items": 1, "memory_chars": 742}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 15, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "549af47c-dd06-4089-adba-86d1779bb48a", "phase": "progress", "stage": "context_reduced", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.585530+00:00", "details": {"model": "qwen3-coder:480b-cloud", "max_context": 16000, "plan_budget": 4000, "tool_budget": 4800, "final_budget": 7200, "plan_used": 138}, "agent": "head-agent"}}
+{"t_ms": 472, "seq": 16, "event": {"type": "status", "agent": "head-agent", "message": "Analyzing your request and planning execution.", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 472, "seq": 17, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "6465975e-61eb-47f5-9a9a-4026cea33fae", "phase": "start", "stage": "planning_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:53:58.585530+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 9794, "seq": 18, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "7893a8c7-0846-45b9-bfcd-3907a776bd51", "phase": "end", "stage": "planning_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:08.233129+00:00", "details": {"plan_chars": 296, "iteration": 0}, "agent": "head-agent"}}
+{"t_ms": 10019, "seq": 19, "event": {"type": "agent_step", "agent": "head-agent", "step": "Plan ready: * Technische Analyse des Backend-Agent-Frameworks erstellen\n* Strukturierte Darstellung der Architektur-Risiken identifizieren\n* Performance-Hotspots und Guardrail-Lücken analysieren\n* Priorisierte Maßnahmenliste (Top 10", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 10019, "seq": 20, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "8d65c4a1-8897-4d91-9585-9a7181c7b3ff", "phase": "start", "stage": "tool_selection_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:08.246603+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 10020, "seq": 21, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "23b85478-3aeb-4521-aa63-66c1f50fe731", "phase": "progress", "stage": "tool_selection_empty", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:08.247694+00:00", "details": {"blocked_with_reason": "no_tools_allowed", "reason": "policy_block"}, "agent": "head-agent"}}
+{"t_ms": 10020, "seq": 22, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "cc1acad6-ed96-4962-b81a-4c6438692586", "phase": "progress", "stage": "tool_selection_skipped", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:08.248695+00:00", "details": {"reason": "no_tools_allowed"}, "agent": "head-agent"}}
+{"t_ms": 10020, "seq": 23, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "db6d6980-fef6-44ac-b948-f55c06d6418f", "phase": "start", "stage": "replanning_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:08.248695+00:00", "details": {"iteration": 1, "reason": "tool_selection_empty_replan", "tool_results_state": "empty", "empty_tool_replan_attempts_used": 1, "max_empty_tool_replan_attempts": 1}, "agent": "head-agent"}}
+{"t_ms": 31716, "seq": 24, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "00475c30-fdda-4a34-a25b-e833820f2d86", "phase": "end", "stage": "replanning_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:30.154645+00:00", "details": {"iteration": 1, "plan_chars": 674, "reason": "tool_selection_empty_replan"}, "agent": "head-agent"}}
+{"t_ms": 32030, "seq": 25, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "3a16c5a1-b534-49d0-b346-479bb37195cd", "phase": "start", "stage": "tool_selection_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:30.156615+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 32030, "seq": 26, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "17453e6c-a22a-4671-8c10-b18709fb3bfe", "phase": "progress", "stage": "tool_selection_empty", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:30.156615+00:00", "details": {"blocked_with_reason": "no_tools_allowed", "reason": "policy_block"}, "agent": "head-agent"}}
+{"t_ms": 32030, "seq": 27, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "6cd2d9c5-76f5-4987-bdcb-155cf0aa9494", "phase": "progress", "stage": "tool_selection_skipped", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:30.157638+00:00", "details": {"reason": "no_tools_allowed"}, "agent": "head-agent"}}
+{"t_ms": 32030, "seq": 28, "event": {"type": "agent_step", "agent": "head-agent", "step": "Reviewing results and building final response", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 32030, "seq": 29, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "74b93a44-fb29-4be2-a0fa-5daa4c2e7521", "phase": "start", "stage": "streaming_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:54:30.158640+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 32742, "seq": 30, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 32852, "seq": 31, "event": {"type": "token", "agent": "head-agent", "token": "Techn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 32970, "seq": 32, "event": {"type": "token", "agent": "head-agent", "token": "ische", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33086, "seq": 33, "event": {"type": "token", "agent": "head-agent", "token": " Analyse des", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33203, "seq": 34, "event": {"type": "token", "agent": "head-agent", "token": " Backend-Agent-Framework", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33323, "seq": 35, "event": {"type": "token", "agent": "head-agent", "token": "s**\n\n---", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33439, "seq": 36, "event": {"type": "token", "agent": "head-agent", "token": "\n\n### **Architekt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33553, "seq": 37, "event": {"type": "token", "agent": "head-agent", "token": "ur-Risiken", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33668, "seq": 38, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33792, "seq": 39, "event": {"type": "token", "agent": "head-agent", "token": "\n1", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 33910, "seq": 40, "event": {"type": "token", "agent": "head-agent", "token": ". **Sk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34026, "seq": 41, "event": {"type": "token", "agent": "head-agent", "token": "al", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34143, "seq": 42, "event": {"type": "token", "agent": "head-agent", "token": "ierbarkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34260, "seq": 43, "event": {"type": "token", "agent": "head-agent", "token": "**:", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34377, "seq": 44, "event": {"type": "token", "agent": "head-agent", "token": " Die", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34495, "seq": 45, "event": {"type": "token", "agent": "head-agent", "token": " akt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 34916, "seq": 46, "event": {"type": "token", "agent": "head-agent", "token": "uelle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 35365, "seq": 47, "event": {"type": "token", "agent": "head-agent", "token": " Arch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 35846, "seq": 48, "event": {"type": "token", "agent": "head-agent", "token": "itekt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 36364, "seq": 49, "event": {"type": "token", "agent": "head-agent", "token": "ur zeigt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 36915, "seq": 50, "event": {"type": "token", "agent": "head-agent", "token": " eine", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 37497, "seq": 51, "event": {"type": "token", "agent": "head-agent", "token": " en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 38115, "seq": 52, "event": {"type": "token", "agent": "head-agent", "token": "ge", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 38771, "seq": 53, "event": {"type": "token", "agent": "head-agent", "token": " Kop", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 39456, "seq": 54, "event": {"type": "token", "agent": "head-agent", "token": "pl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 40176, "seq": 55, "event": {"type": "token", "agent": "head-agent", "token": "ung zwischen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 40938, "seq": 56, "event": {"type": "token", "agent": "head-agent", "token": " Agent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 41739, "seq": 57, "event": {"type": "token", "agent": "head-agent", "token": "-K", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42133, "seq": 58, "event": {"type": "token", "agent": "head-agent", "token": "om", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42427, "seq": 59, "event": {"type": "token", "agent": "head-agent", "token": "ponent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42541, "seq": 60, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42643, "seq": 61, "event": {"type": "token", "agent": "head-agent", "token": ", was", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42747, "seq": 62, "event": {"type": "token", "agent": "head-agent", "token": " hor", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42848, "seq": 63, "event": {"type": "token", "agent": "head-agent", "token": "izont", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 42951, "seq": 64, "event": {"type": "token", "agent": "head-agent", "token": "ale Sk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43056, "seq": 65, "event": {"type": "token", "agent": "head-agent", "token": "al", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43159, "seq": 66, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43260, "seq": 67, "event": {"type": "token", "agent": "head-agent", "token": " ers", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43365, "seq": 68, "event": {"type": "token", "agent": "head-agent", "token": "ch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43540, "seq": 69, "event": {"type": "token", "agent": "head-agent", "token": "wert", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43647, "seq": 70, "event": {"type": "token", "agent": "head-agent", "token": ". Ein", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43751, "seq": 71, "event": {"type": "token", "agent": "head-agent", "token": " z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43856, "seq": 72, "event": {"type": "token", "agent": "head-agent", "token": "entral", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 43955, "seq": 73, "event": {"type": "token", "agent": "head-agent", "token": "er", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44056, "seq": 74, "event": {"type": "token", "agent": "head-agent", "token": " Nachricht", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44158, "seq": 75, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44260, "seq": 76, "event": {"type": "token", "agent": "head-agent", "token": "broker", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44364, "seq": 77, "event": {"type": "token", "agent": "head-agent", "token": " kann", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44466, "seq": 78, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44567, "seq": 79, "event": {"type": "token", "agent": "head-agent", "token": " einem", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44671, "seq": 80, "event": {"type": "token", "agent": "head-agent", "token": " Eng", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44779, "seq": 81, "event": {"type": "token", "agent": "head-agent", "token": "pass", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44879, "seq": 82, "event": {"type": "token", "agent": "head-agent", "token": " füh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 44963, "seq": 83, "event": {"type": "token", "agent": "head-agent", "token": "ren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45043, "seq": 84, "event": {"type": "token", "agent": "head-agent", "token": ".\n2. **Ab", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45122, "seq": 85, "event": {"type": "token", "agent": "head-agent", "token": "häng", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45200, "seq": 86, "event": {"type": "token", "agent": "head-agent", "token": "igkeiten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45377, "seq": 87, "event": {"type": "token", "agent": "head-agent", "token": "**: Ho", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45458, "seq": 88, "event": {"type": "token", "agent": "head-agent", "token": "he", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45536, "seq": 89, "event": {"type": "token", "agent": "head-agent", "token": " exter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45614, "seq": 90, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45694, "seq": 91, "event": {"type": "token", "agent": "head-agent", "token": " Ab", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45777, "seq": 92, "event": {"type": "token", "agent": "head-agent", "token": "häng", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45857, "seq": 93, "event": {"type": "token", "agent": "head-agent", "token": "igkeiten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 45934, "seq": 94, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46013, "seq": 95, "event": {"type": "token", "agent": "head-agent", "token": " extern", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46378, "seq": 96, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46471, "seq": 97, "event": {"type": "token", "agent": "head-agent", "token": " APIs", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46560, "seq": 98, "event": {"type": "token", "agent": "head-agent", "token": " ohne", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46728, "seq": 99, "event": {"type": "token", "agent": "head-agent", "token": " C", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46818, "seq": 100, "event": {"type": "token", "agent": "head-agent", "token": "aching", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 46911, "seq": 101, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47001, "seq": 102, "event": {"type": "token", "agent": "head-agent", "token": " Fallback-M", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47092, "seq": 103, "event": {"type": "token", "agent": "head-agent", "token": "echanism", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47184, "seq": 104, "event": {"type": "token", "agent": "head-agent", "token": "en erh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47276, "seq": 105, "event": {"type": "token", "agent": "head-agent", "token": "ö", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47366, "seq": 106, "event": {"type": "token", "agent": "head-agent", "token": "hen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47459, "seq": 107, "event": {"type": "token", "agent": "head-agent", "token": " die", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47553, "seq": 108, "event": {"type": "token", "agent": "head-agent", "token": " Aus", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47635, "seq": 109, "event": {"type": "token", "agent": "head-agent", "token": "fall", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47713, "seq": 110, "event": {"type": "token", "agent": "head-agent", "token": "an", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47793, "seq": 111, "event": {"type": "token", "agent": "head-agent", "token": "fäll", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47873, "seq": 112, "event": {"type": "token", "agent": "head-agent", "token": "igkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 47951, "seq": 113, "event": {"type": "token", "agent": "head-agent", "token": ".\n3. **F", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48033, "seq": 114, "event": {"type": "token", "agent": "head-agent", "token": "ehler", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48112, "seq": 115, "event": {"type": "token", "agent": "head-agent", "token": "an", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48192, "seq": 116, "event": {"type": "token", "agent": "head-agent", "token": "fäll", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48270, "seq": 117, "event": {"type": "token", "agent": "head-agent", "token": "igkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48350, "seq": 118, "event": {"type": "token", "agent": "head-agent", "token": "**: F", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48428, "seq": 119, "event": {"type": "token", "agent": "head-agent", "token": "ehl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48508, "seq": 120, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48587, "seq": 121, "event": {"type": "token", "agent": "head-agent", "token": " Res", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48672, "seq": 122, "event": {"type": "token", "agent": "head-agent", "token": "ilience-P", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 48752, "seq": 123, "event": {"type": "token", "agent": "head-agent", "token": "attern", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49240, "seq": 124, "event": {"type": "token", "agent": "head-agent", "token": "s wie", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49402, "seq": 125, "event": {"type": "token", "agent": "head-agent", "token": " Circuit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49489, "seq": 126, "event": {"type": "token", "agent": "head-agent", "token": " Breaker oder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49581, "seq": 127, "event": {"type": "token", "agent": "head-agent", "token": " Retry", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49663, "seq": 128, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49756, "seq": 129, "event": {"type": "token", "agent": "head-agent", "token": "Logik", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 49921, "seq": 130, "event": {"type": "token", "agent": "head-agent", "token": " bei", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50007, "seq": 131, "event": {"type": "token", "agent": "head-agent", "token": " Netz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50076, "seq": 132, "event": {"type": "token", "agent": "head-agent", "token": "werk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50154, "seq": 133, "event": {"type": "token", "agent": "head-agent", "token": "operation", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50251, "seq": 134, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50308, "seq": 135, "event": {"type": "token", "agent": "head-agent", "token": " können", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50389, "seq": 136, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50472, "seq": 137, "event": {"type": "token", "agent": "head-agent", "token": " Ket", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50542, "seq": 138, "event": {"type": "token", "agent": "head-agent", "token": "ten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50623, "seq": 139, "event": {"type": "token", "agent": "head-agent", "token": "aus", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50695, "seq": 140, "event": {"type": "token", "agent": "head-agent", "token": "fäll", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50772, "seq": 141, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50848, "seq": 142, "event": {"type": "token", "agent": "head-agent", "token": " füh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 50927, "seq": 143, "event": {"type": "token", "agent": "head-agent", "token": "ren.\n4. **", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51000, "seq": 144, "event": {"type": "token", "agent": "head-agent", "token": "Single", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51074, "seq": 145, "event": {"type": "token", "agent": "head-agent", "token": " Point", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51160, "seq": 146, "event": {"type": "token", "agent": "head-agent", "token": " of Failure", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51234, "seq": 147, "event": {"type": "token", "agent": "head-agent", "token": "**: Z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51318, "seq": 148, "event": {"type": "token", "agent": "head-agent", "token": "ent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51385, "seq": 149, "event": {"type": "token", "agent": "head-agent", "token": "rale", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51461, "seq": 150, "event": {"type": "token", "agent": "head-agent", "token": " Kom", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51536, "seq": 151, "event": {"type": "token", "agent": "head-agent", "token": "ponenten wie", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51609, "seq": 152, "event": {"type": "token", "agent": "head-agent", "token": " Daten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51682, "seq": 153, "event": {"type": "token", "agent": "head-agent", "token": "bank", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51756, "seq": 154, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51832, "seq": 155, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51908, "seq": 156, "event": {"type": "token", "agent": "head-agent", "token": " Auth", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 51984, "seq": 157, "event": {"type": "token", "agent": "head-agent", "token": "ent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52059, "seq": 158, "event": {"type": "token", "agent": "head-agent", "token": "if", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52133, "seq": 159, "event": {"type": "token", "agent": "head-agent", "token": "iz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52207, "seq": 160, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52281, "seq": 161, "event": {"type": "token", "agent": "head-agent", "token": "sd", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52352, "seq": 162, "event": {"type": "token", "agent": "head-agent", "token": "ien", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52424, "seq": 163, "event": {"type": "token", "agent": "head-agent", "token": "ste", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52497, "seq": 164, "event": {"type": "token", "agent": "head-agent", "token": " sind", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52569, "seq": 165, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52644, "seq": 166, "event": {"type": "token", "agent": "head-agent", "token": " redundant", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52713, "seq": 167, "event": {"type": "token", "agent": "head-agent", "token": " ausge", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52784, "seq": 168, "event": {"type": "token", "agent": "head-agent", "token": "legt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52857, "seq": 169, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n### **Performance", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 52928, "seq": 170, "event": {"type": "token", "agent": "head-agent", "token": "-Hotspots", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53000, "seq": 171, "event": {"type": "token", "agent": "head-agent", "token": "**\n1. **Lang", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53074, "seq": 172, "event": {"type": "token", "agent": "head-agent", "token": "same", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53333, "seq": 173, "event": {"type": "token", "agent": "head-agent", "token": " Agent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53405, "seq": 174, "event": {"type": "token", "agent": "head-agent", "token": "-A", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53478, "seq": 175, "event": {"type": "token", "agent": "head-agent", "token": "nt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53553, "seq": 176, "event": {"type": "token", "agent": "head-agent", "token": "wort", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53626, "seq": 177, "event": {"type": "token", "agent": "head-agent", "token": "ze", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53701, "seq": 178, "event": {"type": "token", "agent": "head-agent", "token": "iten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53777, "seq": 179, "event": {"type": "token", "agent": "head-agent", "token": "**: Ineff", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53850, "seq": 180, "event": {"type": "token", "agent": "head-agent", "token": "iz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53924, "seq": 181, "event": {"type": "token", "agent": "head-agent", "token": "iente", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 53998, "seq": 182, "event": {"type": "token", "agent": "head-agent", "token": " Serial", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54073, "seq": 183, "event": {"type": "token", "agent": "head-agent", "token": "is", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54147, "seq": 184, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54220, "seq": 185, "event": {"type": "token", "agent": "head-agent", "token": " gro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54294, "seq": 186, "event": {"type": "token", "agent": "head-agent", "token": "ßer", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54374, "seq": 187, "event": {"type": "token", "agent": "head-agent", "token": " Payload", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54442, "seq": 188, "event": {"type": "token", "agent": "head-agent", "token": "s füh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54520, "seq": 189, "event": {"type": "token", "agent": "head-agent", "token": "rt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54592, "seq": 190, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54672, "seq": 191, "event": {"type": "token", "agent": "head-agent", "token": " Lat", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54745, "seq": 192, "event": {"type": "token", "agent": "head-agent", "token": "enz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54819, "seq": 193, "event": {"type": "token", "agent": "head-agent", "token": ".\n2", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54891, "seq": 194, "event": {"type": "token", "agent": "head-agent", "token": ". **Ho", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 54965, "seq": 195, "event": {"type": "token", "agent": "head-agent", "token": "her", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55039, "seq": 196, "event": {"type": "token", "agent": "head-agent", "token": " Spe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55111, "seq": 197, "event": {"type": "token", "agent": "head-agent", "token": "icher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55201, "seq": 198, "event": {"type": "token", "agent": "head-agent", "token": "bed", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55374, "seq": 199, "event": {"type": "token", "agent": "head-agent", "token": "arf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55448, "seq": 200, "event": {"type": "token", "agent": "head-agent", "token": " pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55523, "seq": 201, "event": {"type": "token", "agent": "head-agent", "token": " Inst", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55598, "seq": 202, "event": {"type": "token", "agent": "head-agent", "token": "anz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55672, "seq": 203, "event": {"type": "token", "agent": "head-agent", "token": "**: Memory", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55747, "seq": 204, "event": {"type": "token", "agent": "head-agent", "token": " Le", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55820, "seq": 205, "event": {"type": "token", "agent": "head-agent", "token": "aks durch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55892, "seq": 206, "event": {"type": "token", "agent": "head-agent", "token": " un", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 55962, "seq": 207, "event": {"type": "token", "agent": "head-agent", "token": "zure", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56035, "seq": 208, "event": {"type": "token", "agent": "head-agent", "token": "ich", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56105, "seq": 209, "event": {"type": "token", "agent": "head-agent", "token": "end", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56177, "seq": 210, "event": {"type": "token", "agent": "head-agent", "token": "es Lifecycle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56250, "seq": 211, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56424, "seq": 212, "event": {"type": "token", "agent": "head-agent", "token": "Management von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56497, "seq": 213, "event": {"type": "token", "agent": "head-agent", "token": " tempor", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56569, "seq": 214, "event": {"type": "token", "agent": "head-agent", "token": "ären", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56641, "seq": 215, "event": {"type": "token", "agent": "head-agent", "token": " Obj", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56714, "seq": 216, "event": {"type": "token", "agent": "head-agent", "token": "ek", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56787, "seq": 217, "event": {"type": "token", "agent": "head-agent", "token": "ten.\n3. **", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56860, "seq": 218, "event": {"type": "token", "agent": "head-agent", "token": "S", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 56932, "seq": 219, "event": {"type": "token", "agent": "head-agent", "token": "ynchron", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57006, "seq": 220, "event": {"type": "token", "agent": "head-agent", "token": "ität", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57078, "seq": 221, "event": {"type": "token", "agent": "head-agent", "token": " in", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57149, "seq": 222, "event": {"type": "token", "agent": "head-agent", "token": " k", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57224, "seq": 223, "event": {"type": "token", "agent": "head-agent", "token": "rit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57294, "seq": 224, "event": {"type": "token", "agent": "head-agent", "token": "ischen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57372, "seq": 225, "event": {"type": "token", "agent": "head-agent", "token": " Pf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57441, "seq": 226, "event": {"type": "token", "agent": "head-agent", "token": "aden", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57515, "seq": 227, "event": {"type": "token", "agent": "head-agent", "token": "**: Block", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57591, "seq": 228, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57667, "seq": 229, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57734, "seq": 230, "event": {"type": "token", "agent": "head-agent", "token": " I/O-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57807, "seq": 231, "event": {"type": "token", "agent": "head-agent", "token": "Operation", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57878, "seq": 232, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 57950, "seq": 233, "event": {"type": "token", "agent": "head-agent", "token": " bee", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 58306, "seq": 234, "event": {"type": "token", "agent": "head-agent", "token": "intr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 58684, "seq": 235, "event": {"type": "token", "agent": "head-agent", "token": "ächt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 59102, "seq": 236, "event": {"type": "token", "agent": "head-agent", "token": "igen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 59554, "seq": 237, "event": {"type": "token", "agent": "head-agent", "token": " Durch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 60034, "seq": 238, "event": {"type": "token", "agent": "head-agent", "token": "s", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 60548, "seq": 239, "event": {"type": "token", "agent": "head-agent", "token": "atz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 61097, "seq": 240, "event": {"type": "token", "agent": "head-agent", "token": ".\n4", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 61681, "seq": 241, "event": {"type": "token", "agent": "head-agent", "token": ". **Ineff", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 62111, "seq": 242, "event": {"type": "token", "agent": "head-agent", "token": "iziente", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 62491, "seq": 243, "event": {"type": "token", "agent": "head-agent", "token": " Daten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 62873, "seq": 244, "event": {"type": "token", "agent": "head-agent", "token": "bank", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 63234, "seq": 245, "event": {"type": "token", "agent": "head-agent", "token": "ab", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 63628, "seq": 246, "event": {"type": "token", "agent": "head-agent", "token": "fr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 64053, "seq": 247, "event": {"type": "token", "agent": "head-agent", "token": "agen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 64518, "seq": 248, "event": {"type": "token", "agent": "head-agent", "token": "**: F", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 65008, "seq": 249, "event": {"type": "token", "agent": "head-agent", "token": "ehlende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 65418, "seq": 250, "event": {"type": "token", "agent": "head-agent", "token": " Ind", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 65788, "seq": 251, "event": {"type": "token", "agent": "head-agent", "token": "izes", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 66189, "seq": 252, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 66623, "seq": 253, "event": {"type": "token", "agent": "head-agent", "token": " N", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 67094, "seq": 254, "event": {"type": "token", "agent": "head-agent", "token": "+", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 67597, "seq": 255, "event": {"type": "token", "agent": "head-agent", "token": "1-Pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 68137, "seq": 256, "event": {"type": "token", "agent": "head-agent", "token": "ble", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 68709, "seq": 257, "event": {"type": "token", "agent": "head-agent", "token": "me", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 69316, "seq": 258, "event": {"type": "token", "agent": "head-agent", "token": " bei", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 69961, "seq": 259, "event": {"type": "token", "agent": "head-agent", "token": " wieder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 70643, "seq": 260, "event": {"type": "token", "agent": "head-agent", "token": "hol", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 71304, "seq": 261, "event": {"type": "token", "agent": "head-agent", "token": "ten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 71651, "seq": 262, "event": {"type": "token", "agent": "head-agent", "token": " Sub", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 71845, "seq": 263, "event": {"type": "token", "agent": "head-agent", "token": "query", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 71923, "seq": 264, "event": {"type": "token", "agent": "head-agent", "token": "-A", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72000, "seq": 265, "event": {"type": "token", "agent": "head-agent", "token": "u", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72077, "seq": 266, "event": {"type": "token", "agent": "head-agent", "token": "fr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72154, "seq": 267, "event": {"type": "token", "agent": "head-agent", "token": "ufen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72230, "seq": 268, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n### **Guard", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72307, "seq": 269, "event": {"type": "token", "agent": "head-agent", "token": "rail", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72383, "seq": 270, "event": {"type": "token", "agent": "head-agent", "token": "-Lücken", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72465, "seq": 271, "event": {"type": "token", "agent": "head-agent", "token": "**\n1. **Un", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72625, "seq": 272, "event": {"type": "token", "agent": "head-agent", "token": "zure", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72700, "seq": 273, "event": {"type": "token", "agent": "head-agent", "token": "ich", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72775, "seq": 274, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72849, "seq": 275, "event": {"type": "token", "agent": "head-agent", "token": " Inputvalid", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72923, "seq": 276, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 72998, "seq": 277, "event": {"type": "token", "agent": "head-agent", "token": "**: Off", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73075, "seq": 278, "event": {"type": "token", "agent": "head-agent", "token": "ene", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73147, "seq": 279, "event": {"type": "token", "agent": "head-agent", "token": " End", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73223, "seq": 280, "event": {"type": "token", "agent": "head-agent", "token": "punk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73296, "seq": 281, "event": {"type": "token", "agent": "head-agent", "token": "te", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73375, "seq": 282, "event": {"type": "token", "agent": "head-agent", "token": " ohne", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73446, "seq": 283, "event": {"type": "token", "agent": "head-agent", "token": " stri", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73522, "seq": 284, "event": {"type": "token", "agent": "head-agent", "token": "kte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73596, "seq": 285, "event": {"type": "token", "agent": "head-agent", "token": " Schema", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73671, "seq": 286, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73743, "seq": 287, "event": {"type": "token", "agent": "head-agent", "token": "Valid", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73818, "seq": 288, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73895, "seq": 289, "event": {"type": "token", "agent": "head-agent", "token": " beg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 73970, "seq": 290, "event": {"type": "token", "agent": "head-agent", "token": "ünst", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74043, "seq": 291, "event": {"type": "token", "agent": "head-agent", "token": "igen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74116, "seq": 292, "event": {"type": "token", "agent": "head-agent", "token": " Injection", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74192, "seq": 293, "event": {"type": "token", "agent": "head-agent", "token": "-An", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74265, "seq": 294, "event": {"type": "token", "agent": "head-agent", "token": "gr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74392, "seq": 295, "event": {"type": "token", "agent": "head-agent", "token": "iffe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74465, "seq": 296, "event": {"type": "token", "agent": "head-agent", "token": ".\n2", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74632, "seq": 297, "event": {"type": "token", "agent": "head-agent", "token": ". **F", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74710, "seq": 298, "event": {"type": "token", "agent": "head-agent", "token": "ehlende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74783, "seq": 299, "event": {"type": "token", "agent": "head-agent", "token": " Rate", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74856, "seq": 300, "event": {"type": "token", "agent": "head-agent", "token": " Limiting Mechan", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 74930, "seq": 301, "event": {"type": "token", "agent": "head-agent", "token": "ism", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75004, "seq": 302, "event": {"type": "token", "agent": "head-agent", "token": "en**: Ke", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75076, "seq": 303, "event": {"type": "token", "agent": "head-agent", "token": "ine", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75156, "seq": 304, "event": {"type": "token", "agent": "head-agent", "token": " Beg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75225, "seq": 305, "event": {"type": "token", "agent": "head-agent", "token": "ren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75299, "seq": 306, "event": {"type": "token", "agent": "head-agent", "token": "zung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75375, "seq": 307, "event": {"type": "token", "agent": "head-agent", "token": " paralle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75445, "seq": 308, "event": {"type": "token", "agent": "head-agent", "token": "ler", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75518, "seq": 309, "event": {"type": "token", "agent": "head-agent", "token": " An", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75591, "seq": 310, "event": {"type": "token", "agent": "head-agent", "token": "fr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75662, "seq": 311, "event": {"type": "token", "agent": "head-agent", "token": "agen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75735, "seq": 312, "event": {"type": "token", "agent": "head-agent", "token": " pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 75809, "seq": 313, "event": {"type": "token", "agent": "head-agent", "token": " Client", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 76163, "seq": 314, "event": {"type": "token", "agent": "head-agent", "token": " füh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 76547, "seq": 315, "event": {"type": "token", "agent": "head-agent", "token": "rt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 76964, "seq": 316, "event": {"type": "token", "agent": "head-agent", "token": " zu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 77411, "seq": 317, "event": {"type": "token", "agent": "head-agent", "token": " Do", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 77891, "seq": 318, "event": {"type": "token", "agent": "head-agent", "token": "S", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 78406, "seq": 319, "event": {"type": "token", "agent": "head-agent", "token": "-S", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 78953, "seq": 320, "event": {"type": "token", "agent": "head-agent", "token": "zen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 79537, "seq": 321, "event": {"type": "token", "agent": "head-agent", "token": "ari", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 80156, "seq": 322, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 80809, "seq": 323, "event": {"type": "token", "agent": "head-agent", "token": ".\n3", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 81498, "seq": 324, "event": {"type": "token", "agent": "head-agent", "token": ". **Sch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 82228, "seq": 325, "event": {"type": "token", "agent": "head-agent", "token": "w", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 82997, "seq": 326, "event": {"type": "token", "agent": "head-agent", "token": "ache", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 83804, "seq": 327, "event": {"type": "token", "agent": "head-agent", "token": " Auth", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 84654, "seq": 328, "event": {"type": "token", "agent": "head-agent", "token": "ent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 85074, "seq": 329, "event": {"type": "token", "agent": "head-agent", "token": "ifizierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 85433, "seq": 330, "event": {"type": "token", "agent": "head-agent", "token": "**: Nutzung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 85824, "seq": 331, "event": {"type": "token", "agent": "head-agent", "token": " einf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 86251, "seq": 332, "event": {"type": "token", "agent": "head-agent", "token": "acher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 86712, "seq": 333, "event": {"type": "token", "agent": "head-agent", "token": " Tokens", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 87083, "seq": 334, "event": {"type": "token", "agent": "head-agent", "token": " an", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 87490, "seq": 335, "event": {"type": "token", "agent": "head-agent", "token": "st", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 87899, "seq": 336, "event": {"type": "token", "agent": "head-agent", "token": "elle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 88358, "seq": 337, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 88849, "seq": 338, "event": {"type": "token", "agent": "head-agent", "token": " JWT", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 89375, "seq": 339, "event": {"type": "token", "agent": "head-agent", "token": " mit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 89937, "seq": 340, "event": {"type": "token", "agent": "head-agent", "token": " Claims", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 90533, "seq": 341, "event": {"type": "token", "agent": "head-agent", "token": " oder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 91161, "seq": 342, "event": {"type": "token", "agent": "head-agent", "token": " OAuth", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 91829, "seq": 343, "event": {"type": "token", "agent": "head-agent", "token": "2", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 92530, "seq": 344, "event": {"type": "token", "agent": "head-agent", "token": ".\n4. **M", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 93271, "seq": 345, "event": {"type": "token", "agent": "head-agent", "token": "angel", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 93747, "seq": 346, "event": {"type": "token", "agent": "head-agent", "token": "nde", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 94145, "seq": 347, "event": {"type": "token", "agent": "head-agent", "token": " Logging", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 94573, "seq": 348, "event": {"type": "token", "agent": "head-agent", "token": "-/", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 95036, "seq": 349, "event": {"type": "token", "agent": "head-agent", "token": "Monitoring", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 95532, "seq": 350, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 96062, "seq": 351, "event": {"type": "token", "agent": "head-agent", "token": "Integration", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 96624, "seq": 352, "event": {"type": "token", "agent": "head-agent", "token": "**: W", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 97027, "seq": 353, "event": {"type": "token", "agent": "head-agent", "token": "icht", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 97431, "seq": 354, "event": {"type": "token", "agent": "head-agent", "token": "ige", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 97823, "seq": 355, "event": {"type": "token", "agent": "head-agent", "token": " Sicher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98330, "seq": 356, "event": {"type": "token", "agent": "head-agent", "token": "heits", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98431, "seq": 357, "event": {"type": "token", "agent": "head-agent", "token": "ere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98530, "seq": 358, "event": {"type": "token", "agent": "head-agent", "token": "ign", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98635, "seq": 359, "event": {"type": "token", "agent": "head-agent", "token": "isse", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98732, "seq": 360, "event": {"type": "token", "agent": "head-agent", "token": " werden", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98835, "seq": 361, "event": {"type": "token", "agent": "head-agent", "token": " nicht", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 98932, "seq": 362, "event": {"type": "token", "agent": "head-agent", "token": " prot", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99028, "seq": 363, "event": {"type": "token", "agent": "head-agent", "token": "ok", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99128, "seq": 364, "event": {"type": "token", "agent": "head-agent", "token": "ol", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99290, "seq": 365, "event": {"type": "token", "agent": "head-agent", "token": "li", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99388, "seq": 366, "event": {"type": "token", "agent": "head-agent", "token": "ert oder", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99484, "seq": 367, "event": {"type": "token", "agent": "head-agent", "token": " analys", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99581, "seq": 368, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99677, "seq": 369, "event": {"type": "token", "agent": "head-agent", "token": ".\n\n---\n\n### **Prior", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99774, "seq": 370, "event": {"type": "token", "agent": "head-agent", "token": "isierte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99874, "seq": 371, "event": {"type": "token", "agent": "head-agent", "token": " Ma", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 99969, "seq": 372, "event": {"type": "token", "agent": "head-agent", "token": "ß", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100065, "seq": 373, "event": {"type": "token", "agent": "head-agent", "token": "nah", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100161, "seq": 374, "event": {"type": "token", "agent": "head-agent", "token": "men (Top 1", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100541, "seq": 375, "event": {"type": "token", "agent": "head-agent", "token": "0)**\n|", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100704, "seq": 376, "event": {"type": "token", "agent": "head-agent", "token": " R", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100798, "seq": 377, "event": {"type": "token", "agent": "head-agent", "token": "ang", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100893, "seq": 378, "event": {"type": "token", "agent": "head-agent", "token": " | Ma", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 100989, "seq": 379, "event": {"type": "token", "agent": "head-agent", "token": "ß", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 101084, "seq": 380, "event": {"type": "token", "agent": "head-agent", "token": "nahme", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 101180, "seq": 381, "event": {"type": "token", "agent": "head-agent", "token": " | B", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 101560, "seq": 382, "event": {"type": "token", "agent": "head-agent", "token": "egr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 101968, "seq": 383, "event": {"type": "token", "agent": "head-agent", "token": "ünd", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 102408, "seq": 384, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 102802, "seq": 385, "event": {"type": "token", "agent": "head-agent", "token": " |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 102892, "seq": 386, "event": {"type": "token", "agent": "head-agent", "token": "\n|------|----------", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 102988, "seq": 387, "event": {"type": "token", "agent": "head-agent", "token": "|------------", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103082, "seq": 388, "event": {"type": "token", "agent": "head-agent", "token": "|\n| 1 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103183, "seq": 389, "event": {"type": "token", "agent": "head-agent", "token": " E", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103274, "seq": 390, "event": {"type": "token", "agent": "head-agent", "token": "inf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103369, "seq": 391, "event": {"type": "token", "agent": "head-agent", "token": "ührung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103463, "seq": 392, "event": {"type": "token", "agent": "head-agent", "token": " eines", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103559, "seq": 393, "event": {"type": "token", "agent": "head-agent", "token": " as", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103656, "seq": 394, "event": {"type": "token", "agent": "head-agent", "token": "ynchron", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103753, "seq": 395, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103855, "seq": 396, "event": {"type": "token", "agent": "head-agent", "token": " Task", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 103951, "seq": 397, "event": {"type": "token", "agent": "head-agent", "token": "-Que", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104055, "seq": 398, "event": {"type": "token", "agent": "head-agent", "token": "uesystems", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104145, "seq": 399, "event": {"type": "token", "agent": "head-agent", "token": " | Ent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104236, "seq": 400, "event": {"type": "token", "agent": "head-agent", "token": "kop", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104326, "seq": 401, "event": {"type": "token", "agent": "head-agent", "token": "pl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104497, "seq": 402, "event": {"type": "token", "agent": "head-agent", "token": "ung von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104590, "seq": 403, "event": {"type": "token", "agent": "head-agent", "token": " zeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104682, "seq": 404, "event": {"type": "token", "agent": "head-agent", "token": "int", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104775, "seq": 405, "event": {"type": "token", "agent": "head-agent", "token": "ensiven", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104866, "seq": 406, "event": {"type": "token", "agent": "head-agent", "token": " Pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 104959, "seq": 407, "event": {"type": "token", "agent": "head-agent", "token": "z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105052, "seq": 408, "event": {"type": "token", "agent": "head-agent", "token": "essen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105145, "seq": 409, "event": {"type": "token", "agent": "head-agent", "token": " |\n| 2 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105239, "seq": 410, "event": {"type": "token", "agent": "head-agent", "token": " Implementierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105330, "seq": 411, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105423, "seq": 412, "event": {"type": "token", "agent": "head-agent", "token": " Circuit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105515, "seq": 413, "event": {"type": "token", "agent": "head-agent", "token": " Breakern", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105607, "seq": 414, "event": {"type": "token", "agent": "head-agent", "token": " |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105700, "seq": 415, "event": {"type": "token", "agent": "head-agent", "token": " Red", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105792, "seq": 416, "event": {"type": "token", "agent": "head-agent", "token": "uk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105901, "seq": 417, "event": {"type": "token", "agent": "head-agent", "token": "tion", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 105977, "seq": 418, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106071, "seq": 419, "event": {"type": "token", "agent": "head-agent", "token": " Casc", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106158, "seq": 420, "event": {"type": "token", "agent": "head-agent", "token": "ading", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106249, "seq": 421, "event": {"type": "token", "agent": "head-agent", "token": " Fail", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106340, "seq": 422, "event": {"type": "token", "agent": "head-agent", "token": "ures |\n| 3", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106432, "seq": 423, "event": {"type": "token", "agent": "head-agent", "token": " | Optim", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106513, "seq": 424, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106689, "seq": 425, "event": {"type": "token", "agent": "head-agent", "token": " der", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106769, "seq": 426, "event": {"type": "token", "agent": "head-agent", "token": " Daten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106843, "seq": 427, "event": {"type": "token", "agent": "head-agent", "token": "bank", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106918, "seq": 428, "event": {"type": "token", "agent": "head-agent", "token": "zug", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 106995, "seq": 429, "event": {"type": "token", "agent": "head-agent", "token": "r", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107069, "seq": 430, "event": {"type": "token", "agent": "head-agent", "token": "iffe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107146, "seq": 431, "event": {"type": "token", "agent": "head-agent", "token": " (", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107223, "seq": 432, "event": {"type": "token", "agent": "head-agent", "token": "Index", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107299, "seq": 433, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107374, "seq": 434, "event": {"type": "token", "agent": "head-agent", "token": ",", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107450, "seq": 435, "event": {"type": "token", "agent": "head-agent", "token": " Query-B", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107526, "seq": 436, "event": {"type": "token", "agent": "head-agent", "token": "atch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107601, "seq": 437, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107678, "seq": 438, "event": {"type": "token", "agent": "head-agent", "token": "Ver", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107755, "seq": 439, "event": {"type": "token", "agent": "head-agent", "token": "arbeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107829, "seq": 440, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107906, "seq": 441, "event": {"type": "token", "agent": "head-agent", "token": ") | Verb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 107982, "seq": 442, "event": {"type": "token", "agent": "head-agent", "token": "esser", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108066, "seq": 443, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108135, "seq": 444, "event": {"type": "token", "agent": "head-agent", "token": " Antwort", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108212, "seq": 445, "event": {"type": "token", "agent": "head-agent", "token": "ze", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108287, "seq": 446, "event": {"type": "token", "agent": "head-agent", "token": "iten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108363, "seq": 447, "event": {"type": "token", "agent": "head-agent", "token": " &", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108440, "seq": 448, "event": {"type": "token", "agent": "head-agent", "token": " R", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108516, "seq": 449, "event": {"type": "token", "agent": "head-agent", "token": "ess", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108592, "seq": 450, "event": {"type": "token", "agent": "head-agent", "token": "our", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108667, "seq": 451, "event": {"type": "token", "agent": "head-agent", "token": "c", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108744, "seq": 452, "event": {"type": "token", "agent": "head-agent", "token": "enn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108819, "seq": 453, "event": {"type": "token", "agent": "head-agent", "token": "utz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108897, "seq": 454, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 108973, "seq": 455, "event": {"type": "token", "agent": "head-agent", "token": " |\n| 4 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109047, "seq": 456, "event": {"type": "token", "agent": "head-agent", "token": " H", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109124, "seq": 457, "event": {"type": "token", "agent": "head-agent", "token": "inz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109200, "seq": 458, "event": {"type": "token", "agent": "head-agent", "token": "uf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109277, "seq": 459, "event": {"type": "token", "agent": "head-agent", "token": "ügen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109352, "seq": 460, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109428, "seq": 461, "event": {"type": "token", "agent": "head-agent", "token": " Inputvalidierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109502, "seq": 462, "event": {"type": "token", "agent": "head-agent", "token": "ss", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109579, "seq": 463, "event": {"type": "token", "agent": "head-agent", "token": "chem", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109653, "seq": 464, "event": {"type": "token", "agent": "head-agent", "token": "ata", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109734, "seq": 465, "event": {"type": "token", "agent": "head-agent", "token": " | Sch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109815, "seq": 466, "event": {"type": "token", "agent": "head-agent", "token": "utz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109885, "seq": 467, "event": {"type": "token", "agent": "head-agent", "token": " vor", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 109960, "seq": 468, "event": {"type": "token", "agent": "head-agent", "token": " Injection", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110039, "seq": 469, "event": {"type": "token", "agent": "head-agent", "token": "-Attack", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110110, "seq": 470, "event": {"type": "token", "agent": "head-agent", "token": "en |\n| 5", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110183, "seq": 471, "event": {"type": "token", "agent": "head-agent", "token": " | Rate Limiting pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110257, "seq": 472, "event": {"type": "token", "agent": "head-agent", "token": " Client", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110332, "seq": 473, "event": {"type": "token", "agent": "head-agent", "token": " implement", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110407, "seq": 474, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110481, "seq": 475, "event": {"type": "token", "agent": "head-agent", "token": " | Sch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110556, "seq": 476, "event": {"type": "token", "agent": "head-agent", "token": "utz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110629, "seq": 477, "event": {"type": "token", "agent": "head-agent", "token": " vor", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110706, "seq": 478, "event": {"type": "token", "agent": "head-agent", "token": " DoS |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110777, "seq": 479, "event": {"type": "token", "agent": "head-agent", "token": "\n| 6 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110852, "seq": 480, "event": {"type": "token", "agent": "head-agent", "token": " Int", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 110927, "seq": 481, "event": {"type": "token", "agent": "head-agent", "token": "eg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 111001, "seq": 482, "event": {"type": "token", "agent": "head-agent", "token": "rier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 111076, "seq": 483, "event": {"type": "token", "agent": "head-agent", "token": "ter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 111153, "seq": 484, "event": {"type": "token", "agent": "head-agent", "token": " Health", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 111504, "seq": 485, "event": {"type": "token", "agent": "head-agent", "token": " Check", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 111881, "seq": 486, "event": {"type": "token", "agent": "head-agent", "token": " Mechan", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112294, "seq": 487, "event": {"type": "token", "agent": "head-agent", "token": "ismus", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112647, "seq": 488, "event": {"type": "token", "agent": "head-agent", "token": " | Über", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112726, "seq": 489, "event": {"type": "token", "agent": "head-agent", "token": "wach", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112799, "seq": 490, "event": {"type": "token", "agent": "head-agent", "token": "ung Verfüg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112874, "seq": 491, "event": {"type": "token", "agent": "head-agent", "token": "bar", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 112949, "seq": 492, "event": {"type": "token", "agent": "head-agent", "token": "keit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113025, "seq": 493, "event": {"type": "token", "agent": "head-agent", "token": " einzel", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113099, "seq": 494, "event": {"type": "token", "agent": "head-agent", "token": "ner", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113174, "seq": 495, "event": {"type": "token", "agent": "head-agent", "token": " Services", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113248, "seq": 496, "event": {"type": "token", "agent": "head-agent", "token": " |\n| 7 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113324, "seq": 497, "event": {"type": "token", "agent": "head-agent", "token": " Ref", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113397, "seq": 498, "event": {"type": "token", "agent": "head-agent", "token": "akt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113472, "seq": 499, "event": {"type": "token", "agent": "head-agent", "token": "or", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113544, "seq": 500, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113618, "seq": 501, "event": {"type": "token", "agent": "head-agent", "token": " mon", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113693, "seq": 502, "event": {"type": "token", "agent": "head-agent", "token": "olith", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113771, "seq": 503, "event": {"type": "token", "agent": "head-agent", "token": "ischer", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113840, "seq": 504, "event": {"type": "token", "agent": "head-agent", "token": " Module", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113915, "seq": 505, "event": {"type": "token", "agent": "head-agent", "token": " in", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 113988, "seq": 506, "event": {"type": "token", "agent": "head-agent", "token": " Micro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114065, "seq": 507, "event": {"type": "token", "agent": "head-agent", "token": "services | B", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114136, "seq": 508, "event": {"type": "token", "agent": "head-agent", "token": "ess", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114210, "seq": 509, "event": {"type": "token", "agent": "head-agent", "token": "ere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114284, "seq": 510, "event": {"type": "token", "agent": "head-agent", "token": " Sk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114358, "seq": 511, "event": {"type": "token", "agent": "head-agent", "token": "al", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114432, "seq": 512, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114506, "seq": 513, "event": {"type": "token", "agent": "head-agent", "token": "barkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114581, "seq": 514, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114656, "seq": 515, "event": {"type": "token", "agent": "head-agent", "token": " Wart", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114728, "seq": 516, "event": {"type": "token", "agent": "head-agent", "token": "bar", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114803, "seq": 517, "event": {"type": "token", "agent": "head-agent", "token": "keit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114877, "seq": 518, "event": {"type": "token", "agent": "head-agent", "token": " |\n| 8 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 114951, "seq": 519, "event": {"type": "token", "agent": "head-agent", "token": " E", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115025, "seq": 520, "event": {"type": "token", "agent": "head-agent", "token": "inf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115099, "seq": 521, "event": {"type": "token", "agent": "head-agent", "token": "ührung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115173, "seq": 522, "event": {"type": "token", "agent": "head-agent", "token": " eines", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115246, "seq": 523, "event": {"type": "token", "agent": "head-agent", "token": " z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115320, "seq": 524, "event": {"type": "token", "agent": "head-agent", "token": "entral", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115512, "seq": 525, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115587, "seq": 526, "event": {"type": "token", "agent": "head-agent", "token": " Logs", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115663, "seq": 527, "event": {"type": "token", "agent": "head-agent", "token": "ervers", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115740, "seq": 528, "event": {"type": "token", "agent": "head-agent", "token": " mit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115813, "seq": 529, "event": {"type": "token", "agent": "head-agent", "token": " Alert", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115889, "seq": 530, "event": {"type": "token", "agent": "head-agent", "token": "ing | Nach", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 115962, "seq": 531, "event": {"type": "token", "agent": "head-agent", "token": "v", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116039, "seq": 532, "event": {"type": "token", "agent": "head-agent", "token": "oll", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116119, "seq": 533, "event": {"type": "token", "agent": "head-agent", "token": "zie", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116189, "seq": 534, "event": {"type": "token", "agent": "head-agent", "token": "h", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116262, "seq": 535, "event": {"type": "token", "agent": "head-agent", "token": "bar", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116336, "seq": 536, "event": {"type": "token", "agent": "head-agent", "token": "keit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116411, "seq": 537, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116484, "seq": 538, "event": {"type": "token", "agent": "head-agent", "token": " Ere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116558, "seq": 539, "event": {"type": "token", "agent": "head-agent", "token": "ignissen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116635, "seq": 540, "event": {"type": "token", "agent": "head-agent", "token": " |\n| 9 |", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116706, "seq": 541, "event": {"type": "token", "agent": "head-agent", "token": " Session", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116784, "seq": 542, "event": {"type": "token", "agent": "head-agent", "token": " Management", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116861, "seq": 543, "event": {"type": "token", "agent": "head-agent", "token": " via", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 116935, "seq": 544, "event": {"type": "token", "agent": "head-agent", "token": " JWT", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 117300, "seq": 545, "event": {"type": "token", "agent": "head-agent", "token": " mit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 117694, "seq": 546, "event": {"type": "token", "agent": "head-agent", "token": " A", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 118117, "seq": 547, "event": {"type": "token", "agent": "head-agent", "token": "bl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 118576, "seq": 548, "event": {"type": "token", "agent": "head-agent", "token": "auf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 118955, "seq": 549, "event": {"type": "token", "agent": "head-agent", "token": "zeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119034, "seq": 550, "event": {"type": "token", "agent": "head-agent", "token": " | Verb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119112, "seq": 551, "event": {"type": "token", "agent": "head-agent", "token": "esser", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119191, "seq": 552, "event": {"type": "token", "agent": "head-agent", "token": "ung Auth", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119271, "seq": 553, "event": {"type": "token", "agent": "head-agent", "token": "entifizierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119349, "seq": 554, "event": {"type": "token", "agent": "head-agent", "token": "ss", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119428, "seq": 555, "event": {"type": "token", "agent": "head-agent", "token": "icher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119506, "seq": 556, "event": {"type": "token", "agent": "head-agent", "token": "heit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119708, "seq": 557, "event": {"type": "token", "agent": "head-agent", "token": " |\n|1", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119802, "seq": 558, "event": {"type": "token", "agent": "head-agent", "token": "0 | Last", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119866, "seq": 559, "event": {"type": "token", "agent": "head-agent", "token": "tests", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 119945, "seq": 560, "event": {"type": "token", "agent": "head-agent", "token": " regelmäßig", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120022, "seq": 561, "event": {"type": "token", "agent": "head-agent", "token": " autom", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120104, "seq": 562, "event": {"type": "token", "agent": "head-agent", "token": "atis", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120178, "seq": 563, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120257, "seq": 564, "event": {"type": "token", "agent": "head-agent", "token": " | Fr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120346, "seq": 565, "event": {"type": "token", "agent": "head-agent", "token": "ü", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120415, "seq": 566, "event": {"type": "token", "agent": "head-agent", "token": "her", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120483, "seq": 567, "event": {"type": "token", "agent": "head-agent", "token": "k", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120551, "seq": 568, "event": {"type": "token", "agent": "head-agent", "token": "enn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120619, "seq": 569, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120686, "seq": 570, "event": {"type": "token", "agent": "head-agent", "token": " von", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120754, "seq": 571, "event": {"type": "token", "agent": "head-agent", "token": " Performancepro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120820, "seq": 572, "event": {"type": "token", "agent": "head-agent", "token": "ble", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120888, "seq": 573, "event": {"type": "token", "agent": "head-agent", "token": "men", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 120953, "seq": 574, "event": {"type": "token", "agent": "head-agent", "token": " |\n\n---\n\n### **Mess", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121019, "seq": 575, "event": {"type": "token", "agent": "head-agent", "token": "bare", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121085, "seq": 576, "event": {"type": "token", "agent": "head-agent", "token": " KPIs**", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121152, "seq": 577, "event": {"type": "token", "agent": "head-agent", "token": "\n-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121218, "seq": 578, "event": {"type": "token", "agent": "head-agent", "token": " **D", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121286, "seq": 579, "event": {"type": "token", "agent": "head-agent", "token": "urch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121455, "seq": 580, "event": {"type": "token", "agent": "head-agent", "token": "s", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121520, "seq": 581, "event": {"type": "token", "agent": "head-agent", "token": "chnitt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121589, "seq": 582, "event": {"type": "token", "agent": "head-agent", "token": "liche", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121653, "seq": 583, "event": {"type": "token", "agent": "head-agent", "token": " Antwort", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121723, "seq": 584, "event": {"type": "token", "agent": "head-agent", "token": "zeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121788, "seq": 585, "event": {"type": "token", "agent": "head-agent", "token": " pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121855, "seq": 586, "event": {"type": "token", "agent": "head-agent", "token": " API", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121931, "seq": 587, "event": {"type": "token", "agent": "head-agent", "token": "-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 121998, "seq": 588, "event": {"type": "token", "agent": "head-agent", "token": "Call", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122059, "seq": 589, "event": {"type": "token", "agent": "head-agent", "token": " (", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122124, "seq": 590, "event": {"type": "token", "agent": "head-agent", "token": "<2", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122191, "seq": 591, "event": {"type": "token", "agent": "head-agent", "token": "00ms)**", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122256, "seq": 592, "event": {"type": "token", "agent": "head-agent", "token": " –", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122322, "seq": 593, "event": {"type": "token", "agent": "head-agent", "token": " Monitoring", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122387, "seq": 594, "event": {"type": "token", "agent": "head-agent", "token": " über", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122454, "seq": 595, "event": {"type": "token", "agent": "head-agent", "token": " inter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122519, "seq": 596, "event": {"type": "token", "agent": "head-agent", "token": "ne", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122585, "seq": 597, "event": {"type": "token", "agent": "head-agent", "token": " Met", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122651, "seq": 598, "event": {"type": "token", "agent": "head-agent", "token": "ri", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122717, "seq": 599, "event": {"type": "token", "agent": "head-agent", "token": "ken", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122848, "seq": 600, "event": {"type": "token", "agent": "head-agent", "token": "\n- **System", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122913, "seq": 601, "event": {"type": "token", "agent": "head-agent", "token": "ver", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 122981, "seq": 602, "event": {"type": "token", "agent": "head-agent", "token": "füg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123059, "seq": 603, "event": {"type": "token", "agent": "head-agent", "token": "barkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123111, "seq": 604, "event": {"type": "token", "agent": "head-agent", "token": " (>", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123177, "seq": 605, "event": {"type": "token", "agent": "head-agent", "token": "9", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123243, "seq": 606, "event": {"type": "token", "agent": "head-agent", "token": "9,", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123309, "seq": 607, "event": {"type": "token", "agent": "head-agent", "token": "5", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123375, "seq": 608, "event": {"type": "token", "agent": "head-agent", "token": "%)", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123442, "seq": 609, "event": {"type": "token", "agent": "head-agent", "token": "** – Bere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123507, "seq": 610, "event": {"type": "token", "agent": "head-agent", "token": "chn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123573, "seq": 611, "event": {"type": "token", "agent": "head-agent", "token": "et aus", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123640, "seq": 612, "event": {"type": "token", "agent": "head-agent", "token": " U", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123707, "seq": 613, "event": {"type": "token", "agent": "head-agent", "token": "ptime", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123773, "seq": 614, "event": {"type": "token", "agent": "head-agent", "token": "-D", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123841, "seq": 615, "event": {"type": "token", "agent": "head-agent", "token": "aten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123905, "seq": 616, "event": {"type": "token", "agent": "head-agent", "token": " inner", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 123968, "seq": 617, "event": {"type": "token", "agent": "head-agent", "token": "halb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124135, "seq": 618, "event": {"type": "token", "agent": "head-agent", "token": " defin", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124204, "seq": 619, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124269, "seq": 620, "event": {"type": "token", "agent": "head-agent", "token": "ter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124334, "seq": 621, "event": {"type": "token", "agent": "head-agent", "token": " Ze", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124400, "seq": 622, "event": {"type": "token", "agent": "head-agent", "token": "itr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124466, "seq": 623, "event": {"type": "token", "agent": "head-agent", "token": "ä", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124534, "seq": 624, "event": {"type": "token", "agent": "head-agent", "token": "ume", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124663, "seq": 625, "event": {"type": "token", "agent": "head-agent", "token": "\n- **An", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124726, "seq": 626, "event": {"type": "token", "agent": "head-agent", "token": "zahl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124792, "seq": 627, "event": {"type": "token", "agent": "head-agent", "token": " erfolgre", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124855, "seq": 628, "event": {"type": "token", "agent": "head-agent", "token": "icher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124918, "seq": 629, "event": {"type": "token", "agent": "head-agent", "token": " vs", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 124984, "seq": 630, "event": {"type": "token", "agent": "head-agent", "token": ". fe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125048, "seq": 631, "event": {"type": "token", "agent": "head-agent", "token": "hl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125112, "seq": 632, "event": {"type": "token", "agent": "head-agent", "token": "gesch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125177, "seq": 633, "event": {"type": "token", "agent": "head-agent", "token": "lag", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125242, "seq": 634, "event": {"type": "token", "agent": "head-agent", "token": "ener", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125306, "seq": 635, "event": {"type": "token", "agent": "head-agent", "token": " Requests", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125372, "seq": 636, "event": {"type": "token", "agent": "head-agent", "token": " (%)", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125565, "seq": 637, "event": {"type": "token", "agent": "head-agent", "token": "** – T", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125630, "seq": 638, "event": {"type": "token", "agent": "head-agent", "token": "ren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125694, "seq": 639, "event": {"type": "token", "agent": "head-agent", "token": "nung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125759, "seq": 640, "event": {"type": "token", "agent": "head-agent", "token": " nach", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125825, "seq": 641, "event": {"type": "token", "agent": "head-agent", "token": " HTTP", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125889, "seq": 642, "event": {"type": "token", "agent": "head-agent", "token": " Status", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 125956, "seq": 643, "event": {"type": "token", "agent": "head-agent", "token": "codes", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126023, "seq": 644, "event": {"type": "token", "agent": "head-agent", "token": "\n- **CPU", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126085, "seq": 645, "event": {"type": "token", "agent": "head-agent", "token": "-/", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126150, "seq": 646, "event": {"type": "token", "agent": "head-agent", "token": "Spe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126214, "seq": 647, "event": {"type": "token", "agent": "head-agent", "token": "ich", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126278, "seq": 648, "event": {"type": "token", "agent": "head-agent", "token": "era", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126343, "seq": 649, "event": {"type": "token", "agent": "head-agent", "token": "us", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126407, "seq": 650, "event": {"type": "token", "agent": "head-agent", "token": "last", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126471, "seq": 651, "event": {"type": "token", "agent": "head-agent", "token": "ung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126535, "seq": 652, "event": {"type": "token", "agent": "head-agent", "token": " je", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126707, "seq": 653, "event": {"type": "token", "agent": "head-agent", "token": " Service", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126772, "seq": 654, "event": {"type": "token", "agent": "head-agent", "token": "inst", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126839, "seq": 655, "event": {"type": "token", "agent": "head-agent", "token": "anz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126902, "seq": 656, "event": {"type": "token", "agent": "head-agent", "token": " (%)", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 126976, "seq": 657, "event": {"type": "token", "agent": "head-agent", "token": "** – Kont", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127031, "seq": 658, "event": {"type": "token", "agent": "head-agent", "token": "in", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127096, "seq": 659, "event": {"type": "token", "agent": "head-agent", "token": "u", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127161, "seq": 660, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127225, "seq": 661, "event": {"type": "token", "agent": "head-agent", "token": "liche", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127291, "seq": 662, "event": {"type": "token", "agent": "head-agent", "token": " Erf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127357, "seq": 663, "event": {"type": "token", "agent": "head-agent", "token": "ass", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127419, "seq": 664, "event": {"type": "token", "agent": "head-agent", "token": "ung\n- **Rate", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127483, "seq": 665, "event": {"type": "token", "agent": "head-agent", "token": "-L", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127548, "seq": 666, "event": {"type": "token", "agent": "head-agent", "token": "imit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127611, "seq": 667, "event": {"type": "token", "agent": "head-agent", "token": " Ü", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127675, "seq": 668, "event": {"type": "token", "agent": "head-agent", "token": "bers", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127740, "seq": 669, "event": {"type": "token", "agent": "head-agent", "token": "ch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127803, "seq": 670, "event": {"type": "token", "agent": "head-agent", "token": "re", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127868, "seq": 671, "event": {"type": "token", "agent": "head-agent", "token": "it", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127933, "seq": 672, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 127998, "seq": 673, "event": {"type": "token", "agent": "head-agent", "token": " pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128076, "seq": 674, "event": {"type": "token", "agent": "head-agent", "token": " Tag", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128126, "seq": 675, "event": {"type": "token", "agent": "head-agent", "token": "**", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128191, "seq": 676, "event": {"type": "token", "agent": "head-agent", "token": " – Ident", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128275, "seq": 677, "event": {"type": "token", "agent": "head-agent", "token": "ifik", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128334, "seq": 678, "event": {"type": "token", "agent": "head-agent", "token": "ation pot", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128401, "seq": 679, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128467, "seq": 680, "event": {"type": "token", "agent": "head-agent", "token": "zi", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128529, "seq": 681, "event": {"type": "token", "agent": "head-agent", "token": "eller", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128593, "seq": 682, "event": {"type": "token", "agent": "head-agent", "token": " Miss", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128658, "seq": 683, "event": {"type": "token", "agent": "head-agent", "token": "bra", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128722, "seq": 684, "event": {"type": "token", "agent": "head-agent", "token": "uch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128786, "seq": 685, "event": {"type": "token", "agent": "head-agent", "token": "sm", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128851, "seq": 686, "event": {"type": "token", "agent": "head-agent", "token": "uster", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 128916, "seq": 687, "event": {"type": "token", "agent": "head-agent", "token": "\n- **An", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129097, "seq": 688, "event": {"type": "token", "agent": "head-agent", "token": "zahl", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129164, "seq": 689, "event": {"type": "token", "agent": "head-agent", "token": " er", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129228, "seq": 690, "event": {"type": "token", "agent": "head-agent", "token": "kan", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129294, "seq": 691, "event": {"type": "token", "agent": "head-agent", "token": "nt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129360, "seq": 692, "event": {"type": "token", "agent": "head-agent", "token": "er Sicher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129429, "seq": 693, "event": {"type": "token", "agent": "head-agent", "token": "heits", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129509, "seq": 694, "event": {"type": "token", "agent": "head-agent", "token": "v", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129558, "seq": 695, "event": {"type": "token", "agent": "head-agent", "token": "orf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129624, "seq": 696, "event": {"type": "token", "agent": "head-agent", "token": "älle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129690, "seq": 697, "event": {"type": "token", "agent": "head-agent", "token": "/M", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129756, "seq": 698, "event": {"type": "token", "agent": "head-agent", "token": "on", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129821, "seq": 699, "event": {"type": "token", "agent": "head-agent", "token": "at", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129889, "seq": 700, "event": {"type": "token", "agent": "head-agent", "token": "** – Man", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 129956, "seq": 701, "event": {"type": "token", "agent": "head-agent", "token": "uelle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130022, "seq": 702, "event": {"type": "token", "agent": "head-agent", "token": " Erf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130090, "seq": 703, "event": {"type": "token", "agent": "head-agent", "token": "ass", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130157, "seq": 704, "event": {"type": "token", "agent": "head-agent", "token": "ung relev", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130252, "seq": 705, "event": {"type": "token", "agent": "head-agent", "token": "anter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130300, "seq": 706, "event": {"type": "token", "agent": "head-agent", "token": " Ere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130367, "seq": 707, "event": {"type": "token", "agent": "head-agent", "token": "ignisse", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130434, "seq": 708, "event": {"type": "token", "agent": "head-agent", "token": "\n\n---\n\n### **Roll", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130499, "seq": 709, "event": {"type": "token", "agent": "head-agent", "token": "out-Plan**\n####", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130566, "seq": 710, "event": {"type": "token", "agent": "head-agent", "token": " Phase", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130636, "seq": 711, "event": {"type": "token", "agent": "head-agent", "token": " 1: Grund", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130697, "seq": 712, "event": {"type": "token", "agent": "head-agent", "token": "leg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130762, "seq": 713, "event": {"type": "token", "agent": "head-agent", "token": "ende", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130828, "seq": 714, "event": {"type": "token", "agent": "head-agent", "token": " St", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130901, "seq": 715, "event": {"type": "token", "agent": "head-agent", "token": "abilis", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 130961, "seq": 716, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131028, "seq": 717, "event": {"type": "token", "agent": "head-agent", "token": " (Wo", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131091, "seq": 718, "event": {"type": "token", "agent": "head-agent", "token": "che", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131157, "seq": 719, "event": {"type": "token", "agent": "head-agent", "token": " 1–", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131229, "seq": 720, "event": {"type": "token", "agent": "head-agent", "token": "2)\n-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131301, "seq": 721, "event": {"type": "token", "agent": "head-agent", "token": " As", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131368, "seq": 722, "event": {"type": "token", "agent": "head-agent", "token": "yn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131435, "seq": 723, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131500, "seq": 724, "event": {"type": "token", "agent": "head-agent", "token": "one Task", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131567, "seq": 725, "event": {"type": "token", "agent": "head-agent", "token": " Queue", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131633, "seq": 726, "event": {"type": "token", "agent": "head-agent", "token": " einf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131702, "seq": 727, "event": {"type": "token", "agent": "head-agent", "token": "üh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131765, "seq": 728, "event": {"type": "token", "agent": "head-agent", "token": "ren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131842, "seq": 729, "event": {"type": "token", "agent": "head-agent", "token": "\n- Circuit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131897, "seq": 730, "event": {"type": "token", "agent": "head-agent", "token": " Breaker für", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 131963, "seq": 731, "event": {"type": "token", "agent": "head-agent", "token": " exter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132030, "seq": 732, "event": {"type": "token", "agent": "head-agent", "token": "ne Ab", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132097, "seq": 733, "event": {"type": "token", "agent": "head-agent", "token": "häng", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132164, "seq": 734, "event": {"type": "token", "agent": "head-agent", "token": "ig", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132231, "seq": 735, "event": {"type": "token", "agent": "head-agent", "token": "keiten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132298, "seq": 736, "event": {"type": "token", "agent": "head-agent", "token": " aktiv", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132364, "seq": 737, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132433, "seq": 738, "event": {"type": "token", "agent": "head-agent", "token": "\n- Minimal", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132499, "seq": 739, "event": {"type": "token", "agent": "head-agent", "token": " Logging", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132566, "seq": 740, "event": {"type": "token", "agent": "head-agent", "token": " für", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132633, "seq": 741, "event": {"type": "token", "agent": "head-agent", "token": " alle", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132698, "seq": 742, "event": {"type": "token", "agent": "head-agent", "token": " k", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132765, "seq": 743, "event": {"type": "token", "agent": "head-agent", "token": "rit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132832, "seq": 744, "event": {"type": "token", "agent": "head-agent", "token": "ischen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132897, "seq": 745, "event": {"type": "token", "agent": "head-agent", "token": " P", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 132963, "seq": 746, "event": {"type": "token", "agent": "head-agent", "token": "fade", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133031, "seq": 747, "event": {"type": "token", "agent": "head-agent", "token": " h", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133096, "seq": 748, "event": {"type": "token", "agent": "head-agent", "token": "inz", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133162, "seq": 749, "event": {"type": "token", "agent": "head-agent", "token": "uf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133228, "seq": 750, "event": {"type": "token", "agent": "head-agent", "token": "ügen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133295, "seq": 751, "event": {"type": "token", "agent": "head-agent", "token": "\n\n#### Phase 2", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133362, "seq": 752, "event": {"type": "token", "agent": "head-agent", "token": ": Performanceoptim", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133428, "seq": 753, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133494, "seq": 754, "event": {"type": "token", "agent": "head-agent", "token": " (Wo", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133561, "seq": 755, "event": {"type": "token", "agent": "head-agent", "token": "che 3–4", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133631, "seq": 756, "event": {"type": "token", "agent": "head-agent", "token": ")\n- Daten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133695, "seq": 757, "event": {"type": "token", "agent": "head-agent", "token": "bank", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133762, "seq": 758, "event": {"type": "token", "agent": "head-agent", "token": "ind", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133833, "seq": 759, "event": {"type": "token", "agent": "head-agent", "token": "izes", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133894, "seq": 760, "event": {"type": "token", "agent": "head-agent", "token": " erst", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 133960, "seq": 761, "event": {"type": "token", "agent": "head-agent", "token": "ellen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134031, "seq": 762, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134092, "seq": 763, "event": {"type": "token", "agent": "head-agent", "token": " Queries", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134158, "seq": 764, "event": {"type": "token", "agent": "head-agent", "token": " optim", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134226, "seq": 765, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134293, "seq": 766, "event": {"type": "token", "agent": "head-agent", "token": "\n- Spe", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134359, "seq": 767, "event": {"type": "token", "agent": "head-agent", "token": "icher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134424, "seq": 768, "event": {"type": "token", "agent": "head-agent", "token": "leck", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134490, "seq": 769, "event": {"type": "token", "agent": "head-agent", "token": "agen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134556, "seq": 770, "event": {"type": "token", "agent": "head-agent", "token": " durch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134623, "seq": 771, "event": {"type": "token", "agent": "head-agent", "token": " Gar", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 134690, "seq": 772, "event": {"type": "token", "agent": "head-agent", "token": "bage Collection", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 135044, "seq": 773, "event": {"type": "token", "agent": "head-agent", "token": " Policies", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 135432, "seq": 774, "event": {"type": "token", "agent": "head-agent", "token": " redu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 135846, "seq": 775, "event": {"type": "token", "agent": "head-agent", "token": "z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136050, "seq": 776, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136118, "seq": 777, "event": {"type": "token", "agent": "head-agent", "token": "\n- Syn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136189, "seq": 778, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136265, "seq": 779, "event": {"type": "token", "agent": "head-agent", "token": "one Calls", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136326, "seq": 780, "event": {"type": "token", "agent": "head-agent", "token": " durch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136396, "seq": 781, "event": {"type": "token", "agent": "head-agent", "token": " as", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136461, "seq": 782, "event": {"type": "token", "agent": "head-agent", "token": "yn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136528, "seq": 783, "event": {"type": "token", "agent": "head-agent", "token": "chr", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136594, "seq": 784, "event": {"type": "token", "agent": "head-agent", "token": "one Altern", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136660, "seq": 785, "event": {"type": "token", "agent": "head-agent", "token": "at", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136724, "seq": 786, "event": {"type": "token", "agent": "head-agent", "token": "iven", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136858, "seq": 787, "event": {"type": "token", "agent": "head-agent", "token": " erset", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136923, "seq": 788, "event": {"type": "token", "agent": "head-agent", "token": "zen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 136991, "seq": 789, "event": {"type": "token", "agent": "head-agent", "token": "\n\n#### Phase 3", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137057, "seq": 790, "event": {"type": "token", "agent": "head-agent", "token": ": Sicher", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137123, "seq": 791, "event": {"type": "token", "agent": "head-agent", "token": "heits", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137189, "seq": 792, "event": {"type": "token", "agent": "head-agent", "token": "verb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137253, "seq": 793, "event": {"type": "token", "agent": "head-agent", "token": "esser", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137322, "seq": 794, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137385, "seq": 795, "event": {"type": "token", "agent": "head-agent", "token": " (Wo", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137452, "seq": 796, "event": {"type": "token", "agent": "head-agent", "token": "che 5–", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137519, "seq": 797, "event": {"type": "token", "agent": "head-agent", "token": "6)\n- Str", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137584, "seq": 798, "event": {"type": "token", "agent": "head-agent", "token": "ik", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137650, "seq": 799, "event": {"type": "token", "agent": "head-agent", "token": "te", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137719, "seq": 800, "event": {"type": "token", "agent": "head-agent", "token": " Inputvalidierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137786, "seq": 801, "event": {"type": "token", "agent": "head-agent", "token": " an", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137855, "seq": 802, "event": {"type": "token", "agent": "head-agent", "token": " allen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137921, "seq": 803, "event": {"type": "token", "agent": "head-agent", "token": " Schn", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 137989, "seq": 804, "event": {"type": "token", "agent": "head-agent", "token": "itt", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138057, "seq": 805, "event": {"type": "token", "agent": "head-agent", "token": "stellen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138122, "seq": 806, "event": {"type": "token", "agent": "head-agent", "token": " implement", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138188, "seq": 807, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138256, "seq": 808, "event": {"type": "token", "agent": "head-agent", "token": "\n- Rate Limiting", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138322, "seq": 809, "event": {"type": "token", "agent": "head-agent", "token": " pro", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138387, "seq": 810, "event": {"type": "token", "agent": "head-agent", "token": " Client", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138454, "seq": 811, "event": {"type": "token", "agent": "head-agent", "token": " kon", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138523, "seq": 812, "event": {"type": "token", "agent": "head-agent", "token": "fig", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138586, "seq": 813, "event": {"type": "token", "agent": "head-agent", "token": "urieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138654, "seq": 814, "event": {"type": "token", "agent": "head-agent", "token": "\n- JWT-b", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138723, "seq": 815, "event": {"type": "token", "agent": "head-agent", "token": "asi", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 138786, "seq": 816, "event": {"type": "token", "agent": "head-agent", "token": "erte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139011, "seq": 817, "event": {"type": "token", "agent": "head-agent", "token": " Sessions", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139175, "seq": 818, "event": {"type": "token", "agent": "head-agent", "token": " einf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139243, "seq": 819, "event": {"type": "token", "agent": "head-agent", "token": "üh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139311, "seq": 820, "event": {"type": "token", "agent": "head-agent", "token": "ren\n\n#### Phase", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139377, "seq": 821, "event": {"type": "token", "agent": "head-agent", "token": " 4: Sk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139443, "seq": 822, "event": {"type": "token", "agent": "head-agent", "token": "al", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139508, "seq": 823, "event": {"type": "token", "agent": "head-agent", "token": "ier", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139574, "seq": 824, "event": {"type": "token", "agent": "head-agent", "token": "barkeit", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139639, "seq": 825, "event": {"type": "token", "agent": "head-agent", "token": " & Monitoring", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139706, "seq": 826, "event": {"type": "token", "agent": "head-agent", "token": " (Wo", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139772, "seq": 827, "event": {"type": "token", "agent": "head-agent", "token": "che 7–8", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139839, "seq": 828, "event": {"type": "token", "agent": "head-agent", "token": ")\n- Modular", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139905, "seq": 829, "event": {"type": "token", "agent": "head-agent", "token": "is", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 139969, "seq": 830, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140037, "seq": 831, "event": {"type": "token", "agent": "head-agent", "token": " best", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140102, "seq": 832, "event": {"type": "token", "agent": "head-agent", "token": "eh", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140168, "seq": 833, "event": {"type": "token", "agent": "head-agent", "token": "ender", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140235, "seq": 834, "event": {"type": "token", "agent": "head-agent", "token": " Mon", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140304, "seq": 835, "event": {"type": "token", "agent": "head-agent", "token": "olith", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140373, "seq": 836, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140439, "seq": 837, "event": {"type": "token", "agent": "head-agent", "token": " begin", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140505, "seq": 838, "event": {"type": "token", "agent": "head-agent", "token": "nen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140572, "seq": 839, "event": {"type": "token", "agent": "head-agent", "token": "\n- Z", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140640, "seq": 840, "event": {"type": "token", "agent": "head-agent", "token": "entral", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140705, "seq": 841, "event": {"type": "token", "agent": "head-agent", "token": "isi", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140772, "seq": 842, "event": {"type": "token", "agent": "head-agent", "token": "erte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140838, "seq": 843, "event": {"type": "token", "agent": "head-agent", "token": " Log", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140905, "seq": 844, "event": {"type": "token", "agent": "head-agent", "token": "server", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 140972, "seq": 845, "event": {"type": "token", "agent": "head-agent", "token": "integration", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141039, "seq": 846, "event": {"type": "token", "agent": "head-agent", "token": " abs", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141105, "seq": 847, "event": {"type": "token", "agent": "head-agent", "token": "ch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141172, "seq": 848, "event": {"type": "token", "agent": "head-agent", "token": "lie", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141239, "seq": 849, "event": {"type": "token", "agent": "head-agent", "token": "ßen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141431, "seq": 850, "event": {"type": "token", "agent": "head-agent", "token": "\n- Autom", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141498, "seq": 851, "event": {"type": "token", "agent": "head-agent", "token": "atis", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141563, "seq": 852, "event": {"type": "token", "agent": "head-agent", "token": "ierte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141629, "seq": 853, "event": {"type": "token", "agent": "head-agent", "token": " Last", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141694, "seq": 854, "event": {"type": "token", "agent": "head-agent", "token": "tests", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141760, "seq": 855, "event": {"type": "token", "agent": "head-agent", "token": " ein", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141831, "seq": 856, "event": {"type": "token", "agent": "head-agent", "token": "bind", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141899, "seq": 857, "event": {"type": "token", "agent": "head-agent", "token": "en", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 141965, "seq": 858, "event": {"type": "token", "agent": "head-agent", "token": "\n\n#### Phase 5", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142032, "seq": 859, "event": {"type": "token", "agent": "head-agent", "token": ": Evalu", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142099, "seq": 860, "event": {"type": "token", "agent": "head-agent", "token": "ierung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142165, "seq": 861, "event": {"type": "token", "agent": "head-agent", "token": " & Iter", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142231, "seq": 862, "event": {"type": "token", "agent": "head-agent", "token": "ation (Wo", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142298, "seq": 863, "event": {"type": "token", "agent": "head-agent", "token": "che 9)\n-", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142364, "seq": 864, "event": {"type": "token", "agent": "head-agent", "token": " KPI-W", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142430, "seq": 865, "event": {"type": "token", "agent": "head-agent", "token": "erte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142494, "seq": 866, "event": {"type": "token", "agent": "head-agent", "token": " verg", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142659, "seq": 867, "event": {"type": "token", "agent": "head-agent", "token": "le", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142728, "seq": 868, "event": {"type": "token", "agent": "head-agent", "token": "ichen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142793, "seq": 869, "event": {"type": "token", "agent": "head-agent", "token": " (", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142859, "seq": 870, "event": {"type": "token", "agent": "head-agent", "token": "vor", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142926, "seq": 871, "event": {"type": "token", "agent": "head-agent", "token": "/n", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 142993, "seq": 872, "event": {"type": "token", "agent": "head-agent", "token": "ach", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143061, "seq": 873, "event": {"type": "token", "agent": "head-agent", "token": " Um", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143128, "seq": 874, "event": {"type": "token", "agent": "head-agent", "token": "set", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143194, "seq": 875, "event": {"type": "token", "agent": "head-agent", "token": "zung", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143261, "seq": 876, "event": {"type": "token", "agent": "head-agent", "token": ")\n- Feedback", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143327, "seq": 877, "event": {"type": "token", "agent": "head-agent", "token": "sch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143395, "seq": 878, "event": {"type": "token", "agent": "head-agent", "token": "le", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143464, "seq": 879, "event": {"type": "token", "agent": "head-agent", "token": "ife", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143531, "seq": 880, "event": {"type": "token", "agent": "head-agent", "token": " initi", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143595, "seq": 881, "event": {"type": "token", "agent": "head-agent", "token": "ieren", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143661, "seq": 882, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143728, "seq": 883, "event": {"type": "token", "agent": "head-agent", "token": " g", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143796, "seq": 884, "event": {"type": "token", "agent": "head-agent", "token": "gf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143863, "seq": 885, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143927, "seq": 886, "event": {"type": "token", "agent": "head-agent", "token": " weitere", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 143993, "seq": 887, "event": {"type": "token", "agent": "head-agent", "token": " Verb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144057, "seq": 888, "event": {"type": "token", "agent": "head-agent", "token": "esser", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144123, "seq": 889, "event": {"type": "token", "agent": "head-agent", "token": "ungen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144189, "seq": 890, "event": {"type": "token", "agent": "head-agent", "token": " able", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144259, "seq": 891, "event": {"type": "token", "agent": "head-agent", "token": "iten", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144389, "seq": 892, "event": {"type": "token", "agent": "head-agent", "token": "\n\n---", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144451, "seq": 893, "event": {"type": "token", "agent": "head-agent", "token": " \n\nDiese", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144517, "seq": 894, "event": {"type": "token", "agent": "head-agent", "token": " Analyse", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144588, "seq": 895, "event": {"type": "token", "agent": "head-agent", "token": " bas", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144645, "seq": 896, "event": {"type": "token", "agent": "head-agent", "token": "iert", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144711, "seq": 897, "event": {"type": "token", "agent": "head-agent", "token": " auss", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144776, "seq": 898, "event": {"type": "token", "agent": "head-agent", "token": "ch", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144840, "seq": 899, "event": {"type": "token", "agent": "head-agent", "token": "ließlich", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144905, "seq": 900, "event": {"type": "token", "agent": "head-agent", "token": " auf", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 144974, "seq": 901, "event": {"type": "token", "agent": "head-agent", "token": " text", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145035, "seq": 902, "event": {"type": "token", "agent": "head-agent", "token": "uellen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145100, "seq": 903, "event": {"type": "token", "agent": "head-agent", "token": " Informationen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145168, "seq": 904, "event": {"type": "token", "agent": "head-agent", "token": " und", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145233, "seq": 905, "event": {"type": "token", "agent": "head-agent", "token": " str", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145424, "seq": 906, "event": {"type": "token", "agent": "head-agent", "token": "uk", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145494, "seq": 907, "event": {"type": "token", "agent": "head-agent", "token": "ture", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145552, "seq": 908, "event": {"type": "token", "agent": "head-agent", "token": "llen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145616, "seq": 909, "event": {"type": "token", "agent": "head-agent", "token": " Ann", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145682, "seq": 910, "event": {"type": "token", "agent": "head-agent", "token": "ah", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145747, "seq": 911, "event": {"type": "token", "agent": "head-agent", "token": "men", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145811, "seq": 912, "event": {"type": "token", "agent": "head-agent", "token": " bez", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145876, "seq": 913, "event": {"type": "token", "agent": "head-agent", "token": "ü", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 145942, "seq": 914, "event": {"type": "token", "agent": "head-agent", "token": "glich", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146006, "seq": 915, "event": {"type": "token", "agent": "head-agent", "token": " typ", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146187, "seq": 916, "event": {"type": "token", "agent": "head-agent", "token": "ischer", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146252, "seq": 917, "event": {"type": "token", "agent": "head-agent", "token": " Backend", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146313, "seq": 918, "event": {"type": "token", "agent": "head-agent", "token": "-Agent", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146377, "seq": 919, "event": {"type": "token", "agent": "head-agent", "token": "-Framework", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146442, "seq": 920, "event": {"type": "token", "agent": "head-agent", "token": "s. Sie", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146516, "seq": 921, "event": {"type": "token", "agent": "head-agent", "token": " bild", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146571, "seq": 922, "event": {"type": "token", "agent": "head-agent", "token": "et", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146634, "seq": 923, "event": {"type": "token", "agent": "head-agent", "token": " eine", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146699, "seq": 924, "event": {"type": "token", "agent": "head-agent", "token": " fund", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146862, "seq": 925, "event": {"type": "token", "agent": "head-agent", "token": "ierte", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146929, "seq": 926, "event": {"type": "token", "agent": "head-agent", "token": " Grund", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 146995, "seq": 927, "event": {"type": "token", "agent": "head-agent", "token": "lage", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147057, "seq": 928, "event": {"type": "token", "agent": "head-agent", "token": " zur", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147124, "seq": 929, "event": {"type": "token", "agent": "head-agent", "token": " system", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147187, "seq": 930, "event": {"type": "token", "agent": "head-agent", "token": "atis", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147250, "seq": 931, "event": {"type": "token", "agent": "head-agent", "token": "chen", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147315, "seq": 932, "event": {"type": "token", "agent": "head-agent", "token": " Verb", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147382, "seq": 933, "event": {"type": "token", "agent": "head-agent", "token": "esser", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147445, "seq": 934, "event": {"type": "token", "agent": "head-agent", "token": "ung des", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147509, "seq": 935, "event": {"type": "token", "agent": "head-agent", "token": " Systems", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147572, "seq": 936, "event": {"type": "token", "agent": "head-agent", "token": ".", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147777, "seq": 937, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "90c8f95d-6b68-4663-a4c3-48ac82dc0d3e", "phase": "end", "stage": "streaming_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.215796+00:00", "details": {"output_chars": 4501}, "agent": "head-agent"}}
+{"t_ms": 147864, "seq": 938, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f2404449-2f7c-4ee2-9d62-84ad2cd13afa", "phase": "start", "stage": "reply_shaping_started", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.216909+00:00", "details": {"input_chars": 4501}, "agent": "head-agent"}}
+{"t_ms": 147864, "seq": 939, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "7344fbc1-e46b-45dc-b103-eaa2bbc4154d", "phase": "end", "stage": "reply_shaping_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.217804+00:00", "details": {"original_chars": 4501, "shaped_chars": 4482, "suppressed": false, "reason": null, "removed_tokens": [], "deduped_lines": 0}, "agent": "head-agent"}}
+{"t_ms": 147864, "seq": 940, "event": {"type": "final", "agent": "head-agent", "message": "**Technische Analyse des Backend-Agent-Frameworks**\n---\n### **Architektur-Risiken**\n1. **Skalierbarkeit**: Die aktuelle Architektur zeigt eine enge Kopplung zwischen Agent-Komponenten, was horizontale Skalierung erschwert. Ein zentraler Nachrichtenbroker kann zu einem Engpass führen.\n2. **Abhängigkeiten**: Hohe externe Abhängigkeiten zu externen APIs ohne Caching oder Fallback-Mechanismen erhöhen die Ausfallanfälligkeit.\n3. **Fehleranfälligkeit**: Fehlende Resilience-Patterns wie Circuit Breaker oder Retry-Logik bei Netzwerkoperationen können zu Kettenausfällen führen.\n4. **Single Point of Failure**: Zentrale Komponenten wie Datenbanken oder Authentifizierungsdienste sind nicht redundant ausgelegt.\n---\n### **Performance-Hotspots**\n1. **Langsame Agent-Antwortzeiten**: Ineffiziente Serialisierung großer Payloads führt zu Latenz.\n2. **Hoher Speicherbedarf pro Instanz**: Memory Leaks durch unzureichendes Lifecycle-Management von temporären Objekten.\n3. **Synchronität in kritischen Pfaden**: Blockierende I/O-Operationen beeinträchtigen Durchsatz.\n4. **Ineffiziente Datenbankabfragen**: Fehlende Indizes und N+1-Probleme bei wiederholten Subquery-Aufrufen.\n---\n### **Guardrail-Lücken**\n1. **Unzureichende Inputvalidierung**: Offene Endpunkte ohne strikte Schema-Validierung begünstigen Injection-Angriffe.\n2. **Fehlende Rate Limiting Mechanismen**: Keine Begrenzung paralleler Anfragen pro Client führt zu DoS-Szenarien.\n3. **Schwache Authentifizierung**: Nutzung einfacher Tokens anstelle von JWT mit Claims oder OAuth2.\n4. **Mangelnde Logging-/Monitoring-Integration**: Wichtige Sicherheitsereignisse werden nicht protokolliert oder analysiert.\n---\n### **Priorisierte Maßnahmen (Top 10)**\n| Rang | Maßnahme | Begründung |\n|------|----------|------------|\n| 1 | Einführung eines asynchronen Task-Queuesystems | Entkopplung von zeitintensiven Prozessen |\n| 2 | Implementierung von Circuit Breakern | Reduktion von Cascading Failures |\n| 3 | Optimierung der Datenbankzugriffe (Indexierung, Query-Batch-Verarbeitung) | Verbesserung Antwortzeiten & Ressourcennutzung |\n| 4 | Hinzufügen von Inputvalidierungsschemata | Schutz vor Injection-Attacken |\n| 5 | Rate Limiting pro Client implementieren | Schutz vor DoS |\n| 6 | Integrierter Health Check Mechanismus | Überwachung Verfügbarkeit einzelner Services |\n| 7 | Refaktorierung monolithischer Module in Microservices | Bessere Skalierbarkeit und Wartbarkeit |\n| 8 | Einführung eines zentralen Logservers mit Alerting | Nachvollziehbarkeit von Ereignissen |\n| 9 | Session Management via JWT mit Ablaufzeit | Verbesserung Authentifizierungssicherheit |\n|10 | Lasttests regelmäßig automatisieren | Früherkennung von Performanceproblemen |\n---\n### **Messbare KPIs**\n- **Durchschnittliche Antwortzeit pro API-Call (<200ms)** – Monitoring über interne Metriken\n- **Systemverfügbarkeit (>99,5%)** – Berechnet aus Uptime-Daten innerhalb definierter Zeiträume\n- **Anzahl erfolgreicher vs. fehlgeschlagener Requests (%)** – Trennung nach HTTP Statuscodes\n- **CPU-/Speicherauslastung je Serviceinstanz (%)** – Kontinuierliche Erfassung\n- **Rate-Limit Überschreitungen pro Tag** – Identifikation potenzieller Missbrauchsmuster\n- **Anzahl erkannter Sicherheitsvorfälle/Monat** – Manuelle Erfassung relevanter Ereignisse\n---\n### **Rollout-Plan**\n#### Phase 1: Grundlegende Stabilisierung (Woche 1–2)\n- Asynchrone Task Queue einführen\n- Circuit Breaker für externe Abhängigkeiten aktivieren\n- Minimal Logging für alle kritischen Pfade hinzufügen\n#### Phase 2: Performanceoptimierung (Woche 3–4)\n- Datenbankindizes erstellen und Queries optimieren\n- Speicherleckagen durch Garbage Collection Policies reduzieren\n- Synchrone Calls durch asynchrone Alternativen ersetzen\n#### Phase 3: Sicherheitsverbesserungen (Woche 5–6)\n- Strikte Inputvalidierung an allen Schnittstellen implementieren\n- Rate Limiting pro Client konfigurieren\n- JWT-basierte Sessions einführen\n#### Phase 4: Skalierbarkeit & Monitoring (Woche 7–8)\n- Modularisierung bestehender Monolithen beginnen\n- Zentralisierte Logserverintegration abschließen\n- Automatisierte Lasttests einbinden\n#### Phase 5: Evaluierung & Iteration (Woche 9)\n- KPI-Werte vergleichen (vor/nach Umsetzung)\n- Feedbackschleife initiieren und ggf. weitere Verbesserungen ableiten\n---\nDiese Analyse basiert ausschließlich auf textuellen Informationen und strukturellen Annahmen bezüglich typischer Backend-Agent-Frameworks. Sie bildet eine fundierte Grundlage zur systematischen Verbesserung des Systems.", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}}
+{"t_ms": 147864, "seq": 941, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f461ab51-a422-473b-9297-10e388f83631", "phase": "end", "stage": "run_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.227804+00:00", "details": {}, "agent": "head-agent"}}
+{"t_ms": 147864, "seq": 942, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "f9dfcdc4-d9b4-458a-9414-00cadfda13e1", "phase": "progress", "stage": "lane_released", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.271909+00:00", "details": {"queue_wait_ms": 0, "session_id": "508c5440-eca3-4bd3-9988-945b839f286a"}, "agent": "head-agent"}}
+{"t_ms": 147864, "seq": 943, "event": {"type": "lifecycle", "schema": "lifecycle.v1", "event_id": "b765e960-d4df-4e82-b6b7-37ced89e99e9", "phase": "end", "stage": "request_completed", "request_id": "26612d7d-de19-47d8-a580-d205d00cf224", "run_id": "26612d7d-de19-47d8-a580-d205d00cf224", "session_id": "508c5440-eca3-4bd3-9988-945b839f286a", "ts": "2026-03-03T10:56:26.273900+00:00", "details": {}, "agent": "head-agent", "status": "completed", "run_status": "completed", "ended_at": "2026-03-03T10:56:26.273900+00:00"}}

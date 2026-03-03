@@ -375,6 +375,8 @@ class Settings(BaseModel):
         True,
     )
     run_max_replan_iterations: int = int(os.getenv("RUN_MAX_REPLAN_ITERATIONS", "1"))
+    run_empty_tool_replan_max_attempts: int = int(os.getenv("RUN_EMPTY_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
+    run_error_tool_replan_max_attempts: int = int(os.getenv("RUN_ERROR_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
     tool_loop_warn_threshold: int = int(os.getenv("TOOL_LOOP_WARN_THRESHOLD", "2"))
     tool_loop_critical_threshold: int = int(os.getenv("TOOL_LOOP_CRITICAL_THRESHOLD", "3"))
     tool_loop_circuit_breaker_threshold: int = int(os.getenv("TOOL_LOOP_CIRCUIT_BREAKER_THRESHOLD", "6"))
@@ -495,6 +497,23 @@ class Settings(BaseModel):
     )
     pipeline_runner_persistent_priority_min_samples: int = int(
         os.getenv("PIPELINE_RUNNER_PERSISTENT_PRIORITY_MIN_SAMPLES", "3")
+    )
+    pipeline_runner_recovery_backoff_enabled: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_RECOVERY_BACKOFF_ENABLED",
+        False,
+    )
+    pipeline_runner_recovery_backoff_base_ms: int = int(
+        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_BASE_MS", "150")
+    )
+    pipeline_runner_recovery_backoff_max_ms: int = int(
+        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MAX_MS", "2000")
+    )
+    pipeline_runner_recovery_backoff_multiplier: float = float(
+        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MULTIPLIER", "2.0")
+    )
+    pipeline_runner_recovery_backoff_jitter: bool = _parse_bool_env(
+        "PIPELINE_RUNNER_RECOVERY_BACKOFF_JITTER",
+        False,
     )
     pipeline_runner_persistent_priority_decay_enabled: bool = _parse_bool_env(
         "PIPELINE_RUNNER_PERSISTENT_PRIORITY_DECAY_ENABLED",

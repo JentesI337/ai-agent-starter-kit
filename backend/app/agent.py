@@ -45,7 +45,7 @@ from app.tool_policy import ToolPolicyDict
 from app.tools import AgentTooling, find_command_safety_violation
 
 SendEvent = Callable[[dict], Awaitable[None]]
-SpawnSubrunHandler = Callable[..., Awaitable[str]]
+SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]
 PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
 
@@ -408,10 +408,22 @@ class HeadAgent:
             )
 
             max_replan_iterations = max(1, int(settings.run_max_replan_iterations))
-            max_empty_tool_replan_attempts = 1
+            max_empty_tool_replan_attempts = max(0, int(settings.run_empty_tool_replan_max_attempts))
+            max_error_tool_replan_attempts = max(0, int(settings.run_error_tool_replan_max_attempts))
             empty_tool_replan_attempts_used = 0
-            total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts
+            error_tool_replan_attempts_used = 0
+            total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
             tool_results = ""
+            await self._emit_lifecycle(
+                send_event,
+                stage="terminal_wait_started",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "scope": "tool_phase",
+                    "reason": "await_tool_terminal_state",
+                },
+            )
             for iteration in range(total_replan_cycles):
                 tool_context_outputs = [plan_text]
                 if tool_results:
@@ -446,11 +458,29 @@ class HeadAgent:
                     max_replan_iterations=max_replan_iterations,
                     empty_tool_replan_attempts_used=empty_tool_replan_attempts_used,
                     max_empty_tool_replan_attempts=max_empty_tool_replan_attempts,
+                    error_tool_replan_attempts_used=error_tool_replan_attempts_used,
+                    max_error_tool_replan_attempts=max_error_tool_replan_attempts,
                 )
                 if replan_reason is None:
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="replanning_exhausted",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "iteration": iteration + 1,
+                            "tool_results_state": tool_results_state,
+                            "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
+                            "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
+                            "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
+                            "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
+                        },
+                    )
                     break
                 if replan_reason == "tool_selection_empty_replan":
                     empty_tool_replan_attempts_used += 1
+                if replan_reason == "tool_selection_error_replan":
+                    error_tool_replan_attempts_used += 1
 
                 await self._emit_lifecycle(
                     send_event,
@@ -463,6 +493,8 @@ class HeadAgent:
                         "tool_results_state": tool_results_state,
                         "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
                         "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
+                        "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
+                        "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
                     },
                 )
                 replan_context = self.context_reducer.reduce(
@@ -490,6 +522,22 @@ class HeadAgent:
                         "reason": replan_reason,
                     },
                 )
+
+            await self._emit_lifecycle(
+                send_event,
+                stage="terminal_wait_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "scope": "tool_phase",
+                    "terminal_stage": "tool_audit_summary",
+                    "replan_cycles": total_replan_cycles,
+                    "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
+                    "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
+                    "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
+                    "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
+                },
+            )
 
             blocked_payload = self._parse_blocked_tool_result(tool_results)
             if blocked_payload is not None:
@@ -558,6 +606,10 @@ class HeadAgent:
                 tool_outputs=[tool_results] if tool_results else [],
                 snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
             )
+            synthesis_task_type = self._resolve_synthesis_task_type(
+                user_message=user_message,
+                tool_results=tool_results or "",
+            )
 
             await self._invoke_hooks(
                 hook_name="before_prompt_build",
@@ -569,6 +621,7 @@ class HeadAgent:
                     "model": model,
                     "context_chars": len(final_context.rendered),
                     "budget_tokens": budgets["final"],
+                    "task_type": synthesis_task_type,
                 },
             )
 
@@ -578,6 +631,7 @@ class HeadAgent:
                     plan_text=plan_text,
                     tool_results=tool_results or "",
                     reduced_context=final_context.rendered,
+                    task_type=synthesis_task_type,
                 ),
                 session_id,
                 request_id,
@@ -998,7 +1052,15 @@ class HeadAgent:
         max_replan_iterations: int,
         empty_tool_replan_attempts_used: int,
         max_empty_tool_replan_attempts: int,
+        error_tool_replan_attempts_used: int,
+        max_error_tool_replan_attempts: int,
     ) -> str | None:
+        if (
+            tool_results_state == "error_only"
+            and error_tool_replan_attempts_used < max_error_tool_replan_attempts
+        ):
+            return "tool_selection_error_replan"
+
         regular_replan_budget_remaining = iteration < max_replan_iterations - 1
         if regular_replan_budget_remaining:
             return "tool_results_invalidated_plan"
@@ -1220,6 +1282,28 @@ class HeadAgent:
     def _is_file_creation_task(self, user_message: str) -> bool:
         return self._intent.is_file_creation_task(user_message)
 
+    def _resolve_synthesis_task_type(self, *, user_message: str, tool_results: str) -> str:
+        message = (user_message or "").strip()
+        if self.synthesizer_agent._requires_hard_research_structure(message):
+            return "hard_research"
+        if self._is_subrun_orchestration_task(message) or "spawned_subrun_id=" in (tool_results or ""):
+            return "orchestration"
+        if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
+            return "research"
+        implementation_markers = (
+            "implement",
+            "fix",
+            "refactor",
+            "test",
+            "code",
+            "bug",
+            "feature",
+        )
+        lowered = message.lower()
+        if any(marker in lowered for marker in implementation_markers):
+            return "implementation"
+        return "general"
+
     def _sanitize_final_response(self, final_text: str) -> str:
         return self._reply_shaper.sanitize(final_text)
 
@@ -1410,7 +1494,7 @@ class HeadAgent:
         if child_policy is not None and not isinstance(child_policy, dict):
             raise ToolExecutionError("spawn_subrun 'tool_policy' must be an object.")
 
-        run_id = await self._spawn_subrun_handler(
+        spawn_result = await self._spawn_subrun_handler(
             parent_request_id=request_id,
             parent_session_id=session_id,
             user_message=message,
@@ -1421,7 +1505,34 @@ class HeadAgent:
             agent_id=agent_id,
             mode=mode,
         )
-        return f"spawned_subrun_id={run_id} mode={mode} agent_id={agent_id}"
+
+        run_id = ""
+        normalized_mode = mode
+        normalized_agent_id = agent_id
+        handover_contract: dict = {
+            "terminal_reason": "subrun-accepted",
+            "confidence": 0.0,
+            "result": None,
+        }
+
+        if isinstance(spawn_result, dict):
+            run_id = str(spawn_result.get("run_id") or "").strip()
+            normalized_mode = str(spawn_result.get("mode") or normalized_mode).strip().lower() or normalized_mode
+            normalized_agent_id = str(spawn_result.get("agent_id") or normalized_agent_id).strip() or normalized_agent_id
+            candidate_handover = spawn_result.get("handover")
+            if isinstance(candidate_handover, dict):
+                handover_contract = candidate_handover
+        else:
+            run_id = str(spawn_result).strip()
+
+        if not run_id:
+            raise ToolExecutionError("spawn_subrun handler returned an empty run_id.")
+
+        handover_json = json.dumps(handover_contract, ensure_ascii=False)
+        return (
+            f"spawned_subrun_id={run_id} mode={normalized_mode} agent_id={normalized_agent_id} "
+            f"handover_contract={handover_json}"
+        )
 
     def _is_retryable_tool_error(self, error: ToolExecutionError, retry_class: str) -> bool:
         if retry_class == "none":

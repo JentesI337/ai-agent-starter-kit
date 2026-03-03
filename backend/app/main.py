@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 import logging
+import re
 from collections.abc import MutableMapping
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
@@ -158,7 +159,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         send_event,
         agent_id: str,
         mode: str,
-    ) -> str:
+    ) -> dict:
         _sync_custom_agents(components)
         runtime_state = components.runtime_manager.get_state()
         selected_model = (model or "").strip() or runtime_state.model
@@ -173,7 +174,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         effective_timeout = max(0, int(timeout_seconds))
         if effective_timeout == 0:
             effective_timeout = int(settings.subrun_timeout_seconds)
-        return await components.subrun_lane.spawn(
+        run_id = await components.subrun_lane.spawn(
             parent_request_id=parent_request_id,
             parent_session_id=parent_session_id,
             user_message=user_message,
@@ -188,6 +189,12 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
             orchestrator_api=selected_orchestrator,
         )
+        return {
+            "run_id": run_id,
+            "mode": mode,
+            "agent_id": normalized_agent_id,
+            "handover": components.subrun_lane.get_handover_contract(run_id),
+        }
     async def _request_policy_override_from_agent(
         *,
         send_event,

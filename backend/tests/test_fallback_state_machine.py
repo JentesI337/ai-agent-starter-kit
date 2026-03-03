@@ -54,6 +54,9 @@ class _Hooks:
         strategy_feedback_reason: str = "none",
         persistent_priority_applied: bool = False,
         persistent_priority_reason: str = "none",
+        prompt_compaction_applied: bool = False,
+        payload_truncation_applied: bool = False,
+        recovery_strategy: str = "none",
     ) -> None:
         self.agent = agent
         self.retryable = retryable
@@ -63,6 +66,9 @@ class _Hooks:
         self.strategy_feedback_reason = strategy_feedback_reason
         self.persistent_priority_applied = persistent_priority_applied
         self.persistent_priority_reason = persistent_priority_reason
+        self.prompt_compaction_applied = prompt_compaction_applied
+        self.payload_truncation_applied = payload_truncation_applied
+        self.recovery_strategy = recovery_strategy
         self.summary_events: list[dict] = []
         self.metrics: list[tuple[str, str, str, str]] = []
 
@@ -82,7 +88,7 @@ class _Hooks:
         return RecoveryStrategyResolution(
             retryable=self.retryable,
             recovery_branch="retry_with_fallback" if self.retryable else "fail_fast_non_retryable",
-            recovery_strategy="none",
+            recovery_strategy=self.recovery_strategy,
             current_user_message=ctx.current_user_message,
             overflow_fallback_retry_attempts=ctx.overflow_fallback_retry_attempts,
             compaction_failure_recovery_attempts=ctx.compaction_failure_recovery_attempts,
@@ -95,6 +101,12 @@ class _Hooks:
             strategy_feedback_reason=self.strategy_feedback_reason,
             persistent_priority_applied=self.persistent_priority_applied,
             persistent_priority_reason=self.persistent_priority_reason,
+            prompt_compaction_applied=self.prompt_compaction_applied,
+            payload_truncation_applied=self.payload_truncation_applied,
+            prompt_compaction_previous_chars=len(ctx.current_user_message),
+            prompt_compaction_new_chars=max(0, len(ctx.current_user_message) - 20),
+            payload_truncation_previous_chars=len(ctx.current_user_message),
+            payload_truncation_new_chars=max(0, len(ctx.current_user_message) - 30),
         )
 
     async def _emit_recovery_summary_event(self, **kwargs) -> None:
@@ -129,6 +141,11 @@ def _runtime_config() -> FallbackRuntimeConfig:
         strategy_feedback_enabled=True,
         persistent_priority_enabled=True,
         persistent_priority_min_samples=3,
+        recovery_backoff_enabled=True,
+        recovery_backoff_base_ms=1,
+        recovery_backoff_max_ms=2,
+        recovery_backoff_multiplier=2.0,
+        recovery_backoff_jitter=False,
     )
 
 
@@ -230,6 +247,15 @@ def test_state_machine_retries_with_fallback_model_and_succeeds() -> None:
     assert summary["recovery_signal_priority_not_applied_not_applicable_total"] == 1
     assert summary["recovery_strategy_feedback_not_applied_disabled_total"] == 1
     assert summary["recovery_persistent_priority_not_applied_no_reorder_total"] == 1
+    backoff_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_recovery_backoff"
+    )
+    backoff_details = backoff_event.get("details", {})
+    assert backoff_details.get("reason") == "rate_limited"
+    assert backoff_details.get("reason_class") == "transient"
+    assert isinstance(backoff_details.get("delay_ms"), int)
 
 
 def test_state_machine_fails_fast_when_not_retryable() -> None:
@@ -274,3 +300,57 @@ def test_state_machine_fails_fast_when_not_retryable() -> None:
     assert action_details.get("recovery_strategy") == "none"
     assert hooks.summary_events[-1]["final_outcome"] == "failure"
     assert hooks.summary_events[-1]["final_reason"] == "rate_limited"
+    branch_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_fallback_classified"
+    )
+    branch_details = branch_event.get("details", {})
+    assert branch_details.get("reason_class") == "transient"
+    assert branch_details.get("retry_policy") == "fail_fast"
+
+
+def test_state_machine_emits_transform_event_when_compaction_applied() -> None:
+    route = _Route(
+        primary_model="model-primary",
+        fallback_models=["model-fallback"],
+        profile=_RouteProfile(),
+    )
+    agent = _FakeAgent(fail_first_attempt=True)
+    hooks = _Hooks(
+        agent,
+        retryable=True,
+        prompt_compaction_applied=True,
+        recovery_strategy="context_overflow:prompt_compaction",
+    )
+    emitted: list[dict] = []
+
+    async def _send_event(payload: dict) -> None:
+        emitted.append(payload)
+
+    machine = FallbackStateMachine(
+        hooks=hooks,
+        route=route,
+        runtime="api",
+        user_message="please do task",
+        send_event=_send_event,
+        session_id="s-3",
+        request_id="r-3",
+        tool_policy=None,
+        max_attempts=3,
+        config=_runtime_config(),
+    )
+
+    result = asyncio.run(machine.run())
+
+    assert result == "ok:model-fallback"
+    transform_event = next(
+        event
+        for event in emitted
+        if event.get("type") == "lifecycle" and event.get("stage") == "model_recovery_transform_applied"
+    )
+    transform_details = transform_event.get("details", {})
+    assert transform_details.get("transform_type") == "prompt_compaction"
+    assert transform_details.get("reason_class") == "transient"
+    assert transform_details.get("recovery_strategy") == "context_overflow:prompt_compaction"
+    assert int(transform_details.get("chars_reduced", 0)) >= 0

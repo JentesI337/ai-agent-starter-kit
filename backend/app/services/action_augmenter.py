@@ -7,8 +7,56 @@ from app.services.intent_detector import IntentDetector
 
 
 class ActionAugmenter:
-    def __init__(self, intent_detector: IntentDetector | None = None):
+    def __init__(
+        self,
+        intent_detector: IntentDetector | None = None,
+        *,
+        max_spawn_subrun_actions: int = 1,
+        min_subrun_message_chars: int = 20,
+    ):
         self._intent = intent_detector
+        self._max_spawn_subrun_actions = max(1, int(max_spawn_subrun_actions))
+        self._min_subrun_message_chars = max(1, int(min_subrun_message_chars))
+
+    def _should_delegate_subrun(self, user_message: str) -> tuple[bool, str]:
+        text = (user_message or "").strip()
+        if len(text) < self._min_subrun_message_chars:
+            return False, "message_too_short"
+
+        lowered = text.lower()
+        complexity_markers = (
+            "parallel",
+            "multi-step",
+            "multiple files",
+            "complex",
+            "coordinate",
+            "orchestrate",
+            "delegate",
+        )
+        if not any(marker in lowered for marker in complexity_markers):
+            return False, "no_complexity_markers"
+
+        return True, "complexity_detected"
+
+    def _apply_subrun_governance(self, actions: list[dict]) -> tuple[list[dict], bool]:
+        governed_actions: list[dict] = []
+        spawn_seen = 0
+        reduced = False
+
+        for action in actions:
+            tool_name = str(action.get("tool", "")).strip()
+            if tool_name != "spawn_subrun":
+                governed_actions.append(action)
+                continue
+
+            spawn_seen += 1
+            if spawn_seen <= self._max_spawn_subrun_actions:
+                governed_actions.append(action)
+                continue
+
+            reduced = True
+
+        return governed_actions, reduced
 
     def augment(self, actions: list[dict], user_message: str, allowed_tools: set[str]) -> list[dict]:
         augmented_actions = list(actions)
@@ -29,6 +77,9 @@ class ActionAugmenter:
             and "spawn_subrun" in allowed_tools
             and not any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
         ):
+            should_delegate, _ = self._should_delegate_subrun(user_message)
+            if not should_delegate:
+                return augmented_actions
             augmented_actions.append(
                 {
                     "tool": "spawn_subrun",
@@ -101,10 +152,12 @@ class ActionAugmenter:
         has_spawn_subrun_after_augment = any(
             str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions
         )
+        should_delegate_subrun, delegate_reason = self._should_delegate_subrun(user_message)
         if (
             is_subrun_orchestration_task(user_message)
             and "spawn_subrun" in allowed_tools
             and not had_spawn_subrun_in_input
+            and should_delegate_subrun
             and has_spawn_subrun_after_augment
         ):
             await emit_lifecycle(
@@ -112,6 +165,16 @@ class ActionAugmenter:
                 {
                     "reason": "orchestration_without_spawn_subrun",
                     "added_tool": "spawn_subrun",
+                    "delegation_reason": delegate_reason,
+                },
+            )
+
+        if is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools and not should_delegate_subrun:
+            await emit_lifecycle(
+                "subrun_delegation_skipped",
+                {
+                    "reason": delegate_reason,
+                    "min_subrun_message_chars": self._min_subrun_message_chars,
                 },
             )
 
@@ -132,7 +195,7 @@ class ActionAugmenter:
 
         if (not uses_injected_intent) and is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
             has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
-            if not has_spawn_subrun:
+            if not has_spawn_subrun and should_delegate_subrun:
                 augmented_actions.append(
                     {
                         "tool": "spawn_subrun",
@@ -148,8 +211,19 @@ class ActionAugmenter:
                     {
                         "reason": "orchestration_without_spawn_subrun",
                         "added_tool": "spawn_subrun",
+                        "delegation_reason": delegate_reason,
                     },
                 )
+
+        augmented_actions, reduced_spawn_actions = self._apply_subrun_governance(augmented_actions)
+        if reduced_spawn_actions:
+            await emit_lifecycle(
+                "subrun_governance_applied",
+                {
+                    "max_spawn_subrun_actions": self._max_spawn_subrun_actions,
+                    "reason": "spawn_subrun_quota_enforced",
+                },
+            )
 
         if not is_file_creation_task(user_message):
             return augmented_actions

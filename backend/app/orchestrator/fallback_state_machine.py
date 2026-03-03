@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
+import random
 from typing import Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -104,6 +106,11 @@ class FallbackRuntimeConfig:
     strategy_feedback_enabled: bool
     persistent_priority_enabled: bool
     persistent_priority_min_samples: int
+    recovery_backoff_enabled: bool
+    recovery_backoff_base_ms: int
+    recovery_backoff_max_ms: int
+    recovery_backoff_multiplier: float
+    recovery_backoff_jitter: bool
 
 
 class FallbackState(Enum):
@@ -380,6 +387,8 @@ class FallbackStateMachine:
                         details={
                             "model": self._current_candidate_model,
                             "reason": reason,
+                            "reason_class": self._reason_class(reason),
+                            "retry_policy": self._retry_policy_label(retryable),
                             "retryable": retryable,
                             "has_fallback": has_fallback,
                         },
@@ -460,6 +469,38 @@ class FallbackStateMachine:
                     )
                 )
 
+                if recovery_resolution.prompt_compaction_applied or recovery_resolution.payload_truncation_applied:
+                    transform_type = "prompt_compaction" if recovery_resolution.prompt_compaction_applied else "payload_truncation"
+                    previous_chars = (
+                        recovery_resolution.prompt_compaction_previous_chars
+                        if recovery_resolution.prompt_compaction_applied
+                        else recovery_resolution.payload_truncation_previous_chars
+                    )
+                    new_chars = (
+                        recovery_resolution.prompt_compaction_new_chars
+                        if recovery_resolution.prompt_compaction_applied
+                        else recovery_resolution.payload_truncation_new_chars
+                    )
+                    chars_reduced = max(0, int(previous_chars) - int(new_chars))
+                    await self._send_event(
+                        build_lifecycle_event(
+                            request_id=self._request_id,
+                            session_id=self._session_id,
+                            stage="model_recovery_transform_applied",
+                            details={
+                                "model": self._current_candidate_model,
+                                "reason": reason,
+                                "reason_class": self._reason_class(reason),
+                                "transform_type": transform_type,
+                                "previous_chars": int(previous_chars),
+                                "new_chars": int(new_chars),
+                                "chars_reduced": chars_reduced,
+                                "recovery_strategy": recovery_strategy,
+                            },
+                            agent=self._hooks.agent.name,
+                        )
+                    )
+
                 if self._current_model_index >= len(self._models) - 1:
                     await self._emit_recovery_summary(
                         final_outcome="failure",
@@ -501,6 +542,35 @@ class FallbackStateMachine:
                     )
                     self._state = FallbackState.FINALIZE_FAILURE
                     continue
+
+                if self._config.recovery_backoff_enabled:
+                    delay_seconds = self._compute_retry_backoff_seconds(
+                        attempt_index=self._attempt.attempts,
+                        base_ms=self._config.recovery_backoff_base_ms,
+                        max_ms=self._config.recovery_backoff_max_ms,
+                        multiplier=self._config.recovery_backoff_multiplier,
+                    )
+                    if self._config.recovery_backoff_jitter and delay_seconds > 0:
+                        delay_seconds = delay_seconds * random.uniform(0.8, 1.2)
+                    delay_ms = max(0, int(delay_seconds * 1000))
+                    await self._send_event(
+                        build_lifecycle_event(
+                            request_id=self._request_id,
+                            session_id=self._session_id,
+                            stage="model_recovery_backoff",
+                            details={
+                                "model": self._current_candidate_model,
+                                "reason": reason,
+                                "reason_class": self._reason_class(reason),
+                                "delay_ms": delay_ms,
+                                "attempt": self._attempt.attempts,
+                                "max_attempts": self._attempt.max_attempts,
+                            },
+                            agent=self._hooks.agent.name,
+                        )
+                    )
+                    if delay_seconds > 0:
+                        await asyncio.sleep(delay_seconds)
 
                 self._current_model_index += 1
                 self._state = FallbackState.SELECT_MODEL
@@ -557,3 +627,28 @@ class FallbackStateMachine:
         field_name = f"{prefix}_not_applied_{bucket}_total"
         current = int(getattr(self._attempt, field_name, 0) or 0)
         setattr(self._attempt, field_name, current + 1)
+
+    @staticmethod
+    def _reason_class(reason: str) -> str:
+        normalized = (reason or "").strip().lower()
+        if normalized in {"rate_limited", "timeout", "temporary_unavailable", "network_error"}:
+            return "transient"
+        if normalized in {"context_overflow", "truncation_required", "compaction_failure"}:
+            return "capacity"
+        if normalized == "model_not_found":
+            return "configuration"
+        return "unknown"
+
+    @staticmethod
+    def _retry_policy_label(retryable: bool) -> str:
+        return "bounded_retry" if retryable else "fail_fast"
+
+    @staticmethod
+    def _compute_retry_backoff_seconds(*, attempt_index: int, base_ms: int, max_ms: int, multiplier: float) -> float:
+        bounded_attempt = max(1, int(attempt_index))
+        bounded_base = max(0, int(base_ms))
+        bounded_max = max(bounded_base, int(max_ms))
+        bounded_multiplier = max(1.0, float(multiplier))
+
+        delay_ms = float(bounded_base) * (bounded_multiplier ** max(0, bounded_attempt - 1))
+        return max(0.0, min(delay_ms, float(bounded_max)) / 1000.0)

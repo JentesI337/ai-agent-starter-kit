@@ -259,12 +259,36 @@ def test_run_tool_loop_executes_action_and_emits_audit_summary() -> None:
 
     assert "[read_file]" in result
     assert "result for read_file" in result
+    assert any(stage == "tool_loop_started" for stage, _ in lifecycle_events)
     assert any(stage == "tool_started" for stage, _ in lifecycle_events)
     assert any(stage == "tool_completed" for stage, _ in lifecycle_events)
     assert any(stage == "tool_audit_summary" for stage, _ in lifecycle_events)
     assert any(name == "before_tool_call" for name, _ in hook_calls)
     assert any(name == "after_tool_call" for name, _ in hook_calls)
     assert memory_entries == [("read_file", "result for read_file")]
+
+    started_details = next(
+        details
+        for stage, details in lifecycle_events
+        if stage == "tool_started" and isinstance(details, dict)
+    )
+    before_hook_payload = next(payload for name, payload in hook_calls if name == "before_tool_call")
+    completed_details = next(
+        details
+        for stage, details in lifecycle_events
+        if stage == "tool_completed" and isinstance(details, dict)
+    )
+    after_hook_payload = next(payload for name, payload in hook_calls if name == "after_tool_call")
+
+    assert isinstance(started_details.get("call_id"), str) and started_details["call_id"]
+    assert started_details.get("status") == "started"
+    assert started_details.get("duration_ms") == 0
+    assert before_hook_payload.get("call_id") == started_details.get("call_id")
+    assert completed_details.get("call_id") == started_details.get("call_id")
+    assert completed_details.get("status") == "ok"
+    assert isinstance(completed_details.get("duration_ms"), int)
+    assert after_hook_payload.get("status") == "ok"
+    assert isinstance(after_hook_payload.get("duration_ms"), int)
 
 
 def test_run_tool_loop_respects_call_budget() -> None:
@@ -382,6 +406,8 @@ def test_run_tool_loop_emits_error_code_and_category_on_tool_failed() -> None:
     assert failed_events
     assert failed_events[0].get("error_code") == "command_policy_security"
     assert failed_events[0].get("error_category") == "security"
+    assert failed_events[0].get("status") == "error"
+    assert isinstance(failed_events[0].get("duration_ms"), int)
     error_events = [evt for evt in sent_events if evt.get("type") == "error"]
     assert error_events
     assert error_events[0].get("error_code") == "command_policy_security"

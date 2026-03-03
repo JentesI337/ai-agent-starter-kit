@@ -27,6 +27,8 @@ def test_resolve_replan_reason_uses_regular_budget_first() -> None:
         max_replan_iterations=2,
         empty_tool_replan_attempts_used=0,
         max_empty_tool_replan_attempts=1,
+        error_tool_replan_attempts_used=0,
+        max_error_tool_replan_attempts=0,
     )
 
     assert reason == "tool_results_invalidated_plan"
@@ -41,6 +43,8 @@ def test_resolve_replan_reason_allows_single_empty_fallback_after_regular_budget
         max_replan_iterations=1,
         empty_tool_replan_attempts_used=0,
         max_empty_tool_replan_attempts=1,
+        error_tool_replan_attempts_used=0,
+        max_error_tool_replan_attempts=0,
     )
     second = agent._resolve_replan_reason(
         tool_results_state="empty",
@@ -48,7 +52,35 @@ def test_resolve_replan_reason_allows_single_empty_fallback_after_regular_budget
         max_replan_iterations=1,
         empty_tool_replan_attempts_used=1,
         max_empty_tool_replan_attempts=1,
+        error_tool_replan_attempts_used=0,
+        max_error_tool_replan_attempts=0,
     )
 
     assert first == "tool_selection_empty_replan"
+    assert second is None
+
+
+def test_resolve_replan_reason_uses_bounded_error_only_budget() -> None:
+    agent = HeadAgent()
+
+    first = agent._resolve_replan_reason(
+        tool_results_state="error_only",
+        iteration=0,
+        max_replan_iterations=1,
+        empty_tool_replan_attempts_used=0,
+        max_empty_tool_replan_attempts=1,
+        error_tool_replan_attempts_used=0,
+        max_error_tool_replan_attempts=1,
+    )
+    second = agent._resolve_replan_reason(
+        tool_results_state="error_only",
+        iteration=1,
+        max_replan_iterations=1,
+        empty_tool_replan_attempts_used=0,
+        max_empty_tool_replan_attempts=1,
+        error_tool_replan_attempts_used=1,
+        max_error_tool_replan_attempts=1,
+    )
+
+    assert first == "tool_selection_error_replan"
     assert second is None

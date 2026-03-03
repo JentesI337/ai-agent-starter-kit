@@ -51,6 +51,7 @@ class SynthesizerInput(BaseModel):
     plan_text: str
     tool_results: str
     reduced_context: str = Field(min_length=1)
+    task_type: str | None = None
 
 
 class SynthesizerOutput(BaseModel):

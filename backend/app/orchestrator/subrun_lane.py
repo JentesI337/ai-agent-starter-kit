@@ -384,12 +384,22 @@ class SubrunLane:
         if status is None:
             return None
 
+        details = status.get("details") or {}
+        handover = details.get("handover") if isinstance(details, dict) else None
+        if not isinstance(handover, dict):
+            handover = self._build_handover_contract(
+                status=str(status.get("status") or ""),
+                result_text=None,
+                notes=details.get("notes") if isinstance(details, dict) else None,
+            )
+
         spec = self._run_specs.get(run_id)
         info = {
             "run_id": run_id,
             "status": status.get("status"),
             "updated_at": status.get("updated_at"),
-            "details": status.get("details") or {},
+            "details": details,
+            "handover": handover,
             "running": run_id in self._run_tasks,
             "announce_delivery": self._announce_status.get(run_id),
         }
@@ -418,6 +428,22 @@ class SubrunLane:
         if run_state is None:
             return None
         return run_state.get("events") or []
+
+    def get_handover_contract(self, run_id: str) -> dict | None:
+        status_snapshot = self._run_status.get(run_id)
+        if status_snapshot is None:
+            return None
+
+        details = status_snapshot.get("details") or {}
+        handover = details.get("handover") if isinstance(details, dict) else None
+        if isinstance(handover, dict):
+            return dict(handover)
+
+        return self._build_handover_contract(
+            status=str(status_snapshot.get("status") or ""),
+            result_text=None,
+            notes=details.get("notes") if isinstance(details, dict) else None,
+        )
 
     async def kill(self, run_id: str, *, cascade: bool = True) -> bool:
         async with self._lock:
@@ -551,6 +577,7 @@ class SubrunLane:
 
         elapsed = round(max(0.0, monotonic() - started_at), 3)
         ended_at_ts = datetime.now(timezone.utc).isoformat()
+        handover = self._build_handover_contract(status=status, result_text=final_text, notes=notes)
 
         await self._set_status(
             run_id=spec.run_id,
@@ -561,6 +588,7 @@ class SubrunLane:
                 "duration_seconds": elapsed,
                 "notes": notes,
                 "result_chars": len(final_text),
+                "handover": handover,
             },
         )
 
@@ -601,6 +629,7 @@ class SubrunLane:
                 "usage": None,
                 "agent_id": spec.agent_id,
                 "mode": spec.mode,
+                "handover": handover,
             },
         )
 
@@ -660,6 +689,50 @@ class SubrunLane:
         self._run_status[run_id] = snapshot
         self._prune_retained_statuses()
         self._persist_registry_safe()
+
+    def _build_handover_contract(self, *, status: str, result_text: str | None, notes: str | None) -> dict:
+        normalized_status = str(status or "").strip().lower()
+        terminal_reason = self._resolve_terminal_reason(normalized_status)
+        confidence = self._resolve_handover_confidence(
+            status=normalized_status,
+            result_text=result_text,
+            notes=notes,
+        )
+        result = (result_text or "").strip() or None
+        if isinstance(result, str):
+            result = result[:2000]
+        return {
+            "terminal_reason": terminal_reason,
+            "confidence": confidence,
+            "result": result,
+        }
+
+    def _resolve_terminal_reason(self, status: str) -> str:
+        mapping = {
+            "accepted": "subrun-accepted",
+            "running": "subrun-running",
+            "completed": "subrun-complete",
+            "failed": "subrun-error",
+            "timed_out": "subrun-timeout",
+            "cancelled": "subrun-cancelled",
+        }
+        return mapping.get(status, "subrun-unknown")
+
+    def _resolve_handover_confidence(self, *, status: str, result_text: str | None, notes: str | None) -> float:
+        if status == "completed":
+            return 0.85 if (result_text or "").strip() else 0.70
+        if status == "timed_out":
+            return 0.20
+        if status == "failed":
+            lowered_notes = (notes or "").lower()
+            if "guardrail" in lowered_notes:
+                return 0.25
+            return 0.15
+        if status == "cancelled":
+            return 0.10
+        if status in {"running", "accepted"}:
+            return 0.0
+        return 0.05
 
     def _prune_retained_statuses(self) -> None:
         if not self._run_status:

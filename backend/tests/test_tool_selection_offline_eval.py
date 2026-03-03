@@ -121,7 +121,56 @@ def test_execute_tools_supports_spawn_subrun_tool(monkeypatch) -> None:
 
     assert "[spawn_subrun]" in result
     assert "spawned_subrun_id=subrun-123" in result
+    assert "handover_contract=" in result
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_completed" for evt in events)
+
+
+def test_execute_tools_supports_structured_spawn_subrun_response(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        return (
+            '{"actions":[{"tool":"spawn_subrun","args":'
+            '{"message":"analyze architecture","mode":"run","agent_id":"head-agent"}}]}'
+        )
+
+    async def fake_spawn_subrun_handler(**kwargs) -> dict:
+        return {
+            "run_id": "subrun-structured",
+            "mode": kwargs.get("mode", "run"),
+            "agent_id": kwargs.get("agent_id", "head-agent"),
+            "handover": {
+                "terminal_reason": "subrun-running",
+                "confidence": 0.0,
+                "result": None,
+            },
+        }
+
+    original_complete_chat = agent.client.complete_chat
+    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
+    agent.set_spawn_subrun_handler(fake_spawn_subrun_handler)
+    try:
+        result = asyncio.run(
+            agent._execute_tools(
+                user_message="delegate a background architecture check",
+                plan_text="spawn helper",
+                memory_context="user: delegate",
+                session_id="s-subrun-structured",
+                request_id="r-subrun-structured",
+                send_event=send_event,
+                model=None,
+                allowed_tools={"spawn_subrun"},
+            )
+        )
+    finally:
+        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
+
+    assert "[spawn_subrun]" in result
+    assert "spawned_subrun_id=subrun-structured" in result
+    assert '"terminal_reason": "subrun-running"' in result
 
 
 def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
@@ -1329,6 +1378,7 @@ def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> 
 
     assert "[spawn_subrun]" in result
     assert "spawned_subrun_id=subrun-approved" in result
+    assert "handover_contract=" in result
     assert any(
         evt.get("type") == "lifecycle"
         and evt.get("stage") == "policy_override_decision"
