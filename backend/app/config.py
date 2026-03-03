@@ -1,6 +1,8 @@
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+from collections.abc import Mapping
+from typing import Any
 
 load_dotenv()
 
@@ -206,6 +208,11 @@ class Settings(BaseModel):
     run_state_violation_hard_fail_enabled: bool = _parse_bool_env(
         "RUN_STATE_VIOLATION_HARD_FAIL_ENABLED",
         False,
+    )
+    config_strict_unknown_keys_enabled: bool = _parse_bool_env("CONFIG_STRICT_UNKNOWN_KEYS_ENABLED", False)
+    config_strict_unknown_keys_allowlist: list[str] = _parse_csv_env(
+        os.getenv("CONFIG_STRICT_UNKNOWN_KEYS_ALLOWLIST", ""),
+        [],
     )
     queue_mode_default: str = os.getenv("QUEUE_MODE_DEFAULT", "wait").strip().lower()
     prompt_mode_default: str = os.getenv("PROMPT_MODE_DEFAULT", "full").strip().lower()
@@ -551,6 +558,109 @@ class Settings(BaseModel):
 
 
 settings = Settings()
+
+
+CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
+    "APP_",
+    "LOG_LEVEL",
+    "LLM_",
+    "AGENT_",
+    "HEAD_AGENT_",
+    "CODER_AGENT_",
+    "REVIEW_AGENT_",
+    "WORKSPACE_ROOT",
+    "MEMORY_",
+    "ORCHESTRATOR_",
+    "CUSTOM_AGENTS_",
+    "SKILLS_",
+    "RUN_STATE_",
+    "QUEUE_",
+    "PROMPT_",
+    "SESSION_",
+    "COMMAND_",
+    "WEB_FETCH_",
+    "CORS_",
+    "LOCAL_MODEL",
+    "API_",
+    "OLLAMA_",
+    "RUNTIME_STATE_FILE",
+    "SUBRUN_",
+    "POLICY_",
+    "IDEMPOTENCY_",
+    "TOOL_",
+    "CONTEXT_",
+    "PIPELINE_",
+    "PERSIST_",
+    "CONFIG_",
+)
+
+CONFIG_ENV_KEY_ALIASES: frozenset[str] = frozenset({"OLLAMA_API_KEY"})
+
+
+def _is_scoped_config_env_key(env_key: str) -> bool:
+    key = str(env_key or "").strip().upper()
+    if not key:
+        return False
+    return any(key == prefix or key.startswith(prefix) for prefix in CONFIG_ENV_KEY_PREFIXES)
+
+
+def _known_config_env_keys() -> set[str]:
+    known = {str(field_name).upper() for field_name in Settings.model_fields.keys()}
+    known.update(CONFIG_ENV_KEY_ALIASES)
+    return known
+
+
+def validate_environment_config(
+    current_settings: Settings | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    strict_unknown_keys_enabled: bool | None = None,
+    allowlist: list[str] | None = None,
+) -> dict[str, Any]:
+    selected_settings = current_settings or settings
+    env_map = dict(environ or os.environ)
+    strict_mode = (
+        bool(strict_unknown_keys_enabled)
+        if strict_unknown_keys_enabled is not None
+        else bool(getattr(selected_settings, "config_strict_unknown_keys_enabled", False))
+    )
+    raw_allowlist = (
+        allowlist
+        if allowlist is not None
+        else list(getattr(selected_settings, "config_strict_unknown_keys_allowlist", []) or [])
+    )
+    allowlisted = {str(item).strip().upper() for item in raw_allowlist if str(item).strip()}
+
+    known_keys = _known_config_env_keys() | allowlisted
+    scoped_keys = sorted(key for key in env_map.keys() if _is_scoped_config_env_key(str(key)))
+    unknown_keys = sorted(key for key in scoped_keys if str(key).upper() not in known_keys)
+
+    if not unknown_keys:
+        status = "ok"
+    elif strict_mode:
+        status = "error"
+    else:
+        status = "warning"
+
+    warnings: list[str] = []
+    errors: list[str] = []
+    if unknown_keys and strict_mode:
+        errors.append("Unknown config keys detected in strict mode.")
+    elif unknown_keys:
+        warnings.append("Unknown config keys detected; strict mode disabled.")
+
+    return {
+        "schema_version": "config.v1",
+        "strict_mode": strict_mode,
+        "validation_status": status,
+        "is_valid": not (strict_mode and bool(unknown_keys)),
+        "unknown_keys": unknown_keys,
+        "warnings": warnings,
+        "errors": errors,
+        "allowlist": sorted(allowlisted),
+        "known_key_count": len(_known_config_env_keys()),
+        "scoped_key_count": len(scoped_keys),
+    }
 
 
 def resolved_prompt_settings(current_settings: Settings) -> dict[str, str]:

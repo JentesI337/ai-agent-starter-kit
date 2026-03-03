@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.config import settings
+from app.config import settings, validate_environment_config
 from app.control_models import (
     ControlConfigHealthRequest,
     ControlContextDetailRequest,
@@ -511,6 +511,7 @@ def api_control_context_detail(request_data: dict) -> dict:
 def api_control_config_health(request_data: dict) -> dict:
     request = ControlConfigHealthRequest.model_validate(request_data)
     config_dump = settings.model_dump()
+    validation = validate_environment_config(settings)
 
     active_overrides: dict[str, str] = {}
     for key in config_dump.keys():
@@ -528,7 +529,10 @@ def api_control_config_health(request_data: dict) -> dict:
         "schema": "config.health.v1",
         "schema_version": "config.v1",
         "active_overrides": active_overrides,
-        "invalid_or_unknown": [],
+        "invalid_or_unknown": list(validation.get("unknown_keys") or []),
+        "validation_status": str(validation.get("validation_status") or "ok"),
+        "strict_unknown_keys_enabled": bool(validation.get("strict_mode", False)),
+        "unknown_key_count": len(list(validation.get("unknown_keys") or [])),
         "risk_flags": risk_flags,
     }
     if request.include_effective_values:

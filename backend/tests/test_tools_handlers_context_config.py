@@ -128,3 +128,7 @@ def test_api_control_config_health_includes_schema_and_risks() -> None:
     payload = tools_handlers.api_control_config_health({"include_effective_values": False})
     assert payload["schema"] == "config.health.v1"
     assert "risk_flags" in payload
+    assert "validation_status" in payload
+    assert "strict_unknown_keys_enabled" in payload
+    assert "unknown_key_count" in payload
+    assert isinstance(payload["invalid_or_unknown"], list)

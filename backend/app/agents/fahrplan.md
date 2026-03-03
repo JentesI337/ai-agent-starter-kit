@@ -11,8 +11,9 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 - ✅ Phase-2-Kern umgesetzt: `PromptKernelBuilder` V1, `prompt_mode` (`full|minimal|subagent`), Context-Cost-APIs (`context.list`, `context.detail`) inkl. segmentierter Metrikpräzisierung.
 - ✅ Phase-3-Kern umgesetzt: Typed Tool Schemas aus `ToolRegistry` im Function-Calling-Pfad verdrahtet.
 - ✅ Phase-6-Kern umgesetzt: Directive Layer OOB (`/queue`, `/model`, `/reasoning`, `/verbose`) + `reasoning_visibility` End-to-End verdrahtet.
+- ✅ Phase-7-Kern umgesetzt: strict unknown-key fail-fast + `config.health`-Validierungsstatus (`validation_status`, `strict_unknown_keys_enabled`, `unknown_key_count`, `invalid_or_unknown`).
 - ✅ Hardening abgeschlossen: Background-Run-Fehlerpfad/Cleanup bei Directive-Fehlern abgesichert; WS-Non-User-Pfade verwenden konsistent bereinigten Content/Model-Override.
-- 🔜 Nächster priorisierter Kernpunkt: strict unknown-key fail-fast (Phase 7).
+- 🔜 Nächste priorisierte Kernpunkte: Hook-Contract/Safety V2 (Phase 4) und Multi-Agent-Isolation als Default-Contract (Phase 5).
 
 ---
 
@@ -30,14 +31,14 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 | 6 | Hooks/Interceptors | 6.5/10 |
 | 7 | Multi-Agent Arbeitsteilung | 6.5/10 |
 | 8 | Operator Controls (/queue,/think,...) | 8.0/10 |
-| 9 | Predictability by Schema | 5.5/10 |
+| 9 | Predictability by Schema | 7.8/10 |
 
-**Gesamt:** 7.8/10
+**Gesamt:** 8.1/10
 
 ### Top-3 Hebel für sofortigen Impact
-1. **Strict Config Validation (unknown-key fail-fast)** zur Vermeidung von Drift/Ghost-Bugs.  
-2. **Hook-Contract + Safety-Policy V2** (versioniert, Timeout-/Failure-Vertrag je Hookpoint).  
-3. **Multi-Agent-Isolation** (Workspace-/Skills-/Credential-Scope als harter Default-Contract).
+1. **Hook-Contract + Safety-Policy V2** (versioniert, Timeout-/Failure-Vertrag je Hookpoint).  
+2. **Multi-Agent-Isolation** (Workspace-/Skills-/Credential-Scope als harter Default-Contract).  
+3. **Config-Härtung Phase 7.1+** (zusätzliche Typ-/Bereichsvalidierung kritischer Felder über Unknown-Keys hinaus).
 
 ---
 
@@ -439,6 +440,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ### Epic P7.1: Strict Settings Validation
 **Outcome:** Keine Ghost-Bugs durch Config-Drift.
 
+**Status (03.03.2026):** ✅ Unknown-key fail-fast (feature-flagged) umgesetzt; zusätzliche Range-/Typ-Härtung bleibt offen.
+
 **Tasks**
 - Settings-Modell auf strict umstellen (unknown keys => Start-Fehler).
 - Typ- und Bereichsvalidierung für kritische Felder (timeouts, thresholds, list sizes).
@@ -449,6 +452,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ### Epic P7.2: Config Health Endpoint
 **Outcome:** Operator sieht sofort, was aktiv ist.
+
+**Status (03.03.2026):** ✅ umgesetzt und erweitert um Validierungsstatus.
 
 **Tasks**
 - Endpoint `/api/control/config.health` mit:
@@ -492,8 +497,8 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 ## Sprint E (Operator + Config)
 - E1: Directive parser + strip logic
 - E2: reasoning visibility controls
-- E3: strict config validation
-- E4: config.health endpoint
+- E3: strict config validation ✅
+- E4: config.health endpoint ✅
 
 ---
 
@@ -593,17 +598,17 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ## 10) Sofort startbare nächste 72h (konkrete Reihenfolge)
 
-1. `ToolSpec` um enge JSON-Schema-Felder erweitern (`required`, `enum`, `min/max`, `additionalProperties=false` where safe).  
-2. Function-Calling `tools[]` strikt aus ToolRegistry-Schemas generieren (provider-kompatible Normalisierung).  
-3. Parse/Repair-Telemetrie für Tool-Selektion ergänzen und Baseline/Delta messen.  
-4. Directive-Parser OOB (`/queue`, `/model`, `/reasoning`, `/verbose`) implementieren inkl. Strip-Logik vor Prompt-Build.  
-5. `reasoning_visibility=off|summary|stream` verdrahten (RequestContext, Events, Ausgabe).  
-6. Strict Config Validation vorbereiten: unknown keys im Settings-Pfad fail-fast (Feature-flagged Einführungsmodus).  
-7. Fokus-Verifikation: typed-schema + directive + config-health Regression-Suite ausführen und dokumentieren.
+1. Hook-Contract V2 für `before_model_resolve|before_prompt_build|before_tool_call|after_tool_call|tool_result_persist|before_transcript_append` spezifizieren und versionieren.  
+2. Per-Hook Safety-Policy implementieren (`timeout_ms`, `failure_policy`, optionaler Hard-Fail-Modus) inkl. Events.  
+3. Multi-Agent-Isolation Default-Contract einführen (`workspace_root`, `skills_dir`, credential-scope je Agent).  
+4. Delegation/Handover auf isolierte Scopes härten und Ping-Pong-Grenzen verifizieren.  
+5. Config-Härtung Phase 7.1+ ergänzen: Range-/Typ-Validierung für kritische Felder (`timeouts`, `thresholds`, `list sizes`).  
+6. Fokus-Verifikation: `pytest -q backend/tests -k "hooks or isolation or subrun or ws_handler or config_validation" --maxfail=1`  
+7. Dokumentation/Audit-Vertrag aktualisieren (neue Hook-Policies, Isolation-Events, Failure-Policies).
 
 ---
 
-## 13) Lifecycle-Checkliste pro Ticket (Copy/Paste für PR-Template)
+## 11) Lifecycle-Checkliste pro Ticket (Copy/Paste für PR-Template)
 
 - Betroffene Stage(s) klar benannt (0..9).  
 - Entry-/Exit-Kriterien aktualisiert oder explizit unverändert.  
@@ -613,7 +618,7 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 - Security/Privacy geprüft (Directive-Strip, PII-Redaction, Isolation).  
 - Tests vorhanden (unit + integration, ggf. load/security).
 
-## 14) Minimales Datenmodell für Stage-Events
+## 12) Minimales Datenmodell für Stage-Events
 
 ```json
 {
@@ -631,7 +636,7 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ---
 
-## 11) Ownership-Vorschlag
+## 13) Ownership-Vorschlag
 
 - **Orchestrierungsteam:** Phase 1 + 5  
 - **Prompt/Reasoning-Team:** Phase 2 + 6  
@@ -640,7 +645,7 @@ Ziel: Euer Backend von „solider Agent-Laufzeit“ auf „steuerbares, vorhersa
 
 ---
 
-## 12) Abschluss
+## 14) Abschluss
 
 Dieser Plan ist so strukturiert, dass er direkt in Sprints überführt werden kann, ohne weitere Architektur-Workshops als Blocker.  
 Wenn ihr strikt nach dieser Reihenfolge geht, erhaltet ihr zuerst die größten Produktivitäts- und Reliability-Gewinne und reduziert gleichzeitig das Risiko teurer Regressionswellen.

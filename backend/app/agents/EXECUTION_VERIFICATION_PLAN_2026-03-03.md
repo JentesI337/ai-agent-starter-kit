@@ -32,7 +32,7 @@ Referenzen: `fahrplan.md`, `importantPattern.md`
 - ✅ T2 Hardening nachgezogen: Background-Run Directive-Fehler gehen garantiert durch Fail-/Cleanup-Pfad; WS-Non-User-Pfade nutzen konsistent bereinigten Content/Model-Override.
 - ✅ API-Level Regression ergänzt: `run.start` + `run.wait` verifizieren Directive-only Fehlerpfad im Background-Run.
 
-Hinweis: Verbleibender priorisierter Kernpunkt ist T3 (strict unknown-key fail-fast + config.health-Validierungsstatus).
+Hinweis: T3 ist umgesetzt/verifiziert; verbleibende priorisierte Kernpunkte sind Hook-Contract/Safety (P4) und Multi-Agent-Isolation (P5).
 
 ---
 
@@ -73,9 +73,9 @@ Legende: **Erfüllt**, **Teilweise**, **Fehlt**
    - Parserbasierter Strip für `/queue`, `/model`, `/reasoning`, `/verbose` ist aktiv (Prefix-only Semantik).  
    - `reasoning_visibility`-Kontrollpfad ist in `RequestContext` und Lifecycle-Details verdrahtet.
 
-9. **Predictability by Schema (strict config)** → **Fehlt/Teilweise**  
-   - `config.health` Endpoint ist vorhanden.  
-   - `Settings` basiert auf Pydantic, aber ohne strikt erzwungenes Unknown-Key-Fail-Fast auf Gateway-Ebene.
+9. **Predictability by Schema (strict config)** → **Erfüllt (grundlegend)**  
+   - Strict unknown-key validation ist implementiert (feature-flagged) inkl. Startup-Fail-Fast bei aktivem Strict-Mode.  
+   - `config.health` liefert Validierungsstatus (`validation_status`, `strict_unknown_keys_enabled`, `unknown_key_count`, `invalid_or_unknown`).
 
 ---
 
@@ -225,9 +225,9 @@ Hinweis: in `backend/` ausführen.
 
 ## 7) Entscheidende Gaps, die nicht weiter geschoben werden sollten
 
-1. **Directive Layer fehlt vollständig** → hohes Fehlsteuerungsrisiko.  
-2. **Typed Tool Schemas nicht stringent** → unnötige Parse/Repair-Last.  
-3. **Strict unknown-key fail-fast fehlt** → Drift/Ghost-Bugs wahrscheinlicher.
+1. **Hook-Contract + Safety-Policy V2 fehlt** → unklare Hard-/Soft-Fail- und Timeout-Verträge je Hookpoint.  
+2. **Multi-Agent-Isolation als Default-Contract fehlt** → erhöhtes Risiko von Workspace-/Credential-Kollisionen.  
+3. **Strict Config Validation nur grundlegend** → zusätzliche Feldbereichs-/Typ-Härtungen für kritische Grenzwerte stehen aus.
 
 Damit ist der Fahrplan verifiziert und auf eine unmittelbar umsetzbare Reihenfolge verdichtet.
 
@@ -393,44 +393,59 @@ Hinweis zur Reproduzierbarkeit:
 - Lauf mit Root-`.venv` (`.venv/Scripts/python.exe`) ist auf dieser Maschine wegen FastAPI/Pydantic/Typing-Inkompatibilität (Python 3.14 beta) nicht repräsentativ für Backend-Regressionen.
 - Verbindliche Verifikation für dieses Backend erfolgt daher über `backend/.venv`.
 
-### 9.2 Harte Codebelege für verbleibenden Gap (C)
+### 9.2 Harte Codebelege (historischer Gap C, inzwischen geschlossen)
 
-1. **Strict unknown-key fail-fast fehlt**
-   - `Settings` basiert auf `pydantic.BaseModel` mit env-basierter Feldbelegung.
-   - Ein explizites strict unknown-key fail-fast auf Gateway-Startpfad ist aktuell nicht implementiert.
-   - `config.health` ist vorhanden (inkl. `schema`, `active_overrides`, `risk_flags`), deckt Unknown-Key-Fail-Fast aber nicht als Enforcement ab.
+1. **Strict unknown-key fail-fast (historischer Stand vor T3)**
+   - Vor T3 basierte `Settings` auf env-basierter Feldbelegung ohne explizites Unknown-Key-Enforcement.
+   - `config.health` war vorhanden, zeigte jedoch keinen durchgängigen Validierungsstatus.
+   - Dieser Gap ist in Abschnitt 12.4 als umgesetzt/verifiziert dokumentiert.
 
 ---
 
-## 10) Exakte Next-72h-Reihenfolge (nur verbleibender Kernpunkt)
+## 10) Exakte Next-72h-Reihenfolge (nach T3)
 
-### T3) Strict Config Validation (P7)
+### T4) Hook-Contract + Safety-Policy V2 (P4)
 
 Ziel:
-- Unknown keys im Config-Pfad fail-fast (feature-flagged rolloutfähig).
+- Versionierter Hook-Vertrag mit expliziten Timeout-/Failure-Policies je Hookpoint.
 
-Dateien:
-- `backend/app/config.py`
-- `backend/app/main.py` (Startup-Validation Hook, falls benötigt)
-- `backend/app/handlers/tools_handlers.py` (`config.health` um Validierungsstatus ergänzen)
-- neue Tests: `backend/tests/test_config_validation.py` + Erweiterung `backend/tests/test_tools_handlers_context_config.py`
+Dateien (Startschnitt):
+- `backend/app/agent.py`
+- `backend/app/services/tool_execution_manager.py`
+- `backend/app/handlers/run_handlers.py`
+- neue Tests: `backend/tests/test_hooks_*`
 
 Akzeptanz:
-- Unknown-Key führt (bei Flag aktiv) reproduzierbar zu Start-Fehler.
-- `config.health` zeigt Schema-/Validation-Status inkl. Risiken/Overrides.
+- Jeder Hookpoint dokumentiert `hook_contract_version`, `timeout_ms`, `failure_policy`.
+- Defekter Hook führt standardmäßig nicht zu globalem Run-Abbruch (außer explizit Hard-Fail).
 
-### T4) Pflicht-Verifikation nach Umsetzung
+### T5) Multi-Agent-Isolation Default-Contract (P5)
+
+Ziel:
+- Harte Default-Isolation für Workspace/Skills/Credentials je Agent.
+
+Dateien (Startschnitt):
+- `backend/app/custom_agents.py`
+- `backend/app/main.py`
+- `backend/app/subrun_endpoints.py`
+- neue Tests: `backend/tests/test_multi_agent_isolation.py`
+
+Akzeptanz:
+- Kein impliziter Zugriff eines Agents auf fremde Workspace-/Credential-Scopes.
+- Delegation/Handover bleibt funktional, aber strikt scoped.
+
+### Pflicht-Verifikation nach Umsetzung
 
 Fokus:
-- `pytest -q backend/tests -k "tool_registry or planner_agent or directive or ws_handler or config_validation or context_config" --maxfail=1`
+- `pytest -q backend/tests -k "hooks or ws_handler or tool_execution_manager or subrun or isolation" --maxfail=1`
 
 Regression (Backend):
 - `pytest -q backend/tests --maxfail=1`
 
 Exit-Gates:
-- Keine Regression in bestehenden Lane/Steer/PromptKernel/Context-Tests.
-- Neue E2E-/Unit-Cases für Directive + Typed Schema + Config strict grün.
-- Event-/Audit-Vertrag dokumentiert (neue Stages/Details/Failure-Policy).
+- Keine Regression in Lane/Steer/PromptKernel/Context/Config-Tests.
+- Neue Unit-/Integrations-Cases für Hook-Safety + Isolation grün.
+- Event-/Audit-Vertrag aktualisiert und dokumentiert.
 
 ---
 
@@ -482,4 +497,126 @@ Tests:
 
 ### Verbleibender Kernpunkt
 
-- **T3 Strict Config Validation (unknown-key fail-fast)** ist weiterhin offen und bleibt nächster priorisierter Umsetzungsschritt.
+- **T3 Strict Config Validation (unknown-key fail-fast)** ist umgesetzt/verifiziert.
+- Nächste priorisierte Kernpunkte: **P4 Hook-Contract/Safety** und **P5 Multi-Agent-Isolation**.
+
+---
+
+## 12) Exakter T3-Ausführungsschnitt (Strict Config Validation)
+
+Ziel: Unknown Keys im Settings-/Gateway-Config-Pfad kontrolliert fail-fast machen (rollout-fähig), ohne bestehende Laufzeitpfade zu brechen.
+
+### 12.1 Implementierung (exakt, in Reihenfolge)
+
+1. **`config.py`: Strict-Validator als explizite Komponente einführen**
+   - Neue Routine: z. B. `validate_environment_config(strict_unknown_keys: bool) -> dict`.
+   - Basis: erlaubte Key-Menge aus `Settings.model_fields` + Whitelist für nicht-backend-relevante Systemvariablen.
+   - Ergebnisobjekt enthält mindestens:
+      - `schema_version`
+      - `strict_mode`
+      - `unknown_keys`
+      - `warnings`
+      - `is_valid`
+
+2. **Feature-Flag für harte Durchsetzung**
+   - Neue Settings-Felder:
+      - `config_strict_unknown_keys_enabled` (bool, default `False`)
+      - optional `config_strict_unknown_keys_allowlist` (CSV, default leer)
+   - Bei aktivem Flag und `unknown_keys` > 0: deterministischer Startup-Abbruch mit präziser Fehlermeldung.
+
+3. **`main.py`: Startup-Validation Hook verdrahten**
+   - Validation früh im Startup ausführen (vor Runtime-Init).
+   - Bei Hard-Fail: sauberer `RuntimeError` mit `unknown_keys`-Auszug.
+   - Bei Soft-Mode: Warning-Log + normaler Start.
+
+4. **`tools_handlers.py`: `config.health` um Validierungsstatus erweitern**
+   - `invalid_or_unknown` aus Validator-Ergebnis befüllen.
+   - Additive Felder ergänzen:
+      - `validation_status` (`ok|warning|error`)
+      - `strict_unknown_keys_enabled`
+      - `unknown_key_count`
+   - Schema bleibt `config.health.v1` (nur additive Felder).
+
+5. **Tests ergänzen**
+   - Neu: `backend/tests/test_config_validation.py`
+      - unknown keys im soft mode -> `is_valid=True`, unknown list gefüllt
+      - unknown keys im strict mode -> `is_valid=False` bzw. Startup-Fehler
+      - allowlist respektiert
+   - Erweiterung: `backend/tests/test_tools_handlers_context_config.py`
+      - `config.health` enthält Validation-Felder und Unknown-Summary.
+
+### 12.2 Verifikationsprotokoll (nach Implementierung, verpflichtend)
+
+Ausführung in Repo-Root:
+
+- Fokuslauf:
+  - `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_config_validation.py backend/tests/test_tools_handlers_context_config.py backend/tests/test_router_units.py --maxfail=1 -o faulthandler_timeout=20`
+- Regression:
+  - `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "config_validation or context_config or ws_handler or directive or tool_registry" --maxfail=1 -o faulthandler_timeout=20`
+
+Exit-Gates:
+- Strict-Mode blockiert Start bei unbekannten Config-Keys reproduzierbar.
+- Soft-Mode liefert Warnungen ohne Startup-Abbruch.
+- `config.health` zeigt Unknown-Key-Status ohne Breaking Changes.
+
+### 12.3 Live-Verifikation (03.03.2026, erneut ausgeführt)
+
+Fokusläufe auf aktuellem Stand:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_tools_handlers_context_config.py backend/tests/test_router_units.py -o faulthandler_timeout=20 --maxfail=1`
+  - Ergebnis: **10 passed**
+
+- Unknown-Key-Nachweis (Code-Snippet im `backend`-CWD):
+  - `os.environ['THIS_SHOULD_BE_UNKNOWN_KEY']='1'` + `Settings()`
+  - Ergebnis:
+     - `unknown_key_present_in_dump False`
+     - kein Startup-/Init-Fehler
+
+Interpretation:
+- (Historischer Stand vor T3) Unknown Keys wurden bis dahin nicht als Fail-Fast erzwungen.
+
+### 12.4 Umsetzung T3 (03.03.2026, abgeschlossen)
+
+Implementiert:
+
+- `backend/app/config.py`
+   - Neue Settings-Flags:
+      - `CONFIG_STRICT_UNKNOWN_KEYS_ENABLED`
+      - `CONFIG_STRICT_UNKNOWN_KEYS_ALLOWLIST`
+   - Neue Validator-Funktion `validate_environment_config(...)` mit:
+      - scoped Unknown-Key-Erkennung für Backend-Config-Keys
+      - Soft-/Strict-Mode (`warning` vs. `error`)
+      - reproduzierbare Summary (`unknown_keys`, `validation_status`, `is_valid`)
+
+- `backend/app/main.py`
+   - Startup-Hook validiert Config vor Runtime-Initialisierung.
+   - Bei Strict-Mode + Unknown-Keys: deterministischer Startup-Abbruch via `RuntimeError`.
+   - Bei Soft-Mode: Warning-Logging.
+
+- `backend/app/handlers/tools_handlers.py`
+   - `config.health` nutzt Validator-Ergebnis und liefert additive Felder:
+      - `validation_status`
+      - `strict_unknown_keys_enabled`
+      - `unknown_key_count`
+      - `invalid_or_unknown` (Unknown-Key-Liste)
+
+Tests:
+
+- Neu: `backend/tests/test_config_validation.py`
+   - soft mode: Unknown-Key -> `warning`, `is_valid=True`
+   - strict mode: Unknown-Key -> `error`, `is_valid=False`
+   - allowlist: Unknown-Key unterdrückt -> `ok`, `is_valid=True`
+
+- Erweiterung: `backend/tests/test_tools_handlers_context_config.py`
+   - `config.health`-Response enthält neue Validierungsfelder.
+
+Verifikation nach Implementierung:
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests/test_config_validation.py backend/tests/test_tools_handlers_context_config.py backend/tests/test_router_units.py -o faulthandler_timeout=20 --maxfail=1`
+   - Ergebnis: **13 passed**
+
+- `./backend/.venv/Scripts/python.exe -m pytest -q backend/tests -k "config_validation or context_config or ws_handler or directive or tool_registry" --maxfail=1 -o faulthandler_timeout=20`
+   - Ergebnis: **29 passed, 475 deselected**
+
+Status T3:
+- ✅ **Strict Config Validation (unknown-key fail-fast) implementiert und fokussiert verifiziert**.

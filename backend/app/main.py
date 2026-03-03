@@ -5,7 +5,7 @@ from collections.abc import MutableMapping
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
-from app.config import resolved_prompt_settings, settings
+from app.config import resolved_prompt_settings, settings, validate_environment_config
 from app.control_router_wiring import include_control_routers
 from app.contracts.agent_contract import AgentContract
 from app.custom_agents import CustomAgentStore
@@ -90,6 +90,21 @@ idempotency_mgr = IdempotencyManager(
     max_entries=settings.idempotency_registry_max_entries,
 )
 def _startup_sequence() -> None:
+    config_validation = validate_environment_config(settings)
+    if not bool(config_validation.get("is_valid", True)):
+        unknown_keys = list(config_validation.get("unknown_keys") or [])
+        preview = ", ".join(unknown_keys[:10])
+        suffix = "" if len(unknown_keys) <= 10 else f" (+{len(unknown_keys) - 10} more)"
+        raise RuntimeError(
+            "Strict config validation failed: unknown keys detected "
+            f"({preview}{suffix})."
+        )
+    if str(config_validation.get("validation_status") or "") == "warning":
+        logger.warning(
+            "config_validation_warning unknown_keys=%s strict_mode=%s",
+            config_validation.get("unknown_keys") or [],
+            config_validation.get("strict_mode"),
+        )
     run_startup_sequence(
         settings=settings,
         logger=logger,
