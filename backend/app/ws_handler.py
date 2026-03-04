@@ -176,6 +176,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             sequence_number += 1
             if "session_id" not in payload:
                 payload["session_id"] = connection_session_id
+            if payload.get("type") == "lifecycle":
+                request_id = str(payload.get("request_id") or "").strip()
+                if request_id:
+                    deps.state_append_event_safe(
+                        run_id=request_id,
+                        event=payload,
+                    )
             envelope = {
                 "seq": sequence_number,
                 "event": payload,
@@ -228,10 +235,6 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             lifecycle_event["started_at"] = lifecycle_event.get("ts")
         if lifecycle_status in {"completed", "failed", "timed_out", "cancelled"}:
             lifecycle_event["ended_at"] = lifecycle_event.get("ts")
-        deps.state_append_event_safe(
-            run_id=request_id,
-            event=lifecycle_event,
-        )
         await send_event(
             lifecycle_event
         )
@@ -749,8 +752,22 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             "decision": str(updated.get("decision") or ""),
                             "status": str(updated.get("status") or ""),
                             "duplicate": bool(updated.get("duplicate_decision")),
+                            "duplicate_matches_existing": bool(updated.get("duplicate_matches_existing")),
                         },
                     )
+                    if bool(updated.get("duplicate_decision")) and not bool(updated.get("duplicate_matches_existing")):
+                        await send_lifecycle(
+                            stage="policy_approval_decision_noop",
+                            request_id=target_request_id,
+                            session_id=target_session_id,
+                            details={
+                                "approval_id": approval_id,
+                                "reason": "duplicate_conflict_ignored",
+                                "incoming_decision": mapped_decision,
+                                "effective_decision": str(updated.get("decision") or ""),
+                                "status": str(updated.get("status") or ""),
+                            },
+                        )
                     continue
 
                 deps.logger.info(

@@ -407,6 +407,7 @@ def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatc
 
         events = []
         approval_id = None
+        duplicate_sent = False
         for _ in range(120):
             envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
             if envelope is None:
@@ -425,6 +426,16 @@ def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatc
                             "session_id": evt.get("session_id"),
                         }
                     )
+                    if not duplicate_sent:
+                        ws.send_json(
+                            {
+                                "type": "policy_decision",
+                                "approval_id": approval_id,
+                                "decision": "allow_once",
+                                "session_id": evt.get("session_id"),
+                            }
+                        )
+                        duplicate_sent = True
             if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
                 break
 
@@ -435,12 +446,19 @@ def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatc
         and evt.get("details", {}).get("decision") == "allow_once"
         for evt in events
     )
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_approval_decision"
+        and evt.get("details", {}).get("duplicate") is True
+        for evt in events
+    )
     assert not any(
         evt.get("type") == "lifecycle"
         and evt.get("stage") == "policy_approval_decision_rejected"
         for evt in events
     )
     assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_cancelled" for evt in events)
+    assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed" for evt in events)
 
 
 def test_websocket_policy_decision_cancel_aborts_run_cleanly(monkeypatch) -> None:
@@ -506,6 +524,95 @@ def test_websocket_policy_decision_cancel_aborts_run_cleanly(monkeypatch) -> Non
         for evt in events
     )
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_cancelled" for evt in events)
+
+
+def test_websocket_policy_decision_conflicting_duplicate_is_noop(monkeypatch) -> None:
+    _set_local_runtime()
+    monkeypatch.setattr(settings, "policy_approval_wait_seconds", 5.0)
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    async def fake_plan_execute(payload, model=None):
+        return "execute requested command"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(receive_json_with_timeout(ws))
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "run `echo hello`",
+                "agent_id": "head-agent",
+                "tool_policy": {"deny": ["run_command"]},
+            }
+        )
+
+        events = []
+        approval_id = None
+        for _ in range(120):
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
+            events.append(evt)
+            if evt.get("type") == "policy_approval_required":
+                approval = evt.get("approval") or {}
+                approval_id = approval.get("approval_id")
+                if approval_id:
+                    ws.send_json(
+                        {
+                            "type": "policy_decision",
+                            "approval_id": approval_id,
+                            "decision": "allow_once",
+                            "session_id": evt.get("session_id"),
+                        }
+                    )
+                    ws.send_json(
+                        {
+                            "type": "policy_decision",
+                            "approval_id": approval_id,
+                            "decision": "cancel",
+                            "session_id": evt.get("session_id"),
+                        }
+                    )
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    assert approval_id is not None
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_approval_decision"
+        and evt.get("details", {}).get("decision") == "allow_once"
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_approval_decision"
+        and evt.get("details", {}).get("duplicate") is True
+        and evt.get("details", {}).get("duplicate_matches_existing") is False
+        for evt in events
+    )
+    assert any(
+        evt.get("type") == "lifecycle"
+        and evt.get("stage") == "policy_approval_decision_noop"
+        and evt.get("details", {}).get("reason") == "duplicate_conflict_ignored"
+        and evt.get("details", {}).get("incoming_decision") == "cancel"
+        and evt.get("details", {}).get("effective_decision") == "allow_once"
+        for evt in events
+    )
+    assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_cancelled" for evt in events)
+    assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_failed" for evt in events)
 
 
 def test_websocket_tool_policy_resolved_excludes_vision_tool_when_feature_disabled(monkeypatch) -> None:

@@ -311,41 +311,49 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             resource=resource,
             display_text=display_text,
         )
-        await send_event(
-            {
-                "type": "policy_approval_required",
-                "agent": agent_name,
-                "request_id": request_id,
-                "session_id": session_id,
-                "approval": {
-                    "approval_id": approval["approval_id"],
-                    "tool": tool,
-                    "resource": resource,
-                    "display_text": display_text,
-                    "options": ["allow_once", "allow_session", "cancel"],
-                    "scope": "session_tool",
-                    "status": "pending",
-                },
-            }
-        )
-        await send_event(
-            {
-                "type": "lifecycle",
-                "agent": agent_name,
-                "stage": "policy_approval_requested",
-                "request_id": request_id,
-                "session_id": session_id,
-                "details": {
-                    "approval_id": approval["approval_id"],
-                    "tool": tool,
-                    "resource": resource,
-                },
-            }
-        )
-        decision = await components.policy_approval_service.wait_for_decision(
-            approval_id=approval["approval_id"],
-            timeout_seconds=settings.policy_approval_wait_seconds,
-        )
+        approval_status = str(approval.get("status") or "").strip().lower()
+        approval_reused = bool(approval.get("idempotent_reuse"))
+        if approval_status == "pending":
+            await send_event(
+                {
+                    "type": "policy_approval_required",
+                    "agent": agent_name,
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "approval": {
+                        "approval_id": approval["approval_id"],
+                        "tool": tool,
+                        "resource": resource,
+                        "display_text": display_text,
+                        "options": ["allow_once", "allow_session", "cancel"],
+                        "scope": "session_tool",
+                        "status": "pending",
+                        "idempotent_reuse": approval_reused,
+                    },
+                }
+            )
+            await send_event(
+                {
+                    "type": "lifecycle",
+                    "agent": agent_name,
+                    "stage": "policy_approval_requested",
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "details": {
+                        "approval_id": approval["approval_id"],
+                        "tool": tool,
+                        "resource": resource,
+                        "idempotent_reuse": approval_reused,
+                    },
+                }
+            )
+
+        decision = str(approval.get("decision") or "").strip().lower() or None
+        if decision is None:
+            decision = await components.policy_approval_service.wait_for_decision(
+                approval_id=approval["approval_id"],
+                timeout_seconds=settings.policy_approval_wait_seconds,
+            )
         await send_event(
             {
                 "type": "lifecycle",
@@ -358,6 +366,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                     "tool": tool,
                     "resource": resource,
                     "decision": decision,
+                    "idempotent_reuse": approval_reused,
                 },
             }
         )

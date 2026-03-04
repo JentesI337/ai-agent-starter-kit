@@ -148,3 +148,33 @@ def test_policy_approval_service_duplicate_decision_is_ignored() -> None:
     assert second.get("decision") == "allow_once"
     assert second.get("duplicate_decision") is True
     assert second.get("duplicate_matches_existing") is False
+
+
+def test_policy_approval_service_create_is_idempotent_for_same_run_and_resource() -> None:
+    service = PolicyApprovalService()
+
+    async def run_case() -> tuple[dict, dict]:
+        first = await service.create(
+            run_id="run-7",
+            session_id="sess-7",
+            agent_name="head-agent",
+            tool="run_command",
+            resource="ng new calculator-app",
+            display_text="allow?",
+        )
+        second = await service.create(
+            run_id="run-7",
+            session_id="sess-7",
+            agent_name="head-agent",
+            tool="run_command",
+            resource="ng new calculator-app",
+            display_text="allow?",
+        )
+        return first, second
+
+    first, second = asyncio.run(run_case())
+    assert first.get("approval_id") == second.get("approval_id")
+    assert first.get("status") == "pending"
+    assert second.get("status") == "pending"
+    assert first.get("idempotent_reuse") is False
+    assert second.get("idempotent_reuse") is True

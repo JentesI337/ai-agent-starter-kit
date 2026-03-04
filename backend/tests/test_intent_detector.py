@@ -50,6 +50,8 @@ def test_web_research_task_positive_and_negative() -> None:
 
     assert detector.is_web_research_task("search on the web for latest llm benchmarks") is True
     assert detector.is_web_research_task("explain async await in python") is False
+    assert detector.is_web_research_task("make a to do app with the latest angular version") is False
+    assert detector.is_web_research_task("latest angular web news") is True
 
 
 def test_orchestration_task_positive_and_negative() -> None:

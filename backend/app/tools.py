@@ -101,6 +101,7 @@ class AgentTooling:
         self.command_timeout_seconds = command_timeout_seconds
         self._command_allowlist_enabled = settings.command_allowlist_enabled
         self._command_allowlist = self._build_command_allowlist()
+        self._command_allowlist_overrides: set[str] = set()
         self._background_jobs: dict[str, dict] = {}
         self._bg_lock = threading.Lock()
         self._web_fetch_max_redirects = 3
@@ -744,6 +745,16 @@ class AgentTooling:
         values.extend(settings.command_allowlist_extra or [])
         return {item.strip().lower() for item in values if isinstance(item, str) and item.strip()}
 
+    def allow_command_leader_temporarily(self, leader: str) -> str | None:
+        normalized = (leader or "").strip().lower()
+        if not normalized:
+            return None
+        self._command_allowlist_overrides.add(normalized)
+        return normalized
+
+    def extract_command_leader(self, command: str) -> str:
+        return self._extract_command_leader(command)
+
     def _enforce_command_allowlist(self, command: str) -> str:
         if not self._command_allowlist_enabled:
             return self._extract_command_leader(command)
@@ -776,7 +787,7 @@ class AgentTooling:
 
         self._enforce_command_safety(command=command, leader=leader)
 
-        if leader not in self._command_allowlist:
+        if leader not in self._command_allowlist and leader not in self._command_allowlist_overrides:
             self._raise_command_policy_error(
                 category="unsupported",
                 message=(

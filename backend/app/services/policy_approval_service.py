@@ -46,6 +46,23 @@ class PolicyApprovalService:
         resource: str,
         display_text: str,
     ) -> dict:
+        normalized_run_id = (run_id or "").strip()
+        normalized_session_id = (session_id or "").strip()
+        normalized_tool = (tool or "").strip().lower()
+        normalized_resource = (resource or "").strip()
+
+        async with self._lock:
+            for existing in self._records.values():
+                if (
+                    str(existing.get("run_id") or "").strip() == normalized_run_id
+                    and str(existing.get("session_id") or "").strip() == normalized_session_id
+                    and str(existing.get("tool") or "").strip().lower() == normalized_tool
+                    and str(existing.get("resource") or "").strip() == normalized_resource
+                ):
+                    reused = dict(existing)
+                    reused["idempotent_reuse"] = True
+                    return reused
+
         approval_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
         record = {
@@ -65,7 +82,9 @@ class PolicyApprovalService:
         async with self._lock:
             self._records[approval_id] = record
             self._events[approval_id] = asyncio.Event()
-        return dict(record)
+            created = dict(record)
+            created["idempotent_reuse"] = False
+            return created
 
     def _normalize_scope(self, scope: str | None) -> str:
         candidate = (scope or "tool_resource").strip().lower()

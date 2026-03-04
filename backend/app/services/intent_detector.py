@@ -207,22 +207,26 @@ class IntentDetector:
 
     def is_web_research_task(self, user_message: str) -> bool:
         text = (user_message or "").lower()
-        markers = (
+        explicit_markers = (
             "search on the web",
             "search the web",
             "browse the web",
             "look up",
-            "latest",
-            "current",
-            "news",
+            "web search",
+            "find online",
             "google",
             "bing",
             "duckduckgo",
-            "find online",
-            "web search",
             "internet",
         )
-        return any(marker in text for marker in markers)
+        if any(marker in text for marker in explicit_markers):
+            return True
+
+        freshness_markers = ("latest", "current", "news")
+        web_context_markers = ("web", "online", "internet", "source", "sources")
+        return any(marker in text for marker in freshness_markers) and any(
+            marker in text for marker in web_context_markers
+        )
 
     def is_subrun_orchestration_task(self, user_message: str) -> bool:
         text = (user_message or "").lower()

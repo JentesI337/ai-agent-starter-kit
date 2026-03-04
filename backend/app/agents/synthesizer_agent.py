@@ -152,11 +152,6 @@ class SynthesizerAgent(AgentContract):
         if "spawned_subrun_id=" in tool_results or "subrun_announce" in tool_results:
             return "orchestration"
 
-        if any(marker in user_message for marker in ("search the web", "search on the web", "latest", "news", "find online")):
-            return "research"
-        if "source_url" in tool_results or "[web_fetch]" in tool_results:
-            return "research"
-
         if any(
             marker in user_message
             for marker in (
@@ -172,6 +167,11 @@ class SynthesizerAgent(AgentContract):
             )
         ):
             return "implementation"
+
+        if any(marker in user_message for marker in ("search the web", "search on the web", "latest", "news", "find online")):
+            return "research"
+        if "source_url" in tool_results or "[web_fetch]" in tool_results:
+            return "research"
 
         return "general"
 

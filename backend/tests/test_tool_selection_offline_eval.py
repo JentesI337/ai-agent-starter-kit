@@ -279,6 +279,61 @@ def test_run_tool_with_policy_accepts_sync_invoke_returning_awaitable(monkeypatc
     assert result == "ok-awaitable"
 
 
+def test_run_command_policy_unsupported_can_be_approved_and_retried(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    attempts = {"count": 0}
+    approval_calls = {"count": 0}
+    events: list[dict] = []
+
+    def fake_invoke(tool: str, args: dict) -> str:
+        _ = (tool, args)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise ToolExecutionError(
+                "Command 'ng' is not allowed by command allowlist.",
+                error_code="command_policy_unsupported",
+                details={"category": "unsupported", "leader": "ng"},
+            )
+        return "ok-ng"
+
+    async def fake_policy_handler(*, send_event, session_id, request_id, agent_name, tool, resource, display_text):
+        _ = (send_event, session_id, request_id, agent_name, tool, resource, display_text)
+        approval_calls["count"] += 1
+        return True
+
+    async def fake_send_event(payload: dict) -> None:
+        events.append(payload)
+
+    monkeypatch.setattr(agent, "_invoke_tool", fake_invoke)
+    agent.set_policy_approval_handler(fake_policy_handler)
+
+    send_event_token = agent._active_send_event_context.set(fake_send_event)
+    session_token = agent._active_session_id_context.set("sess-1")
+    request_token = agent._active_request_id_context.set("req-1")
+    try:
+        result = asyncio.run(
+            agent._run_tool_with_policy(
+                tool="run_command",
+                args={"command": "ng version"},
+                policy=agent._build_execution_policy("run_command"),
+            )
+        )
+    finally:
+        agent._active_request_id_context.reset(request_token)
+        agent._active_session_id_context.reset(session_token)
+        agent._active_send_event_context.reset(send_event_token)
+
+    assert result == "ok-ng"
+    assert attempts["count"] == 2
+    assert approval_calls["count"] == 1
+    assert any(
+        event.get("type") == "lifecycle"
+        and event.get("stage") == "policy_override_decision"
+        and event.get("details", {}).get("approved") is True
+        for event in events
+    )
+
+
 def test_offline_tool_call_accuracy_curated_set() -> None:
     agent = HeadCodingAgent()
     cases = [
@@ -596,6 +651,31 @@ def test_web_research_task_detection_positive() -> None:
     agent = HeadCodingAgent()
 
     assert agent._is_web_research_task("can you search on the web for the best ai models?") is True
+
+
+def test_web_research_task_detection_does_not_trigger_on_latest_framework_request() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._is_web_research_task("make a to do app with the latest angular version") is False
+
+
+def test_synthesis_task_type_prefers_implementation_over_generic_latest_signal() -> None:
+    agent = HeadCodingAgent()
+
+    resolved = agent._resolve_synthesis_task_type(
+        user_message="implement a todo app with the latest angular version",
+        tool_results="",
+    )
+
+    assert resolved == "implementation"
+
+
+def test_implementation_evidence_requires_successful_write_or_command() -> None:
+    agent = HeadCodingAgent()
+
+    assert agent._has_implementation_evidence("[write_file]\ncreated app component") is True
+    assert agent._has_implementation_evidence("[run_command] ERROR: command not allowed") is False
+    assert agent._has_implementation_evidence("[read_file]\ncontent") is False
 
 
 def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:

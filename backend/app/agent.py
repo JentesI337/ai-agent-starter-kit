@@ -199,6 +199,18 @@ class HeadAgent:
             f"source_agent_id_{id(self)}",
             default=None,
         )
+        self._active_send_event_context: contextvars.ContextVar[SendEvent | None] = contextvars.ContextVar(
+            f"active_send_event_{id(self)}",
+            default=None,
+        )
+        self._active_session_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+            f"active_session_id_{id(self)}",
+            default=None,
+        )
+        self._active_request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+            f"active_request_id_{id(self)}",
+            default=None,
+        )
         self._build_sub_agents()
 
     def set_source_agent_context(self, source_agent_id: str | None):
@@ -386,6 +398,9 @@ class HeadAgent:
         final_text = ""
         plan_text = ""
         tool_results = ""
+        send_event_token = self._active_send_event_context.set(send_event)
+        session_id_token = self._active_session_id_context.set(session_id)
+        request_id_token = self._active_request_id_context.set(request_id)
 
         await self._emit_lifecycle(
             send_event,
@@ -1097,6 +1112,25 @@ class HeadAgent:
                     },
                 )
             final_text = shape_result.text
+            if self._requires_implementation_evidence(
+                user_message=user_message,
+                synthesis_task_type=synthesis_task_type,
+            ) and not self._has_implementation_evidence(tool_results):
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="implementation_evidence_missing",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "task_type": synthesis_task_type,
+                        "required_evidence_tools": ["write_file", "apply_patch", "run_command"],
+                    },
+                )
+                final_text = (
+                    "I could not complete the implementation in this run because no code-edit or command-execution "
+                    "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
+                    "or `run_command`) and retry."
+                )
             final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
             await self._emit_lifecycle(
                 send_event,
@@ -1174,6 +1208,9 @@ class HeadAgent:
                     pass
             raise
         finally:
+            self._active_request_id_context.reset(request_id_token)
+            self._active_session_id_context.reset(session_id_token)
+            self._active_send_event_context.reset(send_event_token)
             if (
                 status == "completed"
                 and settings.session_distillation_enabled
@@ -1958,8 +1995,6 @@ class HeadAgent:
             return "hard_research"
         if self._is_subrun_orchestration_task(message) or "spawned_subrun_id=" in (tool_results or ""):
             return "orchestration"
-        if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
-            return "research"
         implementation_markers = (
             "implement",
             "fix",
@@ -1970,9 +2005,28 @@ class HeadAgent:
             "feature",
         )
         lowered = message.lower()
-        if any(marker in lowered for marker in implementation_markers):
+        if self._is_file_creation_task(message) or any(marker in lowered for marker in implementation_markers):
             return "implementation"
+        if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
+            return "research"
         return "general"
+
+    def _requires_implementation_evidence(self, *, user_message: str, synthesis_task_type: str) -> bool:
+        if synthesis_task_type == "implementation":
+            return True
+        return self._is_file_creation_task(user_message)
+
+    def _has_successful_tool_output(self, tool_results: str | None, tool_name: str) -> bool:
+        if not tool_results:
+            return False
+        pattern = re.compile(rf"\[{re.escape(tool_name)}\]\s*\n(?!\s*ERROR:)", re.IGNORECASE)
+        return bool(pattern.search(tool_results))
+
+    def _has_implementation_evidence(self, tool_results: str | None) -> bool:
+        return any(
+            self._has_successful_tool_output(tool_results, tool_name)
+            for tool_name in ("write_file", "apply_patch", "run_command")
+        )
 
     def _sanitize_final_response(self, final_text: str) -> str:
         return self._reply_shaper.sanitize(final_text)
@@ -2168,6 +2222,14 @@ class HeadAgent:
                     raise ToolExecutionError(f"Tool timeout ({tool})") from exc
             except ToolExecutionError as exc:
                 last_error = exc
+                approved_retry_result = await self._retry_run_command_after_policy_approval(
+                    tool=tool,
+                    args=args,
+                    policy=policy,
+                    error=exc,
+                )
+                if approved_retry_result is not None:
+                    return approved_retry_result
                 if attempt >= max_attempts:
                     raise
                 if not self._is_retryable_tool_error(exc, policy.retry_class):
@@ -2176,6 +2238,58 @@ class HeadAgent:
         if isinstance(last_error, ToolExecutionError):
             raise last_error
         raise ToolExecutionError(f"Tool execution failed ({tool})")
+
+    async def _retry_run_command_after_policy_approval(
+        self,
+        *,
+        tool: str,
+        args: dict,
+        policy: ToolExecutionPolicy,
+        error: ToolExecutionError,
+    ) -> str | None:
+        if tool != "run_command":
+            return None
+        if (error.error_code or "") != "command_policy_unsupported":
+            return None
+
+        command = str(args.get("command") or "").strip()
+        if not command:
+            return None
+
+        send_event = self._active_send_event_context.get()
+        session_id = self._active_session_id_context.get()
+        request_id = self._active_request_id_context.get()
+        if send_event is None or not session_id or not request_id:
+            return None
+
+        leader = self.tools.extract_command_leader(command)
+        if not leader:
+            return None
+
+        approved = await self._request_policy_override(
+            send_event=send_event,
+            session_id=session_id,
+            request_id=request_id,
+            tool="run_command",
+            resource=command,
+        )
+        if not approved:
+            return None
+
+        self.tools.allow_command_leader_temporarily(leader)
+        invoke_tool_fn = self._invoke_tool
+        if asyncio.iscoroutinefunction(invoke_tool_fn):
+            return await asyncio.wait_for(
+                invoke_tool_fn(tool, args),
+                timeout=policy.timeout_seconds,
+            )
+        sync_result = await asyncio.wait_for(
+            asyncio.to_thread(invoke_tool_fn, tool, args),
+            timeout=policy.timeout_seconds,
+        )
+        if inspect.isawaitable(sync_result):
+            return await asyncio.wait_for(sync_result, timeout=policy.timeout_seconds)
+        return sync_result
 
     async def _invoke_spawn_subrun_tool(
         self,

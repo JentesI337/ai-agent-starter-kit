@@ -197,6 +197,26 @@ def test_command_policy_category_for_unsupported_command(tmp_path, monkeypatch) 
     assert exc_info.value.details.get("leader") == "git"
 
 
+def test_run_command_temporary_override_unblocks_single_leader(tmp_path, monkeypatch) -> None:
+    tooling = _make_tooling(tmp_path, monkeypatch)
+    tooling.allow_command_leader_temporarily("ng")
+
+    def _fake_run(*args, **kwargs):
+        class _Completed:
+            returncode = 0
+            stdout = "Angular CLI: 20.0.0"
+            stderr = ""
+
+        return _Completed()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    result = tooling.run_command("ng version")
+
+    assert "exit_code=0" in result
+    assert "Angular CLI" in result
+
+
 def test_command_policy_category_for_env_missing(tmp_path, monkeypatch) -> None:
     tooling = _make_tooling(tmp_path, monkeypatch)
 

@@ -121,7 +121,19 @@ class ToolExecutionManager:
         if intent == "execute_command":
             capabilities.add("command_execution")
 
-        if any(marker in text for marker in ("search", "research", "latest", "source", "web", "internet")):
+        if any(
+            marker in text
+            for marker in (
+                "search on the web",
+                "search the web",
+                "browse the web",
+                "web search",
+                "find online",
+                "source",
+                "web",
+                "internet",
+            )
+        ):
             capabilities.update({"web_retrieval", "knowledge_retrieval"})
 
         if any(marker in text for marker in ("write", "create file", "update", "edit", "patch", "implement", "fix")):
