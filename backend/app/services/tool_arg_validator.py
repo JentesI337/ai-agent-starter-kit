@@ -28,11 +28,13 @@ class ToolArgValidator:
         }
 
     def has_validator(self, tool_name: str) -> bool:
-        return tool_name in self._validators
+        return tool_name in self._validators or tool_name.startswith("mcp_")
 
     def validate(self, tool_name: str, normalized_args: dict[str, object]) -> str | None:
         tool_validator = self._validators.get(tool_name)
         if tool_validator is None:
+            if tool_name.startswith("mcp_"):
+                return None
             return "tool validator missing"
         return tool_validator(normalized_args)
 

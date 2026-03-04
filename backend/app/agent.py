@@ -41,6 +41,7 @@ from app.services.reflection_service import ReflectionService
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
 from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
+from app.services.mcp_bridge import McpBridge
 from app.services.verification_service import VerificationService
 from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
@@ -184,6 +185,11 @@ class HeadAgent:
         self._long_term_memory: LongTermMemoryStore | None = None
         self._long_term_memory_db_path: str | None = None
         self._refresh_long_term_memory_store()
+        self._mcp_bridge: McpBridge | None = None
+        self._mcp_initialized = False
+        self._mcp_init_lock = asyncio.Lock()
+        if settings.mcp_enabled and settings.mcp_servers:
+            self._mcp_bridge = McpBridge(settings.mcp_servers)
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
@@ -395,6 +401,12 @@ class HeadAgent:
             await self._emit_lifecycle(
                 send_event,
                 stage="guardrails_passed",
+                request_id=request_id,
+                session_id=session_id,
+            )
+
+            await self._ensure_mcp_tools_registered(
+                send_event=send_event,
                 request_id=request_id,
                 session_id=session_id,
             )
@@ -1416,26 +1428,31 @@ class HeadAgent:
     def _normalize_tool_set(self, values: list[str] | None) -> set[str] | None:
         if values is None:
             return None
+        known_tools = self._available_tools_catalog()
         normalized: set[str] = set()
         for value in values:
             if not isinstance(value, str):
                 continue
             candidate = self._normalize_tool_name(value)
-            if candidate in ALLOWED_TOOLS:
+            if candidate in known_tools:
                 normalized.add(candidate)
         return normalized
 
     def _unknown_tool_names(self, values: list[str] | None) -> list[str]:
         if values is None:
             return []
+        known_tools = self._available_tools_catalog()
         unknown: set[str] = set()
         for value in values:
             if not isinstance(value, str):
                 continue
             candidate = self._normalize_tool_name(value)
-            if candidate and candidate not in ALLOWED_TOOLS:
+            if candidate and candidate not in known_tools:
                 unknown.add(candidate)
         return sorted(unknown)
+
+    def _available_tools_catalog(self) -> set[str]:
+        return set(ALLOWED_TOOLS) | set(self.tool_registry.keys())
 
     def _build_tool_policy_resolution_details(
         self,
@@ -1477,7 +1494,7 @@ class HeadAgent:
         }
 
     def _resolve_effective_allowed_tools(self, tool_policy: ToolPolicyDict | None) -> set[str]:
-        base_allowed = set(ALLOWED_TOOLS)
+        base_allowed = self._available_tools_catalog()
 
         config_allow = self._normalize_tool_set(settings.agent_tools_allow)
         if config_allow is not None:
@@ -2012,18 +2029,21 @@ class HeadAgent:
             tooling=self.tools,
             allowed_tools=None,
             command_timeout_seconds=settings.command_timeout_seconds,
+            mcp_bridge=self._mcp_bridge if self._mcp_initialized else None,
         )
 
     def _validate_tool_registry_dispatch(self) -> None:
         missing_tooling_methods = [
             tool_name
             for tool_name in self.tool_registry
-            if tool_name != "spawn_subrun" and not hasattr(self.tools, tool_name)
+            if tool_name != "spawn_subrun"
+            and not tool_name.startswith("mcp_")
+            and not hasattr(self.tools, tool_name)
         ]
         missing_arg_validators = [
             tool_name
             for tool_name in self.tool_registry
-            if not self._arg_validator.has_validator(tool_name)
+            if not tool_name.startswith("mcp_") and not self._arg_validator.has_validator(tool_name)
         ]
         if missing_tooling_methods:
             raise RuntimeError(
@@ -2035,6 +2055,41 @@ class HeadAgent:
                 "Tool registry contains tools without argument validator: "
                 + ", ".join(sorted(missing_arg_validators))
             )
+
+    async def _ensure_mcp_tools_registered(
+        self,
+        *,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+    ) -> None:
+        if self._mcp_bridge is None or self._mcp_initialized:
+            return
+
+        async with self._mcp_init_lock:
+            if self._mcp_initialized:
+                return
+            try:
+                await self._mcp_bridge.initialize()
+                self._mcp_initialized = True
+                self.tool_registry = self._build_tool_registry()
+                self._validate_tool_registry_dispatch()
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="mcp_tools_initialized",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"tool_count": len(self._mcp_bridge.get_tool_specs())},
+                )
+            except Exception as exc:
+                self._mcp_initialized = False
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="mcp_tools_failed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"error": str(exc)[:400]},
+                )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
         normalized = tool_name.strip()

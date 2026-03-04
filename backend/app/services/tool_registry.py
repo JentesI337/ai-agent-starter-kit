@@ -156,6 +156,13 @@ class ToolRegistry:
         return matched
 
 
+def _build_dynamic_dispatcher(dynamic_source: Any, tool_name: str) -> Callable[..., Any]:
+    async def _dispatcher(**kwargs: Any) -> Any:
+        return await dynamic_source.call_tool(tool_name, dict(kwargs or {}))
+
+    return _dispatcher
+
+
 def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
     return {
         "list_dir": ToolSpec(
@@ -478,6 +485,7 @@ class ToolRegistryFactory:
         tooling: object | None,
         allowed_tools: set[str] | None,
         command_timeout_seconds: int,
+        mcp_bridge: object | None = None,
     ) -> ToolRegistry:
         specs = _default_tool_specs(command_timeout_seconds=command_timeout_seconds)
         registry = ToolRegistry()
@@ -486,6 +494,12 @@ class ToolRegistryFactory:
                 continue
             dispatcher = getattr(tooling, name, None) if tooling is not None else None
             registry.register(spec, dispatcher=dispatcher)
+
+        if mcp_bridge is not None:
+            for spec in mcp_bridge.get_tool_specs():
+                if allowed_tools is not None and spec.name not in allowed_tools:
+                    continue
+                registry.register(spec, dispatcher=_build_dynamic_dispatcher(mcp_bridge, spec.name))
         return registry
 
 
@@ -494,4 +508,5 @@ def build_default_tool_registry(*, command_timeout_seconds: int) -> ToolRegistry
         tooling=None,
         allowed_tools=None,
         command_timeout_seconds=command_timeout_seconds,
+        mcp_bridge=None,
     )

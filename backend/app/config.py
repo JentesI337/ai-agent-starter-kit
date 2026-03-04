@@ -1,8 +1,11 @@
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+import json
 from collections.abc import Mapping
 from typing import Any
+
+from app.mcp_types import McpServerConfig
 
 load_dotenv()
 
@@ -71,6 +74,52 @@ def _parse_bool_env(var_name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_mcp_servers_config(raw_value: str, *, workspace_root: str) -> list[McpServerConfig]:
+    payload = (raw_value or "").strip()
+    if not payload:
+        return []
+
+    if payload.startswith("["):
+        config_data = json.loads(payload)
+    else:
+        candidate = payload if os.path.isabs(payload) else os.path.join(workspace_root, payload)
+        with open(candidate, "r", encoding="utf-8") as handle:
+            config_data = json.load(handle)
+
+    if not isinstance(config_data, list):
+        return []
+
+    servers: list[McpServerConfig] = []
+    for item in config_data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        transport = str(item.get("transport") or "").strip().lower()
+        if not name or not transport:
+            continue
+
+        args_raw = item.get("args")
+        args = [str(arg) for arg in args_raw if isinstance(arg, (str, int, float))] if isinstance(args_raw, list) else []
+        env_raw = item.get("env")
+        env = (
+            {str(key): str(value) for key, value in env_raw.items() if str(key).strip()}
+            if isinstance(env_raw, dict)
+            else {}
+        )
+
+        servers.append(
+            McpServerConfig(
+                name=name,
+                transport=transport,
+                command=str(item.get("command") or "").strip() or None,
+                args=args,
+                url=str(item.get("url") or "").strip() or None,
+                env=env,
+            )
+        )
+    return servers
 
 
 def _default_reset_on_startup(app_env: str) -> bool:
@@ -398,6 +447,8 @@ class Settings(BaseModel):
     web_search_api_key: str = os.getenv("WEB_SEARCH_API_KEY", "")
     web_search_base_url: str = os.getenv("WEB_SEARCH_BASE_URL", "")
     web_search_max_results: int = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
+    mcp_enabled: bool = _parse_bool_env("MCP_ENABLED", False)
+    mcp_servers_config: str = os.getenv("MCP_SERVERS_CONFIG", "")
     web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
     web_fetch_blocked_content_types: list[str] = _parse_csv_env(
         os.getenv(
@@ -768,6 +819,15 @@ class Settings(BaseModel):
         "on",
     }
 
+    @property
+    def mcp_servers(self) -> list[McpServerConfig]:
+        if not self.mcp_enabled:
+            return []
+        try:
+            return _parse_mcp_servers_config(self.mcp_servers_config, workspace_root=self.workspace_root)
+        except Exception:
+            return []
+
 
 settings = Settings()
 
@@ -792,6 +852,7 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "HOOK_",
     "COMMAND_",
     "WEB_SEARCH_",
+    "MCP_",
     "WEB_FETCH_",
     "CLARIFICATION_",
     "STRUCTURED_",
