@@ -43,6 +43,7 @@ from app.run_endpoints import (
 )
 from app.runtime_debug_endpoints import (
     RuntimeDebugDependencies,
+    api_calibration_recommendations,
     api_runtime_features,
     api_resolved_prompt_settings,
     api_runtime_status,
@@ -703,6 +704,7 @@ _runtime_debug_dependencies = RuntimeDebugDependencies(
     runtime_manager=runtime_manager,
     settings=settings,
     resolved_prompt_settings=resolved_prompt_settings,
+    model_health_tracker=getattr(_get_runtime_components(), "model_health_tracker", None),
 )
 _subrun_endpoint_dependencies = SubrunEndpointsDependencies(
     subrun_lane=subrun_lane,
@@ -777,6 +779,7 @@ app.include_router(
         runtime_update_features_handler=lambda payload: api_runtime_update_features(_runtime_debug_dependencies, payload),
         resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
         ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
+        calibration_recommendations_handler=lambda: api_calibration_recommendations(_runtime_debug_dependencies),
     )
 )
 app.include_router(

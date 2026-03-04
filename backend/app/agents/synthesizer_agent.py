@@ -5,10 +5,13 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 
+from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import SynthesizerInput, SynthesizerOutput
 from app.errors import LlmClientError
 from app.llm_client import LlmClient
+from app.services.dynamic_temperature import DynamicTemperatureResolver
+from app.services.prompt_ab_registry import PromptAbRegistry
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
@@ -38,6 +41,8 @@ class SynthesizerAgent(AgentContract):
         system_prompt: str,
         stream_timeout_seconds: float = 120.0,
         reply_shaper: ReplyShaper | None = None,
+        temperature_resolver: DynamicTemperatureResolver | None = None,
+        prompt_ab_registry: PromptAbRegistry | None = None,
     ):
         self.client = client
         self.agent_name = agent_name
@@ -46,6 +51,9 @@ class SynthesizerAgent(AgentContract):
         self.stream_timeout_seconds = max(0.01, float(stream_timeout_seconds))
         self._reply_shaper = reply_shaper or ReplyShaper()
         self._kernel_builder = PromptKernelBuilder()
+        self._temperature_resolver = temperature_resolver
+        self._ab_registry = prompt_ab_registry
+        self._last_prompt_variant_id: str | None = None
 
     @property
     def name(self) -> str:
@@ -53,6 +61,10 @@ class SynthesizerAgent(AgentContract):
 
     def configure_runtime(self, base_url: str, model: str) -> None:
         self.client = LlmClient(base_url=base_url, model=model)
+
+    @property
+    def last_prompt_variant_id(self) -> str | None:
+        return self._last_prompt_variant_id
 
     @staticmethod
     def _requires_hard_research_structure(user_message: str) -> bool:
@@ -88,8 +100,7 @@ class SynthesizerAgent(AgentContract):
         tool_ban_markers = "keine tools" in normalized and "keine shell/systemkommandos" in normalized
         return depth_markers and phase_markers and kpi_markers and tool_ban_markers
 
-    def _build_final_prompt(self, payload: SynthesizerInput) -> str:
-        task_type = self._resolve_task_type(payload)
+    def _build_final_prompt(self, payload: SynthesizerInput, *, task_type: str, session_id: str) -> tuple[str, str | None]:
         instructions = (
             "User request:\n"
             "Generate a concise, helpful final answer.\n"
@@ -108,6 +119,17 @@ class SynthesizerAgent(AgentContract):
             "tool_outputs": payload.tool_results or "(no tool outputs)",
             "relevant_memory": payload.reduced_context,
         }
+
+        prompt_variant_id: str | None = None
+        if self._ab_registry is not None and settings.prompt_ab_enabled:
+            variant = self._ab_registry.select(
+                group=f"synthesizer_{task_type}",
+                session_id=session_id,
+            )
+            if variant is not None:
+                prompt_variant_id = variant.variant_id
+                sections["instructions"] = variant.prompt_text
+                sections["prompt_variant"] = prompt_variant_id
 
         if task_type == "hard_research":
             sections["hard_contract"] = (
@@ -134,7 +156,7 @@ class SynthesizerAgent(AgentContract):
             prompt_mode=normalize_prompt_mode(payload.prompt_mode, default="full"),
             sections=sections,
         )
-        return kernel.rendered
+        return kernel.rendered, prompt_variant_id
 
     def _resolve_task_type(self, payload: SynthesizerInput) -> str:
         hinted = (payload.task_type or "").strip().lower()
@@ -446,7 +468,20 @@ class SynthesizerAgent(AgentContract):
         request_id: str,
         model: str | None,
     ) -> SynthesizerOutput:
-        final_prompt = self._build_final_prompt(payload)
+        task_type = self._resolve_task_type(payload)
+        final_prompt, prompt_variant_id = self._build_final_prompt(
+            payload,
+            task_type=task_type,
+            session_id=session_id,
+        )
+        self._last_prompt_variant_id = prompt_variant_id
+
+        effective_temperature = self.constraints.temperature
+        if settings.dynamic_temperature_enabled and self._temperature_resolver is not None:
+            effective_temperature = self._temperature_resolver.resolve(
+                task_type=task_type,
+                reasoning_level=getattr(payload, "reasoning_level", None),
+            )
 
         await self._emit_lifecycle_fn(
             send_event,
@@ -457,7 +492,6 @@ class SynthesizerAgent(AgentContract):
         )
 
         output_parts: list[str] = []
-        task_type = self._resolve_task_type(payload)
         effective_stream_timeout = self.stream_timeout_seconds
         if task_type == "hard_research":
             effective_stream_timeout = max(self.stream_timeout_seconds, 180.0)
@@ -467,7 +501,7 @@ class SynthesizerAgent(AgentContract):
                 self.system_prompt,
                 final_prompt,
                 model=model,
-                temperature=self.constraints.temperature,
+                temperature=effective_temperature,
             ):
                 output_parts.append(token)
                 await send_event({"type": "token", "agent": self.agent_name, "token": token})

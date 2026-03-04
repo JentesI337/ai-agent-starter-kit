@@ -48,6 +48,7 @@ def test_runtime_debug_router_supports_async_and_sync_handlers() -> None:
             runtime_update_features_handler=lambda payload: {"ok": True, "featureFlags": payload.get("featureFlags", {})},
             resolved_prompts_handler=lambda: {"prompts": {"head": "x"}},
             ping_handler=lambda: {"ok": True},
+            calibration_recommendations_handler=lambda: {"recommendations": []},
         )
     )
 
@@ -61,6 +62,7 @@ def test_runtime_debug_router_supports_async_and_sync_handlers() -> None:
     }
     assert client.get("/api/debug/prompts/resolved").json() == {"prompts": {"head": "x"}}
     assert client.get("/api/test/ping").json() == {"ok": True}
+    assert client.get("/debug/calibration-recommendations").json() == {"recommendations": []}
 
 
 def test_subruns_router_forwards_query_path_and_body() -> None:

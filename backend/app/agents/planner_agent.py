@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Protocol
 
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
@@ -10,6 +11,11 @@ from app.services.plan_graph import PlanGraph
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
 from app.tool_policy import ToolPolicyDict
+
+
+class FailureRetrieverContract(Protocol):
+    def retrieve(self, query: str, *, sources: tuple[str, ...], top_k: int) -> list[object]:
+        ...
 
 
 class PlannerAgent(AgentContract):
@@ -24,10 +30,11 @@ class PlannerAgent(AgentContract):
         combine_steps=False,
     )
 
-    def __init__(self, client: LlmClient, system_prompt: str):
+    def __init__(self, client: LlmClient, system_prompt: str, failure_retriever: FailureRetrieverContract | None = None):
         self.client = client
         self.system_prompt = system_prompt
         self._kernel_builder = PromptKernelBuilder()
+        self._failure_retriever = failure_retriever
 
     @property
     def name(self) -> str:
@@ -59,6 +66,14 @@ class PlannerAgent(AgentContract):
             "reduced_context": payload.reduced_context,
             "current_task": payload.user_message,
         }
+        if self._failure_retriever is not None and settings.failure_context_enabled:
+            similar_failures = self._failure_retriever.retrieve(
+                payload.user_message,
+                sources=("failure_journal",),
+                top_k=3,
+            )
+            if similar_failures:
+                sections["failure_context"] = self._format_failure_context(similar_failures)
         if self._requires_hard_research_structure(payload.user_message):
             sections["hard_contract"] = (
                 "Mandatory response contract for this request:\n"
@@ -81,6 +96,21 @@ class PlannerAgent(AgentContract):
             temperature=self.constraints.temperature,
         )
         return PlannerOutput(plan_text=plan)
+
+    @staticmethod
+    def _format_failure_context(similar_failures: list[object]) -> str:
+        lines: list[str] = []
+        for item in similar_failures[:3]:
+            task_description = str(getattr(item, "task_description", "") or "").strip()
+            root_cause = str(getattr(item, "root_cause", "") or "").strip()
+            solution = str(getattr(item, "solution", "") or "").strip()
+            tags = getattr(item, "tags", [])
+            tags_text = ", ".join(str(tag).strip() for tag in (tags or []) if str(tag).strip())
+            lines.append(
+                f"- Task: {task_description[:180]} | Root cause: {root_cause[:180]} | "
+                f"Fix: {solution[:180]} | Tags: {tags_text[:120]}"
+            )
+        return "\n".join(lines)
 
     async def execute_structured(self, payload: PlannerInput, model: str | None = None) -> PlanGraph:
         structured_instructions = (

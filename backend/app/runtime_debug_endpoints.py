@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from typing import Any, Callable
 
+from app.services.benchmark_calibration import BenchmarkCalibrationService
+from app.services.reflection_feedback_store import ReflectionFeedbackStore
 from app.config import BACKEND_DIR
 
 
@@ -14,6 +16,7 @@ class RuntimeDebugDependencies:
     runtime_manager: Any
     settings: Any
     resolved_prompt_settings: Callable[[Any], dict]
+    model_health_tracker: Any | None = None
 
 
 BACKEND_ENV_FILE = Path(BACKEND_DIR) / ".env"
@@ -184,4 +187,33 @@ def api_test_ping(deps: RuntimeDebugDependencies) -> dict:
         "runtime": state.runtime,
         "model": state.model,
         "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def api_calibration_recommendations(deps: RuntimeDebugDependencies) -> dict:
+    db_path = str(getattr(deps.settings, "long_term_memory_db_path", "") or "").strip()
+    if not db_path:
+        return {"recommendations": []}
+
+    reflection_store = ReflectionFeedbackStore(db_path)
+    recovery_metrics_path = str(Path(getattr(deps.settings, "orchestrator_state_dir", "")) / "pipeline_recovery_metrics.json")
+    service = BenchmarkCalibrationService(
+        reflection_feedback_store=reflection_store,
+        model_health_tracker=deps.model_health_tracker,
+        recovery_metrics_path=recovery_metrics_path,
+        min_samples=20,
+    )
+    recommendations = service.analyze()
+    return {
+        "recommendations": [
+            {
+                "parameter": item.parameter,
+                "current_value": item.current_value,
+                "recommended_value": item.recommended_value,
+                "confidence": item.confidence,
+                "evidence": item.evidence,
+            }
+            for item in recommendations
+        ],
+        "env_patch": service.export_env_patch(recommendations),
     }

@@ -38,9 +38,13 @@ from app.services.ambiguity_detector import AmbiguityDetector
 from app.services.intent_detector import IntentDetector
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reflection_service import ReflectionService
+from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
+from app.services.dynamic_temperature import DynamicTemperatureResolver
+from app.services.prompt_ab_registry import PromptAbRegistry
 from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
+from app.services.failure_retriever import FailureRetriever
 from app.services.mcp_bridge import McpBridge
 from app.services.verification_service import VerificationService
 from app.services.hook_contract import resolve_hook_execution_contract
@@ -191,6 +195,8 @@ class HeadAgent:
         )
         self._long_term_memory: LongTermMemoryStore | None = None
         self._long_term_memory_db_path: str | None = None
+        self._reflection_feedback_store: ReflectionFeedbackStore | None = None
+        self._failure_retriever: FailureRetriever | None = None
         self._refresh_long_term_memory_store()
         self._mcp_bridge: McpBridge | None = None
         self._mcp_initialized = False
@@ -234,13 +240,25 @@ class HeadAgent:
         self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
-        self.planner_agent = PlannerAgent(client=self.client, system_prompt=self.prompt_profile.plan_prompt)
+        temperature_resolver = DynamicTemperatureResolver(
+            base_temperature=SynthesizerAgent.constraints.temperature,
+            overrides=settings.dynamic_temperature_overrides,
+        )
+        prompt_ab_registry = PromptAbRegistry(settings.prompt_ab_registry_path)
+
+        self.planner_agent = PlannerAgent(
+            client=self.client,
+            system_prompt=self.prompt_profile.plan_prompt,
+            failure_retriever=self._failure_retriever,
+        )
         self.tool_selector_agent = ToolSelectorAgent(runtime=_HeadToolSelectorRuntime(self))
         self.synthesizer_agent = SynthesizerAgent(
             client=self.client,
             agent_name=self.name,
             emit_lifecycle_fn=self._emit_lifecycle,
             system_prompt=self.prompt_profile.final_prompt,
+            temperature_resolver=temperature_resolver,
+            prompt_ab_registry=prompt_ab_registry,
         )
         self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
         self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
@@ -347,12 +365,16 @@ class HeadAgent:
         if not bool(settings.long_term_memory_enabled):
             self._long_term_memory = None
             self._long_term_memory_db_path = None
+            self._reflection_feedback_store = None
+            self._failure_retriever = None
             return
 
         configured_path = str(getattr(settings, "long_term_memory_db_path", "") or "").strip()
         if not configured_path:
             self._long_term_memory = None
             self._long_term_memory_db_path = None
+            self._reflection_feedback_store = None
+            self._failure_retriever = None
             return
 
         if self._long_term_memory is not None and self._long_term_memory_db_path == configured_path:
@@ -360,10 +382,18 @@ class HeadAgent:
 
         try:
             self._long_term_memory = LongTermMemoryStore(configured_path)
+            self._reflection_feedback_store = ReflectionFeedbackStore(configured_path)
+            self._failure_retriever = FailureRetriever(self._long_term_memory)
             self._long_term_memory_db_path = configured_path
+            if hasattr(self, "planner_agent"):
+                self.planner_agent._failure_retriever = self._failure_retriever
         except Exception:
             self._long_term_memory = None
             self._long_term_memory_db_path = None
+            self._reflection_feedback_store = None
+            self._failure_retriever = None
+            if hasattr(self, "planner_agent"):
+                self.planner_agent._failure_retriever = None
 
     def _build_long_term_memory_context(self, user_message: str) -> str:
         if self._long_term_memory is None:
@@ -1090,14 +1120,26 @@ class HeadAgent:
             if reflection_passes > 0 and self._reflection_service is not None and len((final_text or "").strip()) >= 8:
                 for reflection_pass in range(reflection_passes):
                     try:
-                        verdict = await self._reflection_service.reflect(
-                            user_message=user_message,
-                            plan_text=plan_text,
-                            tool_results=tool_results or "",
-                            final_answer=final_text,
-                            model=model,
-                            task_type=synthesis_task_type,
-                        )
+                        try:
+                            verdict = await self._reflection_service.reflect(
+                                user_message=user_message,
+                                plan_text=plan_text,
+                                tool_results=tool_results or "",
+                                final_answer=final_text,
+                                model=model,
+                                task_type=synthesis_task_type,
+                            )
+                        except TypeError as inner_exc:
+                            message = str(inner_exc)
+                            if "task_type" not in message:
+                                raise
+                            verdict = await self._reflection_service.reflect(
+                                user_message=user_message,
+                                plan_text=plan_text,
+                                tool_results=tool_results or "",
+                                final_answer=final_text,
+                                model=model,
+                            )
                     except Exception as exc:
                         await self._emit_lifecycle(
                             send_event,
@@ -1126,6 +1168,25 @@ class HeadAgent:
                             "hard_factual_fail": verdict.hard_factual_fail,
                         },
                     )
+                    if self._reflection_feedback_store is not None:
+                        self._reflection_feedback_store.store(
+                            ReflectionRecord(
+                                record_id=f"{request_id}-reflection-{reflection_pass + 1}",
+                                session_id=session_id,
+                                request_id=request_id,
+                                task_type=synthesis_task_type,
+                                score=verdict.score,
+                                goal_alignment=verdict.goal_alignment,
+                                completeness=verdict.completeness,
+                                factual_grounding=verdict.factual_grounding,
+                                issues=list(verdict.issues),
+                                suggested_fix=verdict.suggested_fix,
+                                model_id=(model or settings.llm_model),
+                                prompt_variant=self.synthesizer_agent.last_prompt_variant_id,
+                                retry_triggered=verdict.should_retry,
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                            )
+                        )
                     if not verdict.should_retry:
                         break
 
@@ -2205,7 +2266,10 @@ class HeadAgent:
         )
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
-        return self._action_parser.parse(raw)
+        actions, parse_error = self._action_parser.parse(raw)
+        if parse_error is None and not actions and str(raw or "").strip():
+            parse_error = "invalid_tool_json"
+        return actions, parse_error
 
     async def _repair_tool_selection_json(self, raw: str, model: str | None) -> str:
         return await self._action_parser.repair(

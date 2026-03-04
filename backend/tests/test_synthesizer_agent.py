@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from app.agents.synthesizer_agent import SynthesizerAgent
+from app.services.dynamic_temperature import DynamicTemperatureResolver
+from app.services.prompt_ab_registry import PromptAbRegistry
 from app.contracts.schemas import SynthesizerInput
 from app.errors import LlmClientError
 
@@ -17,6 +20,7 @@ class _FakeClient:
         self.last_system_prompt: str | None = None
         self.last_user_prompt: str | None = None
         self.last_repair_prompt: str | None = None
+        self.last_stream_temperature: float | None = None
 
     async def stream_chat_completion(
         self,
@@ -27,6 +31,7 @@ class _FakeClient:
     ):
         self.last_system_prompt = system_prompt
         self.last_user_prompt = user_prompt
+        self.last_stream_temperature = temperature
         for token in self._tokens:
             if self._delay > 0:
                 await asyncio.sleep(self._delay)
@@ -619,3 +624,127 @@ def test_synthesizer_semantic_truth_rejects_success_claim_for_pending_task() -> 
     assert check_completed is not None
     assert check_completed.get("details", {}).get("valid") is True
     assert check_completed.get("details", {}).get("correction_applied") is True
+
+
+def test_synthesizer_dynamic_temperature_changes_by_task_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def emit_lifecycle(send_event_fn, stage: str, request_id: str, session_id: str, details: dict | None):
+        await send_event_fn({"type": "lifecycle", "stage": stage, "details": details or {}})
+
+    monkeypatch.setattr("app.agents.synthesizer_agent.settings.dynamic_temperature_enabled", True)
+    resolver = DynamicTemperatureResolver(base_temperature=0.3)
+
+    client_hard = _FakeClient(["ok"])
+    agent_hard = SynthesizerAgent(
+        client=client_hard,
+        agent_name="head-agent",
+        emit_lifecycle_fn=emit_lifecycle,
+        system_prompt="sys",
+        stream_timeout_seconds=1.0,
+        temperature_resolver=resolver,
+    )
+
+    hard_payload = SynthesizerInput(
+        user_message="Deep architecture research",
+        plan_text="plan",
+        tool_results="",
+        reduced_context="ctx",
+        task_type="hard_research",
+    )
+
+    async def _run_hard() -> None:
+        await agent_hard.execute(hard_payload, send_event=send_event, session_id="temp-1", request_id="req-1", model=None)
+
+    asyncio.run(_run_hard())
+
+    client_general = _FakeClient(["ok"])
+    agent_general = SynthesizerAgent(
+        client=client_general,
+        agent_name="head-agent",
+        emit_lifecycle_fn=emit_lifecycle,
+        system_prompt="sys",
+        stream_timeout_seconds=1.0,
+        temperature_resolver=resolver,
+    )
+
+    general_payload = SynthesizerInput(
+        user_message="Say hello",
+        plan_text="plan",
+        tool_results="",
+        reduced_context="ctx",
+        task_type="general",
+    )
+
+    async def _run_general() -> None:
+        await agent_general.execute(general_payload, send_event=send_event, session_id="temp-2", request_id="req-2", model=None)
+
+    asyncio.run(_run_general())
+
+    assert client_hard.last_stream_temperature is not None
+    assert client_general.last_stream_temperature is not None
+    assert client_hard.last_stream_temperature < client_general.last_stream_temperature
+
+
+def test_synthesizer_prompt_ab_selection_is_deterministic_per_session(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "prompt_variants.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "synthesizer_research": [
+                    {"variant_id": "v1_baseline", "prompt_text": "Baseline research prompt", "weight": 0.5},
+                    {"variant_id": "v2_alt", "prompt_text": "Alternative research prompt", "weight": 0.5},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = PromptAbRegistry(str(registry_path))
+    monkeypatch.setattr("app.agents.synthesizer_agent.settings.prompt_ab_enabled", True)
+
+    selected = [registry.select("synthesizer_research", "session-42") for _ in range(100)]
+    variant_ids = {item.variant_id for item in selected if item is not None}
+    assert len(variant_ids) == 1
+
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def emit_lifecycle(send_event_fn, stage: str, request_id: str, session_id: str, details: dict | None):
+        await send_event_fn({"type": "lifecycle", "stage": stage, "details": details or {}})
+
+    client = _FakeClient(["ok"])
+    agent = SynthesizerAgent(
+        client=client,
+        agent_name="head-agent",
+        emit_lifecycle_fn=emit_lifecycle,
+        system_prompt="sys",
+        stream_timeout_seconds=1.0,
+        prompt_ab_registry=registry,
+    )
+    payload = SynthesizerInput(
+        user_message="Research latest release",
+        plan_text="plan",
+        tool_results="source_url=https://example.com",
+        reduced_context="ctx",
+        task_type="research",
+    )
+
+    async def _run_once(session_id: str) -> str | None:
+        await agent.execute(payload, send_event=send_event, session_id=session_id, request_id="req-ab", model=None)
+        return agent.last_prompt_variant_id
+
+    first = asyncio.run(_run_once("session-42"))
+    second = asyncio.run(_run_once("session-42"))
+    third = asyncio.run(_run_once("session-99"))
+
+    assert first == second
+    assert first in {"v1_baseline", "v2_alt"}
+    assert third in {"v1_baseline", "v2_alt"}

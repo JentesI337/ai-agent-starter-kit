@@ -421,7 +421,7 @@ class ToolExecutionManager:
                     max_prompt_chars=skills_max_prompt_chars,
                 )
                 if contracted_prompt:
-                    effective_memory_context = f"{memory_context}\n\n{contracted_prompt}"
+                    effective_memory_context = f"{effective_memory_context}\n\n{contracted_prompt}"
                     await emit_lifecycle(
                         "skills_preview_injected",
                         {
@@ -1030,6 +1030,49 @@ class ToolExecutionManager:
                 and str(action.get("tool", "")).strip() in self.READ_ONLY_TOOLS
             ]
             mutating_actions = [action for action in actions if action not in read_only_actions]
+            if read_only_actions:
+                # --- Gate checks before parallel dispatch (Bug #2 / #3 fix) ---
+                elapsed = monotonic() - started_at
+                if elapsed >= tool_time_cap_seconds:
+                    budget_blocked_count += len(read_only_actions)
+                    results.append(
+                        f"[read_only_parallel] REJECTED: tool time budget exceeded ({tool_time_cap_seconds:.1f}s)"
+                    )
+                    await emit_lifecycle(
+                        "tool_budget_exceeded",
+                        {
+                            "tool": "read_only_parallel",
+                            "budget_type": "time",
+                            "elapsed_seconds": round(elapsed, 3),
+                            "limit_seconds": tool_time_cap_seconds,
+                            "skipped_count": len(read_only_actions),
+                        },
+                    )
+                    read_only_actions = []
+
+                if read_only_actions and should_steer_interrupt and should_steer_interrupt():
+                    await emit_lifecycle(
+                        "tool_parallel_read_only_steer_interrupted",
+                        {"skipped_count": len(read_only_actions)},
+                    )
+                    read_only_actions = []
+
+                remaining_budget = max(0, tool_call_cap - tool_call_count)
+                if read_only_actions and len(read_only_actions) > remaining_budget:
+                    skipped = len(read_only_actions) - remaining_budget
+                    read_only_actions = read_only_actions[:remaining_budget]
+                    budget_blocked_count += skipped
+                    await emit_lifecycle(
+                        "tool_budget_exceeded",
+                        {
+                            "tool": "read_only_parallel",
+                            "budget_type": "call_count",
+                            "used_calls": tool_call_count,
+                            "limit_calls": tool_call_cap,
+                            "skipped_count": skipped,
+                        },
+                    )
+
             if read_only_actions:
                 await emit_lifecycle(
                     "tool_parallel_read_only_started",

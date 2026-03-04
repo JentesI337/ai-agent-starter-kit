@@ -159,6 +159,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     pending_clarifications: dict[str, dict[str, Any]] = {}
     session_workers: dict[str, Any] = {}
     follow_up_deferrals: dict[str, int] = {}
+    used_session_ids: set[str] = {connection_session_id}
     deps.logger.info(
         "ws_connected session_id=%s runtime=%s model=%s",
         connection_session_id,
@@ -256,6 +257,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 session_id=session_id,
                 details={"reason": "policy_approval_cancelled", "error": str(exc)},
             )
+            deps.state_mark_failed_safe(run_id=request_id, error="policy_approval_cancelled")
             return
         if isinstance(exc, GuardrailViolation):
             deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
@@ -350,6 +352,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     async def execute_user_message_job(job: dict[str, Any]) -> None:
         request_id = str(job.get("request_id") or "")
         session_id = str(job.get("session_id") or connection_session_id)
+        used_session_ids.add(session_id)
         content = str(job.get("content") or "")
         model = job.get("model")
         requested_agent_id = str(job.get("requested_agent_id") or deps.primary_agent_id)
@@ -381,13 +384,19 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         )
 
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
+        nonlocal active_event_agent_name
+        active_event_agent_name = selected_agent.name
 
         if routing_reason:
+            if resolved_agent_id == "review-agent" and routing_reason in {"review_intent", "preset_review"}:
+                routing_message = "Delegated this request to review-agent."
+            else:
+                routing_message = f"Request routed to {resolved_agent_id} based on capability matching."
             await send_event(
                 {
                     "type": "status",
                     "agent": deps.agent.name,
-                    "message": f"Request routed to {resolved_agent_id} based on capability matching.",
+                    "message": routing_message,
                     "routing_reason": routing_reason,
                     "requested_agent_id": requested_agent_id,
                     "effective_agent_id": resolved_agent_id,
@@ -661,11 +670,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         session_id=session_id,
                         details={"type": envelope.type},
                     )
+                    deps.state_mark_failed_safe(run_id=request_id, error=f"unsupported_type:{envelope.type}")
                     continue
 
                 data = parse_ws_inbound_message(raw)
                 deps.sync_custom_agents()
                 session_id = data.session_id or connection_session_id
+                used_session_ids.add(session_id)
 
                 if data.type == "policy_decision":
                     approval_id = str(getattr(data, "approval_id", "") or "").strip()
@@ -965,11 +976,15 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 active_event_agent_name = selected_agent.name
 
                 if routing_reason:
+                    if resolved_agent_id == "review-agent" and routing_reason in {"review_intent", "preset_review"}:
+                        routing_message = "Delegated this request to review-agent."
+                    else:
+                        routing_message = f"Request routed to {resolved_agent_id} based on capability matching."
                     await send_event(
                         {
                             "type": "status",
                             "agent": deps.agent.name,
-                            "message": f"Request routed to {resolved_agent_id} based on capability matching.",
+                            "message": routing_message,
                             "routing_reason": routing_reason,
                             "requested_agent_id": requested_agent_id,
                             "effective_agent_id": resolved_agent_id,
@@ -1234,6 +1249,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     session_id=session_id,
                     details={"reason": "policy_approval_cancelled", "error": str(exc)},
                 )
+                deps.state_mark_failed_safe(run_id=request_id, error="policy_approval_cancelled")
             except GuardrailViolation as exc:
                 deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
@@ -1339,10 +1355,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             return
     finally:
         if deps.policy_approval_service is not None:
-            try:
-                await deps.policy_approval_service.clear_session_overrides(connection_session_id)
-            except Exception:
-                deps.logger.debug("policy_session_override_cleanup_failed session_id=%s", connection_session_id, exc_info=True)
+            for _cleanup_sid in used_session_ids:
+                try:
+                    await deps.policy_approval_service.clear_session_overrides(_cleanup_sid)
+                except Exception:
+                    deps.logger.debug("policy_session_override_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True)
         workers = [task for task in session_workers.values() if task is not None and not task.done()]
         for task in workers:
             task.cancel()

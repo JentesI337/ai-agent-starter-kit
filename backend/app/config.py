@@ -42,6 +42,23 @@ def _parse_int_mapping_env(value: str | None) -> dict[str, int]:
     return parsed
 
 
+def _parse_float_mapping_env(value: str | None) -> dict[str, float]:
+    parsed: dict[str, float] = {}
+    for entry in (value or "").split(","):
+        part = entry.strip()
+        if not part or ":" not in part:
+            continue
+        key, raw_value = part.split(":", 1)
+        normalized_key = key.strip()
+        if not normalized_key:
+            continue
+        try:
+            parsed[normalized_key] = float(raw_value.strip())
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
 def _parse_str_mapping_env(value: str | None) -> dict[str, str]:
     parsed: dict[str, str] = {}
     for entry in (value or "").split(","):
@@ -683,6 +700,17 @@ class Settings(BaseModel):
         ge=200,
         validate_default=True,
     )
+    dynamic_temperature_enabled: bool = _parse_bool_env("DYNAMIC_TEMPERATURE_ENABLED", False)
+    dynamic_temperature_overrides: dict[str, float] = _parse_float_mapping_env(
+        os.getenv("DYNAMIC_TEMPERATURE_OVERRIDES")
+    )
+    prompt_ab_enabled: bool = _parse_bool_env("PROMPT_AB_ENABLED", False)
+    prompt_ab_registry_path: str = _resolve_path_from_workspace(
+        os.getenv("PROMPT_AB_REGISTRY_PATH"),
+        workspace_root,
+        "backend/data/prompt_variants.json",
+    )
+    failure_context_enabled: bool = _parse_bool_env("FAILURE_CONTEXT_ENABLED", False)
     # T1.3: Plan-Abdeckungs-Schwellen — konfigurierbar, rückwärtskompatible Defaults
     # PLAN_COVERAGE_WARN_THRESHOLD: Warnung wenn semantische Abdeckung < Schwelle (default: 0.15, wie bisher hart kodiert)
     # PLAN_COVERAGE_FAIL_THRESHOLD: Hard-Fail wenn < Schwelle (default: 0.0 = deaktiviert; auf z.B. 0.10 setzen um zu aktivieren)
@@ -968,6 +996,8 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "OLLAMA_",
     "RUNTIME_STATE_FILE",
     "SUBRUN_",
+    "DYNAMIC_",
+    "FAILURE_",
     "AGENT_ISOLATION_",
     "POLICY_",
     "IDEMPOTENCY_",
