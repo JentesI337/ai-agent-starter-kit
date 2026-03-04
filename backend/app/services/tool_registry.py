@@ -453,6 +453,34 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("web_retrieval", "api_integration", "webhook_execution"),
         ),
+        "analyze_image": ToolSpec(
+            name="analyze_image",
+            required_args=("image_path",),
+            optional_args=("prompt",),
+            timeout_seconds=30.0,
+            max_retries=0,
+            description=(
+                "Analyze an image file using vision AI. "
+                "Describe contents, extract text (OCR), identify UI elements."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Path to the image file",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Specific question about the image (default: general description)",
+                    },
+                },
+                "required": ["image_path"],
+                "additionalProperties": False,
+            },
+            capabilities=("vision", "image_analysis", "ocr", "ui_testing"),
+        ),
         "spawn_subrun": ToolSpec(
             name="spawn_subrun",
             required_args=("message",),

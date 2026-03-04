@@ -432,6 +432,22 @@ def test_effective_tool_policy_ignores_unknown_only_request_allow(monkeypatch) -
     assert allowed == {"read_file", "list_dir"}
 
 
+def test_effective_tool_policy_blocks_vision_tool_when_disabled(monkeypatch) -> None:
+    agent = HeadCodingAgent()
+    monkeypatch.setattr(settings, "vision_enabled", False)
+    monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "analyze_image"])
+    monkeypatch.setattr(settings, "agent_tools_deny", [])
+
+    allowed = agent._resolve_effective_allowed_tools(
+        {
+            "allow": ["analyze_image", "read_file"],
+        }
+    )
+
+    assert "analyze_image" not in allowed
+    assert allowed == {"read_file"}
+
+
 def test_validate_actions_respects_active_tool_policy() -> None:
     agent = HeadCodingAgent()
     actions, parse_error = agent._extract_actions('{"actions":[{"tool":"write_file","args":{"path":"a.txt","content":"x"}}]}')

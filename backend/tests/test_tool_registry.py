@@ -10,6 +10,7 @@ def test_build_default_tool_registry_contains_known_tools() -> None:
     assert "run_command" in set(registry.keys())
     assert "web_search" in set(registry.keys())
     assert "http_request" in set(registry.keys())
+    assert "analyze_image" in set(registry.keys())
     assert registry.get("spawn_subrun") is not None
 
 

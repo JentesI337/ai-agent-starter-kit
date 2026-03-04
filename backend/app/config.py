@@ -447,6 +447,12 @@ class Settings(BaseModel):
     web_search_api_key: str = os.getenv("WEB_SEARCH_API_KEY", "")
     web_search_base_url: str = os.getenv("WEB_SEARCH_BASE_URL", "")
     web_search_max_results: int = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
+    vision_enabled: bool = _parse_bool_env("VISION_ENABLED", False)
+    vision_provider: str = os.getenv("VISION_PROVIDER", "auto").strip().lower()
+    vision_model: str = os.getenv("VISION_MODEL", "llava:13b")
+    vision_base_url: str = os.getenv("VISION_BASE_URL", os.getenv("LLM_BASE_URL", "http://localhost:11434")).strip()
+    vision_api_key: str = os.getenv("VISION_API_KEY", os.getenv("API_AUTH_TOKEN", "")).strip()
+    vision_max_tokens: int = max(64, min(4096, int(os.getenv("VISION_MAX_TOKENS", "1000"))))
     mcp_enabled: bool = _parse_bool_env("MCP_ENABLED", False)
     mcp_servers_config: str = os.getenv("MCP_SERVERS_CONFIG", "")
     web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
@@ -854,6 +860,7 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "WEB_SEARCH_",
     "MCP_",
     "WEB_FETCH_",
+    "VISION_",
     "CLARIFICATION_",
     "STRUCTURED_",
     "PLAN_",

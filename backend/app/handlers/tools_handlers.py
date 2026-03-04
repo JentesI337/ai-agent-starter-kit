@@ -267,6 +267,9 @@ def _build_tools_policy_preview(
     merged_policy = selected_agent.normalize_tool_policy(merged_policy)
 
     effective = set(base_tools)
+    if not bool(getattr(settings, "vision_enabled", False)):
+        effective.discard("analyze_image")
+
     config_allow = normalize_policy_values(settings.agent_tools_allow, base_tools)
     if config_allow is not None:
         effective &= config_allow
@@ -848,6 +851,7 @@ def api_control_memory_overview(request_data: dict) -> dict:
             "long_term_memory_enabled": bool(getattr(settings, "long_term_memory_enabled", False)),
             "session_distillation_enabled": bool(getattr(settings, "session_distillation_enabled", False)),
             "failure_journal_enabled": bool(getattr(settings, "failure_journal_enabled", False)),
+            "vision_enabled": bool(getattr(settings, "vision_enabled", False)),
         },
         "long_term_db": {
             "path": str(long_term_db_path),

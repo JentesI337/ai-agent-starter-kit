@@ -70,3 +70,14 @@ def test_validate_spawn_subrun_rejects_invalid_mode() -> None:
     error = validator.validate("spawn_subrun", args)
 
     assert error == "argument 'mode' must be 'run' or 'session'"
+
+
+def test_validate_analyze_image_applies_prompt_optional() -> None:
+    validator = _validator()
+    args = {"image_path": "screenshots/ui.png", "prompt": "Find CTA buttons"}
+
+    error = validator.validate("analyze_image", args)
+
+    assert error is None
+    assert args["image_path"] == "screenshots/ui.png"
+    assert args["prompt"] == "Find CTA buttons"

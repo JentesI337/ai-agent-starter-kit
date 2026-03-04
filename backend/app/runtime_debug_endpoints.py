@@ -21,6 +21,7 @@ RUNTIME_FEATURE_ENV_MAP: dict[str, str] = {
     "LONG_TERM_MEMORY_ENABLED": "long_term_memory_enabled",
     "SESSION_DISTILLATION_ENABLED": "session_distillation_enabled",
     "FAILURE_JOURNAL_ENABLED": "failure_journal_enabled",
+    "VISION_ENABLED": "vision_enabled",
 }
 LONG_TERM_MEMORY_DB_PATH_ENV = "LONG_TERM_MEMORY_DB_PATH"
 
@@ -157,6 +158,7 @@ def api_runtime_update_features(deps: RuntimeDebugDependencies, payload: dict[st
         setattr(deps.settings, "long_term_memory_enabled", bool(updated.get("long_term_memory_enabled", False)))
         setattr(deps.settings, "session_distillation_enabled", bool(updated.get("session_distillation_enabled", False)))
         setattr(deps.settings, "failure_journal_enabled", bool(updated.get("failure_journal_enabled", False)))
+        setattr(deps.settings, "vision_enabled", bool(updated.get("vision_enabled", False)))
         if raw_db_path is not None:
             setattr(deps.settings, "long_term_memory_db_path", effective_db_path)
 

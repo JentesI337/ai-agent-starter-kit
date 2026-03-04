@@ -368,6 +368,81 @@ def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkey
     )
 
 
+def test_websocket_tool_policy_resolved_excludes_vision_tool_when_feature_disabled(monkeypatch) -> None:
+    _set_local_runtime()
+    monkeypatch.setattr(settings, "vision_enabled", False)
+    monkeypatch.setattr(settings, "policy_approval_wait_seconds", 0.01)
+
+    async def fake_ensure_model_ready(send_event, session_id, model_name):
+        return model_name
+
+    def fake_configure_runtime(base_url: str, model: str) -> None:
+        return
+
+    delegate = agent_registry["head-agent"]._delegate
+
+    async def fake_plan_execute(payload, model=None):
+        return "read project files"
+
+    async def fake_tool_execute(
+        payload,
+        session_id,
+        request_id,
+        send_event,
+        model,
+        allowed_tools,
+        should_steer_interrupt=None,
+    ):
+        _ = (payload, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
+        return "[read_file] OK"
+
+    async def fake_synthesize_execute(payload, send_event, session_id, request_id, model=None):
+        _ = (payload, send_event, session_id, request_id, model)
+        return "done"
+
+    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
+    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
+    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate, "tool_step_executor", delegate.tool_step_executor.__class__(execute_fn=fake_tool_execute))
+    monkeypatch.setattr(delegate, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
+
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/agent") as ws:
+        _ = _unwrap_event(receive_json_with_timeout(ws))
+        ws.send_json(
+            {
+                "type": "user_message",
+                "content": "analyze this screenshot and summarize it",
+                "agent_id": "head-agent",
+                "tool_policy": {"allow": ["read_file", "analyze_image"]},
+            }
+        )
+
+        events = []
+        for _ in range(48):
+            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
+            if envelope is None:
+                break
+            evt = _unwrap_event(envelope)
+            events.append(evt)
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
+                break
+
+    policy_event = next(
+        (
+            evt
+            for evt in events
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "tool_policy_resolved"
+        ),
+        None,
+    )
+    assert policy_event is not None
+    allowed = set((policy_event.get("details") or {}).get("allowed") or [])
+    assert "read_file" in allowed
+    assert "analyze_image" not in allowed
+
+
 def test_websocket_tool_selection_empty_triggers_single_replan_then_completes(monkeypatch) -> None:
     _set_local_runtime()
     monkeypatch.setattr(settings, "policy_approval_wait_seconds", 0.01)

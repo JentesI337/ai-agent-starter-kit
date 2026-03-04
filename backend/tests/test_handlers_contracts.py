@@ -195,6 +195,77 @@ def test_workflow_handler_contract_and_idempotency_replay() -> None:
     assert second["workflow"]["id"] == first["workflow"]["id"]
 
 
+def test_workflow_create_with_vision_tool_policy_and_execute() -> None:
+    captured_start: dict[str, object] = {}
+
+    def _start_run_background(**kwargs):
+        captured_start.update(kwargs)
+        return "run-workflow-vision-1"
+
+    workflow_store = _WorkflowStore()
+    workflow_handlers.configure(
+        workflow_handlers.WorkflowHandlerDependencies(
+            settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
+            custom_agent_store=workflow_store,
+            agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
+            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
+            runtime_manager=_RuntimeManager(),
+            subrun_lane=SimpleNamespace(),
+            workflow_version_registry={},
+            workflow_version_lock=Lock(),
+            normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
+            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
+            sync_custom_agents=lambda: None,
+            effective_orchestrator_agent_ids=lambda: {"head-agent"},
+            start_run_background=_start_run_background,
+            build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
+            build_workflow_execute_fingerprint=lambda **kw: f"wf-exec:{kw.get('workflow_id')}:{kw.get('runtime')}",
+            build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
+        )
+    )
+
+    created = workflow_handlers.api_control_workflows_create(
+        request_data={
+            "name": "Vision Workflow",
+            "description": "Use vision in workflow run",
+            "base_agent_id": "head-agent",
+            "steps": [],
+            "tool_policy": {
+                "allow": ["analyze_image"],
+                "deny": ["run_command"],
+            },
+            "idempotency_key": "idem-wf-vision-1",
+        },
+        idempotency_key_header=None,
+    )
+    workflow_id = created["workflow"]["id"]
+
+    got = workflow_handlers.api_control_workflows_get(
+        request_data={
+            "workflow_id": workflow_id,
+        }
+    )
+    assert got["schema"] == "workflows.get.v1"
+    assert got["workflow"]["tool_policy"]["allow"] == ["analyze_image"]
+    assert got["workflow"]["tool_policy"]["deny"] == ["run_command"]
+
+    executed = asyncio.run(
+        workflow_handlers.api_control_workflows_execute(
+            request_data={
+                "workflow_id": workflow_id,
+                "message": "analyze screenshot",
+                "idempotency_key": "idem-wf-vision-exec-1",
+            },
+            idempotency_key_header=None,
+        )
+    )
+
+    assert executed["schema"] == "workflows.execute.v1"
+    assert executed["status"] == "accepted"
+    assert captured_start.get("agent_id") == workflow_id.strip().lower()
+    assert captured_start.get("message") == "analyze screenshot"
+
+
 def test_run_handler_idempotency_conflict_when_queue_mode_differs() -> None:
     captured_queue_modes: list[str | None] = []
 

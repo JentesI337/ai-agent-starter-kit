@@ -181,3 +181,50 @@ def test_grep_search_skips_oversized_files(tmp_path: Path) -> None:
 
     assert "src/small.txt" in matches
     assert "src/big.txt" not in matches
+
+
+def test_analyze_image_requires_feature_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    image_file = tmp_path / "screen.png"
+    image_file.write_bytes(b"not-an-image-but-bytes")
+
+    monkeypatch.setattr(tools_module.settings, "vision_enabled", False)
+
+    with pytest.raises(ToolExecutionError, match="disabled"):
+        asyncio.run(tooling.analyze_image("screen.png", prompt="Describe"))
+
+
+def test_analyze_image_uses_vision_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+    image_file = tmp_path / "screen.png"
+    image_file.write_bytes(b"fake-image-bytes")
+
+    class _FakeVisionService:
+        def __init__(self, base_url: str, model: str, api_key: str | None = None, provider: str = "auto"):
+            _ = (base_url, model, api_key, provider)
+
+        async def analyze_image(
+            self,
+            image_base64: str,
+            image_mime_type: str = "image/png",
+            prompt: str = "",
+            max_tokens: int = 1000,
+        ) -> str:
+            assert isinstance(image_base64, str)
+            assert len(image_base64) > 0
+            assert image_mime_type.startswith("image/")
+            assert prompt == "Find text"
+            assert max_tokens > 0
+            return "Detected a login form and a submit button."
+
+    monkeypatch.setattr(tools_module.settings, "vision_enabled", True)
+    monkeypatch.setattr(tools_module.settings, "vision_base_url", "http://localhost:11434")
+    monkeypatch.setattr(tools_module.settings, "vision_model", "llava:13b")
+    monkeypatch.setattr(tools_module.settings, "vision_api_key", "")
+    monkeypatch.setattr(tools_module.settings, "vision_provider", "ollama")
+    monkeypatch.setattr(tools_module.settings, "vision_max_tokens", 1000)
+    monkeypatch.setattr(tools_module, "VisionService", _FakeVisionService)
+
+    result = asyncio.run(tooling.analyze_image("screen.png", prompt="Find text"))
+
+    assert "login form" in result

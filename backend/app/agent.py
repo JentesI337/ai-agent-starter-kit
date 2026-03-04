@@ -1496,6 +1496,9 @@ class HeadAgent:
     def _resolve_effective_allowed_tools(self, tool_policy: ToolPolicyDict | None) -> set[str]:
         base_allowed = self._available_tools_catalog()
 
+        if not bool(settings.vision_enabled):
+            base_allowed.discard("analyze_image")
+
         config_allow = self._normalize_tool_set(settings.agent_tools_allow)
         if config_allow is not None:
             base_allowed &= config_allow

@@ -71,6 +71,8 @@ interface PolicyApprovalItem {
   updatedAt: string;
 }
 
+type CustomVisionMode = 'inherit' | 'allow' | 'deny';
+
 @Component({
   selector: 'app-chat-page',
   standalone: true,
@@ -92,6 +94,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   customAgentDescription = '';
   customAgentBase = 'head-agent';
   customWorkflowText = '';
+  customToolAllowInput = '';
+  customToolDenyInput = '';
+  customVisionMode: CustomVisionMode = 'inherit';
   customAgentBusy = false;
   sessionId = '';
   runtimeSwitching = false;
@@ -104,6 +109,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     long_term_memory_enabled: true,
     session_distillation_enabled: true,
     failure_journal_enabled: true,
+    vision_enabled: false,
   };
   apiModelsAvailable: boolean | null = null;
   apiModelsHint = '';
@@ -424,6 +430,23 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       workflow_steps: steps,
     };
 
+    const customAllow = this.parseCsvTools(this.customToolAllowInput);
+    const customDeny = this.parseCsvTools(this.customToolDenyInput);
+    if (this.customVisionMode === 'allow' && !customAllow.includes('analyze_image')) {
+      customAllow.push('analyze_image');
+    }
+    if (this.customVisionMode === 'deny' && !customDeny.includes('analyze_image')) {
+      customDeny.push('analyze_image');
+    }
+
+    const customToolPolicy: ToolPolicyPayload = {
+      allow: customAllow.length > 0 ? customAllow : undefined,
+      deny: customDeny.length > 0 ? customDeny : undefined,
+    };
+    if ((customToolPolicy.allow?.length ?? 0) > 0 || (customToolPolicy.deny?.length ?? 0) > 0) {
+      payload.tool_policy = customToolPolicy;
+    }
+
     this.customAgentBusy = true;
     this.agentsService.createCustomAgent(payload).subscribe({
       next: (created) => {
@@ -437,6 +460,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.customAgentId = '';
         this.customAgentDescription = '';
         this.customWorkflowText = '';
+        this.customToolAllowInput = '';
+        this.customToolDenyInput = '';
+        this.customVisionMode = 'inherit';
         this.refreshAgentsAndSchema(created.id);
         this.customAgentBusy = false;
       },
@@ -559,6 +585,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       long_term_memory_enabled: !!this.runtimeFeatures.long_term_memory_enabled,
       session_distillation_enabled: !!this.runtimeFeatures.session_distillation_enabled,
       failure_journal_enabled: !!this.runtimeFeatures.failure_journal_enabled,
+      vision_enabled: !!this.runtimeFeatures.vision_enabled,
     };
     const dbPath = this.runtimeLongTermMemoryDbPath.trim();
 

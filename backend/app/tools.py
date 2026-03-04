@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 import fnmatch
 from html import unescape
 import ipaddress
@@ -17,6 +19,7 @@ import httpx
 
 from app.config import settings
 from app.errors import ToolExecutionError
+from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
 
@@ -446,6 +449,57 @@ class AgentTooling:
             lines.append(f"   source: {result.source}")
             lines.append(f"   relevance_score: {result.relevance_score}")
         return "\n".join(lines)
+
+    async def analyze_image(
+        self,
+        image_path: str,
+        prompt: str = "Describe this image in detail.",
+    ) -> str:
+        if not bool(settings.vision_enabled):
+            raise ToolExecutionError("analyze_image is disabled (VISION_ENABLED=false).")
+
+        normalized_path = (image_path or "").strip()
+        if not normalized_path:
+            raise ToolExecutionError("analyze_image requires non-empty image_path.")
+
+        target = self._resolve_workspace_path(normalized_path)
+        if not target.exists() or not target.is_file():
+            raise ToolExecutionError(f"Image file not found: {target}")
+
+        data = target.read_bytes()
+        if not data:
+            raise ToolExecutionError("Image file is empty.")
+        if len(data) > 8_000_000:
+            raise ToolExecutionError("Image file too large for analyze_image (max 8MB).")
+
+        image_base64 = base64.b64encode(data).decode("ascii")
+        guessed_mime, _ = mimetypes.guess_type(target.name)
+        image_mime_type = (guessed_mime or "application/octet-stream").strip().lower()
+        if not image_mime_type.startswith("image/"):
+            image_mime_type = "application/octet-stream"
+        service = VisionService(
+            base_url=settings.vision_base_url,
+            model=settings.vision_model,
+            api_key=settings.vision_api_key,
+            provider=settings.vision_provider,
+        )
+
+        try:
+            response_text = await service.analyze_image(
+                image_base64=image_base64,
+                image_mime_type=image_mime_type,
+                prompt=prompt,
+                max_tokens=int(settings.vision_max_tokens),
+            )
+        except ValueError as exc:
+            raise ToolExecutionError(f"analyze_image configuration error: {exc}") from exc
+        except Exception as exc:
+            raise ToolExecutionError(f"analyze_image failed: {exc}") from exc
+
+        normalized_response = (response_text or "").strip()
+        if not normalized_response:
+            raise ToolExecutionError("analyze_image returned empty response.")
+        return normalized_response
 
     async def http_request(
         self,

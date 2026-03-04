@@ -17,6 +17,7 @@ export interface RuntimeFeatureFlags {
   long_term_memory_enabled: boolean;
   session_distillation_enabled: boolean;
   failure_journal_enabled: boolean;
+  vision_enabled: boolean;
 }
 
 export interface RuntimeFeaturesResponse {

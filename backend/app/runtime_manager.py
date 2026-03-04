@@ -31,6 +31,7 @@ RUNTIME_FEATURE_DEFAULTS: dict[str, bool] = {
     "long_term_memory_enabled": bool(settings.long_term_memory_enabled),
     "session_distillation_enabled": bool(settings.session_distillation_enabled),
     "failure_journal_enabled": bool(settings.failure_journal_enabled),
+    "vision_enabled": bool(settings.vision_enabled),
 }
 
 

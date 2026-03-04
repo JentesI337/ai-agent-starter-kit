@@ -211,6 +211,10 @@
         Failure Journal
       </label>
       <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.vision_enabled" [disabled]="runtimeFeaturesSaving || firstRunChoicePending" />
+        Vision Tool
+      </label>
+      <label>
         LTM DB Path
         <input
           [(ngModel)]="runtimeLongTermMemoryDbPath"
@@ -267,6 +271,22 @@
       <label>
         Description
         <input [(ngModel)]="customAgentDescription" placeholder="What this flow should optimize for" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Custom tool allow (CSV)
+        <input [(ngModel)]="customToolAllowInput" placeholder="read_file,analyze_image" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Custom tool deny (CSV)
+        <input [(ngModel)]="customToolDenyInput" placeholder="run_command" [disabled]="customAgentBusy" />
+      </label>
+      <label>
+        Vision assignment
+        <select [(ngModel)]="customVisionMode" [disabled]="customAgentBusy">
+          <option value="inherit">inherit</option>
+          <option value="allow">allow analyze_image</option>
+          <option value="deny">deny analyze_image</option>
+        </select>
       </label>
     </div>
 

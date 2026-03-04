@@ -24,6 +24,7 @@ class ToolArgValidator:
             "web_fetch": self._validate_web_fetch_args,
             "web_search": self._validate_web_search_args,
             "http_request": self._validate_http_request_args,
+            "analyze_image": self._validate_analyze_image_args,
             "spawn_subrun": self._validate_spawn_subrun_args,
         }
 
@@ -360,6 +361,22 @@ class ToolArgValidator:
                     normalized_values.append(policy_value.strip())
                 normalized_policy[policy_key] = normalized_values
             normalized_args["tool_policy"] = normalized_policy
+        return None
+
+    def _validate_analyze_image_args(self, normalized_args: dict[str, object]) -> str | None:
+        image_path, err = self._require_str_arg(normalized_args, "image_path", max_len=400)
+        if err:
+            return err
+        if image_path is not None and "\x00" in image_path:
+            return "image_path is not plausible"
+
+        if "prompt" in normalized_args:
+            prompt, err = self._require_str_arg(normalized_args, "prompt", max_len=4000)
+            if err:
+                return err
+            normalized_args["prompt"] = prompt
+
+        normalized_args["image_path"] = image_path
         return None
 
     def _validate_noop_tool_args(self, normalized_args: dict[str, object]) -> str | None:

@@ -16,6 +16,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "web_search",
     "web_fetch",
     "http_request",
+    "analyze_image",
     "spawn_subrun",
 )
 
@@ -41,5 +42,8 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "webfetch": "web_fetch",
     "httprequest": "http_request",
     "http_request_tool": "http_request",
+    "analyzeimage": "analyze_image",
+    "vision": "analyze_image",
+    "image_analysis": "analyze_image",
     "spawnsubrun": "spawn_subrun",
 }

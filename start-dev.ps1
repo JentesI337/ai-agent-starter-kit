@@ -369,12 +369,12 @@ function Get-EnvOrDefault([string]$FilePath, [string]$Name, [string]$DefaultValu
 }
 
 function Resolve-BoolEnvValue([string]$RequestedValue, [string]$CurrentValue, [string]$DefaultValue = 'true') {
-    $requested = ($RequestedValue ?? '').Trim().ToLowerInvariant()
+    $requested = if ($null -ne $RequestedValue) { $RequestedValue.Trim().ToLowerInvariant() } else { '' }
     if ($requested -in @('true', 'false')) {
         return $requested
     }
 
-    $current = ($CurrentValue ?? '').Trim().ToLowerInvariant()
+    $current = if ($null -ne $CurrentValue) { $CurrentValue.Trim().ToLowerInvariant() } else { '' }
     if ($current -in @('true', 'false')) {
         return $current
     }
@@ -531,7 +531,7 @@ $resolvedFailureJournalEnabled = Resolve-BoolEnvValue -RequestedValue $FailureJo
 Upsert-EnvVar -FilePath $envFilePath -Name 'FAILURE_JOURNAL_ENABLED' -Value $resolvedFailureJournalEnabled
 
 $currentLongTermMemoryDbPath = Get-EnvOrDefault -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_DB_PATH' -DefaultValue 'memory_store/long_term.db'
-$resolvedLongTermMemoryDbPath = if (($LongTermMemoryDbPath ?? '').Trim()) { $LongTermMemoryDbPath.Trim() } else { $currentLongTermMemoryDbPath }
+$resolvedLongTermMemoryDbPath = if (($null -ne $LongTermMemoryDbPath) -and $LongTermMemoryDbPath.Trim()) { $LongTermMemoryDbPath.Trim() } else { $currentLongTermMemoryDbPath }
 Upsert-EnvVar -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_DB_PATH' -Value $resolvedLongTermMemoryDbPath
 
 Write-Host "Long-term memory flags: LTM=$resolvedLongTermMemoryEnabled, Distillation=$resolvedSessionDistillationEnabled, FailureJournal=$resolvedFailureJournalEnabled" -ForegroundColor Cyan

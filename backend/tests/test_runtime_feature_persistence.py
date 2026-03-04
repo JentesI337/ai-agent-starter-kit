@@ -30,6 +30,7 @@ def test_runtime_feature_update_persists_to_env_file(monkeypatch, tmp_path) -> N
             "long_term_memory_enabled": True,
             "session_distillation_enabled": True,
             "failure_journal_enabled": True,
+            "vision_enabled": False,
         }
     )
     deps = RuntimeDebugDependencies(runtime_manager=manager, settings=None, resolved_prompt_settings=lambda _: {})
@@ -45,6 +46,7 @@ def test_runtime_feature_update_persists_to_env_file(monkeypatch, tmp_path) -> N
                 "long_term_memory_enabled": False,
                 "session_distillation_enabled": False,
                 "failure_journal_enabled": True,
+                "vision_enabled": True,
             }
         },
     )
@@ -54,12 +56,14 @@ def test_runtime_feature_update_persists_to_env_file(monkeypatch, tmp_path) -> N
     assert response["featureFlags"]["long_term_memory_enabled"] is False
     assert response["featureFlags"]["session_distillation_enabled"] is False
     assert response["featureFlags"]["failure_journal_enabled"] is True
+    assert response["featureFlags"]["vision_enabled"] is True
 
     content = env_file.read_text(encoding="utf-8")
     assert "LLM_BASE_URL=http://localhost:11434/v1" in content
     assert "LONG_TERM_MEMORY_ENABLED=false" in content
     assert "SESSION_DISTILLATION_ENABLED=false" in content
     assert "FAILURE_JOURNAL_ENABLED=true" in content
+    assert "VISION_ENABLED=true" in content
 
 
 def test_runtime_feature_update_persists_long_term_memory_db_path(monkeypatch, tmp_path) -> None:
@@ -71,6 +75,7 @@ def test_runtime_feature_update_persists_long_term_memory_db_path(monkeypatch, t
             "long_term_memory_enabled": True,
             "session_distillation_enabled": True,
             "failure_journal_enabled": True,
+            "vision_enabled": False,
         }
     )
 
@@ -79,6 +84,7 @@ def test_runtime_feature_update_persists_long_term_memory_db_path(monkeypatch, t
     settings.long_term_memory_enabled = True
     settings.session_distillation_enabled = True
     settings.failure_journal_enabled = True
+    settings.vision_enabled = False
     settings.long_term_memory_db_path = str(tmp_path / "memory_store" / "long_term.db")
 
     deps = RuntimeDebugDependencies(runtime_manager=manager, settings=settings, resolved_prompt_settings=lambda _: {})
@@ -111,6 +117,7 @@ def test_runtime_feature_update_rejects_db_path_outside_workspace(tmp_path) -> N
             "long_term_memory_enabled": True,
             "session_distillation_enabled": True,
             "failure_journal_enabled": True,
+            "vision_enabled": False,
         }
     )
 
@@ -119,6 +126,7 @@ def test_runtime_feature_update_rejects_db_path_outside_workspace(tmp_path) -> N
     settings.long_term_memory_enabled = True
     settings.session_distillation_enabled = True
     settings.failure_journal_enabled = True
+    settings.vision_enabled = False
     settings.long_term_memory_db_path = str(tmp_path / "memory_store" / "long_term.db")
 
     deps = RuntimeDebugDependencies(runtime_manager=manager, settings=settings, resolved_prompt_settings=lambda _: {})
