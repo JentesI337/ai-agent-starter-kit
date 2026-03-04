@@ -7,6 +7,7 @@ export interface RuntimeStatus {
   model: string;
   authenticated: boolean;
   featureFlags?: RuntimeFeatureFlags;
+  longTermMemoryDbPath?: string;
   apiModelsAvailable?: boolean | null;
   apiModelsCount?: number | null;
   apiModelsError?: string | null;
@@ -20,12 +21,14 @@ export interface RuntimeFeatureFlags {
 
 export interface RuntimeFeaturesResponse {
   featureFlags: RuntimeFeatureFlags;
+  longTermMemoryDbPath?: string;
 }
 
 export interface RuntimeFeaturesUpdateResponse {
   ok: boolean;
   persisted?: boolean;
   featureFlags: RuntimeFeatureFlags;
+  longTermMemoryDbPath?: string;
 }
 
 export interface AgentDescriptor {
@@ -240,10 +243,14 @@ export class AgentsService {
     return this.http.get<RuntimeFeaturesResponse>(`${this.apiBase}/api/runtime/features`);
   }
 
-  updateRuntimeFeatures(featureFlags: Partial<RuntimeFeatureFlags>) {
-    return this.http.post<RuntimeFeaturesUpdateResponse>(`${this.apiBase}/api/runtime/features`, {
+  updateRuntimeFeatures(featureFlags: Partial<RuntimeFeatureFlags>, longTermMemoryDbPath?: string) {
+    const payload: { featureFlags: Partial<RuntimeFeatureFlags>; longTermMemoryDbPath?: string } = {
       featureFlags,
-    });
+    };
+    if (typeof longTermMemoryDbPath === 'string') {
+      payload.longTermMemoryDbPath = longTermMemoryDbPath;
+    }
+    return this.http.post<RuntimeFeaturesUpdateResponse>(`${this.apiBase}/api/runtime/features`, payload);
   }
 
   getAgents() {

@@ -86,6 +86,23 @@ def test_runtime_feature_flags_can_be_read_and_updated() -> None:
     assert payload["featureFlags"]["failure_journal_enabled"] is False
 
 
+def test_runtime_feature_flags_invalid_db_path_returns_400() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/runtime/features",
+        json={
+            "featureFlags": {},
+            "longTermMemoryDbPath": "../outside/unsafe.db",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert "must stay inside workspace root" in str(payload.get("detail", ""))
+
+
 def test_resolved_prompt_debug_endpoint_returns_prompt_map() -> None:
     _set_local_runtime()
     client = TestClient(app)

@@ -22,6 +22,7 @@ RUNTIME_FEATURE_ENV_MAP: dict[str, str] = {
     "SESSION_DISTILLATION_ENABLED": "session_distillation_enabled",
     "FAILURE_JOURNAL_ENABLED": "failure_journal_enabled",
 }
+LONG_TERM_MEMORY_DB_PATH_ENV = "LONG_TERM_MEMORY_DB_PATH"
 
 
 def _upsert_env_line(lines: list[str], env_name: str, env_value: str) -> list[str]:
@@ -41,7 +42,46 @@ def _upsert_env_line(lines: list[str], env_name: str, env_value: str) -> list[st
     return updated
 
 
-def _persist_feature_flags_to_backend_env(feature_flags: dict[str, bool]) -> None:
+def _workspace_root_from_settings(settings_obj: Any) -> Path:
+    root = getattr(settings_obj, "workspace_root", None) if settings_obj is not None else None
+    if isinstance(root, str) and root.strip():
+        return Path(root).resolve()
+    return Path(BACKEND_DIR).parent.resolve()
+
+
+def _normalize_long_term_memory_db_path(
+    raw_path: str,
+    *,
+    workspace_root: Path,
+) -> tuple[str, str]:
+    candidate = (raw_path or "").strip()
+    if not candidate:
+        raise ValueError("longTermMemoryDbPath must not be empty")
+    if any(token in candidate for token in ("\x00", "\r", "\n")):
+        raise ValueError("longTermMemoryDbPath contains unsupported characters")
+
+    path_obj = Path(candidate)
+    resolved = (workspace_root / path_obj).resolve() if not path_obj.is_absolute() else path_obj.resolve()
+    try:
+        relative = resolved.relative_to(workspace_root)
+    except ValueError as exc:
+        raise ValueError("longTermMemoryDbPath must stay inside workspace root") from exc
+
+    if resolved.suffix.lower() != ".db":
+        raise ValueError("longTermMemoryDbPath must point to a .db file")
+
+    if len(str(resolved)) > 4096:
+        raise ValueError("longTermMemoryDbPath is too long")
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return relative.as_posix(), str(resolved)
+
+
+def _persist_feature_flags_to_backend_env(
+    feature_flags: dict[str, bool],
+    *,
+    long_term_memory_db_path_env: str | None = None,
+) -> None:
     BACKEND_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     if BACKEND_ENV_FILE.exists():
         existing_lines = BACKEND_ENV_FILE.read_text(encoding="utf-8-sig").splitlines()
@@ -52,6 +92,8 @@ def _persist_feature_flags_to_backend_env(feature_flags: dict[str, bool]) -> Non
     for env_name, feature_key in RUNTIME_FEATURE_ENV_MAP.items():
         env_value = "true" if bool(feature_flags.get(feature_key, False)) else "false"
         updated_lines = _upsert_env_line(updated_lines, env_name, env_value)
+    if long_term_memory_db_path_env is not None:
+        updated_lines = _upsert_env_line(updated_lines, LONG_TERM_MEMORY_DB_PATH_ENV, long_term_memory_db_path_env)
 
     output = "\n".join(updated_lines).rstrip("\n") + "\n"
     temp_file = BACKEND_ENV_FILE.with_suffix(".env.tmp")
@@ -72,26 +114,57 @@ async def api_runtime_status(deps: RuntimeDebugDependencies) -> dict:
         "apiModelsCount": api_models["count"],
         "apiModelsError": api_models["error"],
         "featureFlags": deps.runtime_manager.get_feature_flags(),
+        "longTermMemoryDbPath": str(getattr(deps.settings, "long_term_memory_db_path", "")),
     }
 
 
 def api_runtime_features(deps: RuntimeDebugDependencies) -> dict:
     return {
         "featureFlags": deps.runtime_manager.get_feature_flags(),
+        "longTermMemoryDbPath": str(getattr(deps.settings, "long_term_memory_db_path", "")),
     }
 
 
 def api_runtime_update_features(deps: RuntimeDebugDependencies, payload: dict[str, Any]) -> dict:
-    raw_feature_flags = payload.get("featureFlags")
+    raw_feature_flags = payload.get("featureFlags", {})
+    if raw_feature_flags is None:
+        raw_feature_flags = {}
     if not isinstance(raw_feature_flags, dict):
         raise ValueError("featureFlags must be an object")
+    raw_db_path = payload.get("longTermMemoryDbPath")
+    if raw_db_path is not None and not isinstance(raw_db_path, str):
+        raise ValueError("longTermMemoryDbPath must be a string")
+
+    previous_flags = deps.runtime_manager.get_feature_flags()
+
+    workspace_root = _workspace_root_from_settings(deps.settings)
+    persisted_db_path_env: str | None = None
+    effective_db_path = str(getattr(deps.settings, "long_term_memory_db_path", ""))
+    if raw_db_path is not None:
+        persisted_db_path_env, effective_db_path = _normalize_long_term_memory_db_path(
+            raw_db_path,
+            workspace_root=workspace_root,
+        )
 
     updated = deps.runtime_manager.update_feature_flags(raw_feature_flags)
-    _persist_feature_flags_to_backend_env(updated)
+    try:
+        _persist_feature_flags_to_backend_env(updated, long_term_memory_db_path_env=persisted_db_path_env)
+    except Exception:
+        deps.runtime_manager.update_feature_flags(previous_flags)
+        raise
+
+    if deps.settings is not None:
+        setattr(deps.settings, "long_term_memory_enabled", bool(updated.get("long_term_memory_enabled", False)))
+        setattr(deps.settings, "session_distillation_enabled", bool(updated.get("session_distillation_enabled", False)))
+        setattr(deps.settings, "failure_journal_enabled", bool(updated.get("failure_journal_enabled", False)))
+        if raw_db_path is not None:
+            setattr(deps.settings, "long_term_memory_db_path", effective_db_path)
+
     return {
         "ok": True,
         "persisted": True,
         "featureFlags": updated,
+        "longTermMemoryDbPath": str(getattr(deps.settings, "long_term_memory_db_path", effective_db_path)),
     }
 
 

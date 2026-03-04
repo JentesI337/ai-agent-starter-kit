@@ -40,6 +40,7 @@ from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reflection_service import ReflectionService
 from app.services.reply_shaper import ReplyShaper
 from app.services.request_normalization import normalize_prompt_mode
+from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
 from app.services.verification_service import VerificationService
 from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
@@ -180,6 +181,9 @@ class HeadAgent:
             if settings.reflection_enabled
             else None
         )
+        self._long_term_memory: LongTermMemoryStore | None = None
+        self._long_term_memory_db_path: str | None = None
+        self._refresh_long_term_memory_store()
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
@@ -305,6 +309,60 @@ class HeadAgent:
     def set_policy_approval_handler(self, handler: PolicyApprovalHandler | None) -> None:
         self._policy_approval_handler = handler
 
+    def _refresh_long_term_memory_store(self) -> None:
+        if not bool(settings.long_term_memory_enabled):
+            self._long_term_memory = None
+            self._long_term_memory_db_path = None
+            return
+
+        configured_path = str(getattr(settings, "long_term_memory_db_path", "") or "").strip()
+        if not configured_path:
+            self._long_term_memory = None
+            self._long_term_memory_db_path = None
+            return
+
+        if self._long_term_memory is not None and self._long_term_memory_db_path == configured_path:
+            return
+
+        try:
+            self._long_term_memory = LongTermMemoryStore(configured_path)
+            self._long_term_memory_db_path = configured_path
+        except Exception:
+            self._long_term_memory = None
+            self._long_term_memory_db_path = None
+
+    def _build_long_term_memory_context(self, user_message: str) -> str:
+        if self._long_term_memory is None:
+            return ""
+
+        sections: list[str] = []
+
+        try:
+            similar_failures = self._long_term_memory.search_failures(user_message, limit=2)
+        except Exception:
+            similar_failures = []
+        if similar_failures:
+            failure_lines: list[str] = []
+            for failure in similar_failures:
+                failure_lines.append(
+                    (
+                        f"- Task: {failure.task_description[:100]} "
+                        f"→ Error: {failure.root_cause[:100]} "
+                        f"→ Fix: {failure.solution[:100]}"
+                    )
+                )
+            sections.append("[Past failures with similar tasks]\n" + "\n".join(failure_lines))
+
+        try:
+            semantic_facts = self._long_term_memory.get_all_semantic()
+        except Exception:
+            semantic_facts = []
+        if semantic_facts:
+            preference_lines = [f"- {item.key}: {item.value}" for item in semantic_facts[:10]]
+            sections.append("[Known user preferences]\n" + "\n".join(preference_lines))
+
+        return "\n\n".join(sections).strip()
+
     async def run(
         self,
         user_message: str,
@@ -316,9 +374,12 @@ class HeadAgent:
         prompt_mode: str | None = None,
         should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
+        self._refresh_long_term_memory_store()
         status = "failed"
         error_text: str | None = None
         final_text = ""
+        plan_text = ""
+        tool_results = ""
 
         await self._emit_lifecycle(
             send_event,
@@ -380,12 +441,15 @@ class HeadAgent:
             budgets = self._step_budgets(profile.max_context)
             memory_items = self.memory.get_items(session_id)
             memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
+            ltm_context = self._build_long_term_memory_context(user_message)
+            planning_snapshot_lines = [ltm_context] if ltm_context else None
 
             plan_context = self.context_reducer.reduce(
                 budget_tokens=budgets["plan"],
                 user_message=user_message,
                 memory_lines=memory_lines,
                 tool_outputs=[],
+                snapshot_lines=planning_snapshot_lines,
             )
             await self._emit_lifecycle(
                 send_event,
@@ -424,7 +488,7 @@ class HeadAgent:
                     user_message=user_message,
                     memory_lines=memory_lines,
                     tool_outputs=[],
-                    snapshot_lines=None,
+                    snapshot_lines=planning_snapshot_lines,
                     system_prompt=self.prompt_profile.plan_prompt,
                 ),
             )
@@ -545,7 +609,6 @@ class HeadAgent:
             empty_tool_replan_attempts_used = 0
             error_tool_replan_attempts_used = 0
             total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
-            tool_results = ""
             await self._emit_lifecycle(
                 send_event,
                 stage="terminal_wait_started",
@@ -1082,8 +1145,39 @@ class HeadAgent:
             return final_text
         except Exception as exc:
             error_text = str(exc)
+            if settings.failure_journal_enabled and self._long_term_memory is not None:
+                try:
+                    self._long_term_memory.add_failure(
+                        FailureEntry(
+                            failure_id=request_id,
+                            task_description=user_message[:500],
+                            error_type=type(exc).__name__,
+                            root_cause=error_text[:500],
+                            solution="",
+                            prevention="",
+                            tags=[],
+                        )
+                    )
+                except Exception:
+                    pass
             raise
         finally:
+            if (
+                status == "completed"
+                and settings.session_distillation_enabled
+                and self._long_term_memory is not None
+            ):
+                try:
+                    await self._distill_session_knowledge(
+                        session_id=session_id,
+                        user_message=user_message,
+                        plan_text=plan_text,
+                        tool_results=tool_results,
+                        final_text=final_text,
+                        model=model,
+                    )
+                except Exception:
+                    pass
             await self._invoke_hooks(
                 hook_name="agent_end",
                 send_event=send_event,
@@ -1095,6 +1189,82 @@ class HeadAgent:
                     "final_chars": len(final_text),
                     "model": model or self.client.model,
                 },
+            )
+
+    async def _distill_session_knowledge(
+        self,
+        *,
+        session_id: str,
+        user_message: str,
+        plan_text: str,
+        tool_results: str,
+        final_text: str,
+        model: str | None,
+    ) -> None:
+        if self._long_term_memory is None:
+            return
+
+        distillation_prompt = (
+            "Summarize this interaction in 2-3 sentences.\n"
+            "Extract key facts about the user's preferences/project.\n"
+            "Return JSON: {\"summary\": \"...\", \"key_facts\": [{\"key\": \"...\", \"value\": \"...\"}], \"tags\": [\"...\"]}\n\n"
+            f"User: {user_message[:500]}\n"
+            f"Plan: {plan_text[:300]}\n"
+            f"Tools: {(tool_results or '')[:300]}\n"
+            f"Result: {final_text[:500]}"
+        )
+        raw = await self.client.complete_chat(
+            "You distill knowledge.",
+            distillation_prompt,
+            model=model,
+            temperature=0.1,
+        )
+
+        normalized_raw = str(raw or "").strip()
+        if not normalized_raw:
+            return
+
+        parsed: dict[str, Any]
+        try:
+            parsed = json.loads(normalized_raw)
+        except Exception:
+            start = normalized_raw.find("{")
+            end = normalized_raw.rfind("}")
+            if start < 0 or end <= start:
+                return
+            try:
+                parsed = json.loads(normalized_raw[start : end + 1])
+            except Exception:
+                return
+
+        summary = str(parsed.get("summary", "") or "").strip()
+        tags_raw = parsed.get("tags", [])
+        tags = [str(tag).strip() for tag in tags_raw if str(tag).strip()] if isinstance(tags_raw, list) else []
+
+        if summary:
+            self._long_term_memory.add_episodic(
+                session_id=session_id,
+                summary=summary,
+                key_actions=[],
+                outcome="success",
+                tags=tags,
+            )
+
+        key_facts = parsed.get("key_facts", [])
+        if not isinstance(key_facts, list):
+            return
+        for fact in key_facts:
+            if not isinstance(fact, dict):
+                continue
+            key = str(fact.get("key", "") or "").strip()
+            value = str(fact.get("value", "") or "").strip()
+            if not key or not value:
+                continue
+            self._long_term_memory.add_semantic(
+                key=key,
+                value=value,
+                confidence=0.7,
+                source_sessions=[session_id],
             )
 
     async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:

@@ -99,6 +99,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   runtimeFeaturesSaving = false;
   runtimeFeaturesPersistStatus: 'unknown' | 'persisted' | 'not_persisted' | 'error' = 'unknown';
   runtimeFeaturesPersistText = 'Feature flags not saved yet in this session.';
+  runtimeLongTermMemoryDbPath = '';
   runtimeFeatures: RuntimeFeatureFlags = {
     long_term_memory_enabled: true,
     session_distillation_enabled: true,
@@ -177,6 +178,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
             ...this.runtimeFeatures,
             ...status.featureFlags,
           };
+        }
+        if (typeof status.longTermMemoryDbPath === 'string') {
+          this.runtimeLongTermMemoryDbPath = status.longTermMemoryDbPath;
         }
       },
     });
@@ -529,6 +533,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           ...this.runtimeFeatures,
           ...response.featureFlags,
         };
+        if (typeof response.longTermMemoryDbPath === 'string') {
+          this.runtimeLongTermMemoryDbPath = response.longTermMemoryDbPath;
+        }
         this.runtimeFeaturesPersistStatus = 'unknown';
         this.runtimeFeaturesPersistText = 'Loaded feature flags from backend.';
         this.runtimeFeaturesLoading = false;
@@ -553,13 +560,17 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       session_distillation_enabled: !!this.runtimeFeatures.session_distillation_enabled,
       failure_journal_enabled: !!this.runtimeFeatures.failure_journal_enabled,
     };
+    const dbPath = this.runtimeLongTermMemoryDbPath.trim();
 
-    this.agentsService.updateRuntimeFeatures(payload).subscribe({
+    this.agentsService.updateRuntimeFeatures(payload, dbPath.length > 0 ? dbPath : undefined).subscribe({
       next: (response) => {
         this.runtimeFeatures = {
           ...this.runtimeFeatures,
           ...response.featureFlags,
         };
+        if (typeof response.longTermMemoryDbPath === 'string') {
+          this.runtimeLongTermMemoryDbPath = response.longTermMemoryDbPath;
+        }
         this.runtimeFeaturesSaving = false;
         if (response.persisted === false) {
           this.runtimeFeaturesPersistStatus = 'not_persisted';
@@ -571,6 +582,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.lines.push({ role: 'system', text: 'Runtime feature flags updated.' });
         this.pushLifecycle('frontend_runtime_features_updated', 'Runtime feature flags updated', {
           ...response.featureFlags,
+          longTermMemoryDbPath: this.runtimeLongTermMemoryDbPath,
         });
       },
       error: (error) => {

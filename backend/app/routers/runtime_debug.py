@@ -4,6 +4,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, Body
+from fastapi import HTTPException
 
 JsonDict = dict
 
@@ -38,7 +39,10 @@ def build_runtime_debug_router(
 
     @router.post("/api/runtime/features")
     async def post_runtime_features(request: JsonDict = Body(...)):
-        result = runtime_update_features_handler(request)
+        try:
+            result = runtime_update_features_handler(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
 

@@ -210,6 +210,14 @@
         <input type="checkbox" [(ngModel)]="runtimeFeatures.failure_journal_enabled" [disabled]="runtimeFeaturesSaving || firstRunChoicePending" />
         Failure Journal
       </label>
+      <label>
+        LTM DB Path
+        <input
+          [(ngModel)]="runtimeLongTermMemoryDbPath"
+          placeholder="memory_store/long_term.db"
+          [disabled]="runtimeFeaturesSaving || firstRunChoicePending"
+        />
+      </label>
       <button class="secondary" (click)="saveRuntimeFeatures()" [disabled]="runtimeFeaturesSaving || firstRunChoicePending">
         {{ runtimeFeaturesSaving ? 'Saving flags...' : 'Apply Flags' }}
       </button>
