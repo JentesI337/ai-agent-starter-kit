@@ -44,6 +44,33 @@ def test_augment_adds_web_fetch_when_missing() -> None:
     assert any(stage == "tool_selection_followup_completed" for stage, _ in lifecycle_events)
 
 
+def test_augment_prefers_web_search_when_available() -> None:
+    augmenter = ActionAugmenter()
+
+    actions = asyncio.run(
+        augmenter.augment_actions(
+            actions=[],
+            user_message="search on the web for llm news",
+            plan_text="",
+            memory_context="",
+            model=None,
+            allowed_tools={"web_search", "web_fetch"},
+            complete_chat=_fake_complete_chat,
+            tool_selector_system_prompt="system",
+            extract_actions=lambda raw: ([], None),
+            validate_actions=lambda actions, allowed: (actions, 0),
+            emit_lifecycle=_noop_emit,
+            is_web_research_task=lambda message: True,
+            build_web_research_url=lambda message: "https://duckduckgo.com/html/?q=llm",
+            is_subrun_orchestration_task=lambda message: False,
+            is_file_creation_task=lambda message: False,
+        )
+    )
+
+    assert any(action.get("tool") == "web_search" for action in actions)
+    assert not any(action.get("tool") == "web_fetch" for action in actions)
+
+
 def test_augment_adds_spawn_subrun_when_missing() -> None:
     augmenter = ActionAugmenter()
 

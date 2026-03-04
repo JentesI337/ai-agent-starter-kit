@@ -22,6 +22,8 @@ class ToolArgValidator:
             "get_background_output": self._validate_get_background_output_args,
             "kill_background_process": self._validate_kill_background_process_args,
             "web_fetch": self._validate_web_fetch_args,
+            "web_search": self._validate_web_search_args,
+            "http_request": self._validate_http_request_args,
             "spawn_subrun": self._validate_spawn_subrun_args,
         }
 
@@ -233,6 +235,68 @@ class ToolArgValidator:
         if err:
             return err
         normalized_args["url"] = url
+        normalized_args["max_chars"] = max_chars
+        return None
+
+    def _validate_web_search_args(self, normalized_args: dict[str, object]) -> str | None:
+        query, err = self._require_str_arg(normalized_args, "query", max_len=1000)
+        if err:
+            return err
+        max_results, err = self._optional_int_arg(
+            normalized_args,
+            "max_results",
+            default=5,
+            min_value=1,
+            max_value=10,
+        )
+        if err:
+            return err
+        normalized_args["query"] = query
+        normalized_args["max_results"] = max_results
+        return None
+
+    def _validate_http_request_args(self, normalized_args: dict[str, object]) -> str | None:
+        url, err = self._require_str_arg(normalized_args, "url", max_len=1000)
+        if err:
+            return err
+        normalized_args["url"] = url
+
+        if "method" in normalized_args:
+            method, err = self._require_str_arg(normalized_args, "method", max_len=16)
+            if err:
+                return err
+            normalized_method = (method or "").strip().upper()
+            if normalized_method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
+                return "argument 'method' is not supported"
+            normalized_args["method"] = normalized_method
+
+        if "headers" in normalized_args:
+            headers, err = self._require_str_arg(normalized_args, "headers", non_empty=False, max_len=50000)
+            if err:
+                return err
+            normalized_args["headers"] = headers
+
+        if "body" in normalized_args:
+            body, err = self._require_str_arg(normalized_args, "body", non_empty=False, max_len=1_000_000)
+            if err:
+                return err
+            normalized_args["body"] = body
+
+        if "content_type" in normalized_args:
+            content_type, err = self._require_str_arg(normalized_args, "content_type", max_len=200)
+            if err:
+                return err
+            normalized_args["content_type"] = content_type
+
+        max_chars, err = self._optional_int_arg(
+            normalized_args,
+            "max_chars",
+            default=100000,
+            min_value=1,
+            max_value=100000,
+        )
+        if err:
+            return err
         normalized_args["max_chars"] = max_chars
         return None
 

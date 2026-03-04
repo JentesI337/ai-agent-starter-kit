@@ -603,6 +603,7 @@ def test_websocket_emits_skills_lifecycle_when_enabled(monkeypatch, tmp_path) ->
     )
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
 
+
 def test_websocket_skills_canary_gating_event(monkeypatch, tmp_path) -> None:
     _set_local_runtime()
 

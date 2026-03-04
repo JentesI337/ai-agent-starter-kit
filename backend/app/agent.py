@@ -173,7 +173,11 @@ class HeadAgent:
         self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
         self._reply_shaper = ReplyShaper()
         self._verification = VerificationService()
-        self._reflection_service = ReflectionService(client=self.client)
+        self._reflection_service = (
+            ReflectionService(client=self.client, threshold=settings.reflection_threshold)
+            if settings.reflection_enabled
+            else None
+        )
         self._tool_execution_manager = ToolExecutionManager()
         self.tool_registry = self._build_tool_registry()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
@@ -285,8 +289,11 @@ class HeadAgent:
             base_url=base_url,
             model=model,
         )
-        reflection_threshold = self._reflection_service.threshold if self._reflection_service is not None else 0.6
-        self._reflection_service = ReflectionService(client=self.client, threshold=reflection_threshold)
+        self._reflection_service = (
+            ReflectionService(client=self.client, threshold=settings.reflection_threshold)
+            if settings.reflection_enabled
+            else None
+        )
         self.planner_agent.configure_runtime(base_url=base_url, model=model)
         self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
 
@@ -475,6 +482,21 @@ class HeadAgent:
                     **plan_verification.details,
                 },
             )
+            semantic_plan_verification = self._verification.verify_plan_semantically(
+                user_message=user_message,
+                plan_text=plan_text,
+            )
+            await self._emit_lifecycle(
+                send_event,
+                stage="verification_plan_semantic",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "status": semantic_plan_verification.status,
+                    "reason": semantic_plan_verification.reason,
+                    **semantic_plan_verification.details,
+                },
+            )
             self.memory.add(session_id, "plan", plan_text)
             await send_event(
                 {
@@ -601,9 +623,16 @@ class HeadAgent:
                     memory_lines=memory_lines,
                     tool_outputs=[plan_text, tool_results] if tool_results else [plan_text],
                 )
+                replan_user_message = user_message
+                if settings.plan_root_cause_replan_enabled:
+                    replan_user_message = self._build_root_cause_replan_prompt(
+                        user_message=user_message,
+                        previous_plan=plan_text,
+                        tool_results=tool_results,
+                    )
                 plan_text = await self.plan_step_executor.execute(
                     PlannerInput(
-                        user_message=user_message,
+                        user_message=replan_user_message,
                         reduced_context=replan_context.rendered,
                         prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
                     ),
@@ -619,6 +648,7 @@ class HeadAgent:
                         "iteration": iteration + 1,
                         "plan_chars": len(plan_text),
                         "reason": replan_reason,
+                        "root_cause_replan": bool(settings.plan_root_cause_replan_enabled),
                     },
                 )
 
@@ -755,7 +785,8 @@ class HeadAgent:
                 return interrupted_message
 
             if self._is_web_research_task(user_message) and not self._has_successful_web_fetch(tool_results or ""):
-                web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_fetch")
+                web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_search")
+                web_errors.extend(self._extract_tool_errors(tool_results or "", tool_name="web_fetch"))
                 await self._emit_lifecycle(
                     send_event,
                     stage="web_research_sources_unavailable",
@@ -789,7 +820,7 @@ class HeadAgent:
                     stage="run_completed",
                     request_id=request_id,
                     session_id=session_id,
-                    details={"response_chars": len(final_text), "fallback": "web_fetch_unavailable"},
+                    details={"response_chars": len(final_text), "fallback": "web_search_unavailable"},
                 )
                 return final_text
 
@@ -863,7 +894,7 @@ class HeadAgent:
                 model,
             )
             reflection_passes = max(0, int(self.synthesizer_agent.constraints.reflection_passes))
-            if reflection_passes > 0 and self._reflection_service is not None:
+            if reflection_passes > 0 and self._reflection_service is not None and len((final_text or "").strip()) >= 8:
                 for reflection_pass in range(reflection_passes):
                     try:
                         verdict = await self._reflection_service.reflect(
@@ -921,6 +952,14 @@ class HeadAgent:
                         send_event,
                         model,
                     )
+            elif reflection_passes > 0 and len((final_text or "").strip()) < 8:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="reflection_skipped",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
+                )
             await self._emit_lifecycle(
                 send_event,
                 stage="reply_shaping_started",
@@ -1026,6 +1065,9 @@ class HeadAgent:
             )
 
     async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:
+        if settings.structured_planning_enabled:
+            plan_graph = await self.planner_agent.execute_structured(payload, model=model)
+            return plan_graph.as_plan_text()
         planner_output = await self.planner_agent.execute(payload, model=model)
         return planner_output.plan_text
 
@@ -1457,6 +1499,24 @@ class HeadAgent:
             return "tool_selection_empty_replan"
 
         return None
+
+    def _build_root_cause_replan_prompt(
+        self,
+        *,
+        user_message: str,
+        previous_plan: str,
+        tool_results: str,
+    ) -> str:
+        return (
+            "The previous plan failed. Analyze WHY and create a better plan.\n\n"
+            f"Original user request: {user_message}\n"
+            f"Previous plan: {previous_plan[:2000]}\n"
+            f"Tool results (including errors): {(tool_results or '')[:3000]}\n\n"
+            "Your analysis must include:\n"
+            "1. ROOT CAUSE: Why did the previous plan fail? (wrong tool? wrong arguments? missing info?)\n"
+            "2. LESSON LEARNED: What should we avoid in the new plan?\n"
+            "3. NEW PLAN: A revised plan that addresses the root cause."
+        )
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         decision = self._intent.detect(user_message)

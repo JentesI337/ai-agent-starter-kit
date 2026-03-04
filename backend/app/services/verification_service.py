@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,11 @@ class VerificationResult:
 
 
 class VerificationService:
+    @staticmethod
+    def _tokenize_words(text: str) -> set[str]:
+        normalized = (text or "").lower()
+        return set(re.findall(r"[\wäöüß]+", normalized, flags=re.UNICODE))
+
     def verify_plan(self, *, user_message: str, plan_text: str) -> VerificationResult:
         normalized_plan = (plan_text or "").strip()
         if not normalized_plan:
@@ -33,6 +39,53 @@ class VerificationService:
             status="ok",
             reason="plan_acceptable",
             details={"plan_chars": len(normalized_plan), "user_chars": len(user_message or "")},
+        )
+
+    def verify_plan_semantically(self, *, user_message: str, plan_text: str) -> VerificationResult:
+        user_words = self._tokenize_words(user_message)
+        plan_words = self._tokenize_words(plan_text)
+        stopwords = {
+            "the",
+            "a",
+            "is",
+            "in",
+            "to",
+            "and",
+            "or",
+            "of",
+            "for",
+            "it",
+            "my",
+            "me",
+            "ich",
+            "ein",
+            "der",
+            "die",
+            "das",
+            "und",
+            "oder",
+            "für",
+            "ist",
+            "mir",
+        }
+        significant_user_words = {word for word in user_words if word not in stopwords and len(word) > 2}
+        if not significant_user_words:
+            return VerificationResult(status="ok", reason="no_significant_words", details={})
+
+        overlap = significant_user_words & plan_words
+        coverage = len(overlap) / len(significant_user_words)
+        rounded_coverage = round(coverage, 2)
+        if coverage < 0.15:
+            missing_words = sorted(significant_user_words - plan_words)[:5]
+            return VerificationResult(
+                status="warning",
+                reason="plan_may_miss_user_intent",
+                details={"coverage": rounded_coverage, "missing": missing_words},
+            )
+        return VerificationResult(
+            status="ok",
+            reason="plan_covers_intent",
+            details={"coverage": rounded_coverage},
         )
 
     def verify_tool_result(self, *, plan_text: str, tool_results: str) -> VerificationResult:

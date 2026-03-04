@@ -523,7 +523,7 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
         return ""
 
     async def fake_synth_execute(payload, session_id, request_id, send_event, model):
-        return "final"
+        return "final response"
 
     original_plan_executor = agent.plan_step_executor
     original_tool_executor = agent.tool_step_executor
@@ -547,7 +547,7 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
         agent.tool_step_executor = original_tool_executor
         agent.synthesize_step_executor = original_synth_executor
 
-    assert result == "final"
+    assert result == "final response"
     assert any(name == "agent_end" and payload.get("status") == "completed" for name, payload in captured)
 
 
@@ -652,7 +652,7 @@ def test_augment_actions_adds_web_fetch_for_web_research() -> None:
     assert any(
         payload.get("type") == "lifecycle"
         and payload.get("stage") == "tool_selection_followup_completed"
-        and payload.get("details", {}).get("reason") == "web_research_without_web_fetch"
+        and payload.get("details", {}).get("reason") in {"web_research_without_web_fetch", "web_research_without_search_tool"}
         for payload in events
     )
 

@@ -64,12 +64,20 @@ class ActionAugmenter:
         if (
             self._intent is not None
             and self._intent.is_web_research_task(user_message)
-            and "web_fetch" in allowed_tools
+            and not any(str(action.get("tool", "")).strip() == "web_search" for action in augmented_actions)
             and not any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
         ):
-            fallback_url = self._intent.build_search_url(user_message)
-            if fallback_url:
-                augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
+            if "web_search" in allowed_tools:
+                augmented_actions.append(
+                    {
+                        "tool": "web_search",
+                        "args": {"query": user_message.strip() or "latest news", "max_results": 5},
+                    }
+                )
+            elif "web_fetch" in allowed_tools:
+                fallback_url = self._intent.build_search_url(user_message)
+                if fallback_url:
+                    augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
 
         if (
             self._intent is not None
@@ -120,6 +128,7 @@ class ActionAugmenter:
             is_file_creation_task = self._intent.is_file_creation_task
 
         had_web_fetch_in_input = any(str(action.get("tool", "")).strip() == "web_fetch" for action in actions)
+        had_web_search_in_input = any(str(action.get("tool", "")).strip() == "web_search" for action in actions)
         had_spawn_subrun_in_input = any(
             str(action.get("tool", "")).strip() == "spawn_subrun" for action in actions
         )
@@ -129,23 +138,32 @@ class ActionAugmenter:
         has_web_fetch_after_augment = any(
             str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions
         )
+        has_web_search_after_augment = any(
+            str(action.get("tool", "")).strip() == "web_search" for action in augmented_actions
+        )
         if (
             is_web_research_task(user_message)
-            and "web_fetch" in allowed_tools
             and not had_web_fetch_in_input
-            and has_web_fetch_after_augment
+            and not had_web_search_in_input
+            and (has_web_search_after_augment or has_web_fetch_after_augment)
         ):
-            web_fetch_action = next(
+            search_action = next(
+                (action for action in augmented_actions if str(action.get("tool", "")).strip() == "web_search"),
+                None,
+            ) or next(
                 (action for action in augmented_actions if str(action.get("tool", "")).strip() == "web_fetch"),
                 None,
             )
-            added_url = str(web_fetch_action.get("args", {}).get("url", "")) if web_fetch_action else ""
+            added_tool = str(search_action.get("tool", "")).strip() if search_action else ""
+            added_url = str(search_action.get("args", {}).get("url", "")) if search_action else ""
+            added_query = str(search_action.get("args", {}).get("query", "")) if search_action else ""
             await emit_lifecycle(
                 "tool_selection_followup_completed",
                 {
-                    "reason": "web_research_without_web_fetch",
-                    "added_tool": "web_fetch",
+                    "reason": "web_research_without_search_tool",
+                    "added_tool": added_tool,
                     "url": added_url,
+                    "query": added_query,
                 },
             )
 
@@ -178,20 +196,33 @@ class ActionAugmenter:
                 },
             )
 
-        if (not uses_injected_intent) and is_web_research_task(user_message) and "web_fetch" in allowed_tools:
+        if (not uses_injected_intent) and is_web_research_task(user_message):
+            has_web_search = any(str(action.get("tool", "")).strip() == "web_search" for action in augmented_actions)
             has_web_fetch = any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
-            if not has_web_fetch:
-                fallback_url = build_web_research_url(user_message)
-                if fallback_url:
-                    augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
+            if not has_web_search and not has_web_fetch:
+                if "web_search" in allowed_tools:
+                    query = user_message.strip() or "latest news"
+                    augmented_actions.append({"tool": "web_search", "args": {"query": query, "max_results": 5}})
                     await emit_lifecycle(
                         "tool_selection_followup_completed",
                         {
-                            "reason": "web_research_without_web_fetch",
-                            "added_tool": "web_fetch",
-                            "url": fallback_url,
+                            "reason": "web_research_without_search_tool",
+                            "added_tool": "web_search",
+                            "query": query,
                         },
                     )
+                elif "web_fetch" in allowed_tools:
+                    fallback_url = build_web_research_url(user_message)
+                    if fallback_url:
+                        augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
+                        await emit_lifecycle(
+                            "tool_selection_followup_completed",
+                            {
+                                "reason": "web_research_without_search_tool",
+                                "added_tool": "web_fetch",
+                                "url": fallback_url,
+                            },
+                        )
 
         if (not uses_injected_intent) and is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
             has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
@@ -241,7 +272,7 @@ class ActionAugmenter:
             "You previously selected tools for a task.\n"
             "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
             "Return strict JSON only:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_search|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
             "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
             "If still insufficient context, return {\"actions\":[]}\n\n"
             "Memory:\n"

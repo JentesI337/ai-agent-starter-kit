@@ -13,7 +13,9 @@ TOOL_NAMES: tuple[str, ...] = (
     "start_background_command",
     "get_background_output",
     "kill_background_process",
+    "web_search",
     "web_fetch",
+    "http_request",
     "spawn_subrun",
 )
 
@@ -33,6 +35,11 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "startbackgroundcommand": "start_background_command",
     "getbackgroundoutput": "get_background_output",
     "killbackgroundprocess": "kill_background_process",
+    "websearch": "web_search",
+    "search_web": "web_search",
+    "search": "web_search",
     "webfetch": "web_fetch",
+    "httprequest": "http_request",
+    "http_request_tool": "http_request",
     "spawnsubrun": "spawn_subrun",
 }

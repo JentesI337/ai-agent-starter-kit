@@ -9,7 +9,13 @@ class _FakeClient:
     def __init__(self, response: str):
         self.response = response
 
-    async def complete_chat(self, system_prompt: str, user_prompt: str, model: str | None = None, temperature: float | None = None) -> str:
+    async def complete_chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> str:
         _ = (system_prompt, user_prompt, model, temperature)
         return self.response
 
@@ -47,4 +53,30 @@ def test_reflection_service_fallback_when_verdict_unparseable() -> None:
 
     assert verdict.score == 0.0
     assert verdict.should_retry is True
-    assert verdict.issues
+    assert verdict.issues == ["Unable to parse reflection verdict from model output."]
+
+
+def test_reflection_service_extracts_embedded_json_object() -> None:
+    service = ReflectionService(
+        client=_FakeClient(
+            "Model analysis:\n"
+            '{"goal_alignment":0.7,"completeness":0.8,"factual_grounding":0.9,'
+            '"issues":[],"suggested_fix":null}'
+        ),
+        threshold=0.79,
+    )
+
+    verdict = asyncio.run(
+        service.reflect(
+            user_message="Summarize changes",
+            plan_text="Read git diff and summarize.",
+            tool_results="[OK] read_file: agent.py",
+            final_answer="Summary generated.",
+        )
+    )
+
+    assert verdict.goal_alignment == 0.7
+    assert verdict.completeness == 0.8
+    assert verdict.factual_grounding == 0.9
+    assert verdict.score == (0.7 + 0.8 + 0.9) / 3
+    assert verdict.should_retry is False

@@ -44,6 +44,16 @@ def test_validate_web_fetch_applies_default_max_chars() -> None:
     assert args["max_chars"] == 12000
 
 
+def test_validate_web_search_applies_default_max_results() -> None:
+    validator = _validator()
+    args = {"query": "capital of france"}
+
+    error = validator.validate("web_search", args)
+
+    assert error is None
+    assert args["max_results"] == 5
+
+
 def test_validate_path_rejects_null_byte() -> None:
     validator = _validator()
     args = {"path": "foo\x00bar"}

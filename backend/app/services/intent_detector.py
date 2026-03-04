@@ -268,8 +268,14 @@ class IntentDetector:
         success_pattern = re.compile(r"\[web_fetch\]\s*\n(?!ERROR:)", re.IGNORECASE)
         return bool(success_pattern.search(tool_results))
 
+    def has_successful_web_search(self, tool_results: str) -> bool:
+        if not tool_results:
+            return False
+        success_pattern = re.compile(r"\[web_search\]\s*\n(?!ERROR:)", re.IGNORECASE)
+        return bool(success_pattern.search(tool_results))
+
     def has_successful_fetch(self, tool_results: str) -> bool:
-        return self.has_successful_web_fetch(tool_results)
+        return self.has_successful_web_fetch(tool_results) or self.has_successful_web_search(tool_results)
 
     def build_web_fetch_unavailable_reply(self, web_errors: list[str]) -> str:
         lines = [
@@ -295,7 +301,27 @@ class IntentDetector:
         return "\n".join(lines).strip()
 
     def build_fetch_unavailable_reply(self, web_errors: list[str]) -> str:
-        return self.build_web_fetch_unavailable_reply(web_errors)
+        lines = [
+            "I couldn't reliably fetch web sources for this request, so I can't provide a grounded deep-research answer yet.",
+            "",
+            "What failed:",
+        ]
+        if web_errors:
+            for item in web_errors[:3]:
+                lines.append(f"- {item}")
+        else:
+            lines.append("- No successful web_search/web_fetch result was returned.")
+
+        lines.extend(
+            [
+                "",
+                "How to proceed:",
+                "- Retry the request once (temporary upstream issues can resolve on retry).",
+                "- Provide 3-5 direct source URLs and I will analyze them deeply.",
+                "- If you want, I can first build a reliable source list, then run a second pass with comparative analysis.",
+            ]
+        )
+        return "\n".join(lines).strip()
 
     def build_web_research_url(self, user_message: str) -> str:
         text = (user_message or "").strip()

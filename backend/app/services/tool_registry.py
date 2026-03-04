@@ -102,7 +102,7 @@ class ToolRegistry:
         spec = self._specs[name]
         resolved_retry_class = retry_class
         if resolved_retry_class is None:
-            resolved_retry_class = "transient" if name in {"run_command", "web_fetch"} else "none"
+            resolved_retry_class = "transient" if name in {"run_command", "web_fetch", "web_search"} else "none"
         return ToolExecutionPolicy(
             retry_class=resolved_retry_class,
             timeout_seconds=spec.timeout_seconds,
@@ -390,6 +390,61 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "additionalProperties": False,
             },
             capabilities=("web_retrieval", "knowledge_retrieval", "source_grounding"),
+        ),
+        "web_search": ToolSpec(
+            name="web_search",
+            required_args=("query",),
+            optional_args=("max_results",),
+            timeout_seconds=15.0,
+            max_retries=1,
+            description=(
+                "Search the web for information. Returns titles, URLs and snippets. "
+                "Use this FIRST when the user asks about current events, facts, documentation, "
+                "or anything you're unsure about."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 1, "description": "The search query"},
+                    "max_results": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "Max results to return (default 5)",
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+            capabilities=("web_retrieval", "knowledge_retrieval", "source_grounding", "research"),
+        ),
+        "http_request": ToolSpec(
+            name="http_request",
+            required_args=("url",),
+            optional_args=("method", "headers", "body", "content_type", "max_chars"),
+            timeout_seconds=30.0,
+            max_retries=1,
+            description=(
+                "Make an HTTP request with any method (GET/POST/PUT/PATCH/DELETE). "
+                "Use for API calls, webhooks, and web services."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "minLength": 1},
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+                    },
+                    "headers": {"type": "string", "description": "JSON object of HTTP headers"},
+                    "body": {"type": "string", "description": "Request body (JSON string or raw text)"},
+                    "content_type": {"type": "string"},
+                    "max_chars": {"type": "integer", "minimum": 1},
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+            capabilities=("web_retrieval", "api_integration", "webhook_execution"),
         ),
         "spawn_subrun": ToolSpec(
             name="spawn_subrun",

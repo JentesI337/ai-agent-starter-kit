@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 from html import unescape
 import ipaddress
+import json
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,7 @@ import httpx
 
 from app.config import settings
 from app.errors import ToolExecutionError
+from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
 
 
@@ -103,6 +105,7 @@ class AgentTooling:
         self._web_fetch_blocked_content_types = tuple(
             item.strip().lower() for item in settings.web_fetch_blocked_content_types if item.strip()
         )
+        self._http_request_max_body_bytes = 1_000_000
         self._read_file_max_bytes = 1_000_000
         self._grep_max_file_bytes = 1_000_000
         self._grep_max_total_scan_bytes = 8_000_000
@@ -404,6 +407,164 @@ class AgentTooling:
             f"content_type: {content_type}\n"
             f"content:\n{normalized_text}"
         )
+
+    async def web_search(self, query: str, max_results: int = 5) -> str:
+        normalized_query = (query or "").strip()
+        if not normalized_query:
+            raise ToolExecutionError("web_search requires non-empty query.")
+
+        requested_max_results = max_results if isinstance(max_results, int) else settings.web_search_max_results
+        bounded_max_results = max(1, min(int(requested_max_results), 10))
+
+        service = WebSearchService(
+            provider=settings.web_search_provider,
+            api_key=settings.web_search_api_key,
+            base_url=settings.web_search_base_url,
+        )
+        try:
+            response = await service.search(normalized_query, max_results=bounded_max_results)
+        except ValueError as exc:
+            raise ToolExecutionError(f"web_search configuration error: {exc}") from exc
+        except Exception as exc:
+            raise ToolExecutionError(f"web_search failed for query='{normalized_query}': {exc}") from exc
+
+        lines = [
+            f"query: {response.query}",
+            f"provider: {response.provider}",
+            f"total_results: {response.total_results}",
+            f"search_time_ms: {response.search_time_ms}",
+        ]
+        if not response.results:
+            lines.append("results: (none)")
+            return "\n".join(lines)
+
+        lines.append("results:")
+        for index, result in enumerate(response.results, start=1):
+            lines.append(f"{index}. title: {result.title}")
+            lines.append(f"   source_url: {result.url}")
+            lines.append(f"   snippet: {result.snippet}")
+            lines.append(f"   source: {result.source}")
+            lines.append(f"   relevance_score: {result.relevance_score}")
+        return "\n".join(lines)
+
+    async def http_request(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: str | None = None,
+        body: str | None = None,
+        content_type: str = "application/json",
+        max_chars: int = 100000,
+    ) -> str:
+        requested_url = (url or "").strip()
+        if not requested_url:
+            raise ToolExecutionError("http_request requires non-empty URL.")
+
+        normalized_method = (method or "GET").strip().upper()
+        allowed_methods = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+        if normalized_method not in allowed_methods:
+            raise ToolExecutionError(
+                "http_request method must be one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
+            )
+
+        self._enforce_safe_web_target(requested_url)
+
+        limit = max(1, min(int(max_chars), 100000))
+        request_headers: dict[str, str] = {"User-Agent": "ai-agent-starter-kit/1.0"}
+        if headers:
+            try:
+                parsed_headers = json.loads(headers)
+            except Exception as exc:
+                raise ToolExecutionError(f"http_request headers must be valid JSON object: {exc}") from exc
+            if not isinstance(parsed_headers, dict):
+                raise ToolExecutionError("http_request headers must be a JSON object.")
+            for key, value in parsed_headers.items():
+                if not isinstance(key, str) or not key.strip():
+                    raise ToolExecutionError("http_request headers keys must be non-empty strings.")
+                if not isinstance(value, str):
+                    raise ToolExecutionError("http_request headers values must be strings.")
+                request_headers[key.strip()] = value
+
+        request_content: bytes | None = None
+        request_json: object | None = None
+        if body is not None:
+            body_bytes = body.encode("utf-8")
+            if len(body_bytes) > self._http_request_max_body_bytes:
+                raise ToolExecutionError(
+                    f"http_request body too large ({len(body_bytes)} bytes; max {self._http_request_max_body_bytes})"
+                )
+            try:
+                parsed_body = json.loads(body)
+            except Exception:
+                parsed_body = None
+
+            if isinstance(parsed_body, (dict, list)):
+                request_json = parsed_body
+            else:
+                request_content = body_bytes
+
+            has_content_type = any(key.lower() == "content-type" for key in request_headers)
+            normalized_content_type = (content_type or "application/json").strip() or "application/json"
+            if not has_content_type:
+                request_headers["Content-Type"] = normalized_content_type
+
+        content_type_value = "unknown"
+        response_url = requested_url
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                async with client.stream(
+                    normalized_method,
+                    requested_url,
+                    headers=request_headers,
+                    content=request_content,
+                    json=request_json,
+                ) as response:
+                    content_type_value = str(response.headers.get("Content-Type", "")).strip() or "unknown"
+                    response_url = str(response.url)
+                    chunks: list[bytes] = []
+                    max_download_bytes = max(limit + 1, self._web_fetch_max_download_bytes)
+                    total = 0
+                    truncated = False
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
+                            continue
+                        remaining = max_download_bytes - total
+                        if remaining <= 0:
+                            truncated = True
+                            break
+                        if len(chunk) > remaining:
+                            chunks.append(chunk[:remaining])
+                            total += remaining
+                            truncated = True
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    raw = b"".join(chunks)
+                    encoding = response.encoding or "utf-8"
+                    body_text = raw.decode(encoding, errors="replace")
+                    normalized_body = self._normalize_web_text(text=body_text, max_chars=limit)
+                    if truncated and len(normalized_body) < limit:
+                        normalized_body = f"{normalized_body}\n...[truncated:response exceeded read limit]"
+
+                    header_lines = [
+                        f"{name}: {value}"
+                        for name, value in sorted(response.headers.items(), key=lambda item: item[0].lower())[:50]
+                    ]
+                    rendered_headers = "\n".join(header_lines) if header_lines else "(none)"
+                    return (
+                        f"status: {int(response.status_code)}\n"
+                        f"method: {normalized_method}\n"
+                        f"source_url: {response_url}\n"
+                        f"content_type: {content_type_value}\n"
+                        f"headers:\n{rendered_headers}\n"
+                        f"body:\n{normalized_body or '(empty response)'}"
+                    )
+        except ToolExecutionError:
+            raise
+        except Exception as exc:
+            raise ToolExecutionError(
+                f"http_request failed for method={normalized_method} url={requested_url}: {exc}"
+            ) from exc
 
     def _enforce_safe_web_target(self, url: str) -> None:
         parsed = urlparse((url or "").strip())

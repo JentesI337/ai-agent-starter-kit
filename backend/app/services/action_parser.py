@@ -32,7 +32,7 @@ class ActionParser:
         repair_prompt = (
             "Convert the following tool-selection output into strict JSON only.\n"
             "Output schema:\n"
-            '{"actions":[{"tool":"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_fetch|spawn_subrun","args":{}}]}\n'
+            '{"actions":[{"tool":"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_search|web_fetch|spawn_subrun","args":{}}]}\n'
             "Rules:\n"
             "- Output only one JSON object.\n"
             "- No markdown and no explanations.\n"

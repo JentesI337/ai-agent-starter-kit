@@ -10,6 +10,7 @@ from app.tool_policy import ToolPolicyDict
 PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {
     "research": {
         "allow": [
+            "web_search",
             "web_fetch",
             "read_file",
             "file_search",
@@ -22,6 +23,7 @@ PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {
             "write_file",
             "apply_patch",
             "run_command",
+            "http_request",
             "start_background_command",
             "kill_background_process",
             "spawn_subrun",
@@ -35,12 +37,14 @@ PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {
             "list_code_usages",
             "list_dir",
             "get_changed_files",
+            "web_search",
             "web_fetch",
         ],
         "deny": [
             "write_file",
             "apply_patch",
             "run_command",
+            "http_request",
             "start_background_command",
             "kill_background_process",
             "spawn_subrun",
@@ -57,6 +61,7 @@ TOOL_PROFILES: dict[str, ToolPolicyDict] = {
             "grep_search",
             "list_code_usages",
             "get_changed_files",
+            "web_search",
             "web_fetch",
         ],
         "deny": [
@@ -81,6 +86,7 @@ TOOL_PROFILES: dict[str, ToolPolicyDict] = {
             "start_background_command",
             "get_background_output",
             "kill_background_process",
+            "web_search",
             "web_fetch",
             "spawn_subrun",
         ],
@@ -94,12 +100,14 @@ TOOL_PROFILES: dict[str, ToolPolicyDict] = {
             "grep_search",
             "list_code_usages",
             "get_changed_files",
+            "web_search",
             "web_fetch",
         ],
         "deny": [
             "write_file",
             "apply_patch",
             "run_command",
+            "http_request",
             "start_background_command",
             "kill_background_process",
             "spawn_subrun",

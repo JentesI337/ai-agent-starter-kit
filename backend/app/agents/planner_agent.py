@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 
+from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import PlannerInput, PlannerOutput
 from app.llm_client import LlmClient
+from app.services.plan_graph import PlanGraph
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
 from app.tool_policy import ToolPolicyDict
@@ -79,6 +81,91 @@ class PlannerAgent(AgentContract):
             temperature=self.constraints.temperature,
         )
         return PlannerOutput(plan_text=plan)
+
+    async def execute_structured(self, payload: PlannerInput, model: str | None = None) -> PlanGraph:
+        structured_instructions = (
+            "Analyze this request and create a structured execution plan.\n"
+            "Return JSON with this schema:\n"
+            '{"goal": "...", "complexity": "trivial|moderate|complex", '
+            '"steps": [{"step_id": "s1", "action": "...", "tool": "...|none", '
+            '"depends_on": [], "fallback": "..."|null}], '
+            '"clarification_needed": "..."|null}\n\n'
+            "Rules:\n"
+            "- trivial requests (greetings, simple questions): 1 step, tool='none'\n"
+            "- moderate requests: 1-3 steps with specific tools\n"
+            "- complex requests: 3-7 steps with dependency graph\n"
+            "- Always include fallback strategies for steps that might fail\n"
+            "- Mark steps that can run in parallel (no dependencies between them)"
+        )
+        prompt_mode = normalize_prompt_mode(payload.prompt_mode, default="minimal")
+        kernel = self._kernel_builder.build(
+            prompt_type="planning",
+            prompt_mode=prompt_mode,
+            sections={
+                "instructions": structured_instructions,
+                "reduced_context": payload.reduced_context,
+                "current_task": payload.user_message,
+            },
+        )
+        raw_plan = await self.client.complete_chat(
+            self.system_prompt,
+            kernel.rendered,
+            model=model,
+            temperature=self.constraints.temperature,
+        )
+        return self._parse_structured_plan(raw_plan)
+
+    def _parse_structured_plan(self, raw_plan: str) -> PlanGraph:
+        try:
+            payload = json.loads(raw_plan)
+        except Exception:
+            payload = None
+
+        if not isinstance(payload, dict):
+            extracted = self._extract_json_object(raw_plan)
+            if extracted is not None:
+                payload = extracted
+
+        if isinstance(payload, dict):
+            return PlanGraph.from_dict(payload, max_steps=max(1, int(settings.plan_max_steps)))
+
+        return PlanGraph(
+            goal="Execution plan",
+            complexity="moderate",
+            steps=[
+                PlanGraph.from_dict(
+                    {
+                        "steps": [
+                            {
+                                "step_id": "s1",
+                                "action": (raw_plan or "Provide direct answer").strip()[:300],
+                                "tool": "none",
+                                "depends_on": [],
+                                "fallback": "Ask for clarification if needed",
+                            }
+                        ]
+                    }
+                ).steps[0]
+            ],
+        )
+
+    @staticmethod
+    def _extract_json_object(raw_plan: str) -> dict | None:
+        text = (raw_plan or "").strip()
+        if not text:
+            return None
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end < start:
+            return None
+        candidate = text[start : end + 1]
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     async def run(
         self,

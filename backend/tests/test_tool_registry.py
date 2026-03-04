@@ -8,6 +8,8 @@ def test_build_default_tool_registry_contains_known_tools() -> None:
 
     assert "read_file" in set(registry.keys())
     assert "run_command" in set(registry.keys())
+    assert "web_search" in set(registry.keys())
+    assert "http_request" in set(registry.keys())
     assert registry.get("spawn_subrun") is not None
 
 
@@ -53,6 +55,14 @@ def test_registry_can_register_spec_and_build_policy() -> None:
     policy = registry.build_execution_policy("custom_tool")
     assert policy.timeout_seconds == 12.0
     assert policy.max_retries == 2
+    assert policy.retry_class == "none"
+
+
+def test_http_request_default_retry_class_is_none() -> None:
+    registry = build_default_tool_registry(command_timeout_seconds=30)
+
+    policy = registry.build_execution_policy("http_request")
+
     assert policy.retry_class == "none"
 
 

@@ -394,6 +394,10 @@ class Settings(BaseModel):
     session_inbox_ttl_seconds: int = int(os.getenv("SESSION_INBOX_TTL_SECONDS", "600"))
     session_follow_up_max_deferrals: int = int(os.getenv("SESSION_FOLLOW_UP_MAX_DEFERRALS", "2"))
     command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
+    web_search_provider: str = os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower()
+    web_search_api_key: str = os.getenv("WEB_SEARCH_API_KEY", "")
+    web_search_base_url: str = os.getenv("WEB_SEARCH_BASE_URL", "")
+    web_search_max_results: int = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
     web_fetch_max_download_bytes: int = int(os.getenv("WEB_FETCH_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
     web_fetch_blocked_content_types: list[str] = _parse_csv_env(
         os.getenv(
@@ -578,6 +582,11 @@ class Settings(BaseModel):
         "TOOL_SELECTION_FUNCTION_CALLING_ENABLED",
         True,
     )
+    reflection_enabled: bool = _parse_bool_env("REFLECTION_ENABLED", True)
+    reflection_threshold: float = max(0.0, min(1.0, float(os.getenv("REFLECTION_THRESHOLD", "0.6"))))
+    structured_planning_enabled: bool = _parse_bool_env("STRUCTURED_PLANNING_ENABLED", False)
+    plan_max_steps: int = max(1, min(20, int(os.getenv("PLAN_MAX_STEPS", "7"))))
+    plan_root_cause_replan_enabled: bool = _parse_bool_env("PLAN_ROOT_CAUSE_REPLAN_ENABLED", True)
     run_max_replan_iterations: int = int(os.getenv("RUN_MAX_REPLAN_ITERATIONS", "1"))
     run_empty_tool_replan_max_attempts: int = int(os.getenv("RUN_EMPTY_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
     run_error_tool_replan_max_attempts: int = int(os.getenv("RUN_ERROR_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
@@ -769,7 +778,10 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "SESSION_",
     "HOOK_",
     "COMMAND_",
+    "WEB_SEARCH_",
     "WEB_FETCH_",
+    "STRUCTURED_",
+    "PLAN_",
     "CORS_",
     "LOCAL_MODEL",
     "API_",
