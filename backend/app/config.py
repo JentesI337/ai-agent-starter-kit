@@ -584,9 +584,22 @@ class Settings(BaseModel):
     )
     reflection_enabled: bool = _parse_bool_env("REFLECTION_ENABLED", True)
     reflection_threshold: float = max(0.0, min(1.0, float(os.getenv("REFLECTION_THRESHOLD", "0.6"))))
+    clarification_protocol_enabled: bool = _parse_bool_env("CLARIFICATION_PROTOCOL_ENABLED", True)
+    clarification_confidence_threshold: float = max(
+        0.0,
+        min(1.0, float(os.getenv("CLARIFICATION_CONFIDENCE_THRESHOLD", "0.5"))),
+    )
     structured_planning_enabled: bool = _parse_bool_env("STRUCTURED_PLANNING_ENABLED", False)
     plan_max_steps: int = max(1, min(20, int(os.getenv("PLAN_MAX_STEPS", "7"))))
     plan_root_cause_replan_enabled: bool = _parse_bool_env("PLAN_ROOT_CAUSE_REPLAN_ENABLED", True)
+    long_term_memory_enabled: bool = _parse_bool_env("LONG_TERM_MEMORY_ENABLED", True)
+    session_distillation_enabled: bool = _parse_bool_env("SESSION_DISTILLATION_ENABLED", True)
+    failure_journal_enabled: bool = _parse_bool_env("FAILURE_JOURNAL_ENABLED", True)
+    long_term_memory_db_path: str = _resolve_path_from_workspace(
+        os.getenv("LONG_TERM_MEMORY_DB_PATH"),
+        workspace_root,
+        "memory_store/long_term.db",
+    )
     run_max_replan_iterations: int = int(os.getenv("RUN_MAX_REPLAN_ITERATIONS", "1"))
     run_empty_tool_replan_max_attempts: int = int(os.getenv("RUN_EMPTY_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
     run_error_tool_replan_max_attempts: int = int(os.getenv("RUN_ERROR_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
@@ -780,6 +793,7 @@ CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (
     "COMMAND_",
     "WEB_SEARCH_",
     "WEB_FETCH_",
+    "CLARIFICATION_",
     "STRUCTURED_",
     "PLAN_",
     "CORS_",

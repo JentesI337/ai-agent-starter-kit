@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -135,3 +137,81 @@ def test_api_control_config_health_includes_schema_and_risks() -> None:
     assert "isolation_allowlist_wildcard" in payload["risk_flags"]
     assert "isolation_allowlist_excessive" in payload["risk_flags"]
     assert "isolation_allowlist_pair_count" in payload["risk_flags"]
+
+
+def test_api_control_memory_overview_includes_long_term_sections(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure()
+
+    memory_dir = tmp_path / "memory_store"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    memory_file = memory_dir / "sess-a.jsonl"
+    memory_file.write_text(
+        "\n".join(
+            [
+                json.dumps({"role": "user", "content": "build memory view"}),
+                json.dumps({"role": "plan", "content": "add api and frontend page"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    db_path = tmp_path / "long_term.db"
+    connection = sqlite3.connect(str(db_path))
+    with connection:
+        connection.execute(
+            "CREATE TABLE episodic (id TEXT PRIMARY KEY, session_id TEXT, timestamp TEXT, summary TEXT, key_actions TEXT, outcome TEXT, tags TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE semantic (key TEXT PRIMARY KEY, value TEXT, confidence REAL, source_sessions TEXT, last_updated TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE failure_journal (id TEXT PRIMARY KEY, timestamp TEXT, task_description TEXT, error_type TEXT, root_cause TEXT, solution TEXT, prevention TEXT, tags TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO episodic (id, session_id, timestamp, summary, key_actions, outcome, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("e1", "sess-a", "2026-03-04T00:00:00Z", "Built memory page", "api,ui", "success", "memory,ui"),
+        )
+        connection.execute(
+            "INSERT INTO semantic (key, value, confidence, source_sessions, last_updated) VALUES (?, ?, ?, ?, ?)",
+            ("user.pref.stack", "python+angular", 0.8, "sess-a", "2026-03-04T00:00:00Z"),
+        )
+        connection.execute(
+            "INSERT INTO failure_journal (id, timestamp, task_description, error_type, root_cause, solution, prevention, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "f1",
+                "2026-03-04T00:01:00Z",
+                "memory api failed",
+                "tool_error",
+                "missing route",
+                "add router wiring",
+                "add unit test",
+                "memory,backend",
+            ),
+        )
+    connection.close()
+
+    monkeypatch.setattr(tools_handlers.settings, "memory_persist_dir", str(memory_dir))
+    monkeypatch.setattr(tools_handlers.settings, "long_term_memory_db_path", str(db_path))
+
+    payload = tools_handlers.api_control_memory_overview({"include_content": True})
+
+    assert payload["schema"] == "memory.overview.v1"
+    assert payload["session_count"] == 1
+    assert payload["total_entries"] == 2
+    assert payload["long_term_db"]["exists"] is True
+    assert payload["long_term_memory"]["available"] is True
+    assert payload["long_term_memory"]["counts"]["episodic"] == 1
+    assert payload["long_term_memory"]["counts"]["semantic"] == 1
+    assert payload["long_term_memory"]["counts"]["failure_journal"] == 1
+    assert payload["long_term_memory"]["episodic"][0]["summary"] == "Built memory page"
+    assert payload["long_term_memory"]["semantic"][0]["key"] == "user.pref.stack"
+    assert payload["long_term_memory"]["failure_journal"][0]["id"] == "f1"
+
+    filtered = tools_handlers.api_control_memory_overview({"include_content": True, "search_query": "python+angular"})
+    assert filtered["search_query"] == "python+angular"
+    assert filtered["long_term_memory"]["counts"]["semantic"] == 1
+    assert len(filtered["long_term_memory"]["semantic"]) == 1
+    assert filtered["long_term_memory"]["semantic"][0]["key"] == "user.pref.stack"
+    assert len(filtered["long_term_memory"]["episodic"]) == 0
+    assert len(filtered["long_term_memory"]["failure_journal"]) == 0

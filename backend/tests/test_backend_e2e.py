@@ -51,6 +51,39 @@ def test_runtime_status_endpoint_includes_api_model_health_fields() -> None:
     assert "apiModelsAvailable" in payload
     assert "apiModelsCount" in payload
     assert "apiModelsError" in payload
+    assert "featureFlags" in payload
+    assert isinstance(payload["featureFlags"], dict)
+
+
+def test_runtime_feature_flags_can_be_read_and_updated() -> None:
+    _set_local_runtime()
+    client = TestClient(app)
+
+    get_response = client.get("/api/runtime/features")
+    assert get_response.status_code == 200
+    current_flags = get_response.json().get("featureFlags")
+    assert isinstance(current_flags, dict)
+    assert "long_term_memory_enabled" in current_flags
+    assert "session_distillation_enabled" in current_flags
+    assert "failure_journal_enabled" in current_flags
+
+    post_response = client.post(
+        "/api/runtime/features",
+        json={
+            "featureFlags": {
+                "long_term_memory_enabled": False,
+                "session_distillation_enabled": False,
+                "failure_journal_enabled": False,
+            }
+        },
+    )
+    assert post_response.status_code == 200
+    payload = post_response.json()
+    assert payload.get("ok") is True
+    assert payload.get("persisted") is True
+    assert payload["featureFlags"]["long_term_memory_enabled"] is False
+    assert payload["featureFlags"]["session_distillation_enabled"] is False
+    assert payload["featureFlags"]["failure_journal_enabled"] is False
 
 
 def test_resolved_prompt_debug_endpoint_returns_prompt_map() -> None:

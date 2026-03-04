@@ -6,7 +6,7 @@ import os
 import shutil
 import socket
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import urlparse
@@ -24,6 +24,36 @@ class RuntimeState:
     runtime: str
     base_url: str
     model: str
+    features: dict[str, bool] = field(default_factory=dict)
+
+
+RUNTIME_FEATURE_DEFAULTS: dict[str, bool] = {
+    "long_term_memory_enabled": bool(settings.long_term_memory_enabled),
+    "session_distillation_enabled": bool(settings.session_distillation_enabled),
+    "failure_journal_enabled": bool(settings.failure_journal_enabled),
+}
+
+
+def _normalize_feature_flags(raw_flags: dict[str, object] | None) -> dict[str, bool]:
+    merged: dict[str, bool] = dict(RUNTIME_FEATURE_DEFAULTS)
+    if not isinstance(raw_flags, dict):
+        return merged
+
+    for key, value in raw_flags.items():
+        if key not in RUNTIME_FEATURE_DEFAULTS:
+            continue
+        if isinstance(value, bool):
+            merged[key] = value
+            continue
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                merged[key] = True
+                continue
+            if lowered in {"0", "false", "no", "off"}:
+                merged[key] = False
+                continue
+    return merged
 
 
 class RuntimeManager:
@@ -43,6 +73,23 @@ class RuntimeManager:
 
     def get_state(self) -> RuntimeState:
         return self._state
+
+    def get_feature_flags(self) -> dict[str, bool]:
+        self._state.features = _normalize_feature_flags(self._state.features)
+        return dict(self._state.features)
+
+    def update_feature_flags(self, updates: dict[str, object]) -> dict[str, bool]:
+        unknown_keys = sorted(key for key in updates.keys() if key not in RUNTIME_FEATURE_DEFAULTS)
+        if unknown_keys:
+            raise RuntimeSwitchError(
+                f"Unsupported runtime feature flag(s): {', '.join(unknown_keys)}"
+            )
+
+        normalized_current = _normalize_feature_flags(self._state.features)
+        normalized_updates = _normalize_feature_flags({**normalized_current, **updates})
+        self._state.features = normalized_updates
+        self._persist_state()
+        return dict(self._state.features)
 
     def set_active_model(self, model: str) -> None:
         self._state.model = model.strip()
@@ -92,6 +139,7 @@ class RuntimeManager:
                     next_state.model = await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
 
                 self._state = next_state
+                self._state.features = _normalize_feature_flags(previous.features)
                 self._persist_state()
                 await self._log(send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}")
                 return self._state
@@ -280,6 +328,7 @@ class RuntimeManager:
                 runtime=data.get("runtime", "local"),
                 base_url=data.get("base_url", settings.llm_base_url),
                 model=data.get("model", settings.local_model),
+                features=_normalize_feature_flags(data.get("features")),
             )
         except Exception:
             return None

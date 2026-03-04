@@ -51,6 +51,7 @@ def include_control_routers(
     context_list_handler,
     context_detail_handler,
     config_health_handler,
+    memory_overview_handler,
 ) -> None:
     app.include_router(
         build_control_runs_router(
@@ -111,5 +112,6 @@ def include_control_routers(
             context_list_handler=context_list_handler,
             context_detail_handler=context_detail_handler,
             config_health_handler=config_health_handler,
+            memory_overview_handler=memory_overview_handler,
         )
     )

@@ -1,0 +1,124 @@
+<section class="memory">
+  <header class="memory-header">
+    <div>
+      <h1>Memory Overview</h1>
+      <p class="subtitle">Alle gespeicherten Session-Memory-Einträge aus dem Backend.</p>
+    </div>
+  </header>
+
+  <section class="panel controls">
+    <label>
+      Search
+      <input [(ngModel)]="searchTerm" (ngModelChange)="onSearchTermChanged()" placeholder="search across all memory" />
+    </label>
+    <label>
+      Session Filter
+      <input [(ngModel)]="sessionFilter" (ngModelChange)="onSessionFilterChanged()" placeholder="session id (optional)" />
+    </label>
+    <label>
+      Max Sessions
+      <input type="number" min="1" [(ngModel)]="limitSessions" />
+    </label>
+    <label>
+      Max Entries / Session
+      <input type="number" min="1" [(ngModel)]="limitEntriesPerSession" />
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" [(ngModel)]="includeContent" />
+      Include Content
+    </label>
+    <button (click)="loadMemory()" [disabled]="loading">{{ loading ? 'Loading...' : 'Reload' }}</button>
+  </section>
+
+  <p class="error" *ngIf="error">{{ error }}</p>
+
+  <section class="panel" *ngIf="memory as payload">
+    <h2>Summary</h2>
+    <div class="summary-grid">
+      <div><strong>Schema:</strong> {{ payload.schema }}</div>
+      <div><strong>Store Dir:</strong> {{ payload.memory_store_dir }}</div>
+      <div><strong>Sessions:</strong> {{ payload.session_count }}</div>
+      <div><strong>Total Entries:</strong> {{ payload.total_entries }}</div>
+      <div><strong>Total Chars:</strong> {{ payload.total_content_chars }}</div>
+      <div><strong>Selected Session:</strong> {{ payload.selected_session_id || '-' }}</div>
+      <div><strong>Long-Term DB:</strong> {{ payload.long_term_db.exists ? 'exists' : 'missing' }}</div>
+      <div><strong>DB Size:</strong> {{ payload.long_term_db.size_bytes }} bytes</div>
+      <div><strong>Flag LTM:</strong> {{ payload.flags.long_term_memory_enabled }}</div>
+      <div><strong>Flag Distillation:</strong> {{ payload.flags.session_distillation_enabled }}</div>
+      <div><strong>Flag Failure Journal:</strong> {{ payload.flags.failure_journal_enabled }}</div>
+      <div><strong>LTM Available:</strong> {{ payload.long_term_memory.available }}</div>
+      <div><strong>Episodic Rows:</strong> {{ payload.long_term_memory.counts.episodic }}</div>
+      <div><strong>Semantic Rows:</strong> {{ payload.long_term_memory.counts.semantic }}</div>
+      <div><strong>Failure Rows:</strong> {{ payload.long_term_memory.counts.failure_journal }}</div>
+    </div>
+    <p class="hint" *ngIf="payload.long_term_memory.read_errors.length > 0">
+      DB read warnings: {{ payload.long_term_memory.read_errors.join(' | ') }}
+    </p>
+  </section>
+
+  <section class="panel" *ngIf="memory as payload">
+    <h2>Sessions</h2>
+    <div class="session" *ngFor="let session of filteredSessions">
+      <div class="session-head">
+        <span><strong>{{ session.session_id }}</strong></span>
+        <span>file: {{ session.file }}</span>
+        <span>entries: {{ session.entry_count }}</span>
+        <span *ngIf="session.parse_errors > 0">parse errors: {{ session.parse_errors }}</span>
+      </div>
+
+      <div class="table-header" *ngIf="session.entries.length > 0">
+        <span>#</span><span>Role</span><span>Chars</span><span>Content</span>
+      </div>
+      <div class="table-row" *ngFor="let entry of session.entries">
+        <span>{{ entry.index }}</span>
+        <span>{{ entry.role }}</span>
+        <span>{{ entry.chars }}</span>
+        <span class="content">{{ entry.content || '-' }}</span>
+      </div>
+      <p class="hint" *ngIf="session.entries.length === 0">No entries in this session for current filter/limits.</p>
+    </div>
+    <p class="hint" *ngIf="filteredSessions.length === 0">No sessions match current filters/search.</p>
+  </section>
+
+  <section class="panel" *ngIf="memory as payload">
+    <h2>Long-Term Episodic</h2>
+    <div class="table-header" *ngIf="filteredEpisodic.length > 0">
+      <span>Timestamp</span><span>Session</span><span>Outcome</span><span>Summary</span>
+    </div>
+    <div class="table-row" *ngFor="let item of filteredEpisodic">
+      <span>{{ item.timestamp || '-' }}</span>
+      <span>{{ item.session_id || '-' }}</span>
+      <span>{{ item.outcome || '-' }}</span>
+      <span class="content">{{ item.summary || '-' }}</span>
+    </div>
+    <p class="hint" *ngIf="filteredEpisodic.length === 0">No episodic entries found.</p>
+  </section>
+
+  <section class="panel" *ngIf="memory as payload">
+    <h2>Long-Term Semantic</h2>
+    <div class="table-header" *ngIf="filteredSemantic.length > 0">
+      <span>Key</span><span>Value</span><span>Confidence</span><span>Last Updated</span>
+    </div>
+    <div class="table-row" *ngFor="let item of filteredSemantic">
+      <span>{{ item.key || '-' }}</span>
+      <span class="content">{{ item.value || '-' }}</span>
+      <span>{{ item.confidence }}</span>
+      <span>{{ item.last_updated || '-' }}</span>
+    </div>
+    <p class="hint" *ngIf="filteredSemantic.length === 0">No semantic entries found.</p>
+  </section>
+
+  <section class="panel" *ngIf="memory as payload">
+    <h2>Failure Journal</h2>
+    <div class="table-header" *ngIf="filteredFailures.length > 0">
+      <span>Timestamp</span><span>Type</span><span>Task</span><span>Root Cause / Solution</span>
+    </div>
+    <div class="table-row" *ngFor="let item of filteredFailures">
+      <span>{{ item.timestamp || '-' }}</span>
+      <span>{{ item.error_type || '-' }}</span>
+      <span class="content">{{ item.task_description || '-' }}</span>
+      <span class="content">{{ item.root_cause || '-' }}<br />{{ item.solution || '-' }}</span>
+    </div>
+    <p class="hint" *ngIf="filteredFailures.length === 0">No failure entries found.</p>
+  </section>
+</section>

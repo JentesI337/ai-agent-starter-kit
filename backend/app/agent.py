@@ -34,6 +34,7 @@ from app.services.tool_call_gatekeeper import (
 )
 from app.services.action_parser import ActionParser
 from app.services.action_augmenter import ActionAugmenter
+from app.services.ambiguity_detector import AmbiguityDetector
 from app.services.intent_detector import IntentDetector
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reflection_service import ReflectionService
@@ -171,6 +172,7 @@ class HeadAgent:
         self._intent_detector = self._intent
         self._action_parser = ActionParser()
         self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
+        self._ambiguity_detector = AmbiguityDetector()
         self._reply_shaper = ReplyShaper()
         self._verification = VerificationService()
         self._reflection_service = (
@@ -426,6 +428,37 @@ class HeadAgent:
                     system_prompt=self.prompt_profile.plan_prompt,
                 ),
             )
+
+            if settings.clarification_protocol_enabled:
+                ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
+                threshold = max(0.0, min(1.0, float(settings.clarification_confidence_threshold)))
+                if ambiguity.is_ambiguous and ambiguity.confidence <= threshold:
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="clarification_needed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "ambiguity_type": ambiguity.ambiguity_type,
+                            "confidence": ambiguity.confidence,
+                            "question": ambiguity.clarification_question,
+                            "threshold": threshold,
+                        },
+                    )
+                    await send_event(
+                        {
+                            "type": "clarification_needed",
+                            "agent": self.name,
+                            "request_id": request_id,
+                            "session_id": session_id,
+                            "message": ambiguity.clarification_question or "Could you clarify your request?",
+                            "default_interpretation": ambiguity.default_interpretation,
+                            "ambiguity_type": ambiguity.ambiguity_type,
+                            "confidence": ambiguity.confidence,
+                        }
+                    )
+                    status = "completed"
+                    return ambiguity.clarification_question or "Could you clarify your request?"
 
             await self._invoke_hooks(
                 hook_name="before_prompt_build",

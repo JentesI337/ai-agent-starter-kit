@@ -226,6 +226,14 @@ class ControlConfigHealthRequest(BaseModel):
     include_effective_values: bool = False
 
 
+class ControlMemoryOverviewRequest(BaseModel):
+    session_id: str | None = None
+    limit_sessions: int = 200
+    limit_entries_per_session: int = 500
+    include_content: bool = True
+    search_query: str | None = None
+
+
 class ControlPolicyApprovalsPendingRequest(BaseModel):
     run_id: str | None = None
     session_id: str | None = None

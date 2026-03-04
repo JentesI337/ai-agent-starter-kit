@@ -11,6 +11,7 @@ import {
   CreateCustomAgentPayload,
   MonitoringSchema,
   PolicyApprovalRecord,
+  RuntimeFeatureFlags,
   PresetDescriptor,
   RunsAuditResponse,
 } from '../services/agents.service';
@@ -94,6 +95,15 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   customAgentBusy = false;
   sessionId = '';
   runtimeSwitching = false;
+  runtimeFeaturesLoading = false;
+  runtimeFeaturesSaving = false;
+  runtimeFeaturesPersistStatus: 'unknown' | 'persisted' | 'not_persisted' | 'error' = 'unknown';
+  runtimeFeaturesPersistText = 'Feature flags not saved yet in this session.';
+  runtimeFeatures: RuntimeFeatureFlags = {
+    long_term_memory_enabled: true,
+    session_distillation_enabled: true,
+    failure_journal_enabled: true,
+  };
   apiModelsAvailable: boolean | null = null;
   apiModelsHint = '';
   isConnected = false;
@@ -162,8 +172,16 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         if (!this.firstRunChoicePending) {
           localStorage.setItem('preferredRuntime', status.runtime);
         }
+        if (status.featureFlags) {
+          this.runtimeFeatures = {
+            ...this.runtimeFeatures,
+            ...status.featureFlags,
+          };
+        }
       },
     });
+
+    this.loadRuntimeFeatures();
 
     this.agentsService.getAgents().subscribe({
       next: (agents) => {
@@ -501,6 +519,67 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.runtimeSwitching = false;
       this.lines.push({ role: 'system', text: `Runtime switch failed: ${(error as Error).message}` });
     }
+  }
+
+  loadRuntimeFeatures(): void {
+    this.runtimeFeaturesLoading = true;
+    this.agentsService.getRuntimeFeatures().subscribe({
+      next: (response) => {
+        this.runtimeFeatures = {
+          ...this.runtimeFeatures,
+          ...response.featureFlags,
+        };
+        this.runtimeFeaturesPersistStatus = 'unknown';
+        this.runtimeFeaturesPersistText = 'Loaded feature flags from backend.';
+        this.runtimeFeaturesLoading = false;
+      },
+      error: (error) => {
+        this.runtimeFeaturesLoading = false;
+        this.runtimeFeaturesPersistStatus = 'error';
+        this.runtimeFeaturesPersistText = `Load failed: ${error?.error?.detail ?? error.message}`;
+        this.lines.push({ role: 'system', text: `Runtime feature flags load failed: ${error?.error?.detail ?? error.message}` });
+      },
+    });
+  }
+
+  saveRuntimeFeatures(): void {
+    if (this.runtimeFeaturesSaving) {
+      return;
+    }
+
+    this.runtimeFeaturesSaving = true;
+    const payload: RuntimeFeatureFlags = {
+      long_term_memory_enabled: !!this.runtimeFeatures.long_term_memory_enabled,
+      session_distillation_enabled: !!this.runtimeFeatures.session_distillation_enabled,
+      failure_journal_enabled: !!this.runtimeFeatures.failure_journal_enabled,
+    };
+
+    this.agentsService.updateRuntimeFeatures(payload).subscribe({
+      next: (response) => {
+        this.runtimeFeatures = {
+          ...this.runtimeFeatures,
+          ...response.featureFlags,
+        };
+        this.runtimeFeaturesSaving = false;
+        if (response.persisted === false) {
+          this.runtimeFeaturesPersistStatus = 'not_persisted';
+          this.runtimeFeaturesPersistText = 'Flags updated in runtime, but not confirmed as persisted in .env.';
+        } else {
+          this.runtimeFeaturesPersistStatus = 'persisted';
+          this.runtimeFeaturesPersistText = 'Flags persisted to backend/.env.';
+        }
+        this.lines.push({ role: 'system', text: 'Runtime feature flags updated.' });
+        this.pushLifecycle('frontend_runtime_features_updated', 'Runtime feature flags updated', {
+          ...response.featureFlags,
+        });
+      },
+      error: (error) => {
+        this.runtimeFeaturesSaving = false;
+        this.runtimeFeaturesPersistStatus = 'error';
+        this.runtimeFeaturesPersistText = `Save failed: ${error?.error?.detail ?? error.message}`;
+        this.lines.push({ role: 'system', text: `Runtime feature flags update failed: ${error?.error?.detail ?? error.message}` });
+      },
+    });
   }
 
   chooseInitialRuntime(target: 'local' | 'api'): void {

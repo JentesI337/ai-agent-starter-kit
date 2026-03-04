@@ -5,8 +5,29 @@
 	color: #111827;
 }
 
+.top-nav {
+	display: flex;
+	gap: 8px;
+	padding: 12px 16px 0;
+}
+
+.top-nav a {
+	padding: 6px 10px;
+	border-radius: 8px;
+	text-decoration: none;
+	color: #111827;
+	border: 1px solid #d1d5db;
+	background: #ffffff;
+}
+
+.top-nav a.active {
+	background: #111827;
+	border-color: #111827;
+	color: #ffffff;
+}
+
 .content {
 	padding: 16px;
 	min-height: 0;
-	height: 100%;
+	height: calc(100% - 48px);
 }

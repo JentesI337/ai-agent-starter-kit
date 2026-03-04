@@ -143,6 +143,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         max_queue_length=deps.settings.session_inbox_max_queue_length,
         ttl_seconds=deps.settings.session_inbox_ttl_seconds,
     )
+    pending_clarifications: dict[str, dict[str, Any]] = {}
     session_workers: dict[str, Any] = {}
     follow_up_deferrals: dict[str, int] = {}
     deps.logger.info(
@@ -173,6 +174,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 payload.get("type"),
                 payload.get("request_id"),
             )
+            if payload.get("type") == "clarification_needed":
+                pending_session_id = str(payload.get("session_id") or connection_session_id)
+                question = str(payload.get("message") or "").strip()
+                if question:
+                    pending_clarifications.setdefault(pending_session_id, {})["question"] = question
             await websocket.send_text(json.dumps(envelope))
         except (WebSocketDisconnect, RuntimeError) as exc:
             deps.logger.info(
@@ -422,9 +428,23 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             session_id,
             selected_model,
         )
+        clarification_requested = False
+
+        async def send_event_wrapped(payload: EventPayload) -> None:
+            nonlocal clarification_requested
+            if payload.get("type") == "clarification_needed":
+                clarification_requested = True
+                pending_clarifications[session_id] = {
+                    "original_message": content,
+                    "question": str(payload.get("message") or "").strip(),
+                    "request_id": request_id,
+                    "agent_id": resolved_agent_id,
+                }
+            await send_event(payload)
+
         await selected_orchestrator.run_user_message(
             user_message=content,
-            send_event=send_event,
+            send_event=send_event_wrapped,
             request_context=RequestContext(
                 session_id=session_id,
                 request_id=request_id,
@@ -449,6 +469,14 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             session_id,
             selected_model,
         )
+        if clarification_requested:
+            await send_lifecycle(
+                stage="clarification_waiting_response",
+                request_id=request_id,
+                session_id=session_id,
+                details={"queue_size": session_inbox.size(session_id)},
+            )
+            return
         await send_lifecycle(
             stage="request_completed",
             request_id=request_id,
@@ -644,7 +672,48 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 requested_model = (data.model or directive_result.overrides.model or "").strip() or None
                 reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
                 reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
-                if data.type == "user_message":
+                if data.type in {"user_message", "clarification_response"}:
+                    if data.type == "user_message":
+                        pending_clarifications.pop(session_id, None)
+                    if data.type == "clarification_response":
+                        pending = pending_clarifications.get(session_id)
+                        if not isinstance(pending, dict):
+                            await send_event(
+                                {
+                                    "type": "status",
+                                    "agent": deps.agent.name,
+                                    "message": "No pending clarification found for this session.",
+                                }
+                            )
+                            await send_lifecycle(
+                                stage="clarification_response_rejected",
+                                request_id=request_id,
+                                session_id=session_id,
+                                details={"reason": "no_pending_clarification"},
+                            )
+                            continue
+
+                        original_message = str(pending.get("original_message") or "").strip()
+                        clarification = content.strip()
+                        if not original_message:
+                            await send_event(
+                                {
+                                    "type": "status",
+                                    "agent": deps.agent.name,
+                                    "message": "Pending clarification is missing the original message.",
+                                }
+                            )
+                            await send_lifecycle(
+                                stage="clarification_response_rejected",
+                                request_id=request_id,
+                                session_id=session_id,
+                                details={"reason": "missing_original_message"},
+                            )
+                            continue
+
+                        content = f"{original_message}\n\nClarification: {clarification}"
+                        pending_clarifications.pop(session_id, None)
+
                     current_runtime_state = deps.runtime_manager.get_state()
                     deps.state_store.init_run(
                         run_id=request_id,
@@ -670,6 +739,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             "reasoning_level": reasoning_level,
                             "reasoning_visibility": reasoning_visibility,
                             "directives_applied": list(directive_result.applied),
+                            "source_type": data.type,
                         },
                     )
 

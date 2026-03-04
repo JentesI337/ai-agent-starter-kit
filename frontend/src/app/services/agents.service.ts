@@ -6,9 +6,26 @@ export interface RuntimeStatus {
   baseUrl: string;
   model: string;
   authenticated: boolean;
+  featureFlags?: RuntimeFeatureFlags;
   apiModelsAvailable?: boolean | null;
   apiModelsCount?: number | null;
   apiModelsError?: string | null;
+}
+
+export interface RuntimeFeatureFlags {
+  long_term_memory_enabled: boolean;
+  session_distillation_enabled: boolean;
+  failure_journal_enabled: boolean;
+}
+
+export interface RuntimeFeaturesResponse {
+  featureFlags: RuntimeFeatureFlags;
+}
+
+export interface RuntimeFeaturesUpdateResponse {
+  ok: boolean;
+  persisted?: boolean;
+  featureFlags: RuntimeFeatureFlags;
 }
 
 export interface AgentDescriptor {
@@ -130,6 +147,85 @@ export interface PolicyApprovalsAllowResponse {
   approval: PolicyApprovalRecord;
 }
 
+export interface MemoryEntry {
+  index: number;
+  role: string;
+  chars: number;
+  content?: string;
+}
+
+export interface MemorySession {
+  session_id: string;
+  file: string;
+  entry_count: number;
+  parse_errors: number;
+  entries: MemoryEntry[];
+}
+
+export interface EpisodicMemoryItem {
+  session_id: string;
+  timestamp: string;
+  outcome: string;
+  key_actions: string;
+  tags: string;
+  summary?: string;
+}
+
+export interface SemanticMemoryItem {
+  key: string;
+  confidence: number;
+  source_sessions: string;
+  last_updated: string;
+  value?: string;
+}
+
+export interface FailureJournalItem {
+  id: string;
+  timestamp: string;
+  error_type: string;
+  tags: string;
+  task_description?: string;
+  root_cause?: string;
+  solution?: string;
+  prevention?: string;
+}
+
+export interface LongTermMemorySection {
+  available: boolean;
+  tables: {
+    episodic: boolean;
+    semantic: boolean;
+    failure_journal: boolean;
+  };
+  counts: {
+    episodic: number;
+    semantic: number;
+    failure_journal: number;
+  };
+  episodic: EpisodicMemoryItem[];
+  semantic: SemanticMemoryItem[];
+  failure_journal: FailureJournalItem[];
+  read_errors: string[];
+}
+
+export interface MemoryOverviewResponse {
+  schema: 'memory.overview.v1';
+  memory_store_dir: string;
+  selected_session_id: string | null;
+  search_query?: string | null;
+  session_count: number;
+  total_entries: number;
+  total_content_chars: number;
+  flags: RuntimeFeatureFlags;
+  long_term_db: {
+    path: string;
+    exists: boolean;
+    size_bytes: number;
+  };
+  long_term_memory: LongTermMemorySection;
+  sessions: MemorySession[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentsService {
   private readonly apiBase = 'http://localhost:8000';
@@ -138,6 +234,16 @@ export class AgentsService {
 
   getRuntimeStatus() {
     return this.http.get<RuntimeStatus>(`${this.apiBase}/api/runtime/status`);
+  }
+
+  getRuntimeFeatures() {
+    return this.http.get<RuntimeFeaturesResponse>(`${this.apiBase}/api/runtime/features`);
+  }
+
+  updateRuntimeFeatures(featureFlags: Partial<RuntimeFeatureFlags>) {
+    return this.http.post<RuntimeFeaturesUpdateResponse>(`${this.apiBase}/api/runtime/features`, {
+      featureFlags,
+    });
   }
 
   getAgents() {
@@ -184,5 +290,15 @@ export class AgentsService {
     return this.http.post<PolicyApprovalsAllowResponse>(`${this.apiBase}/api/control/policy-approvals.allow`, {
       approval_id: approvalId,
     });
+  }
+
+  getMemoryOverview(payload?: {
+    session_id?: string;
+    limit_sessions?: number;
+    limit_entries_per_session?: number;
+    include_content?: boolean;
+    search_query?: string;
+  }) {
+    return this.http.post<MemoryOverviewResponse>(`${this.apiBase}/api/control/memory.overview`, payload ?? {});
   }
 }

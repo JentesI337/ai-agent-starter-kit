@@ -44,6 +44,8 @@ def test_runtime_debug_router_supports_async_and_sync_handlers() -> None:
     app.include_router(
         build_runtime_debug_router(
             runtime_status_handler=runtime_status,
+            runtime_features_handler=lambda: {"featureFlags": {"long_term_memory_enabled": True}},
+            runtime_update_features_handler=lambda payload: {"ok": True, "featureFlags": payload.get("featureFlags", {})},
             resolved_prompts_handler=lambda: {"prompts": {"head": "x"}},
             ping_handler=lambda: {"ok": True},
         )
@@ -52,6 +54,11 @@ def test_runtime_debug_router_supports_async_and_sync_handlers() -> None:
     client = TestClient(app)
 
     assert client.get("/api/runtime/status").json() == {"runtime": "local"}
+    assert client.get("/api/runtime/features").json() == {"featureFlags": {"long_term_memory_enabled": True}}
+    assert client.post("/api/runtime/features", json={"featureFlags": {"failure_journal_enabled": False}}).json() == {
+        "ok": True,
+        "featureFlags": {"failure_journal_enabled": False},
+    }
     assert client.get("/api/debug/prompts/resolved").json() == {"prompts": {"head": "x"}}
     assert client.get("/api/test/ping").json() == {"ok": True}
 
@@ -176,6 +183,7 @@ def test_control_tools_router_exposes_context_and_config_endpoints() -> None:
             context_list_handler=lambda payload: {"ok": "context.list", "payload": payload},
             context_detail_handler=lambda payload: {"ok": "context.detail", "payload": payload},
             config_health_handler=lambda payload: {"ok": "config.health", "payload": payload},
+            memory_overview_handler=lambda payload: {"ok": "memory.overview", "payload": payload},
         )
     )
 
@@ -183,3 +191,4 @@ def test_control_tools_router_exposes_context_and_config_endpoints() -> None:
     assert client.post("/api/control/context.list", json={"limit": 5}).json()["ok"] == "context.list"
     assert client.post("/api/control/context.detail", json={"run_id": "r1"}).json()["ok"] == "context.detail"
     assert client.post("/api/control/config.health", json={}).json()["ok"] == "config.health"
+    assert client.post("/api/control/memory.overview", json={}).json()["ok"] == "memory.overview"

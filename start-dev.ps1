@@ -5,7 +5,14 @@ param(
     [ValidateSet('local', 'api', '')]
     [string]$RuntimeMode = '',
     [ValidateSet('', 'minimax-m2:cloud', 'gpt-oss:20b-cloud', 'qwen3-coder:480b-cloud')]
-    [string]$ApiModel = ''
+    [string]$ApiModel = '',
+    [ValidateSet('', 'true', 'false')]
+    [string]$LongTermMemoryEnabled = '',
+    [ValidateSet('', 'true', 'false')]
+    [string]$SessionDistillationEnabled = '',
+    [ValidateSet('', 'true', 'false')]
+    [string]$FailureJournalEnabled = '',
+    [string]$LongTermMemoryDbPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -361,6 +368,20 @@ function Get-EnvOrDefault([string]$FilePath, [string]$Name, [string]$DefaultValu
     return $DefaultValue
 }
 
+function Resolve-BoolEnvValue([string]$RequestedValue, [string]$CurrentValue, [string]$DefaultValue = 'true') {
+    $requested = ($RequestedValue ?? '').Trim().ToLowerInvariant()
+    if ($requested -in @('true', 'false')) {
+        return $requested
+    }
+
+    $current = ($CurrentValue ?? '').Trim().ToLowerInvariant()
+    if ($current -in @('true', 'false')) {
+        return $current
+    }
+
+    return $DefaultValue
+}
+
 function Test-ModelInstalled([string]$OllamaBin, [string]$ModelName) {
     $listOutput = & $OllamaBin list 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -496,6 +517,26 @@ $backendDir = Join-Path $PSScriptRoot 'backend'
 $envFilePath = Join-Path $backendDir '.env'
 Ensure-BackendEnv -Port $LlmPort
 Upsert-EnvVar -FilePath $envFilePath -Name 'OLLAMA_BIN' -Value $ollamaBinary
+
+$currentLongTermMemoryEnabled = Get-EnvOrDefault -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_ENABLED' -DefaultValue 'true'
+$resolvedLongTermMemoryEnabled = Resolve-BoolEnvValue -RequestedValue $LongTermMemoryEnabled -CurrentValue $currentLongTermMemoryEnabled -DefaultValue 'true'
+Upsert-EnvVar -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_ENABLED' -Value $resolvedLongTermMemoryEnabled
+
+$currentSessionDistillationEnabled = Get-EnvOrDefault -FilePath $envFilePath -Name 'SESSION_DISTILLATION_ENABLED' -DefaultValue 'true'
+$resolvedSessionDistillationEnabled = Resolve-BoolEnvValue -RequestedValue $SessionDistillationEnabled -CurrentValue $currentSessionDistillationEnabled -DefaultValue 'true'
+Upsert-EnvVar -FilePath $envFilePath -Name 'SESSION_DISTILLATION_ENABLED' -Value $resolvedSessionDistillationEnabled
+
+$currentFailureJournalEnabled = Get-EnvOrDefault -FilePath $envFilePath -Name 'FAILURE_JOURNAL_ENABLED' -DefaultValue 'true'
+$resolvedFailureJournalEnabled = Resolve-BoolEnvValue -RequestedValue $FailureJournalEnabled -CurrentValue $currentFailureJournalEnabled -DefaultValue 'true'
+Upsert-EnvVar -FilePath $envFilePath -Name 'FAILURE_JOURNAL_ENABLED' -Value $resolvedFailureJournalEnabled
+
+$currentLongTermMemoryDbPath = Get-EnvOrDefault -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_DB_PATH' -DefaultValue 'memory_store/long_term.db'
+$resolvedLongTermMemoryDbPath = if (($LongTermMemoryDbPath ?? '').Trim()) { $LongTermMemoryDbPath.Trim() } else { $currentLongTermMemoryDbPath }
+Upsert-EnvVar -FilePath $envFilePath -Name 'LONG_TERM_MEMORY_DB_PATH' -Value $resolvedLongTermMemoryDbPath
+
+Write-Host "Long-term memory flags: LTM=$resolvedLongTermMemoryEnabled, Distillation=$resolvedSessionDistillationEnabled, FailureJournal=$resolvedFailureJournalEnabled" -ForegroundColor Cyan
+Write-Host "Long-term memory DB path: $resolvedLongTermMemoryDbPath" -ForegroundColor Cyan
+
 if ($selectedRuntime -eq 'api') {
     $existingApiModel = Get-EnvOrDefault -FilePath $envFilePath -Name 'API_MODEL' -DefaultValue 'minimax-m2:cloud'
     $selectedApiModel = Resolve-ApiModel -CurrentApiModel $existingApiModel

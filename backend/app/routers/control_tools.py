@@ -27,6 +27,7 @@ def build_control_tools_router(
     context_list_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     context_detail_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     config_health_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    memory_overview_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
 ) -> APIRouter:
     router = APIRouter()
 
@@ -93,6 +94,12 @@ def build_control_tools_router(
     @router.post("/api/control/config.health")
     async def control_config_health(request: JsonDict = Body(...)):
         result = config_health_handler(request)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
+
+    @router.post("/api/control/memory.overview")
+    async def control_memory_overview(request: JsonDict = Body(...)):
+        result = memory_overview_handler(request)
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
 

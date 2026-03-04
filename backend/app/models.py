@@ -31,8 +31,12 @@ class WsRuntimeSwitchRequestMessage(WsInboundEnvelope):
     type: Literal["runtime_switch_request"]
 
 
+class WsClarificationResponseMessage(WsInboundEnvelope):
+    type: Literal["clarification_response"]
+
+
 WsInboundMessage = Annotated[
-    WsUserMessage | WsSubrunSpawnMessage | WsRuntimeSwitchRequestMessage,
+    WsUserMessage | WsSubrunSpawnMessage | WsRuntimeSwitchRequestMessage | WsClarificationResponseMessage,
     Field(discriminator="type"),
 ]
 
@@ -41,6 +45,7 @@ SUPPORTED_WS_INBOUND_TYPES = frozenset(
         "user_message",
         "subrun_spawn",
         "runtime_switch_request",
+        "clarification_response",
     }
 )
 

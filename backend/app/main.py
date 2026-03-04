@@ -41,9 +41,11 @@ from app.run_endpoints import (
 )
 from app.runtime_debug_endpoints import (
     RuntimeDebugDependencies,
+    api_runtime_features,
     api_resolved_prompt_settings,
     api_runtime_status,
     api_test_ping,
+    api_runtime_update_features,
 )
 from app.runtime_manager import RuntimeManager
 from app.services import (
@@ -634,10 +636,13 @@ include_control_routers(
     context_list_handler=tools_handlers.api_control_context_list,
     context_detail_handler=tools_handlers.api_control_context_detail,
     config_health_handler=tools_handlers.api_control_config_health,
+    memory_overview_handler=tools_handlers.api_control_memory_overview,
 )
 app.include_router(
     build_runtime_debug_router(
         runtime_status_handler=lambda: api_runtime_status(_runtime_debug_dependencies),
+        runtime_features_handler=lambda: api_runtime_features(_runtime_debug_dependencies),
+        runtime_update_features_handler=lambda payload: api_runtime_update_features(_runtime_debug_dependencies, payload),
         resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
         ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
     )

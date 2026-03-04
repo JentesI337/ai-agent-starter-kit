@@ -5,6 +5,12 @@ Starter project with:
 - Angular UI (`frontend`)
 - WebSocket streaming updates from agent to UI
 
+## Issue-Ordner (Root)
+
+- Neuer Root-Ordner: `issues/`
+- Zweck: zentrale Ablage für offene Aufgaben, Bugs und Verbesserungen
+- Doku und Vorlage: `issues/README.md`
+
 ## One-command startup (root)
 
 Windows (PowerShell):

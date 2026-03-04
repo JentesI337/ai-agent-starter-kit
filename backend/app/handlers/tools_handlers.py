@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import json
+import sqlite3
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -12,6 +15,7 @@ from app.control_models import (
     ControlConfigHealthRequest,
     ControlContextDetailRequest,
     ControlContextListRequest,
+    ControlMemoryOverviewRequest,
     ControlToolsCatalogRequest,
     ControlToolsPolicyMatrixRequest,
     ControlToolsPolicyPreviewRequest,
@@ -545,3 +549,311 @@ def api_control_config_health(request_data: dict) -> dict:
     if request.include_effective_values:
         payload["effective_values"] = config_dump
     return payload
+
+
+def _resolve_path(value: str, *, workspace_root: str) -> Path:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = (Path(workspace_root) / candidate).resolve()
+    return candidate
+
+
+def _sqlite_table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _read_long_term_memory_sections(*, db_path: Path, include_content: bool, limit: int, search_query: str | None) -> dict[str, Any]:
+    section_payload: dict[str, Any] = {
+        "available": False,
+        "tables": {
+            "episodic": False,
+            "semantic": False,
+            "failure_journal": False,
+        },
+        "counts": {
+            "episodic": 0,
+            "semantic": 0,
+            "failure_journal": 0,
+        },
+        "episodic": [],
+        "semantic": [],
+        "failure_journal": [],
+        "read_errors": [],
+    }
+
+    if not db_path.exists() or not db_path.is_file():
+        return section_payload
+
+    section_payload["available"] = True
+
+    try:
+        connection = sqlite3.connect(str(db_path))
+    except Exception as exc:
+        section_payload["read_errors"].append(f"db_open_failed: {exc}")
+        return section_payload
+
+    normalized_query = (search_query or "").strip().lower()
+    has_query = bool(normalized_query)
+
+    try:
+        with connection:
+            has_episodic = _sqlite_table_exists(connection, "episodic")
+            has_semantic = _sqlite_table_exists(connection, "semantic")
+            has_failure = _sqlite_table_exists(connection, "failure_journal")
+
+            section_payload["tables"]["episodic"] = has_episodic
+            section_payload["tables"]["semantic"] = has_semantic
+            section_payload["tables"]["failure_journal"] = has_failure
+
+            if has_episodic:
+                count_row = connection.execute("SELECT COUNT(*) FROM episodic").fetchone()
+                section_payload["counts"]["episodic"] = int((count_row or [0])[0] or 0)
+                if has_query:
+                    like = f"%{normalized_query}%"
+                    rows = connection.execute(
+                        """
+                        SELECT session_id, timestamp, summary, key_actions, outcome, tags
+                        FROM episodic
+                        WHERE lower(session_id) LIKE ?
+                           OR lower(summary) LIKE ?
+                           OR lower(key_actions) LIKE ?
+                           OR lower(tags) LIKE ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (like, like, like, like, max(1, int(limit))),
+                    ).fetchall()
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT session_id, timestamp, summary, key_actions, outcome, tags
+                        FROM episodic
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (max(1, int(limit)),),
+                    ).fetchall()
+                episodic_items: list[dict[str, Any]] = []
+                for row in rows:
+                    key_actions_raw = str(row[3] or "")
+                    tags_raw = str(row[5] or "")
+                    item: dict[str, Any] = {
+                        "session_id": str(row[0] or ""),
+                        "timestamp": str(row[1] or ""),
+                        "outcome": str(row[4] or ""),
+                        "key_actions": key_actions_raw,
+                        "tags": tags_raw,
+                    }
+                    if include_content:
+                        item["summary"] = str(row[2] or "")
+                    episodic_items.append(item)
+                section_payload["episodic"] = episodic_items
+
+            if has_semantic:
+                count_row = connection.execute("SELECT COUNT(*) FROM semantic").fetchone()
+                section_payload["counts"]["semantic"] = int((count_row or [0])[0] or 0)
+                if has_query:
+                    like = f"%{normalized_query}%"
+                    rows = connection.execute(
+                        """
+                        SELECT key, value, confidence, source_sessions, last_updated
+                        FROM semantic
+                        WHERE lower(key) LIKE ?
+                           OR lower(value) LIKE ?
+                           OR lower(source_sessions) LIKE ?
+                        ORDER BY last_updated DESC
+                        LIMIT ?
+                        """,
+                        (like, like, like, max(1, int(limit))),
+                    ).fetchall()
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT key, value, confidence, source_sessions, last_updated
+                        FROM semantic
+                        ORDER BY last_updated DESC
+                        LIMIT ?
+                        """,
+                        (max(1, int(limit)),),
+                    ).fetchall()
+                semantic_items: list[dict[str, Any]] = []
+                for row in rows:
+                    item: dict[str, Any] = {
+                        "key": str(row[0] or ""),
+                        "confidence": float(row[2] or 0.0),
+                        "source_sessions": str(row[3] or ""),
+                        "last_updated": str(row[4] or ""),
+                    }
+                    if include_content:
+                        item["value"] = str(row[1] or "")
+                    semantic_items.append(item)
+                section_payload["semantic"] = semantic_items
+
+            if has_failure:
+                count_row = connection.execute("SELECT COUNT(*) FROM failure_journal").fetchone()
+                section_payload["counts"]["failure_journal"] = int((count_row or [0])[0] or 0)
+                if has_query:
+                    like = f"%{normalized_query}%"
+                    rows = connection.execute(
+                        """
+                        SELECT id, timestamp, task_description, error_type, root_cause, solution, prevention, tags
+                        FROM failure_journal
+                        WHERE lower(id) LIKE ?
+                           OR lower(task_description) LIKE ?
+                           OR lower(error_type) LIKE ?
+                           OR lower(root_cause) LIKE ?
+                           OR lower(solution) LIKE ?
+                           OR lower(prevention) LIKE ?
+                           OR lower(tags) LIKE ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (like, like, like, like, like, like, like, max(1, int(limit))),
+                    ).fetchall()
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT id, timestamp, task_description, error_type, root_cause, solution, prevention, tags
+                        FROM failure_journal
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (max(1, int(limit)),),
+                    ).fetchall()
+                failure_items: list[dict[str, Any]] = []
+                for row in rows:
+                    item: dict[str, Any] = {
+                        "id": str(row[0] or ""),
+                        "timestamp": str(row[1] or ""),
+                        "error_type": str(row[3] or ""),
+                        "tags": str(row[7] or ""),
+                    }
+                    if include_content:
+                        item["task_description"] = str(row[2] or "")
+                        item["root_cause"] = str(row[4] or "")
+                        item["solution"] = str(row[5] or "")
+                        item["prevention"] = str(row[6] or "")
+                    failure_items.append(item)
+                section_payload["failure_journal"] = failure_items
+
+    except Exception as exc:
+        section_payload["read_errors"].append(f"db_read_failed: {exc}")
+    finally:
+        connection.close()
+
+    return section_payload
+
+
+def api_control_memory_overview(request_data: dict) -> dict:
+    request = ControlMemoryOverviewRequest.model_validate(request_data)
+
+    memory_dir = _resolve_path(settings.memory_persist_dir, workspace_root=settings.workspace_root)
+    long_term_db_path = _resolve_path(settings.long_term_memory_db_path, workspace_root=settings.workspace_root)
+
+    requested_session = (request.session_id or "").strip()
+    search_query = (request.search_query or "").strip()
+    normalized_query = search_query.lower()
+    has_query = bool(normalized_query)
+    selected_session = requested_session if requested_session else None
+    session_limit = max(1, int(request.limit_sessions))
+    entry_limit = max(1, int(request.limit_entries_per_session))
+
+    session_items: list[dict[str, Any]] = []
+    total_entries = 0
+    total_chars = 0
+
+    if memory_dir.exists() and memory_dir.is_dir():
+        files = sorted(memory_dir.glob("*.jsonl"), key=lambda path: path.name)
+        if selected_session:
+            files = [path for path in files if path.stem == selected_session]
+        if has_query:
+            files = [path for path in files if normalized_query in path.stem.lower()]
+
+        for file_path in files[:session_limit]:
+            entries: list[dict[str, Any]] = []
+            parse_errors = 0
+            try:
+                lines = file_path.read_text(encoding="utf-8").splitlines()
+            except Exception:
+                lines = []
+                parse_errors += 1
+
+            for index, line in enumerate(lines[-entry_limit:], start=1):
+                if not line.strip():
+                    continue
+                try:
+                    payload = json.loads(line)
+                except Exception:
+                    parse_errors += 1
+                    continue
+
+                role = str(payload.get("role") or "").strip()
+                content = str(payload.get("content") or "")
+                if not role:
+                    parse_errors += 1
+                    continue
+
+                if has_query:
+                    hay = f"{role} {content}".lower()
+                    if normalized_query not in hay and normalized_query not in file_path.stem.lower():
+                        continue
+
+                total_entries += 1
+                total_chars += len(content)
+
+                entry: dict[str, Any] = {
+                    "index": index,
+                    "role": role,
+                    "chars": len(content),
+                }
+                if request.include_content:
+                    entry["content"] = content
+                entries.append(entry)
+
+            session_items.append(
+                {
+                    "session_id": file_path.stem,
+                    "file": file_path.name,
+                    "entry_count": len(entries),
+                    "parse_errors": parse_errors,
+                    "entries": entries,
+                }
+            )
+
+        if has_query:
+            session_items = [item for item in session_items if item.get("entries") or normalized_query in str(item.get("session_id") or "").lower()]
+
+    db_exists = long_term_db_path.exists() and long_term_db_path.is_file()
+    db_size_bytes = long_term_db_path.stat().st_size if db_exists else 0
+    long_term_sections = _read_long_term_memory_sections(
+        db_path=long_term_db_path,
+        include_content=bool(request.include_content),
+        limit=entry_limit,
+        search_query=search_query,
+    )
+
+    return {
+        "schema": "memory.overview.v1",
+        "memory_store_dir": str(memory_dir),
+        "selected_session_id": selected_session,
+        "search_query": search_query or None,
+        "session_count": len(session_items),
+        "total_entries": total_entries,
+        "total_content_chars": total_chars,
+        "flags": {
+            "long_term_memory_enabled": bool(getattr(settings, "long_term_memory_enabled", False)),
+            "session_distillation_enabled": bool(getattr(settings, "session_distillation_enabled", False)),
+            "failure_journal_enabled": bool(getattr(settings, "failure_journal_enabled", False)),
+        },
+        "long_term_db": {
+            "path": str(long_term_db_path),
+            "exists": db_exists,
+            "size_bytes": db_size_bytes,
+        },
+        "long_term_memory": long_term_sections,
+        "sessions": session_items,
+    }

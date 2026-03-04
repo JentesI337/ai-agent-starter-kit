@@ -195,6 +195,35 @@
         </select>
       </label>
       <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
+      <button class="secondary" (click)="loadRuntimeFeatures()" [disabled]="runtimeFeaturesLoading || firstRunChoicePending">
+        {{ runtimeFeaturesLoading ? 'Loading flags...' : 'Reload Flags' }}
+      </button>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.long_term_memory_enabled" [disabled]="runtimeFeaturesSaving || firstRunChoicePending" />
+        Long-Term Memory
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.session_distillation_enabled" [disabled]="runtimeFeaturesSaving || firstRunChoicePending" />
+        Session Distillation
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.failure_journal_enabled" [disabled]="runtimeFeaturesSaving || firstRunChoicePending" />
+        Failure Journal
+      </label>
+      <button class="secondary" (click)="saveRuntimeFeatures()" [disabled]="runtimeFeaturesSaving || firstRunChoicePending">
+        {{ runtimeFeaturesSaving ? 'Saving flags...' : 'Apply Flags' }}
+      </button>
+      <span
+        class="hint persist-status"
+        *ngIf="runtimeFeaturesPersistStatus !== 'unknown'"
+        [ngClass]="{
+          'persist-ok': runtimeFeaturesPersistStatus === 'persisted',
+          'persist-warn': runtimeFeaturesPersistStatus === 'not_persisted',
+          'persist-error': runtimeFeaturesPersistStatus === 'error'
+        }"
+      >
+        Persistenz: {{ runtimeFeaturesPersistText }}
+      </span>
       <button class="secondary" (click)="resetRuntimePreference()">Reset Runtime Choice</button>
       <button class="secondary" (click)="quickResetSession()">Quick Session Reset</button>
       <label>

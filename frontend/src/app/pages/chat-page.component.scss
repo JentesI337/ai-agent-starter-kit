@@ -61,6 +61,22 @@
   font-size: 0.8rem;
 }
 
+.persist-status {
+  font-weight: 500;
+}
+
+.persist-ok {
+  color: #ffd965;
+}
+
+.persist-warn {
+  color: #ffe9a8;
+}
+
+.persist-error {
+  color: #f8b8b8;
+}
+
 .workspace {
   min-height: 0;
   display: grid;
