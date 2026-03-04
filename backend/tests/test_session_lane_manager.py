@@ -76,3 +76,27 @@ def test_session_lock_cache_evicts_idle_entries() -> None:
     asyncio.run(_execute())
 
     assert len(manager._session_locks) <= 32
+
+
+def test_on_released_fires_exactly_once_on_run_failure() -> None:
+    manager = SessionLaneManager(global_max_concurrent=2)
+    released_calls: list[dict] = []
+
+    async def _run() -> str:
+        raise RuntimeError("non-retryable model failure")
+
+    async def _on_released(details: dict) -> None:
+        released_calls.append(details)
+
+    async def _execute() -> None:
+        await manager.run_in_lane(
+            session_id="sess-c",
+            on_acquired=None,
+            run=_run,
+            on_released=_on_released,
+        )
+
+    with pytest.raises(RuntimeError, match="non-retryable model failure"):
+        asyncio.run(_execute())
+
+    assert len(released_calls) == 1

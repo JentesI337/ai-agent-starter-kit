@@ -33,6 +33,38 @@ def test_parse_rejects_non_object_root() -> None:
     assert error == "LLM JSON root is not an object."
 
 
+def test_parse_accepts_fenced_json_payload() -> None:
+    parser = ActionParser()
+
+    actions, error = parser.parse(
+        """```json
+{"actions":[{"tool":"read_file","args":{"path":"README.md"}}]}
+```"""
+    )
+
+    assert error is None
+    assert actions == [{"tool": "read_file", "args": {"path": "README.md"}}]
+
+
+def test_parse_recovers_complete_actions_from_truncated_payload() -> None:
+    parser = ActionParser()
+
+    raw = (
+        '{"actions":['
+        '{"tool":"write_file","args":{"path":"Cargo.toml","content":"[package]\\nname=\\"eq_drawer\\""}},'
+        '{"tool":"write_file","args":{"path":"src/main.rs","content":"fn main() {'
+    )
+    actions, error = parser.parse(raw)
+
+    assert error is None
+    assert actions == [
+        {
+            "tool": "write_file",
+            "args": {"path": "Cargo.toml", "content": "[package]\nname=\"eq_drawer\""},
+        }
+    ]
+
+
 def test_extract_json_candidate_falls_back_for_non_json_text() -> None:
     parser = ActionParser()
 

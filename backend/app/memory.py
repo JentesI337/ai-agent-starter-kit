@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 from threading import RLock
 from typing import Deque
 
@@ -46,6 +47,80 @@ class MemoryStore:
         with self._lock:
             items = self._store.get(key, deque())
             return list(items)
+
+    def repair_orphaned_tool_calls(self, session_id: str) -> int:
+        key = self._normalize_session_id(session_id)
+        with self._lock:
+            items = list(self._store.get(key, deque()))
+            if not items:
+                return 0
+
+            repaired = 0
+            pending_tool_calls: set[str] = set()
+            repaired_items: list[MemoryItem] = []
+
+            for item in items:
+                if item.role == "assistant":
+                    pending_tool_calls.update(self._extract_tool_call_ids(item.content))
+                    repaired_items.append(item)
+                    continue
+
+                if item.role.startswith("tool:"):
+                    call_id = self._extract_tool_call_id(item.content)
+                    if call_id and call_id in pending_tool_calls:
+                        pending_tool_calls.discard(call_id)
+                    repaired_items.append(item)
+                    continue
+
+                if item.role == "user" and pending_tool_calls:
+                    for orphan_id in sorted(pending_tool_calls):
+                        synthetic_item = MemoryItem(
+                            role="tool:__synthetic__",
+                            content=json.dumps(
+                                {
+                                    "tool_call_id": orphan_id,
+                                    "role": "tool",
+                                    "isError": True,
+                                    "content": "[tool execution was interrupted — no result available]",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                        repaired_items.append(synthetic_item)
+                        repaired += 1
+                    pending_tool_calls.clear()
+
+                repaired_items.append(item)
+
+            if repaired > 0:
+                self._store[key] = deque(repaired_items, maxlen=self.max_items_per_session)
+                self._rewrite_session_file(session_id=key)
+
+            return repaired
+
+    def sanitize_session_history(self, session_id: str) -> int:
+        key = self._normalize_session_id(session_id)
+        with self._lock:
+            items = list(self._store.get(key, deque()))
+            if not items:
+                return 0
+
+            original_len = len(items)
+            valid_items: list[MemoryItem] = []
+            last_conversation_role: str | None = None
+
+            for item in items:
+                if item.role in ("user", "assistant"):
+                    if item.role == last_conversation_role:
+                        continue
+                    last_conversation_role = item.role
+                valid_items.append(item)
+
+            removed = original_len - len(valid_items)
+            if removed > 0:
+                self._store[key] = deque(valid_items, maxlen=self.max_items_per_session)
+                self._rewrite_session_file(session_id=key)
+            return removed
 
     def clear_all(self) -> None:
         with self._lock:
@@ -106,3 +181,49 @@ class MemoryStore:
 
         trimmed = lines[-self.max_items_per_session :]
         file_path.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _extract_tool_call_ids(content: str) -> set[str]:
+        source = str(content or "")
+        try:
+            payload = json.loads(source)
+        except Exception:
+            payload = None
+
+        if isinstance(payload, dict):
+            tool_calls = payload.get("tool_calls")
+            if isinstance(tool_calls, list):
+                ids = {
+                    str(item.get("id", "")).strip()
+                    for item in tool_calls
+                    if isinstance(item, dict)
+                }
+                return {item for item in ids if item}
+
+        tool_calls_match = re.search(r'"tool_calls"\s*:\s*\[(.*?)\]', source, flags=re.DOTALL)
+        if not tool_calls_match:
+            return set()
+
+        ids = set(re.findall(r'"id"\s*:\s*"([^"]+)"', tool_calls_match.group(1)))
+        return {item.strip() for item in ids if item.strip()}
+
+    @staticmethod
+    def _extract_tool_call_id(content: str) -> str | None:
+        source = str(content or "")
+        match = re.search(r'"tool_call_id"\s*:\s*"([^"]+)"', source)
+        if match:
+            return match.group(1).strip() or None
+        return None
+
+    def _rewrite_session_file(self, *, session_id: str) -> None:
+        if not self.persist_dir:
+            return
+
+        file_path = self.persist_dir / f"{session_id}.jsonl"
+        items = list(self._store.get(session_id, deque()))
+        if not items:
+            file_path.unlink(missing_ok=True)
+            return
+
+        lines = [json.dumps({"role": item.role, "content": item.content}, ensure_ascii=False) for item in items]
+        file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

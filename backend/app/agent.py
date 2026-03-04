@@ -47,6 +47,7 @@ from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
+from app.services.tool_result_context_guard import enforce_tool_result_context_budget
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
@@ -196,8 +197,11 @@ class HeadAgent:
         self._mcp_init_lock = asyncio.Lock()
         if settings.mcp_enabled and settings.mcp_servers:
             self._mcp_bridge = McpBridge(settings.mcp_servers)
-        self._tool_execution_manager = ToolExecutionManager()
+        # Registry muss vor ToolExecutionManager gebaut werden, damit
+        # filter_tools_by_capabilities verfügbar ist und capability preselection
+        # nicht mit "registry_missing_filter" abbricht.
         self.tool_registry = self._build_tool_registry()
+        self._tool_execution_manager = ToolExecutionManager(registry=self.tool_registry)
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
         self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
@@ -463,6 +467,24 @@ class HeadAgent:
                 raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
 
             self.memory.add(session_id, "user", user_message)
+            repaired_orphans = self.memory.repair_orphaned_tool_calls(session_id)
+            if repaired_orphans > 0:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="orphaned_tool_calls_repaired",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"count": repaired_orphans},
+                )
+            sanitized_items = self.memory.sanitize_session_history(session_id)
+            if sanitized_items > 0:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="session_history_sanitized",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"removed_items": sanitized_items},
+                )
             await self._invoke_hooks(
                 hook_name="before_model_resolve",
                 send_event=send_event,
@@ -982,6 +1004,27 @@ class HeadAgent:
                 }
             )
 
+            if settings.tool_result_context_guard_enabled and tool_results:
+                guarded_tool_results, guard_result = enforce_tool_result_context_budget(
+                    tool_results=tool_results,
+                    context_window_tokens=profile.max_context,
+                    context_input_headroom_ratio=settings.tool_result_context_headroom_ratio,
+                    single_tool_result_share=settings.tool_result_single_share,
+                )
+                if guard_result.modified:
+                    tool_results = guarded_tool_results
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="tool_result_context_guard_applied",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "original_chars": guard_result.original_chars,
+                            "reduced_chars": guard_result.reduced_chars,
+                            "reason": guard_result.reason,
+                        },
+                    )
+
             final_context = self.context_reducer.reduce(
                 budget_tokens=budgets["final"],
                 user_message=user_message,
@@ -1160,6 +1203,35 @@ class HeadAgent:
                     "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
                     "`run_command`, or `code_execute`) and retry."
                 )
+
+            # Orchestration Evidence Gate: verhindert, dass fabrizierte Erfolgsmeldungen
+            # den Nutzer täuschen, wenn ein Subrun nie erfolgreich abgeschlossen wurde.
+            # Analoges Muster zum implementation_evidence_missing Gate.
+            if synthesis_task_type == "orchestration" and not self._has_orchestration_evidence(tool_results):
+                attempted = self._has_orchestration_attempted(tool_results)
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="orchestration_evidence_missing",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "task_type": synthesis_task_type,
+                        "subrun_attempted": attempted,
+                        "expected_terminal_reason": "subrun-complete",
+                    },
+                )
+                if attempted:
+                    final_text = (
+                        "The delegated subrun did not complete successfully. "
+                        "No confirmed delegation outcome is available. "
+                        "Check the subrun status and retry with `mode=\"wait\"` for synchronous delegation."
+                    )
+                else:
+                    final_text = (
+                        "No subrun was executed for this orchestration request. "
+                        "The plan did not result in a `spawn_subrun` tool call. "
+                        "Please verify the orchestration intent and retry."
+                    )
             final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
             await self._emit_lifecycle(
                 send_event,
@@ -2027,8 +2099,38 @@ class HeadAgent:
         message = (user_message or "").strip()
         if self.synthesizer_agent._requires_hard_research_structure(message):
             return "hard_research"
-        if self._is_subrun_orchestration_task(message) or "spawned_subrun_id=" in (tool_results or ""):
+
+        # Evidence-first: Tool-Ergebnisse haben absoluten Vorrang vor Keyword-Match.
+        # "spawned_subrun_id=" im Tool-Result belegt, dass spawn_subrun ausgeführt wurde.
+        # Der terminal_reason entscheidet über den konkreten Orchestrierungs-Typ.
+        if "spawned_subrun_id=" in (tool_results or ""):
+            tr = tool_results or ""
+            terminal_statuses = [
+                (m.start(), m.group(1))
+                for m in re.finditer(
+                    r"terminal_reason=(subrun-complete|subrun-error|subrun-timeout|subrun-cancelled|subrun-running|subrun-accepted)",
+                    tr,
+                )
+            ]
+            if terminal_statuses:
+                _, last_status = max(terminal_statuses, key=lambda item: item[0])
+                if last_status == "subrun-complete":
+                    return "orchestration"
+                if last_status in ("subrun-error", "subrun-timeout", "subrun-cancelled"):
+                    return "orchestration_failed"
+                return "orchestration_pending"
+
+            # Backward-compatible fallback wenn terminal_reason nicht explizit serialisiert ist.
+            if "subrun-complete" in tr:
+                return "orchestration"
+            if any(s in tr for s in ("subrun-error", "subrun-timeout", "subrun-cancelled")):
+                return "orchestration_failed"
+            return "orchestration_pending"
+
+        # Keyword-Scan nur wenn KEIN Subrun-Ergebnis vorliegt.
+        if self._is_subrun_orchestration_task(message):
             return "orchestration"
+
         implementation_markers = (
             "implement",
             "fix",
@@ -2049,6 +2151,28 @@ class HeadAgent:
         if synthesis_task_type == "implementation":
             return True
         return self._is_file_creation_task(user_message)
+
+    def _requires_orchestration_evidence(self, synthesis_task_type: str) -> bool:
+        """Gibt True zurück wenn der Task-Typ eine erfolgreiche Subrun-Ausführung voraussetzt.
+        Gilt für 'orchestration' (mode=wait, Kind war completed) und
+        'orchestration_pending' / 'orchestration_failed' (freigegebene Fehlerbehandlung).
+        """
+        return synthesis_task_type in {"orchestration", "orchestration_failed", "orchestration_pending"}
+
+    def _has_orchestration_evidence(self, tool_results: str | None) -> bool:
+        """Prüft ob ein abgeschlossener erfolgreicher Subrun im Tool-Result belegt ist.
+        Gibt False zurück wenn nur 'accepted' oder kein Subrun vorhanden.
+        """
+        tr = tool_results or ""
+        if "spawned_subrun_id=" in tr and "subrun-complete" in tr:
+            return True
+        if "subrun_announce" in tr and "subrun-complete" in tr:
+            return True
+        return False
+
+    def _has_orchestration_attempted(self, tool_results: str | None) -> bool:
+        """Gibt True zurück, wenn spawn_subrun aufgerufen wurde (egal ob erfolgreich)."""
+        return "spawned_subrun_id=" in (tool_results or "")
 
     def _has_successful_tool_output(self, tool_results: str | None, tool_name: str) -> bool:
         if not tool_results:
@@ -2167,6 +2291,9 @@ class HeadAgent:
                 self._mcp_initialized = True
                 self.tool_registry = self._build_tool_registry()
                 self._validate_tool_registry_dispatch()
+                # Registry neu verdrahten, damit ToolExecutionManager
+                # nach MCP-Init die aktualisierten Tool-Capabilities sieht.
+                self._tool_execution_manager._registry = self.tool_registry
                 await self._emit_lifecycle(
                     send_event,
                     stage="mcp_tools_initialized",
@@ -2347,6 +2474,9 @@ class HeadAgent:
         timeout_seconds = int(args.get("timeout_seconds") or 0)
         child_policy = args.get("tool_policy")
         source_agent_id = self._source_agent_id_context.get() or self.name
+
+        if mode == "run" and self._is_subrun_orchestration_task(message):
+            mode = "wait"
 
         if child_policy is not None and not isinstance(child_policy, dict):
             raise ToolExecutionError("spawn_subrun 'tool_policy' must be an object.")

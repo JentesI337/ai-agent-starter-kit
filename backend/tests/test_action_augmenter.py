@@ -95,6 +95,8 @@ def test_augment_adds_spawn_subrun_when_missing() -> None:
     )
 
     assert any(action.get("tool") == "spawn_subrun" for action in actions)
+    spawn_action = next(action for action in actions if action.get("tool") == "spawn_subrun")
+    assert spawn_action.get("args", {}).get("mode") == "wait"
 
 
 def test_augment_skips_spawn_subrun_for_too_short_orchestration_prompt() -> None:

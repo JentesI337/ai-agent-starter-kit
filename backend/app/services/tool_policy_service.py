@@ -161,6 +161,7 @@ TOOL_POLICY_RESOLUTION_ORDER = [
     "preset",
     "provider",
     "model",
+    "agent_override",
     "agent_depth",
     "request",
 ]
@@ -212,6 +213,87 @@ def policy_payload(policy: ToolPolicyDict | None) -> ToolPolicyDict:
     if deny_values:
         payload["deny"] = list(deny_values)
     return payload
+
+
+def _normalized_policy_from_mapping(value: object) -> ToolPolicyDict | None:
+    if not isinstance(value, dict):
+        return None
+    payload: ToolPolicyDict = {}
+    for key in ("allow", "deny", "also_allow"):
+        items = value.get(key)
+        if not isinstance(items, list):
+            continue
+        normalized = [item for item in items if isinstance(item, str) and item.strip()]
+        if normalized:
+            payload[key] = normalized
+    return payload or None
+
+
+def _resolve_agent_override_policy(
+    *,
+    request_policy: ToolPolicyDict | None,
+    normalized_agent_id: str | None,
+) -> ToolPolicyDict | None:
+    if not isinstance(request_policy, dict):
+        return None
+    raw_agents = request_policy.get("agents")
+    if not isinstance(raw_agents, dict):
+        return None
+
+    selected: object | None = None
+    if normalized_agent_id and normalized_agent_id in raw_agents:
+        selected = raw_agents.get(normalized_agent_id)
+    elif "*" in raw_agents:
+        selected = raw_agents.get("*")
+
+    return _normalized_policy_from_mapping(selected)
+
+
+def _apply_agent_override_precedence(
+    *,
+    merged_policy: ToolPolicyDict | None,
+    agent_override_policy: ToolPolicyDict | None,
+) -> ToolPolicyDict | None:
+    if not agent_override_policy:
+        return merged_policy
+
+    base_allow = [item for item in (merged_policy or {}).get("allow") or [] if isinstance(item, str) and item.strip()]
+    base_deny = [item for item in (merged_policy or {}).get("deny") or [] if isinstance(item, str) and item.strip()]
+    override_allow = [
+        item for item in (agent_override_policy.get("allow") or []) if isinstance(item, str) and item.strip()
+    ]
+    override_deny = [
+        item for item in (agent_override_policy.get("deny") or []) if isinstance(item, str) and item.strip()
+    ]
+    override_also_allow = [
+        item
+        for item in (agent_override_policy.get("also_allow") or [])
+        if isinstance(item, str) and item.strip()
+    ]
+
+    if not (override_allow or override_deny or override_also_allow):
+        return merged_policy
+
+    overridden_tools = {*(item.strip().lower() for item in override_allow), *(item.strip().lower() for item in override_deny)}
+
+    allow_values = [item for item in base_allow if item.strip().lower() not in overridden_tools]
+    deny_values = [item for item in base_deny if item.strip().lower() not in overridden_tools]
+
+    for item in override_allow:
+        if item not in allow_values:
+            allow_values.append(item)
+    for item in override_deny:
+        if item not in deny_values:
+            deny_values.append(item)
+
+    payload: ToolPolicyDict = {}
+    if allow_values:
+        payload["allow"] = allow_values
+    if deny_values:
+        payload["deny"] = deny_values
+    if override_also_allow:
+        payload["also_allow"] = sorted(set(override_also_allow))
+    return payload or None
 
 
 def resolve_tool_policy(
@@ -268,6 +350,10 @@ def resolve_tool_policy(
         agent_depth_policy = {"deny": sorted(agent_depth_deny)}
 
     known_tool_names = {item.strip().lower() for item in TOOL_NAME_SET}
+    agent_override_policy = _resolve_agent_override_policy(
+        request_policy=request_policy,
+        normalized_agent_id=normalized_agent_id,
+    )
 
     merge_chain: list[tuple[str, str | None, ToolPolicyDict | None]] = [
         (
@@ -293,6 +379,10 @@ def resolve_tool_policy(
     merged_policy = None
     for _, _, layer_policy in merge_chain:
         merged_policy = merge_tool_policy(merged_policy, layer_policy)
+    merged_policy = _apply_agent_override_precedence(
+        merged_policy=merged_policy,
+        agent_override_policy=agent_override_policy,
+    )
 
     layers: list[dict] = []
     for layer_name, layer_id, layer_policy in merge_chain:
@@ -303,6 +393,13 @@ def resolve_tool_policy(
                 "toolPolicy": policy_payload(layer_policy),
             }
         )
+    layers.append(
+        {
+            "layer": "agent_override",
+            "id": normalized_agent_id,
+            "toolPolicy": policy_payload(agent_override_policy),
+        }
+    )
 
     merged_payload = policy_payload(merged_policy)
     merged_allow_values = list(merged_payload.get("allow") or [])

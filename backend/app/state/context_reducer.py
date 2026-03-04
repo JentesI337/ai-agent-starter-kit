@@ -13,6 +13,17 @@ class ReducedContext:
 
 class ContextReducer:
     TOKEN_PATTERN = re.compile(r"\w+|[^\w\s]", flags=re.UNICODE)
+    _IDENTIFIER_HINT = (
+        "Identifier preservation: keep UUIDs, spawned_subrun_id, run_id, session_id, URLs,"
+        " hashes, versions and file paths exactly as-is."
+    )
+    _SENSITIVE_PATTERNS: tuple[tuple[str, str], ...] = (
+        (r"(?i)(Bearer\s+)[A-Za-z0-9\-_.]{12,}", r"\1[REDACTED]"),
+        (r"(?i)(api[_\-]?key[\"'\s:=]+)[A-Za-z0-9\-_.]{8,}", r"\1[REDACTED]"),
+        (r"(?i)(Authorization:\s*)[^\n]{8,}", r"\1[REDACTED]"),
+        (r"(?is)-----BEGIN [A-Z ]+KEY-----.*?-----END [A-Z ]+KEY-----", "[REDACTED_PRIVATE_KEY]"),
+        (r"(?i)(password[\"'\s:=]+)[^\s\"']{6,}", r"\1[REDACTED]"),
+    )
 
     def estimate_tokens(self, text: str) -> int:
         if not text:
@@ -38,8 +49,12 @@ class ContextReducer:
         task_section = "Current task:\n" + self._truncate_to_tokens(user_message.strip(), max(24, int(budget * 0.25)))
         sections.append(task_section)
 
+        if self._contains_identifier_like_content(user_message, memory_lines, tool_outputs, snapshot_lines):
+            sections.append(self._IDENTIFIER_HINT)
+
         if tool_outputs:
-            clipped_tools = self._collect_items(tool_outputs, max_chars=max_chars // 2, max_tokens=tool_budget)
+            safe_tool_outputs = [self.strip_sensitive_tool_results(item) for item in tool_outputs]
+            clipped_tools = self._collect_items(safe_tool_outputs, max_chars=max_chars // 2, max_tokens=tool_budget)
             if clipped_tools:
                 sections.append("Tool outputs:\n" + "\n\n".join(clipped_tools))
 
@@ -63,6 +78,12 @@ class ContextReducer:
             used_tokens=self.estimate_tokens(rendered),
             budget_tokens=budget,
         )
+
+    def strip_sensitive_tool_results(self, context: str) -> str:
+        sanitized = str(context or "")
+        for pattern, replacement in self._SENSITIVE_PATTERNS:
+            sanitized = re.sub(pattern, replacement, sanitized)
+        return sanitized
 
     def _collect_items(self, items: list[str], *, max_chars: int, max_tokens: int) -> list[str]:
         result: list[str] = []
@@ -103,3 +124,29 @@ class ContextReducer:
 
         end_index = matches[max_tokens - 1].end()
         return source[:end_index]
+
+    @staticmethod
+    def _contains_identifier_like_content(
+        user_message: str,
+        memory_lines: list[str],
+        tool_outputs: list[str],
+        snapshot_lines: list[str] | None,
+    ) -> bool:
+        joined = "\n".join([
+            user_message or "",
+            *(memory_lines or []),
+            *(tool_outputs or []),
+            *((snapshot_lines or [])),
+        ])
+        if not joined.strip():
+            return False
+
+        patterns = (
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+            r"\b(?:spawned_subrun_id|run_id|session_id)=[^\s]+",
+            r"https?://[^\s]+",
+            r"\b[a-f0-9]{7,40}\b",
+            r"\b\d+\.\d+\.\d+\b",
+            r"[A-Za-z]:\\|/[^\s]+/[^\s]+",
+        )
+        return any(re.search(pattern, joined, flags=re.IGNORECASE) for pattern in patterns)

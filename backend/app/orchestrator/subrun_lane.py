@@ -20,6 +20,7 @@ from app.tool_policy import ToolPolicyDict
 
 
 TERMINAL_STATUSES = {"completed", "failed", "timed_out", "cancelled"}
+SubrunCompletionCallback = Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -91,9 +92,13 @@ class SubrunLane:
         self._children_by_parent: dict[str, set[str]] = defaultdict(set)
         self._parent_by_child: dict[str, str] = {}
         self._children_by_session: dict[str, set[str]] = defaultdict(set)
+        self._completion_callback: SubrunCompletionCallback | None = None
         self._lock = asyncio.Lock()
         self._registry_file = Path(self._state_store.persist_dir) / "subrun_registry.json"
         self._restore_registry()
+
+    def set_completion_callback(self, callback: SubrunCompletionCallback | None) -> None:
+        self._completion_callback = callback
 
     async def spawn(
         self,
@@ -632,6 +637,19 @@ class SubrunLane:
                 "handover": handover,
             },
         )
+
+        completion_callback = self._completion_callback
+        if completion_callback is not None:
+            try:
+                await completion_callback(
+                    parent_session_id=spec.parent_session_id,
+                    run_id=spec.run_id,
+                    child_agent_id=spec.agent_id,
+                    terminal_reason=str(handover.get("terminal_reason") or "subrun-unknown"),
+                    child_output=(final_text or None),
+                )
+            except Exception:
+                pass
 
         async with self._lock:
             self._run_tasks.pop(spec.run_id, None)

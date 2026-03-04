@@ -678,6 +678,46 @@ def test_implementation_evidence_requires_successful_write_or_command() -> None:
     assert agent._has_implementation_evidence("[read_file]\ncontent") is False
 
 
+def test_orchestration_evidence_accepts_subrun_announce_complete() -> None:
+    agent = HeadAgent()
+
+    tool_results = "[spawn_subrun_announce]\n[subrun_announce] spawned_subrun_id=run-1 terminal_reason=subrun-complete"
+
+    assert agent._has_orchestration_evidence(tool_results) is True
+
+
+def test_synthesis_task_type_uses_last_terminal_reason_complete_wins() -> None:
+    agent = HeadAgent()
+
+    tool_results = (
+        "[spawn_subrun]\nspawned_subrun_id=run-1 terminal_reason=subrun-error\n"
+        "[spawn_subrun_announce]\nspawned_subrun_id=run-1 terminal_reason=subrun-complete"
+    )
+
+    resolved = agent._resolve_synthesis_task_type(
+        user_message="delegate task",
+        tool_results=tool_results,
+    )
+
+    assert resolved == "orchestration"
+
+
+def test_synthesis_task_type_uses_last_terminal_reason_failure_wins() -> None:
+    agent = HeadAgent()
+
+    tool_results = (
+        "[spawn_subrun]\nspawned_subrun_id=run-1 terminal_reason=subrun-complete\n"
+        "[spawn_subrun_announce]\nspawned_subrun_id=run-1 terminal_reason=subrun-timeout"
+    )
+
+    resolved = agent._resolve_synthesis_task_type(
+        user_message="delegate task",
+        tool_results=tool_results,
+    )
+
+    assert resolved == "orchestration_failed"
+
+
 def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
     agent = HeadAgent()
 
@@ -1506,17 +1546,19 @@ def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> N
 def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> None:
     agent = HeadAgent()
     events: list[dict] = []
+    captured_modes: list[str] = []
 
     async def send_event(payload: dict) -> None:
         events.append(payload)
 
     async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
-        return '{"actions":[{"tool":"spawn_subrun","args":{"message":"deep research","mode":"run","agent_id":"head-agent"}}]}'
+        return '{"actions":[{"tool":"spawn_subrun","args":{"message":"orchestrate deep research","mode":"run","agent_id":"head-agent"}}]}'
 
     async def fake_policy_approval_handler(**kwargs) -> bool:
         return kwargs.get("tool") == "spawn_subrun"
 
     async def fake_spawn_subrun_handler(**kwargs) -> str:
+        captured_modes.append(str(kwargs.get("mode") or ""))
         return "subrun-approved"
 
     original_complete_chat = agent.client.complete_chat
@@ -1542,6 +1584,7 @@ def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> 
     assert "[spawn_subrun]" in result
     assert "spawned_subrun_id=subrun-approved" in result
     assert "handover_contract=" in result
+    assert captured_modes and captured_modes[-1] == "wait"
     assert any(
         evt.get("type") == "lifecycle"
         and evt.get("stage") == "policy_override_decision"

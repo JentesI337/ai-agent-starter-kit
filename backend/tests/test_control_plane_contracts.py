@@ -505,6 +505,7 @@ def test_control_tools_policy_matrix_contract() -> None:
         "preset",
         "provider",
         "model",
+        "agent_override",
         "agent_depth",
         "request",
     ]
@@ -1442,6 +1443,7 @@ def test_control_tools_policy_preview_supports_provider_and_model_scopes() -> No
         "preset",
         "provider",
         "model",
+        "agent_override",
         "agent_depth",
         "request",
     ]
@@ -1500,6 +1502,7 @@ def test_control_tools_policy_preview_conflict_snapshot_payload() -> None:
         "preset",
         "provider",
         "model",
+        "agent_override",
         "agent_depth",
         "request",
     ]
@@ -1522,6 +1525,7 @@ def test_control_tools_policy_preview_conflict_snapshot_payload() -> None:
         "model",
         "agent_depth",
         "request",
+        "agent_override",
     ]
     request_layer = next(item for item in layers if item.get("layer") == "request")
     assert request_layer["toolPolicy"] == {

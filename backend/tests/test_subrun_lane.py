@@ -169,6 +169,52 @@ def test_subrun_lane_get_handover_contract_pending_and_terminal(tmp_path) -> Non
     assert terminal_contract["result"] == "done:contract"
 
 
+def test_subrun_lane_invokes_completion_callback(tmp_path) -> None:
+    store = StateStore(persist_dir=str(tmp_path / "state"))
+    lane = SubrunLane(
+        orchestrator_api=_FakeOrchestratorApi(),
+        state_store=store,
+        max_concurrent=1,
+        max_spawn_depth=2,
+        max_children_per_parent=5,
+        announce_retry_max_attempts=3,
+        announce_retry_base_delay_ms=50,
+        announce_retry_max_delay_ms=200,
+        announce_retry_jitter=False,
+    )
+
+    callback_payloads: list[dict] = []
+
+    async def completion_callback(**payload) -> None:
+        callback_payloads.append(payload)
+
+    lane.set_completion_callback(completion_callback)
+
+    async def send_event(_: dict) -> None:
+        return
+
+    async def run_case() -> None:
+        run_id = await lane.spawn(
+            parent_request_id="req-parent",
+            parent_session_id="sess-parent",
+            user_message="callback-check",
+            runtime="local",
+            model="llama",
+            timeout_seconds=5,
+            tool_policy=None,
+            send_event=send_event,
+        )
+        await lane.wait_for_completion(run_id, timeout=5)
+
+    asyncio.run(run_case())
+
+    assert len(callback_payloads) == 1
+    payload = callback_payloads[0]
+    assert payload["parent_session_id"] == "sess-parent"
+    assert payload["terminal_reason"] == "subrun-complete"
+    assert payload["child_agent_id"] == "head-agent"
+
+
 def test_subrun_lane_rejects_depth_overflow(tmp_path) -> None:
     store = StateStore(persist_dir=str(tmp_path / "state"))
     lane = SubrunLane(

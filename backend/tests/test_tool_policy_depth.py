@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config import settings
 from app.services.tool_policy_service import resolve_tool_policy
+from app.tool_policy import ToolPolicyPayload, tool_policy_to_dict
 
 
 def test_agent_depth_policy_blocks_spawn_subrun_for_deep_runs() -> None:
@@ -73,3 +74,65 @@ def test_minimal_profile_allows_web_search() -> None:
     merged = resolved.get("merged_policy") or {}
     allow_values = set(merged.get("allow") or [])
     assert "web_search" in allow_values
+
+
+def test_agent_override_policy_wins_for_named_tools() -> None:
+    resolved = resolve_tool_policy(
+        request_policy={
+            "allow": ["read_file"],
+            "deny": ["run_command"],
+            "agents": {
+                "coder-agent": {
+                    "allow": ["run_command"],
+                    "deny": ["read_file"],
+                }
+            },
+        },
+        agent_id="coder-agent",
+        depth=0,
+    )
+
+    merged = resolved.get("merged_policy") or {}
+    allow_values = set(merged.get("allow") or [])
+    deny_values = set(merged.get("deny") or [])
+    assert "run_command" in allow_values
+    assert "read_file" in deny_values
+
+
+def test_agent_override_policy_falls_back_to_wildcard() -> None:
+    resolved = resolve_tool_policy(
+        request_policy={
+            "allow": ["read_file"],
+            "agents": {
+                "*": {
+                    "deny": ["read_file"],
+                }
+            },
+        },
+        agent_id="review-agent",
+        depth=0,
+    )
+
+    merged = resolved.get("merged_policy") or {}
+    deny_values = set(merged.get("deny") or [])
+    assert "read_file" in deny_values
+
+
+def test_tool_policy_payload_preserves_agents_overrides() -> None:
+    payload = ToolPolicyPayload(
+        allow=["read_file"],
+        agents={
+            "Coder-Agent": {
+                "allow": ["run_command"],
+                "deny": ["read_file"],
+            }
+        },
+    )
+
+    normalized = tool_policy_to_dict(payload)
+
+    assert isinstance(normalized, dict)
+    assert "agents" in normalized
+    agents = normalized.get("agents")
+    assert isinstance(agents, dict)
+    assert "coder-agent" in agents

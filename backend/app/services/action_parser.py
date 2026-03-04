@@ -7,12 +7,14 @@ from collections.abc import Awaitable, Callable
 class ActionParser:
     def parse(self, raw: str) -> tuple[list[dict], str | None]:
         text = raw.strip()
-        try:
-            parsed = json.loads(text)
-        except Exception:
+        parsed, decode_error = self._decode_json_object(text)
+        if parsed is None:
+            if decode_error == "LLM JSON root is not an object.":
+                return [], decode_error
+            recovered_actions = self._recover_truncated_actions(text)
+            if recovered_actions:
+                return recovered_actions, None
             return [], "LLM JSON could not be decoded."
-        if not isinstance(parsed, dict):
-            return [], "LLM JSON root is not an object."
         if set(parsed.keys()) - {"actions"}:
             return [], "LLM JSON root contains unsupported fields."
         actions = parsed.get("actions", [])
@@ -47,11 +49,117 @@ class ActionParser:
         text = (raw or "").strip()
         if not text:
             return "{}"
+        object_candidate = self._extract_first_balanced_json_object(text)
+        if object_candidate is not None:
+            return object_candidate[:3000]
         start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
+        if start == -1:
             return "{}"
-        return text[start : end + 1][:3000]
+        return text[start : start + 3000]
+
+    def _decode_json_object(self, text: str) -> tuple[dict | None, str | None]:
+        try:
+            parsed = json.loads(text)
+        except Exception as exc:
+            candidate = self.extract_json_candidate(text)
+            if candidate != text:
+                try:
+                    parsed = json.loads(candidate)
+                except Exception:
+                    return None, str(exc)
+            else:
+                return None, str(exc)
+        if not isinstance(parsed, dict):
+            return None, "LLM JSON root is not an object."
+        return parsed, None
+
+    def _extract_first_balanced_json_object(self, text: str) -> str | None:
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if escaped:
+                escaped = False
+                continue
+            if in_string:
+                if char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+        return None
+
+    def _recover_truncated_actions(self, text: str) -> list[dict]:
+        marker = '"actions"'
+        marker_index = text.find(marker)
+        if marker_index == -1:
+            return []
+        array_start = text.find("[", marker_index)
+        if array_start == -1:
+            return []
+        index = array_start + 1
+        actions: list[dict] = []
+        while index < len(text):
+            while index < len(text) and text[index] in " \t\r\n,":
+                index += 1
+            if index >= len(text):
+                break
+            if text[index] == "]":
+                break
+            if text[index] != "{":
+                break
+            depth = 0
+            in_string = False
+            escaped = False
+            object_start = index
+            object_end = None
+            cursor = index
+            while cursor < len(text):
+                char = text[cursor]
+                if escaped:
+                    escaped = False
+                    cursor += 1
+                    continue
+                if in_string:
+                    if char == "\\":
+                        escaped = True
+                    elif char == '"':
+                        in_string = False
+                    cursor += 1
+                    continue
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        object_end = cursor
+                        break
+                cursor += 1
+            if object_end is None:
+                break
+            object_text = text[object_start : object_end + 1]
+            try:
+                action = json.loads(object_text)
+            except Exception:
+                break
+            if isinstance(action, dict):
+                actions.append(action)
+            index = object_end + 1
+        return actions
 
     def validate(
         self,

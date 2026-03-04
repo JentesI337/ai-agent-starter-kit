@@ -267,6 +267,7 @@ def test_compaction_failure_recovery_uses_fallback_retry(tmp_path) -> None:
     [
         ("Request failed: context window exceeded", "context_overflow"),
         ("provider said truncation required due to token limit", "truncation_required"),
+        ("Bad request: roles must alternate between user and assistant", "role_ordering"),
         ("HTTP 429 too many requests", "rate_limited"),
         ("upstream model not found", "model_not_found"),
         ("request timed out", "timeout"),
@@ -287,6 +288,7 @@ def test_classify_failover_reason_mapping(tmp_path, message: str, expected_reaso
         ("context_overflow", "fail_fast_context_overflow"),
         ("compaction_failure", "fail_fast_compaction_failure"),
         ("truncation_required", "fail_fast_truncation_required"),
+        ("role_ordering", "retry_with_fallback"),
         ("rate_limited", "retry_with_fallback"),
         ("unknown", "fail_fast_non_retryable"),
     ],
@@ -505,7 +507,9 @@ def test_recovery_summary_sets_terminal_reason_for_failure(tmp_path) -> None:
     assert details.get("terminal_reason") == "rate_limited"
 
 
-def test_pipeline_runner_emits_terminal_wait_lifecycle(tmp_path) -> None:
+def test_pipeline_runner_emits_terminal_wait_lifecycle(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "context_window_warn_below_tokens", 8000, raising=False)
+    monkeypatch.setattr(settings, "context_window_hard_min_tokens", 4000, raising=False)
     runner = _runner(tmp_path)
     events: list[dict] = []
 

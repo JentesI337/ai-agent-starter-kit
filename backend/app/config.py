@@ -649,6 +649,9 @@ class Settings(BaseModel):
     run_tool_time_cap_seconds: float = float(os.getenv("RUN_TOOL_TIME_CAP_SECONDS", "90"))
     tool_result_max_chars: int = int(os.getenv("TOOL_RESULT_MAX_CHARS", "6000"))
     tool_result_smart_truncate_enabled: bool = _parse_bool_env("TOOL_RESULT_SMART_TRUNCATE_ENABLED", True)
+    tool_result_context_guard_enabled: bool = _parse_bool_env("TOOL_RESULT_CONTEXT_GUARD_ENABLED", True)
+    tool_result_context_headroom_ratio: float = float(os.getenv("TOOL_RESULT_CONTEXT_HEADROOM_RATIO", "0.75"))
+    tool_result_single_share: float = float(os.getenv("TOOL_RESULT_SINGLE_SHARE", "0.50"))
     tool_execution_parallel_read_only_enabled: bool = _parse_bool_env(
         "TOOL_EXECUTION_PARALLEL_READ_ONLY_ENABLED",
         False,
@@ -711,10 +714,10 @@ class Settings(BaseModel):
     tool_loop_poll_no_progress_threshold: int = int(os.getenv("TOOL_LOOP_POLL_NO_PROGRESS_THRESHOLD", "3"))
     tool_loop_warning_bucket_size: int = int(os.getenv("TOOL_LOOP_WARNING_BUCKET_SIZE", "10"))
     context_window_guard_enabled: bool = _parse_bool_env("CONTEXT_WINDOW_GUARD_ENABLED", True)
-    context_window_warn_below_tokens: int = int(os.getenv("CONTEXT_WINDOW_WARN_BELOW_TOKENS", "8000"))
+    context_window_warn_below_tokens: int = int(os.getenv("CONTEXT_WINDOW_WARN_BELOW_TOKENS", "12000"))
     context_window_hard_min_tokens: int = int(os.getenv("CONTEXT_WINDOW_HARD_MIN_TOKENS", "4000"))
     adaptive_inference_enabled: bool = _parse_bool_env("ADAPTIVE_INFERENCE_ENABLED", True)
-    adaptive_inference_cost_budget_max: float = float(os.getenv("ADAPTIVE_INFERENCE_COST_BUDGET_MAX", "0.8"))
+    adaptive_inference_cost_budget_max: float = float(os.getenv("ADAPTIVE_INFERENCE_COST_BUDGET_MAX", "0.9"))
     adaptive_inference_latency_budget_ms: int = int(os.getenv("ADAPTIVE_INFERENCE_LATENCY_BUDGET_MS", "2400"))
     pipeline_runner_max_attempts: int = int(os.getenv("PIPELINE_RUNNER_MAX_ATTEMPTS", "16"))
     pipeline_runner_context_overflow_fallback_retry_enabled: bool = _parse_bool_env(
@@ -743,7 +746,7 @@ class Settings(BaseModel):
         False,
     )
     pipeline_runner_prompt_compaction_max_attempts: int = int(
-        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MAX_ATTEMPTS", "1")
+        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MAX_ATTEMPTS", "3")
     )
     pipeline_runner_prompt_compaction_ratio: float = float(
         os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_RATIO", "0.7")
@@ -825,20 +828,20 @@ class Settings(BaseModel):
     )
     pipeline_runner_recovery_backoff_enabled: bool = _parse_bool_env(
         "PIPELINE_RUNNER_RECOVERY_BACKOFF_ENABLED",
-        False,
+        True,
     )
     pipeline_runner_recovery_backoff_base_ms: int = int(
-        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_BASE_MS", "150")
+        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_BASE_MS", "500")
     )
     pipeline_runner_recovery_backoff_max_ms: int = int(
-        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MAX_MS", "2000")
+        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MAX_MS", "5000")
     )
     pipeline_runner_recovery_backoff_multiplier: float = float(
         os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MULTIPLIER", "2.0")
     )
     pipeline_runner_recovery_backoff_jitter: bool = _parse_bool_env(
         "PIPELINE_RUNNER_RECOVERY_BACKOFF_JITTER",
-        False,
+        True,
     )
     pipeline_runner_persistent_priority_decay_enabled: bool = _parse_bool_env(
         "PIPELINE_RUNNER_PERSISTENT_PRIORITY_DECAY_ENABLED",

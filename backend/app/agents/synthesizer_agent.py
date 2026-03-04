@@ -138,7 +138,19 @@ class SynthesizerAgent(AgentContract):
 
     def _resolve_task_type(self, payload: SynthesizerInput) -> str:
         hinted = (payload.task_type or "").strip().lower()
-        if hinted in {"hard_research", "research", "orchestration", "implementation", "general"}:
+        # Alle gültigen Hint-Typen werden direkt respektiert.
+        # Neuer Typen orchestration_failed und orchestration_pending ergänzt,
+        # damit agent.py sie als Hint übergeben kann und der Synthesizer
+        # NICHT auf eigenes Keyword-Matching zurückfällt.
+        if hinted in {
+            "hard_research",
+            "research",
+            "orchestration",
+            "orchestration_failed",
+            "orchestration_pending",
+            "implementation",
+            "general",
+        }:
             return hinted
 
         user_message = (payload.user_message or "").lower()
@@ -147,9 +159,19 @@ class SynthesizerAgent(AgentContract):
         if self._requires_hard_research_structure(payload.user_message):
             return "hard_research"
 
+        # Evidence-first: spawned_subrun_id= belegt ausgeführten spawn_subrun-Call.
+        # Terminal-Reason entscheidet über die Unterart.
+        if "spawned_subrun_id=" in tool_results:
+            if "subrun-complete" in tool_results:
+                return "orchestration"
+            if any(s in tool_results for s in ("subrun-error", "subrun-timeout", "subrun-cancelled")):
+                return "orchestration_failed"
+            return "orchestration_pending"
+
+        # Keyword-Scan nur als letzter Ausweg.
         if any(marker in user_message for marker in ("orchestrate", "delegate", "spawn subrun", "multi-agent")):
             return "orchestration"
-        if "spawned_subrun_id=" in tool_results or "subrun_announce" in tool_results:
+        if "subrun_announce" in tool_results:
             return "orchestration"
 
         if any(
@@ -211,6 +233,24 @@ class SynthesizerAgent(AgentContract):
                 "Parent decision",
                 "Next steps",
             ),
+            # Explizite Fehler-Sektion für fehlgeschlagene Delegation:
+            # verhindert, dass der LLM eine Erfolgs-Narration generiert.
+            "orchestration_failed": (
+                "Goal",
+                "Delegation failure",
+                "Failure reason",
+                "Recovery options",
+                "Next steps",
+            ),
+            # Pending = fire-and-forget, kein Outcome bekannt:
+            # transparente Kommunikation an den Nutzer.
+            "orchestration_pending": (
+                "Goal",
+                "Delegation initiated",
+                "Pending status",
+                "What to expect",
+                "Next steps",
+            ),
             "implementation": (
                 "Outcome",
                 "What changed",
@@ -250,6 +290,30 @@ class SynthesizerAgent(AgentContract):
         kpi_line_matches = len(re.findall(r"(?i)kpi[^\n]{0,80}\b(\d+\s*%|\d+\s*ms|\d+\s*s)", text))
         if kpi_line_matches < 2:
             failures.append("kpi_line_format_invalid")
+        return failures
+
+    def _validate_semantic_truth(self, *, task_type: str, tool_results: str, final_text: str) -> list[str]:
+        failures: list[str] = []
+        normalized_results = (tool_results or "").lower()
+        normalized_text = (final_text or "").lower()
+
+        if task_type == "orchestration":
+            has_spawn = "spawned_subrun_id=" in normalized_results
+            has_completed = "subrun-complete" in normalized_results
+            if has_spawn and not has_completed:
+                failures.append("semantic_truth_missing:orchestration:no_completed_subrun_evidence")
+
+        if task_type in {"orchestration_pending", "orchestration_failed"}:
+            success_claim_markers = (
+                "successfully delegated",
+                "delegation successful",
+                "delegation succeeded",
+                "delegated successfully",
+                "✅ successful",
+            )
+            if any(marker in normalized_text for marker in success_claim_markers):
+                failures.append(f"semantic_truth_conflict:{task_type}:success_claim_without_success_evidence")
+
         return failures
 
     def _build_self_check_repair_prompt(
@@ -306,6 +370,13 @@ class SynthesizerAgent(AgentContract):
         failures = list(validation.failures)
         if task_type == "hard_research":
             failures.extend(self._validate_hard_research_contract(final_text))
+        failures.extend(
+            self._validate_semantic_truth(
+                task_type=task_type,
+                tool_results=payload.tool_results or "",
+                final_text=final_text,
+            )
+        )
 
         if not failures:
             await self._emit_lifecycle_fn(
@@ -339,6 +410,13 @@ class SynthesizerAgent(AgentContract):
         repaired_failures = list(repaired_validation.failures)
         if task_type == "hard_research":
             repaired_failures.extend(self._validate_hard_research_contract(repaired_text))
+        repaired_failures.extend(
+            self._validate_semantic_truth(
+                task_type=task_type,
+                tool_results=payload.tool_results or "",
+                final_text=repaired_text,
+            )
+        )
 
         resolved = not repaired_failures
         await self._emit_lifecycle_fn(

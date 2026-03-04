@@ -502,3 +502,120 @@ def test_synthesizer_self_check_skips_when_task_type_not_present() -> None:
     assert client.last_repair_prompt is None
     stages = [evt.get("stage") for evt in events if evt.get("type") == "lifecycle"]
     assert "synthesis_contract_check_started" not in stages
+
+
+def test_synthesizer_semantic_truth_marks_orchestration_invalid_without_completed_subrun() -> None:
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def emit_lifecycle(send_event_fn, stage: str, request_id: str, session_id: str, details: dict | None):
+        await send_event_fn({"type": "lifecycle", "stage": stage, "details": details or {}})
+
+    client = _FakeClient(
+        [
+            "Goal\n- Delegate checks\n\n"
+            "Delegation outcome\n- Successfully delegated to helper\n\n"
+            "Child handover\n- pending\n\n"
+            "Parent decision\n- continue\n\n"
+            "Next steps\n- wait"
+        ],
+        repair_response=(
+            "Goal\n- Delegate checks\n\n"
+            "Delegation failure\n- Subrun did not complete\n\n"
+            "Failure reason\n- only pending evidence available\n\n"
+            "Recovery options\n- rerun with mode=wait\n\n"
+            "Next steps\n- retry"
+        ),
+    )
+    agent = SynthesizerAgent(
+        client=client,
+        agent_name="head-agent",
+        emit_lifecycle_fn=emit_lifecycle,
+        system_prompt="sys",
+        stream_timeout_seconds=1.0,
+    )
+
+    payload = SynthesizerInput(
+        user_message="orchestrate architecture review",
+        plan_text="plan",
+        tool_results="spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={\"terminal_reason\":\"subrun-accepted\"}",
+        reduced_context="ctx",
+        task_type="orchestration",
+    )
+
+    async def _run() -> None:
+        await agent.execute(payload, send_event=send_event, session_id="s10", request_id="r10", model=None)
+
+    asyncio.run(_run())
+
+    check_completed = next(
+        (
+            evt
+            for evt in events
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "synthesis_contract_check_completed"
+        ),
+        None,
+    )
+    assert check_completed is not None
+    assert check_completed.get("details", {}).get("valid") is False
+
+
+def test_synthesizer_semantic_truth_rejects_success_claim_for_pending_task() -> None:
+    events: list[dict] = []
+
+    async def send_event(payload: dict) -> None:
+        events.append(payload)
+
+    async def emit_lifecycle(send_event_fn, stage: str, request_id: str, session_id: str, details: dict | None):
+        await send_event_fn({"type": "lifecycle", "stage": stage, "details": details or {}})
+
+    client = _FakeClient(
+        [
+            "Goal\n- Delegate checks\n\n"
+            "Delegation initiated\n- Successfully delegated to helper\n\n"
+            "Pending status\n- awaiting child completion\n\n"
+            "What to expect\n- async status\n\n"
+            "Next steps\n- poll status"
+        ],
+        repair_response=(
+            "Goal\n- Delegate checks\n\n"
+            "Delegation initiated\n- Subrun accepted\n\n"
+            "Pending status\n- awaiting child completion\n\n"
+            "What to expect\n- async status\n\n"
+            "Next steps\n- poll status"
+        ),
+    )
+    agent = SynthesizerAgent(
+        client=client,
+        agent_name="head-agent",
+        emit_lifecycle_fn=emit_lifecycle,
+        system_prompt="sys",
+        stream_timeout_seconds=1.0,
+    )
+
+    payload = SynthesizerInput(
+        user_message="orchestrate architecture review",
+        plan_text="plan",
+        tool_results="spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={\"terminal_reason\":\"subrun-accepted\"}",
+        reduced_context="ctx",
+        task_type="orchestration_pending",
+    )
+
+    async def _run() -> None:
+        await agent.execute(payload, send_event=send_event, session_id="s11", request_id="r11", model=None)
+
+    asyncio.run(_run())
+
+    check_completed = next(
+        (
+            evt
+            for evt in events
+            if evt.get("type") == "lifecycle" and evt.get("stage") == "synthesis_contract_check_completed"
+        ),
+        None,
+    )
+    assert check_completed is not None
+    assert check_completed.get("details", {}).get("valid") is True
+    assert check_completed.get("details", {}).get("correction_applied") is True

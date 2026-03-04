@@ -93,7 +93,7 @@ class ActionAugmenter:
                     "tool": "spawn_subrun",
                     "args": {
                         "message": user_message.strip() or "Execute delegated orchestration task",
-                        "mode": "run",
+                        "mode": "wait",
                         "agent_id": "head-agent",
                     },
                 }
@@ -232,7 +232,7 @@ class ActionAugmenter:
                         "tool": "spawn_subrun",
                         "args": {
                             "message": user_message.strip() or "Execute delegated orchestration task",
-                            "mode": "run",
+                            "mode": "wait",
                             "agent_id": "head-agent",
                         },
                     }

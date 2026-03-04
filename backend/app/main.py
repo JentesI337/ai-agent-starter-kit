@@ -1,4 +1,5 @@
 ﻿from __future__ import annotations
+import asyncio
 import logging
 import re
 from collections.abc import MutableMapping
@@ -202,6 +203,25 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         restore_orphan_grace_seconds=settings.subrun_restore_orphan_grace_seconds,
         lifecycle_delivery_error_grace_enabled=settings.subrun_lifecycle_delivery_error_grace_enabled,
     )
+    async def _on_subrun_complete_announce(
+        *,
+        parent_session_id: str,
+        run_id: str,
+        child_agent_id: str,
+        terminal_reason: str,
+        child_output: str | None,
+    ) -> None:
+        announce_text = (
+            f"[subrun_announce] spawned_subrun_id={run_id} "
+            f"agent_id={child_agent_id} terminal_reason={terminal_reason}"
+        )
+        if child_output:
+            announce_text = f"{announce_text}\n[child_output_summary] {child_output[:500]}"
+
+        components.agent.memory.add(parent_session_id, "tool:spawn_subrun_announce", announce_text)
+
+    components.subrun_lane.set_completion_callback(_on_subrun_complete_announce)
+
     async def _spawn_subrun_from_agent(
         *,
         parent_request_id: str,
@@ -283,6 +303,15 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
             orchestrator_api=selected_orchestrator,
         )
+        # mode="wait": warte auf Abschluss des Kind-Runs, bevor Handover-Status gelesen wird.
+        # Ohne diesen Wait liefert get_handover_contract immer "subrun-accepted" zurück,
+        # weil der asyncio.Task noch nicht gestartet / abgeschlossen hat.
+        if mode == "wait":
+            wait_timeout = max(5.0, float(effective_timeout) + 5.0)
+            try:
+                await components.subrun_lane.wait_for_completion(run_id, timeout=wait_timeout)
+            except asyncio.TimeoutError:
+                pass  # Handover enthält dann "subrun-timeout"-Status
         return {
             "run_id": run_id,
             "mode": mode,

@@ -39,6 +39,14 @@ FAILOVER_REASON_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("truncation_required", ("truncat", "truncated", "token limit", "max tokens")),
+    (
+        "role_ordering",
+        (
+            "roles must alternate",
+            "incorrect role information",
+            "role ordering",
+        ),
+    ),
     ("model_not_found", ("model", "not found")),
     ("rate_limited", ("rate limit", "too many requests", "429")),
     ("timeout", ("timeout", "timed out")),
@@ -471,6 +479,7 @@ class PipelineRunner:
             "timeout",
             "temporary_unavailable",
             "network_error",
+            "role_ordering",
         }
 
     def _resolve_recovery_branch(self, reason: str) -> str:
