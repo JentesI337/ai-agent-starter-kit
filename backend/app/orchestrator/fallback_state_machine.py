@@ -242,6 +242,7 @@ class FallbackStateMachine:
                     self._state = FallbackState.HANDLE_FAILURE
                     continue
 
+
             if self._state == FallbackState.HANDLE_SUCCESS:
                 if self._attempt.pending_recovery_outcome is not None:
                     model_id, recorded_reason, recorded_strategy = self._attempt.pending_recovery_outcome
@@ -272,7 +273,13 @@ class FallbackStateMachine:
                     self._attempt.pending_recovery_outcome = None
 
                 self._attempt.last_error = self._current_exception
-                reason = self._hooks._classify_failover_reason(str(self._current_exception))
+                # T2.3: Typed Exceptions haben ein 'reason'-Attribut — kein String-Matching nötig.
+                # Fallback auf String-Klassifizierung für unbekannte/untypierte Fehler.
+                _exc = self._current_exception
+                if _exc is not None and hasattr(_exc, "reason"):
+                    reason = str(_exc.reason)
+                else:
+                    reason = self._hooks._classify_failover_reason(str(_exc))
                 self._attempt.last_reason = reason
                 if reason == self._attempt.previous_reason:
                     self._attempt.reason_streak += 1

@@ -91,9 +91,9 @@ class ModelRouter:
         profile = self.registry.resolve(model_id)
         runtime_bonus = 0.0
         if runtime_key == "local" and model_id == settings.local_model:
-            runtime_bonus = 6.0
+            runtime_bonus = settings.model_score_runtime_bonus
         elif runtime_key == "api" and model_id == settings.api_model:
-            runtime_bonus = 6.0
+            runtime_bonus = settings.model_score_runtime_bonus
 
         normalized_reasoning_level = self._normalize_reasoning_level(reasoning_level)
         reasoning_bonus = 0.0
@@ -109,9 +109,9 @@ class ModelRouter:
             reasoning_bonus -= float(profile.cost_score) * 2.0
 
         return (
-            profile.health_score * 100.0
-            - (profile.expected_latency_ms / 100.0)
-            - (profile.cost_score * 10.0)
+            profile.health_score * settings.model_score_weight_health
+            - (profile.expected_latency_ms * settings.model_score_weight_latency)
+            - (profile.cost_score * settings.model_score_weight_cost)
             + runtime_bonus
             + reasoning_bonus
         )

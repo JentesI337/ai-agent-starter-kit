@@ -7,6 +7,20 @@ from dataclasses import dataclass
 from app.llm_client import LlmClient
 
 
+# T1.4: Task-type-sensitiver Reflection-Threshold
+# hard_research erfordert höhere Qualität als triviale Antworten.
+# Werte überschreiben den globalen settings.reflection_threshold wenn task_type übergeben wird.
+_REFLECTION_THRESHOLDS_BY_TASK_TYPE: dict[str, float] = {
+    "hard_research":         0.75,
+    "research":              0.70,
+    "implementation":        0.65,
+    "orchestration":         0.60,
+    "orchestration_failed":  0.55,
+    "orchestration_pending": 0.55,
+    "general":               0.55,
+    "trivial":               0.40,
+}
+
 _REFLECTION_SYSTEM_PROMPT = (
     "You are a quality assurance agent. Evaluate answers critically and objectively.\n\n"
     "## CRITICAL: Factual Grounding Scoring\n"
@@ -63,7 +77,12 @@ class ReflectionService:
         tool_results: str,
         final_answer: str,
         model: str | None = None,
+        task_type: str | None = None,
     ) -> ReflectionVerdict:
+        # T1.4: Task-type-sensitiver Threshold — überschreibt globalen settings-Threshold
+        effective_threshold = _REFLECTION_THRESHOLDS_BY_TASK_TYPE.get(
+            (task_type or "").strip().lower(), self.threshold
+        )
         reflection_prompt = self._build_reflection_prompt(
             user_message=user_message,
             plan_text=plan_text,
@@ -76,7 +95,7 @@ class ReflectionService:
             model=model,
             temperature=0.1,
         )
-        return self._parse_verdict(raw_verdict)
+        return self._parse_verdict(raw_verdict, threshold=effective_threshold)
 
     def _build_reflection_prompt(
         self,
@@ -128,7 +147,8 @@ class ReflectionService:
             return parsed
         return None
 
-    def _parse_verdict(self, raw: str) -> ReflectionVerdict:
+    def _parse_verdict(self, raw: str, threshold: float | None = None) -> ReflectionVerdict:
+        effective_threshold = threshold if threshold is not None else self.threshold
         payload = self._extract_json_payload(raw)
         if payload is None:
             fallback_issues = ["Unable to parse reflection verdict from model output."]
@@ -169,6 +189,6 @@ class ReflectionService:
             factual_grounding=factual_grounding,
             issues=issues,
             suggested_fix=suggested_fix,
-            should_retry=(score < self.threshold) or hard_factual_fail,
+            should_retry=(score < effective_threshold) or hard_factual_fail,
             hard_factual_fail=hard_factual_fail,
         )

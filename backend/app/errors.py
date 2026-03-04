@@ -37,6 +37,37 @@ class LlmClientError(AppError):
     pass
 
 
+# T2.3: Typisierte LLM-Fehler für direkten reason-Abruf (kein String-Matching nötig)
+# Alle Unterklassen definieren 'reason' als Klassen-Attribut.
+# FallbackStateMachine prüft hasattr(exc, 'reason') vor String-Klassifizierung.
+class LlmContextOverflowError(LlmClientError):
+    reason: str = "context_overflow"
+
+
+class LlmCompactionFailureError(LlmClientError):
+    reason: str = "compaction_failure"
+
+
+class LlmTruncationRequiredError(LlmClientError):
+    reason: str = "truncation_required"
+
+
+class LlmRateLimitError(LlmClientError):
+    reason: str = "rate_limited"
+
+
+class LlmModelNotFoundError(LlmClientError):
+    reason: str = "model_not_found"
+
+
+class LlmTimeoutError(LlmClientError):
+    reason: str = "timeout"
+
+
+class LlmTemporarilyUnavailableError(LlmClientError):
+    reason: str = "temporary_unavailable"
+
+
 class RuntimeSwitchError(AppError):
     pass
 

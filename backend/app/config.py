@@ -683,6 +683,17 @@ class Settings(BaseModel):
         ge=200,
         validate_default=True,
     )
+    # T1.3: Plan-Abdeckungs-Schwellen — konfigurierbar, rückwärtskompatible Defaults
+    # PLAN_COVERAGE_WARN_THRESHOLD: Warnung wenn semantische Abdeckung < Schwelle (default: 0.15, wie bisher hart kodiert)
+    # PLAN_COVERAGE_FAIL_THRESHOLD: Hard-Fail wenn < Schwelle (default: 0.0 = deaktiviert; auf z.B. 0.10 setzen um zu aktivieren)
+    plan_coverage_warn_threshold: float = float(os.getenv("PLAN_COVERAGE_WARN_THRESHOLD", "0.15"))
+    plan_coverage_fail_threshold: float = float(os.getenv("PLAN_COVERAGE_FAIL_THRESHOLD", "0.0"))
+    # T2.4: Modell-Scoring-Gewichte — konfigurierbar für empirische Kalibrierung ohne Code-Änderung
+    # Defaults reproduzieren exakt das bisherige Verhalten (health*100 - latency/100 - cost*10 + runtime_bonus 6.0)
+    model_score_weight_health: float = float(os.getenv("MODEL_SCORE_WEIGHT_HEALTH", "100.0"))
+    model_score_weight_latency: float = float(os.getenv("MODEL_SCORE_WEIGHT_LATENCY", "0.01"))
+    model_score_weight_cost: float = float(os.getenv("MODEL_SCORE_WEIGHT_COST", "10.0"))
+    model_score_runtime_bonus: float = float(os.getenv("MODEL_SCORE_RUNTIME_BONUS", "6.0"))
     clarification_protocol_enabled: bool = _parse_bool_env("CLARIFICATION_PROTOCOL_ENABLED", True)
     clarification_confidence_threshold: float = max(
         0.0,

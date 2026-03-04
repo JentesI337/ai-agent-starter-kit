@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from app.config import settings
+
 
 @dataclass(frozen=True)
 class VerificationResult:
@@ -16,6 +18,24 @@ class VerificationResult:
 
 
 class VerificationService:
+    def __init__(
+        self,
+        *,
+        plan_coverage_warn_threshold: float | None = None,
+        plan_coverage_fail_threshold: float | None = None,
+    ) -> None:
+        # T1.3: Schwellen konfigurierbar — Defaults aus settings, überschreibbar per Konstruktor (für Tests)
+        self._plan_coverage_warn_threshold = float(
+            plan_coverage_warn_threshold
+            if plan_coverage_warn_threshold is not None
+            else settings.plan_coverage_warn_threshold
+        )
+        self._plan_coverage_fail_threshold = float(
+            plan_coverage_fail_threshold
+            if plan_coverage_fail_threshold is not None
+            else settings.plan_coverage_fail_threshold
+        )
+
     @staticmethod
     def _tokenize_words(text: str) -> set[str]:
         normalized = (text or "").lower()
@@ -75,7 +95,16 @@ class VerificationService:
         overlap = significant_user_words & plan_words
         coverage = len(overlap) / len(significant_user_words)
         rounded_coverage = round(coverage, 2)
-        if coverage < 0.15:
+        # T1.3: Hard-Fail Schwelle (default 0.0 = deaktiviert; via PLAN_COVERAGE_FAIL_THRESHOLD aktivierbar)
+        if self._plan_coverage_fail_threshold > 0.0 and coverage < self._plan_coverage_fail_threshold:
+            missing_words = sorted(significant_user_words - plan_words)[:5]
+            return VerificationResult(
+                status="failed",
+                reason="plan_semantic_fail",
+                details={"coverage": rounded_coverage, "missing": missing_words},
+            )
+        # Warn-Schwelle (default 0.15 — identisch mit bisherigem Verhalten)
+        if coverage < self._plan_coverage_warn_threshold:
             missing_words = sorted(significant_user_words - plan_words)[:5]
             return VerificationResult(
                 status="warning",

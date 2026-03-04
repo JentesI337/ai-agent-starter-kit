@@ -44,8 +44,8 @@ def test_reflection_loop_retries_synthesis_when_score_is_low(monkeypatch) -> Non
         def __init__(self) -> None:
             self.calls = 0
 
-        async def reflect(self, *, user_message, plan_text, tool_results, final_answer, model=None):
-            _ = (user_message, plan_text, tool_results, final_answer, model)
+        async def reflect(self, *, user_message, plan_text, tool_results, final_answer, model=None, task_type=None):
+            _ = (user_message, plan_text, tool_results, final_answer, model, task_type)
             self.calls += 1
             if self.calls == 1:
                 return ReflectionVerdict(
@@ -162,8 +162,8 @@ def test_reflection_loop_hard_factual_fail_forces_retry(monkeypatch) -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def reflect(self, *, user_message, plan_text, tool_results, final_answer, model=None):
-            _ = (user_message, plan_text, tool_results, final_answer, model)
+        async def reflect(self, *, user_message, plan_text, tool_results, final_answer, model=None, task_type=None):
+            _ = (user_message, plan_text, tool_results, final_answer, model, task_type)
             self.calls += 1
             if self.calls == 1:
                 return ReflectionVerdict(

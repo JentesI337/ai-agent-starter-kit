@@ -1096,6 +1096,7 @@ class HeadAgent:
                             tool_results=tool_results or "",
                             final_answer=final_text,
                             model=model,
+                            task_type=synthesis_task_type,
                         )
                     except Exception as exc:
                         await self._emit_lifecycle(
