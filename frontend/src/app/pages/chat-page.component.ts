@@ -19,6 +19,16 @@ import {
 interface ChatLine {
   role: 'user' | 'agent' | 'system';
   text: string;
+  policyAction?: {
+    approvalId: string;
+    runId: string;
+    sessionId: string;
+    tool: string;
+    resource: string;
+    dropdownAction: '' | 'cancel' | 'allow_session';
+    busy: boolean;
+    resolved: boolean;
+  };
 }
 
 interface LifecycleLine {
@@ -44,7 +54,7 @@ interface RequestActivity {
   sessionId: string;
   agentId: string;
   stage: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'waiting_clarification' | 'completed' | 'failed' | 'cancelled';
   startedAt: string;
   updatedAt: string;
   toolEvents: number;
@@ -66,7 +76,7 @@ interface PolicyApprovalItem {
   displayText: string;
   options: string[];
   selectedOption: string;
-  status: 'pending' | 'approved' | 'expired';
+  status: 'pending' | 'approved' | 'expired' | 'denied' | 'cancelled';
   createdAt: string;
   updatedAt: string;
 }
@@ -129,9 +139,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   agentActivities: AgentActivity[] = [];
   requestActivities: RequestActivity[] = [];
   monitorAgentFilter = 'all';
-  monitorStatusFilter: 'all' | 'running' | 'completed' | 'failed' = 'all';
+  monitorStatusFilter: 'all' | 'running' | 'waiting_clarification' | 'completed' | 'failed' | 'cancelled' = 'all';
   monitorRequestFilter = '';
   monitorSearch = '';
+  pendingClarificationQuestion = '';
 
   private activeAssistantIndex: number | null = null;
   private readonly subscriptions = new Subscription();
@@ -385,15 +396,24 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
     try {
       const toolPolicy = this.buildToolPolicyPayload();
-      this.socketService.sendUserMessage(content, {
-        agentId: this.selectedAgentId,
-        preset: this.selectedPresetId || undefined,
-        model: this.model.trim() || undefined,
-        sessionId: this.sessionId || undefined,
-        toolPolicy,
-      });
+      const isClarificationResponse = this.pendingClarificationQuestion.trim().length > 0;
+      if (isClarificationResponse) {
+        this.socketService.sendClarificationResponse(content, {
+          agentId: this.selectedAgentId,
+          sessionId: this.sessionId || undefined,
+        });
+      } else {
+        this.socketService.sendUserMessage(content, {
+          agentId: this.selectedAgentId,
+          preset: this.selectedPresetId || undefined,
+          model: this.model.trim() || undefined,
+          sessionId: this.sessionId || undefined,
+          toolPolicy,
+        });
+      }
       this.lines.push({ role: 'system', text: 'Agent is working...' });
       this.pushLifecycle('frontend_send', 'Message sent to websocket', {
+        sourceType: isClarificationResponse ? 'clarification_response' : 'user_message',
         chars: content.length,
         agent: this.selectedAgentId,
         preset: this.selectedPresetId || '(none)',
@@ -402,6 +422,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         toolPolicy,
       });
       this.activeAssistantIndex = null;
+      if (isClarificationResponse) {
+        this.pendingClarificationQuestion = '';
+      }
       this.input = '';
     } catch (error) {
       this.lines.push({ role: 'system', text: `Send failed: ${(error as Error).message}` });
@@ -654,6 +677,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.runAuditLoading = false;
     this.policyApprovals = [];
     this.policyApprovalBusy.clear();
+    this.pendingClarificationQuestion = '';
     this.stopApprovalPolling();
     this.resetMonitoringFilters();
 
@@ -678,6 +702,33 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     );
 
     this.updateMonitoring(event);
+
+    if (
+      event.type === 'lifecycle' &&
+      (event.stage === 'request_completed' || event.stage === 'request_cancelled' || (event.stage || '').startsWith('request_failed'))
+    ) {
+      this.pendingClarificationQuestion = '';
+      this.resolveInlinePolicyActionsByRequest(event.request_id ?? '');
+    }
+
+    if (event.type === 'lifecycle' && event.stage === 'policy_approval_decision_rejected') {
+      const approvalIdRaw = (event.details as { approval_id?: unknown } | undefined)?.approval_id;
+      const approvalId = String(approvalIdRaw ?? '').trim();
+      if (approvalId) {
+        this.policyApprovalBusy.delete(approvalId);
+        this.updateInlinePolicyActionBusy(approvalId, false);
+      }
+    }
+
+    if (event.type === 'clarification_needed') {
+      if (event.session_id) {
+        this.sessionId = event.session_id;
+      }
+      this.pendingClarificationQuestion = event.message ?? 'Could you clarify your request?';
+      this.activeAssistantIndex = null;
+      this.lines.push({ role: 'agent', text: this.pendingClarificationQuestion });
+      return;
+    }
 
     if (event.type === 'status' && event.message) {
       if (event.session_id) {
@@ -749,9 +800,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       const approval = event.approval;
       const approvalId = approval?.approval_id;
       if (approvalId) {
-        const options = (approval?.options ?? ['allow']).map((item) => String(item).toLowerCase());
-        const selectedOption = options.includes('allow') ? 'allow' : options[0] || 'allow';
+        const options = (approval?.options ?? ['allow_once']).map((item) => String(item).toLowerCase());
+        const selectedOption = options.includes('allow_once') ? 'allow_once' : options[0] || 'allow_once';
         const existingIndex = this.policyApprovals.findIndex((item) => item.approvalId === approvalId);
+        const displayText = String(approval?.display_text ?? event.message ?? 'Approval required.');
         const nextItem: PolicyApprovalItem = {
           approvalId,
           runId: String(event.request_id ?? ''),
@@ -759,7 +811,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           agentName: String(event.agent ?? this.selectedAgentId ?? 'agent'),
           tool: String(approval?.tool ?? 'unknown'),
           resource: String(approval?.resource ?? ''),
-          displayText: String(approval?.display_text ?? event.message ?? 'Approval required.'),
+          displayText,
           options,
           selectedOption,
           status: 'pending',
@@ -772,8 +824,44 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         } else {
           this.policyApprovals.unshift(nextItem);
         }
+
+        this.lines.push({
+          role: 'system',
+          text: displayText,
+          policyAction: {
+            approvalId,
+            runId: nextItem.runId,
+            sessionId: nextItem.sessionId,
+            tool: nextItem.tool,
+            resource: nextItem.resource,
+            dropdownAction: '',
+            busy: false,
+            resolved: false,
+          },
+        });
         this.ensureApprovalPolling();
       }
+      return;
+    }
+
+    if (event.type === 'policy_approval_updated') {
+      const approval = event.approval as PolicyApprovalRecord | undefined;
+      const approvalId = String(approval?.approval_id ?? '');
+      if (!approvalId) {
+        return;
+      }
+      const updated = this.mapPolicyApprovalRecord(approval as PolicyApprovalRecord);
+      const existingIndex = this.policyApprovals.findIndex((item) => item.approvalId === approvalId);
+      if (existingIndex >= 0) {
+        this.policyApprovals[existingIndex] = {
+          ...updated,
+          options: this.policyApprovals[existingIndex].options,
+          selectedOption: this.policyApprovals[existingIndex].selectedOption,
+        };
+      } else {
+        this.policyApprovals.unshift(updated);
+      }
+      this.updateInlinePolicyActionState(approvalId, updated.status !== 'pending');
       return;
     }
 
@@ -849,7 +937,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     if (event.type === 'error' || (event.stage || '').startsWith('request_failed')) {
       existingAgent.errors += 1;
     }
-    if (event.stage === 'request_completed' || (event.stage || '').startsWith('request_failed')) {
+    if (event.stage === 'request_completed' || event.stage === 'request_cancelled' || (event.stage || '').startsWith('request_failed')) {
       existingAgent.activeRequestId = '';
     }
 
@@ -878,6 +966,12 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       if (event.stage === 'request_completed') {
         existingRequest.status = 'completed';
       }
+      if (event.stage === 'request_cancelled') {
+        existingRequest.status = 'cancelled';
+      }
+      if (event.stage === 'clarification_waiting_response') {
+        existingRequest.status = 'waiting_clarification';
+      }
       if ((event.stage || '').startsWith('request_failed') || event.type === 'error') {
         existingRequest.status = 'failed';
         existingRequest.error = event.message || existingRequest.error;
@@ -885,7 +979,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
       this.requestActivityMap.set(event.request_id, existingRequest);
 
-      if (event.stage === 'request_completed' || (event.stage || '').startsWith('request_failed')) {
+      if (event.stage === 'request_completed' || event.stage === 'request_cancelled' || (event.stage || '').startsWith('request_failed')) {
         this.fetchRunAudit(event.request_id, true);
       }
     }
@@ -1067,30 +1161,54 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     if (!item?.approvalId || this.policyApprovalBusy.has(item.approvalId)) {
       return;
     }
-    if (item.selectedOption !== 'allow') {
+    this.sendPolicyDecision(item.approvalId, 'allow_once', item.sessionId, item.runId);
+  }
+
+  allowPolicyApprovalInline(line: ChatLine): void {
+    const action = line.policyAction;
+    if (!action || action.busy || action.resolved) {
       return;
     }
+    this.sendPolicyDecision(action.approvalId, 'allow_once', action.sessionId, action.runId);
+    action.busy = true;
+  }
 
-    this.policyApprovalBusy.add(item.approvalId);
-    this.agentsService.allowPolicyApproval(item.approvalId).subscribe({
-      next: (payload) => {
-        const updated = this.mapPolicyApprovalRecord(payload.approval);
-        updated.selectedOption = 'allow';
-        const index = this.policyApprovals.findIndex((entry) => entry.approvalId === item.approvalId);
-        if (index >= 0) {
-          this.policyApprovals[index] = updated;
-        } else {
-          this.policyApprovals.unshift(updated);
-        }
-        this.lines.push({ role: 'system', text: `Policy override allowed for ${updated.tool}.` });
-        this.refreshPendingPolicyApprovals(true);
-        this.policyApprovalBusy.delete(item.approvalId);
-      },
-      error: (error) => {
-        this.lines.push({ role: 'system', text: `Allow failed: ${error?.error?.detail ?? error.message}` });
-        this.policyApprovalBusy.delete(item.approvalId);
-      },
-    });
+  executePolicyDropdownAction(line: ChatLine): void {
+    const action = line.policyAction;
+    if (!action || action.busy || action.resolved || !action.dropdownAction) {
+      return;
+    }
+    const selected = action.dropdownAction;
+    action.dropdownAction = '';
+    this.sendPolicyDecision(action.approvalId, selected, action.sessionId, action.runId);
+    action.busy = true;
+  }
+
+  hasPendingPolicyAction(line: ChatLine): boolean {
+    return Boolean(line.policyAction && !line.policyAction.resolved);
+  }
+
+  private sendPolicyDecision(
+    approvalId: string,
+    decision: 'allow_once' | 'allow_session' | 'cancel',
+    sessionId: string,
+    runId: string
+  ): void {
+    this.policyApprovalBusy.add(approvalId);
+    this.updateInlinePolicyActionBusy(approvalId, true);
+    try {
+      this.socketService.sendPolicyDecision(approvalId, decision, { sessionId, requestId: runId });
+      const messageMap: Record<'allow_once' | 'allow_session' | 'cancel', string> = {
+        allow_once: 'Policy decision sent: Allow once.',
+        allow_session: 'Policy decision sent: Allow all in this session.',
+        cancel: 'Policy decision sent: Cancel.',
+      };
+      this.lines.push({ role: 'system', text: messageMap[decision] });
+    } catch (error: any) {
+      this.policyApprovalBusy.delete(approvalId);
+      this.updateInlinePolicyActionBusy(approvalId, false);
+      this.lines.push({ role: 'system', text: `Policy decision failed: ${error?.message ?? 'unknown error'}` });
+    }
   }
 
   isPolicyApprovalBusy(approvalId: string): boolean {
@@ -1113,7 +1231,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.policyApprovals = response.items.map((item) => {
           const mapped = this.mapPolicyApprovalRecord(item);
-          mapped.selectedOption = 'allow';
+          mapped.selectedOption = 'allow_once';
           return mapped;
         });
         this.approvalPollInFlight = false;
@@ -1158,10 +1276,51 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  private updateInlinePolicyActionBusy(approvalId: string, busy: boolean): void {
+    for (const line of this.lines) {
+      if (line.policyAction?.approvalId === approvalId) {
+        line.policyAction.busy = busy;
+      }
+    }
+  }
+
+  private updateInlinePolicyActionState(approvalId: string, resolved: boolean): void {
+    if (resolved) {
+      this.policyApprovalBusy.delete(approvalId);
+    }
+    for (const line of this.lines) {
+      if (line.policyAction?.approvalId === approvalId) {
+        line.policyAction.busy = false;
+        line.policyAction.resolved = resolved;
+      }
+    }
+  }
+
+  private resolveInlinePolicyActionsByRequest(requestId: string): void {
+    if (!requestId) {
+      return;
+    }
+    for (const line of this.lines) {
+      if (line.policyAction?.runId === requestId) {
+        line.policyAction.resolved = true;
+        line.policyAction.busy = false;
+        this.policyApprovalBusy.delete(line.policyAction.approvalId);
+      }
+    }
+  }
+
   private mapPolicyApprovalRecord(record: PolicyApprovalRecord): PolicyApprovalItem {
     const normalizedStatus = String(record.status ?? 'pending').toLowerCase();
-    const status: 'pending' | 'approved' | 'expired' =
-      normalizedStatus === 'approved' ? 'approved' : normalizedStatus === 'expired' ? 'expired' : 'pending';
+    const status: 'pending' | 'approved' | 'expired' | 'denied' | 'cancelled' =
+      normalizedStatus === 'approved'
+        ? 'approved'
+        : normalizedStatus === 'expired'
+          ? 'expired'
+          : normalizedStatus === 'denied'
+            ? 'denied'
+            : normalizedStatus === 'cancelled'
+              ? 'cancelled'
+              : 'pending';
 
     return {
       approvalId: String(record.approval_id),
@@ -1171,8 +1330,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       tool: String(record.tool ?? 'unknown'),
       resource: String(record.resource ?? ''),
       displayText: String(record.display_text ?? 'Approval required.'),
-      options: ['allow'],
-      selectedOption: 'allow',
+      options: ['allow_once', 'allow_session', 'cancel'],
+      selectedOption: 'allow_once',
       status,
       createdAt: String(record.created_at ?? new Date().toISOString()),
       updatedAt: String(record.updated_at ?? new Date().toISOString()),

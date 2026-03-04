@@ -121,6 +121,17 @@
   line-height: 1.35;
 }
 
+.inline-policy-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-policy-actions select {
+  min-width: 190px;
+}
+
 .line.user {
   background: rgba(44, 105, 255, 0.28);
   border: 1px solid rgba(115, 156, 255, 0.45);
@@ -192,6 +203,10 @@
 
 .table-row .fail {
   color: #ff9d9d;
+}
+
+.table-row .cancel {
+  color: #f7b4ff;
 }
 
 .trace-note {

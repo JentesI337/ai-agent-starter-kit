@@ -9,7 +9,13 @@ from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.errors import (
+    GuardrailViolation,
+    LlmClientError,
+    PolicyApprovalCancelledError,
+    RuntimeSwitchError,
+    ToolExecutionError,
+)
 from app.interfaces import RequestContext
 from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestrator.events import build_lifecycle_event, classify_error
@@ -109,6 +115,12 @@ class SettingsLike(Protocol):
     session_follow_up_max_deferrals: int
 
 
+class PolicyApprovalServiceLike(Protocol):
+    async def decide(self, approval_id: str, decision: str, scope: str | None = None) -> dict | None: ...
+
+    async def clear_session_overrides(self, session_id: str | None) -> None: ...
+
+
 @dataclass
 class WsHandlerDependencies:
     logger: LoggerLike
@@ -132,6 +144,7 @@ class WsHandlerDependencies:
     primary_agent_id: str
     coder_agent_id: str
     review_agent_id: str
+    policy_approval_service: PolicyApprovalServiceLike | None = None
 
 
 async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> None:
@@ -224,6 +237,23 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         )
 
     async def handle_request_failure(*, request_id: str, session_id: str, exc: Exception) -> None:
+        if isinstance(exc, PolicyApprovalCancelledError):
+            await send_event(
+                {
+                    "type": "status",
+                    "agent": deps.agent.name,
+                    "message": str(exc),
+                    "request_id": request_id,
+                    "session_id": session_id,
+                }
+            )
+            await send_lifecycle(
+                stage="request_cancelled",
+                request_id=request_id,
+                session_id=session_id,
+                details={"reason": "policy_approval_cancelled", "error": str(exc)},
+            )
+            return
         if isinstance(exc, GuardrailViolation):
             deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
             await send_event(
@@ -633,6 +663,96 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 data = parse_ws_inbound_message(raw)
                 deps.sync_custom_agents()
                 session_id = data.session_id or connection_session_id
+
+                if data.type == "policy_decision":
+                    approval_id = str(getattr(data, "approval_id", "") or "").strip()
+                    decision = str(getattr(data, "decision", "") or "").strip().lower()
+                    if not approval_id:
+                        await send_event(
+                            {
+                                "type": "status",
+                                "agent": deps.agent.name,
+                                "message": "Policy decision rejected: missing approval_id.",
+                                "session_id": session_id,
+                            }
+                        )
+                        await send_lifecycle(
+                            stage="policy_approval_decision_rejected",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"reason": "missing_approval_id"},
+                        )
+                        continue
+
+                    mapped_scope: str | None = None
+                    mapped_decision = decision
+                    if decision == "allow_session":
+                        mapped_decision = "allow_session"
+                        mapped_scope = "session_tool"
+
+                    if deps.policy_approval_service is None:
+                        await send_event(
+                            {
+                                "type": "status",
+                                "agent": deps.agent.name,
+                                "message": "Policy decision rejected: policy approval service unavailable.",
+                                "session_id": session_id,
+                            }
+                        )
+                        await send_lifecycle(
+                            stage="policy_approval_decision_rejected",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"reason": "service_unavailable", "approval_id": approval_id},
+                        )
+                        continue
+
+                    updated = await deps.policy_approval_service.decide(
+                        approval_id=approval_id,
+                        decision=mapped_decision,
+                        scope=mapped_scope,
+                    )
+                    if updated is None:
+                        await send_event(
+                            {
+                                "type": "status",
+                                "agent": deps.agent.name,
+                                "message": "Policy decision rejected: approval request not found.",
+                                "session_id": session_id,
+                            }
+                        )
+                        await send_lifecycle(
+                            stage="policy_approval_decision_rejected",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"reason": "approval_not_found", "approval_id": approval_id},
+                        )
+                        continue
+
+                    target_request_id = str(updated.get("run_id") or request_id)
+                    target_session_id = str(updated.get("session_id") or session_id)
+                    await send_event(
+                        {
+                            "type": "policy_approval_updated",
+                            "agent": deps.agent.name,
+                            "request_id": target_request_id,
+                            "session_id": target_session_id,
+                            "approval": updated,
+                        }
+                    )
+                    await send_lifecycle(
+                        stage="policy_approval_decision",
+                        request_id=target_request_id,
+                        session_id=target_session_id,
+                        details={
+                            "approval_id": approval_id,
+                            "decision": str(updated.get("decision") or ""),
+                            "status": str(updated.get("status") or ""),
+                            "duplicate": bool(updated.get("duplicate_decision")),
+                        },
+                    )
+                    continue
+
                 deps.logger.info(
                     "ws_message_received request_id=%s session_id=%s type=%s agent_id=%s content_len=%s requested_model=%s",
                     request_id,
@@ -1081,6 +1201,22 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             except (WebSocketDisconnect, ClientDisconnectedError):
                 deps.logger.info("ws_disconnected session_id=%s", session_id)
                 break
+            except PolicyApprovalCancelledError as exc:
+                await send_event(
+                    {
+                        "type": "status",
+                        "agent": deps.agent.name,
+                        "message": str(exc),
+                        "request_id": request_id,
+                        "session_id": session_id,
+                    }
+                )
+                await send_lifecycle(
+                    stage="request_cancelled",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"reason": "policy_approval_cancelled", "error": str(exc)},
+                )
             except GuardrailViolation as exc:
                 deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
                 await send_event(
@@ -1185,6 +1321,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         except ClientDisconnectedError:
             return
     finally:
+        if deps.policy_approval_service is not None:
+            try:
+                await deps.policy_approval_service.clear_session_overrides(connection_session_id)
+            except Exception:
+                deps.logger.debug("policy_session_override_cleanup_failed session_id=%s", connection_session_id, exc_info=True)
         workers = [task for task in session_workers.values() if task is not None and not task.done()]
         for task in workers:
             task.cancel()

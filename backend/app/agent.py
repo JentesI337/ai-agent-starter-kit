@@ -19,7 +19,7 @@ from app.contracts.tool_selector_runtime import ToolSelectorRuntime
 from app.config import settings
 from app.contracts.tool_protocol import ToolProvider
 from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
-from app.errors import GuardrailViolation, ToolExecutionError
+from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
 from app.model_routing import ModelRegistry
@@ -1887,6 +1887,8 @@ class HeadAgent:
                 resource=resource,
                 display_text=display_text,
             )
+        except PolicyApprovalCancelledError:
+            raise
         except Exception:
             approved = False
 

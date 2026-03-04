@@ -39,3 +39,7 @@ class LlmClientError(AppError):
 
 class RuntimeSwitchError(AppError):
     pass
+
+
+class PolicyApprovalCancelledError(AppError):
+    pass

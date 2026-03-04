@@ -10,7 +10,7 @@ from app.config import resolved_prompt_settings, settings, validate_environment_
 from app.control_router_wiring import include_control_routers
 from app.contracts.agent_contract import AgentContract
 from app.custom_agents import CustomAgentStore
-from app.errors import GuardrailViolation
+from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.handlers import (
     agent_handlers,
     policy_handlers,
@@ -322,9 +322,23 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                     "tool": tool,
                     "resource": resource,
                     "display_text": display_text,
-                    "options": ["allow_once", "allow_always", "deny"],
-                    "scope": "tool_resource",
+                    "options": ["allow_once", "allow_session", "cancel"],
+                    "scope": "session_tool",
                     "status": "pending",
+                },
+            }
+        )
+        await send_event(
+            {
+                "type": "lifecycle",
+                "agent": agent_name,
+                "stage": "policy_approval_requested",
+                "request_id": request_id,
+                "session_id": session_id,
+                "details": {
+                    "approval_id": approval["approval_id"],
+                    "tool": tool,
+                    "resource": resource,
                 },
             }
         )
@@ -332,7 +346,32 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             approval_id=approval["approval_id"],
             timeout_seconds=settings.policy_approval_wait_seconds,
         )
-        return decision in {"allow_once", "allow_always"}
+        await send_event(
+            {
+                "type": "lifecycle",
+                "agent": agent_name,
+                "stage": "policy_approval_decision",
+                "request_id": request_id,
+                "session_id": session_id,
+                "details": {
+                    "approval_id": approval["approval_id"],
+                    "tool": tool,
+                    "resource": resource,
+                    "decision": decision,
+                },
+            }
+        )
+        if decision == "cancel":
+            raise PolicyApprovalCancelledError(
+                "Command execution was cancelled by user.",
+                error_code="policy_approval_cancelled",
+                details={
+                    "approval_id": approval["approval_id"],
+                    "tool": tool,
+                    "resource": resource,
+                },
+            )
+        return decision in {"allow_once", "allow_always", "allow_session"}
     for owner_agent_id, agent_instance in components.agent_registry.items():
         set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
         if callable(set_handler):
@@ -685,6 +724,7 @@ ws_handler_dependencies = WsHandlerDependencies(
     agent=agent,
     agent_registry=agent_registry,
     runtime_manager=runtime_manager,
+    policy_approval_service=policy_approval_service,
     state_store=state_store,
     subrun_lane=subrun_lane,
     sync_custom_agents=_sync_custom_agents,

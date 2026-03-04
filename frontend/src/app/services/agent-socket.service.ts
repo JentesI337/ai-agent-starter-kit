@@ -35,6 +35,8 @@ export interface AgentSocketEvent {
     options?: string[];
     scope?: string;
     status?: string;
+    decision?: string;
+    duplicate_decision?: boolean;
   };
 }
 
@@ -180,6 +182,21 @@ export class AgentSocketService {
     );
   }
 
+  sendClarificationResponse(content: string, options?: { agentId?: string; sessionId?: string }): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+
+    this.socket.send(
+      JSON.stringify({
+        type: 'clarification_response',
+        content,
+        agent_id: options?.agentId,
+        session_id: options?.sessionId,
+      })
+    );
+  }
+
   sendSubrunSpawn(
     content: string,
     options?: { agentId?: string; preset?: string; model?: string; sessionId?: string; toolPolicy?: ToolPolicyPayload }
@@ -211,6 +228,26 @@ export class AgentSocketService {
         type: 'runtime_switch_request',
         runtime_target: runtimeTarget,
         session_id: sessionId,
+      })
+    );
+  }
+
+  sendPolicyDecision(
+    approvalId: string,
+    decision: 'allow_once' | 'allow_session' | 'cancel',
+    options?: { sessionId?: string; requestId?: string }
+  ): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+
+    this.socket.send(
+      JSON.stringify({
+        type: 'policy_decision',
+        approval_id: approvalId,
+        decision,
+        session_id: options?.sessionId,
+        request_id: options?.requestId,
       })
     );
   }

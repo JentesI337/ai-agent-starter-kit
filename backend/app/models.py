@@ -35,8 +35,18 @@ class WsClarificationResponseMessage(WsInboundEnvelope):
     type: Literal["clarification_response"]
 
 
+class WsPolicyDecisionMessage(WsInboundEnvelope):
+    type: Literal["policy_decision"]
+    approval_id: str
+    decision: Literal["allow_once", "allow_session", "cancel"]
+
+
 WsInboundMessage = Annotated[
-    WsUserMessage | WsSubrunSpawnMessage | WsRuntimeSwitchRequestMessage | WsClarificationResponseMessage,
+    WsUserMessage
+    | WsSubrunSpawnMessage
+    | WsRuntimeSwitchRequestMessage
+    | WsClarificationResponseMessage
+    | WsPolicyDecisionMessage,
     Field(discriminator="type"),
 ]
 
@@ -46,6 +56,7 @@ SUPPORTED_WS_INBOUND_TYPES = frozenset(
         "subrun_spawn",
         "runtime_switch_request",
         "clarification_response",
+        "policy_decision",
     }
 )
 

@@ -20,7 +20,18 @@
       <h2>Conversation</h2>
       <div class="chat-log">
         <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
-          {{ line.text }}
+          <div>{{ line.text }}</div>
+          <div class="inline-policy-actions" *ngIf="hasPendingPolicyAction(line)">
+            <button (click)="allowPolicyApprovalInline(line)" [disabled]="line.policyAction?.busy">{{ line.policyAction?.busy ? 'Working...' : 'Allow' }}</button>
+            <select [(ngModel)]="line.policyAction!.dropdownAction" [disabled]="line.policyAction?.busy ?? false" title="Policy action">
+              <option value="">More…</option>
+              <option value="cancel">Cancel</option>
+              <option value="allow_session">Allow all in this Session</option>
+            </select>
+            <button class="secondary" (click)="executePolicyDropdownAction(line)" [disabled]="line.policyAction?.busy || !line.policyAction?.dropdownAction">
+              Apply
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -39,8 +50,10 @@
           <select [(ngModel)]="monitorStatusFilter">
             <option value="all">all</option>
             <option value="running">running</option>
+            <option value="waiting_clarification">waiting_clarification</option>
             <option value="completed">completed</option>
             <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
           </select>
         </label>
         <label>
@@ -73,7 +86,7 @@
       <div class="table-row" *ngFor="let item of filteredRequestActivities | slice:0:100">
         <span>{{ item.requestId }}</span>
         <span>{{ item.agentId }}</span>
-        <span [class.ok]="item.status === 'completed'" [class.fail]="item.status === 'failed'">{{ item.status }}</span>
+        <span [class.ok]="item.status === 'completed'" [class.fail]="item.status === 'failed'" [class.wait]="item.status === 'waiting_clarification'" [class.cancel]="item.status === 'cancelled'">{{ item.status }}</span>
         <span>{{ item.stage }}</span>
         <span>{{ item.toolEvents }}</span>
       </div>
@@ -150,13 +163,7 @@
         <p>{{ item.displayText }}</p>
 
         <div class="approval-actions" *ngIf="item.status === 'pending'; else resolvedApprovalState">
-          <select [(ngModel)]="item.selectedOption">
-            <option *ngFor="let option of item.options" [value]="option">{{ option }}</option>
-          </select>
-          <button
-            (click)="allowPolicyApproval(item)"
-            [disabled]="item.selectedOption !== 'allow' || isPolicyApprovalBusy(item.approvalId)"
-          >
+          <button (click)="allowPolicyApproval(item)" [disabled]="isPolicyApprovalBusy(item.approvalId)">
             {{ isPolicyApprovalBusy(item.approvalId) ? 'Allowing...' : 'Allow' }}
           </button>
         </div>

@@ -10,7 +10,7 @@ import uuid
 from app.config import settings
 
 
-APPROVAL_DECISIONS = {"allow_once", "allow_always", "deny"}
+APPROVAL_DECISIONS = {"allow_once", "allow_always", "allow_session", "deny", "cancel"}
 ALLOW_ALWAYS_SCOPES = {
     "tool_resource",
     "tool",
@@ -33,6 +33,7 @@ class PolicyApprovalService:
         default_file = Path(settings.orchestrator_state_dir) / "policy_allow_always_rules.json"
         self._allow_always_store_file = Path(allow_always_store_file).resolve() if allow_always_store_file else default_file
         self._allow_always_rules: list[dict[str, str]] = []
+        self._session_allow_all: set[str] = set()
         self._restore_allow_always_rules()
 
     async def create(
@@ -57,7 +58,7 @@ class PolicyApprovalService:
             "display_text": display_text,
             "status": "pending",
             "decision": None,
-            "options": ["allow_once", "allow_always", "deny"],
+            "options": ["allow_once", "allow_session", "cancel"],
             "created_at": created_at,
             "updated_at": created_at,
         }
@@ -155,7 +156,10 @@ class PolicyApprovalService:
             return
 
     async def is_preapproved(self, *, tool: str, resource: str, session_id: str | None = None) -> bool:
+        normalized_session_id = (session_id or "").strip()
         async with self._lock:
+            if normalized_session_id and normalized_session_id in self._session_allow_all:
+                return True
             return any(
                 self._rule_matches(
                     rule=rule,
@@ -165,6 +169,13 @@ class PolicyApprovalService:
                 )
                 for rule in self._allow_always_rules
             )
+
+    async def clear_session_overrides(self, session_id: str | None) -> None:
+        normalized_session_id = (session_id or "").strip()
+        if not normalized_session_id:
+            return
+        async with self._lock:
+            self._session_allow_all.discard(normalized_session_id)
 
     async def decide(self, approval_id: str, decision: str, scope: str | None = None) -> dict | None:
         normalized_decision = (decision or "").strip().lower()
@@ -176,16 +187,31 @@ class PolicyApprovalService:
             record = self._records.get(approval_id)
             if record is None:
                 return None
+
+            if record.get("status") != "pending":
+                existing_decision = str(record.get("decision") or "").strip().lower()
+                record["duplicate_decision"] = True
+                record["duplicate_matches_existing"] = existing_decision == normalized_decision
+                record["updated_at"] = datetime.now(timezone.utc).isoformat()
+                return dict(record)
+
             now = datetime.now(timezone.utc).isoformat()
 
-            if normalized_decision in {"allow_once", "allow_always"}:
+            if normalized_decision in {"allow_once", "allow_always", "allow_session"}:
                 record["status"] = "approved"
+            elif normalized_decision == "cancel":
+                record["status"] = "cancelled"
             else:
                 record["status"] = "denied"
 
             record["decision"] = normalized_decision
             record["updated_at"] = now
             record["scope"] = normalized_scope
+
+            if normalized_decision == "allow_session":
+                normalized_session_id = str(record.get("session_id") or "").strip()
+                if normalized_session_id:
+                    self._session_allow_all.add(normalized_session_id)
 
             if normalized_decision == "allow_always":
                 normalized_rule = self._normalize_rule(
@@ -242,7 +268,7 @@ class PolicyApprovalService:
 
     async def wait_for_allow(self, approval_id: str, timeout_seconds: float) -> bool:
         decision = await self.wait_for_decision(approval_id, timeout_seconds)
-        return decision in {"allow_once", "allow_always"}
+        return decision in {"allow_once", "allow_always", "allow_session"}
 
     async def list_pending(self, *, run_id: str | None = None, session_id: str | None = None, limit: int = 100) -> list[dict]:
         normalized_run_id = (run_id or "").strip() or None

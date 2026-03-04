@@ -86,3 +86,65 @@ def test_policy_approval_service_allow_always_marks_preapproved() -> None:
     decision, preapproved = asyncio.run(run_case())
     assert decision == "allow_always"
     assert preapproved is True
+
+
+def test_policy_approval_service_allow_session_applies_only_to_current_session() -> None:
+    service = PolicyApprovalService()
+
+    async def run_case() -> tuple[str | None, bool, bool, bool]:
+        created = await service.create(
+            run_id="run-5",
+            session_id="sess-5",
+            agent_name="head-agent",
+            tool="run_command",
+            resource="echo hi",
+            display_text="allow in session?",
+        )
+        await service.decide(created["approval_id"], "allow_session", scope="session_tool")
+        decision = await service.wait_for_decision(created["approval_id"], timeout_seconds=1.0)
+        preapproved_same_session = await service.is_preapproved(
+            tool="run_command",
+            resource="another command",
+            session_id="sess-5",
+        )
+        preapproved_other_session = await service.is_preapproved(
+            tool="run_command",
+            resource="another command",
+            session_id="sess-other",
+        )
+        await service.clear_session_overrides("sess-5")
+        preapproved_after_clear = await service.is_preapproved(
+            tool="run_command",
+            resource="another command",
+            session_id="sess-5",
+        )
+        return decision, preapproved_same_session, preapproved_other_session, preapproved_after_clear
+
+    decision, preapproved_same_session, preapproved_other_session, preapproved_after_clear = asyncio.run(run_case())
+    assert decision == "allow_session"
+    assert preapproved_same_session is True
+    assert preapproved_other_session is False
+    assert preapproved_after_clear is False
+
+
+def test_policy_approval_service_duplicate_decision_is_ignored() -> None:
+    service = PolicyApprovalService()
+
+    async def run_case() -> tuple[dict, dict]:
+        created = await service.create(
+            run_id="run-6",
+            session_id="sess-6",
+            agent_name="head-agent",
+            tool="run_command",
+            resource="echo hi",
+            display_text="allow once?",
+        )
+        first = await service.decide(created["approval_id"], "allow_once")
+        second = await service.decide(created["approval_id"], "cancel")
+        return first or {}, second or {}
+
+    first, second = asyncio.run(run_case())
+    assert first.get("decision") == "allow_once"
+    assert second.get("decision") == "allow_once"
+    assert second.get("duplicate_decision") is True
+    assert second.get("duplicate_matches_existing") is False
