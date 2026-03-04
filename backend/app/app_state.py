@@ -21,6 +21,8 @@ class RuntimeComponents:
     agent: Any | None = None
     orchestrator_api: Any | None = None
     subrun_lane: Any | None = None
+    model_health_tracker: Any | None = None
+    circuit_breaker: Any | None = None
 
 
 @dataclass

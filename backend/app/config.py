@@ -694,6 +694,17 @@ class Settings(BaseModel):
     model_score_weight_latency: float = float(os.getenv("MODEL_SCORE_WEIGHT_LATENCY", "0.01"))
     model_score_weight_cost: float = float(os.getenv("MODEL_SCORE_WEIGHT_COST", "10.0"))
     model_score_runtime_bonus: float = float(os.getenv("MODEL_SCORE_RUNTIME_BONUS", "6.0"))
+    # T2.1: ModelHealthTracker — misst Latenz und Erfolgsrate im laufenden Betrieb
+    model_health_tracker_enabled: bool = _parse_bool_env("MODEL_HEALTH_TRACKER_ENABLED", False)
+    model_health_tracker_ring_buffer_size: int = int(os.getenv("MODEL_HEALTH_TRACKER_RING_BUFFER_SIZE", "50"))
+    model_health_tracker_min_samples: int = int(os.getenv("MODEL_HEALTH_TRACKER_MIN_SAMPLES", "10"))
+    model_health_tracker_stale_after_seconds: int = int(os.getenv("MODEL_HEALTH_TRACKER_STALE_AFTER_SECONDS", "300"))
+    # T2.2: CircuitBreaker — open/half-open/closed per Modell-ID
+    circuit_breaker_enabled: bool = _parse_bool_env("CIRCUIT_BREAKER_ENABLED", False)
+    circuit_breaker_failure_threshold: int = int(os.getenv("CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"))
+    circuit_breaker_failure_window_seconds: int = int(os.getenv("CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS", "60"))
+    circuit_breaker_recovery_timeout_seconds: int = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS", "120"))
+    circuit_breaker_success_threshold: int = int(os.getenv("CIRCUIT_BREAKER_SUCCESS_THRESHOLD", "2"))
     clarification_protocol_enabled: bool = _parse_bool_env("CLARIFICATION_PROTOCOL_ENABLED", True)
     clarification_confidence_threshold: float = max(
         0.0,

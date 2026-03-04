@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.config import settings
 from app.model_routing.capability_profile import ModelCapabilityProfile
 from app.model_routing.model_registry import ModelRegistry
+
+if TYPE_CHECKING:
+    from app.services.model_health_tracker import ModelHealthTracker
 
 
 @dataclass(frozen=True)
@@ -16,8 +20,13 @@ class ModelRouteDecision:
 
 
 class ModelRouter:
-    def __init__(self, registry: ModelRegistry | None = None):
+    def __init__(
+        self,
+        registry: ModelRegistry | None = None,
+        health_tracker: ModelHealthTracker | None = None,
+    ):
         self.registry = registry or ModelRegistry()
+        self._health_tracker = health_tracker
 
     def route(
         self,
@@ -62,6 +71,9 @@ class ModelRouter:
             fallbacks = ranked[1:]
 
         profile = self.registry.resolve(primary)
+        # T2.1: Gemessene Profile überschreiben statische wenn genug Samples vorhanden
+        if self._health_tracker is not None:
+            profile = self._health_tracker.apply_to_profile(profile)
         return ModelRouteDecision(
             primary_model=primary,
             fallback_models=fallbacks,
@@ -89,6 +101,9 @@ class ModelRouter:
 
     def _score_candidate(self, model_id: str, runtime_key: str, *, reasoning_level: str | None = None) -> float:
         profile = self.registry.resolve(model_id)
+        # T2.1: Use measured profile if available
+        if self._health_tracker is not None:
+            profile = self._health_tracker.apply_to_profile(profile)
         runtime_bonus = 0.0
         if runtime_key == "local" and model_id == settings.local_model:
             runtime_bonus = settings.model_score_runtime_bonus

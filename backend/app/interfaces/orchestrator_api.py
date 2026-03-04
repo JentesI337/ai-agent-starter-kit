@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.config import settings
 from app.contracts.agent_contract import AgentContract, SendEvent
 from app.interfaces.request_context import RequestContext
@@ -9,10 +11,25 @@ from app.orchestrator.session_lane_manager import SessionLaneManager
 from app.services import resolve_tool_policy
 from app.state import StateStore
 
+if TYPE_CHECKING:
+    from app.services.circuit_breaker import CircuitBreakerRegistry
+    from app.services.model_health_tracker import ModelHealthTracker
+
 
 class OrchestratorApi:
-    def __init__(self, agent: AgentContract, state_store: StateStore):
-        self._runner = PipelineRunner(agent=agent, state_store=state_store)
+    def __init__(
+        self,
+        agent: AgentContract,
+        state_store: StateStore,
+        health_tracker: ModelHealthTracker | None = None,
+        circuit_breaker: CircuitBreakerRegistry | None = None,
+    ):
+        self._runner = PipelineRunner(
+            agent=agent,
+            state_store=state_store,
+            health_tracker=health_tracker,
+            circuit_breaker=circuit_breaker,
+        )
         self._lane_manager = SessionLaneManager(
             global_max_concurrent=settings.session_lane_global_max_concurrent,
         )

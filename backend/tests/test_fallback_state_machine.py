@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.errors import LlmClientError
+from app.errors import GuardrailViolation, LlmClientError
 from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
 from backend.tests.async_test_guards import run_async_with_timeout
@@ -426,3 +426,67 @@ def test_state_machine_terminates_when_fallbacks_exhausted() -> None:
         run_async_with_timeout(machine.run(), timeout_seconds=2.0)
 
     assert agent.calls == ["model-primary", "model-fallback-a", "model-fallback-b"]
+
+
+def test_guardrail_violation_releases_half_open_probe_and_reraises() -> None:
+    class _GuardrailAgent:
+        def __init__(self) -> None:
+            self.name = "guardrail-agent"
+
+        async def run(
+            self,
+            *,
+            user_message,
+            send_event,
+            session_id,
+            request_id,
+            model=None,
+            tool_policy=None,
+            prompt_mode=None,
+            should_steer_interrupt=None,
+        ):
+            _ = (user_message, send_event, session_id, request_id, model, tool_policy, prompt_mode, should_steer_interrupt)
+            raise GuardrailViolation("guardrail blocked")
+
+    class _StubCircuitBreaker:
+        def __init__(self) -> None:
+            self.release_calls: list[str] = []
+
+        async def allow_request(self, model_id: str):
+            return True, None
+
+        async def release_probe(self, model_id: str) -> None:
+            self.release_calls.append(model_id)
+
+    route = _Route(
+        primary_model="model-primary",
+        fallback_models=["model-fallback"],
+        profile=_RouteProfile(),
+    )
+    agent = _GuardrailAgent()
+    hooks = _Hooks(agent, retryable=True)
+    cb = _StubCircuitBreaker()
+
+    async def _send_event(payload: dict) -> None:
+        _ = payload
+
+    machine = FallbackStateMachine(
+        hooks=hooks,
+        route=route,
+        runtime="api",
+        user_message="please do task",
+        prompt_mode="full",
+        send_event=_send_event,
+        session_id="s-guardrail",
+        request_id="r-guardrail",
+        should_steer_interrupt=None,
+        tool_policy=None,
+        max_attempts=3,
+        config=_runtime_config(),
+        circuit_breaker=cb,
+    )
+
+    with pytest.raises(GuardrailViolation):
+        run_async_with_timeout(machine.run(), timeout_seconds=2.0)
+
+    assert cb.release_calls == ["model-primary"]

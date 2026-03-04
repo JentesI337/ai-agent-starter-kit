@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from enum import Enum
 import random
 from collections.abc import Callable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
-from app.errors import LlmClientError
+from app.errors import GuardrailViolation, LlmClientError
 from app.model_routing.router import ModelRouteDecision
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
 from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
 from app.tool_policy import ToolPolicyDict
+
+if TYPE_CHECKING:
+    from app.services.circuit_breaker import CircuitBreakerRegistry, CircuitStateTransition
+    from app.services.model_health_tracker import ModelHealthTracker
 
 
 class FallbackHooks(Protocol):
@@ -139,6 +144,8 @@ class FallbackStateMachine:
         should_steer_interrupt: Callable[[], bool] | None,
         max_attempts: int,
         config: FallbackRuntimeConfig,
+        circuit_breaker: CircuitBreakerRegistry | None = None,
+        health_tracker: ModelHealthTracker | None = None,
     ) -> None:
         self._hooks = hooks
         self._route = route
@@ -151,6 +158,8 @@ class FallbackStateMachine:
         self._should_steer_interrupt = should_steer_interrupt
         self._models = [route.primary_model, *route.fallback_models]
         self._config = config
+        self._circuit_breaker = circuit_breaker
+        self._health_tracker = health_tracker
         self._state = FallbackState.INIT
         self._current_model_index = 0
         self._current_candidate_model = self._models[0]
@@ -201,7 +210,31 @@ class FallbackStateMachine:
 
             if self._state == FallbackState.EXECUTE_ATTEMPT:
                 try:
+                    # T2.2: Circuit Breaker — skip model if circuit is OPEN
+                    if self._circuit_breaker is not None:
+                        allowed, cb_transition = await self._circuit_breaker.allow_request(self._current_candidate_model)
+                        if cb_transition is not None:
+                            await self._emit_cb_state_change(cb_transition)
+                        if not allowed:
+                            await self._send_event(
+                                build_lifecycle_event(
+                                    request_id=self._request_id,
+                                    session_id=self._session_id,
+                                    stage="circuit_breaker_rejected",
+                                    details={
+                                        "model": self._current_candidate_model,
+                                        "state": self._circuit_breaker.get_state(self._current_candidate_model).value,
+                                    },
+                                    agent=self._hooks.agent.name,
+                                )
+                            )
+                            # Move to next model without consuming an attempt
+                            self._current_model_index += 1
+                            self._state = FallbackState.SELECT_MODEL
+                            continue
+
                     self._attempt.attempts += 1
+                    _attempt_start_mono = time.monotonic()
                     if self._current_model_index > 0:
                         await self._send_event(
                             {
@@ -235,9 +268,39 @@ class FallbackStateMachine:
                         prompt_mode=self._prompt_mode,
                         should_steer_interrupt=self._should_steer_interrupt,
                     )
+                    # T2.1 + T2.2: Record success metrics
+                    _latency_ms = max(0, int((time.monotonic() - _attempt_start_mono) * 1000))
+                    if self._health_tracker is not None:
+                        await self._health_tracker.record(
+                            model_id=self._current_candidate_model,
+                            latency_ms=_latency_ms,
+                            success=True,
+                            request_id=self._request_id,
+                        )
+                    if self._circuit_breaker is not None:
+                        _cb_tx = await self._circuit_breaker.record_success(self._current_candidate_model)
+                        if _cb_tx is not None:
+                            await self._emit_cb_state_change(_cb_tx)
                     self._state = FallbackState.HANDLE_SUCCESS
                     continue
+                except GuardrailViolation:
+                    if self._circuit_breaker is not None:
+                        await self._circuit_breaker.release_probe(self._current_candidate_model)
+                    raise
                 except LlmClientError as exc:
+                    # T2.1 + T2.2: Record failure metrics (NOT for GuardrailViolation)
+                    _latency_ms_err = max(0, int((time.monotonic() - _attempt_start_mono) * 1000))
+                    if self._health_tracker is not None:
+                        await self._health_tracker.record(
+                            model_id=self._current_candidate_model,
+                            latency_ms=_latency_ms_err,
+                            success=False,
+                            request_id=self._request_id,
+                        )
+                    if self._circuit_breaker is not None:
+                        _cb_tx = await self._circuit_breaker.record_failure(self._current_candidate_model)
+                        if _cb_tx is not None:
+                            await self._emit_cb_state_change(_cb_tx)
                     self._current_exception = exc
                     self._state = FallbackState.HANDLE_FAILURE
                     continue
@@ -666,3 +729,19 @@ class FallbackStateMachine:
 
         delay_ms = float(bounded_base) * (bounded_multiplier ** max(0, bounded_attempt - 1))
         return max(0.0, min(delay_ms, float(bounded_max)) / 1000.0)
+
+    async def _emit_cb_state_change(self, transition: CircuitStateTransition) -> None:
+        """Emit a lifecycle event for a circuit-breaker state transition (T2 DO)."""
+        await self._send_event(
+            build_lifecycle_event(
+                request_id=self._request_id,
+                session_id=self._session_id,
+                stage="circuit_breaker_state_changed",
+                details={
+                    "model": transition.model_id,
+                    "from": transition.from_state.value,
+                    "to": transition.to_state.value,
+                },
+                agent=self._hooks.agent.name,
+            )
+        )

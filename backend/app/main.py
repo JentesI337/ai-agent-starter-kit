@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 from collections.abc import MutableMapping
+from pathlib import Path
 from typing import Any
 from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
@@ -68,7 +69,9 @@ from app.services.agent_resolution import (
     sync_custom_agents as _sync_custom_agents_impl,
 )
 from app.services.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
+from app.services.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
 from app.services.idempotency_manager import IdempotencyManager
+from app.services.model_health_tracker import ModelHealthTracker
 from app.services.request_normalization import normalize_preset
 from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
 from app.state import SqliteStateStore, StateStore
@@ -151,6 +154,15 @@ def _startup_sequence() -> None:
         ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
 def _shutdown_sequence() -> None:
+    # Persist model health snapshots before shutdown
+    try:
+        _rc = _get_runtime_components()
+        _ht = getattr(_rc, "model_health_tracker", None)
+        if _ht is not None:
+            _ht.persist_sync()
+            logger.info("model_health_tracker_persisted_on_shutdown")
+    except Exception:
+        logger.debug("model_health_tracker_persist_on_shutdown_skipped", exc_info=True)
     run_shutdown_sequence(active_run_tasks=control_plane_state.active_run_tasks, logger=logger)
 app.router.lifespan_context = build_lifespan_context(
     on_startup=_startup_sequence,
@@ -169,8 +181,50 @@ def _build_runtime_components() -> RuntimeComponents:
         store = StateStore(persist_dir=settings.orchestrator_state_dir)
     query_service = SessionQueryService(state_store=store)
     policy_approval_service = PolicyApprovalService()
+
+    # T2.1: ModelHealthTracker (in-memory ring-buffer + JSON-persist)
+    health_tracker: ModelHealthTracker | None = None
+    if settings.model_health_tracker_enabled:
+        _persist_path = Path(settings.orchestrator_state_dir) / "model_health_snapshots.json"
+        health_tracker = ModelHealthTracker(
+            ring_buffer_size=max(1, int(settings.model_health_tracker_ring_buffer_size)),
+            min_samples=max(1, int(settings.model_health_tracker_min_samples)),
+            stale_after_seconds=max(1, int(settings.model_health_tracker_stale_after_seconds)),
+            persist_path=_persist_path,
+        )
+        health_tracker.load_persisted()
+        logger.info(
+            "model_health_tracker_enabled ring_buffer_size=%d min_samples=%d stale_after=%ds",
+            settings.model_health_tracker_ring_buffer_size,
+            settings.model_health_tracker_min_samples,
+            settings.model_health_tracker_stale_after_seconds,
+        )
+
+    # T2.2: CircuitBreakerRegistry (rein in-memory)
+    circuit_breaker: CircuitBreakerRegistry | None = None
+    if settings.circuit_breaker_enabled:
+        circuit_breaker = CircuitBreakerRegistry(
+            config=CircuitBreakerConfig(
+                failure_threshold=max(1, int(settings.circuit_breaker_failure_threshold)),
+                failure_window_seconds=max(1, int(settings.circuit_breaker_failure_window_seconds)),
+                recovery_timeout_seconds=max(1, int(settings.circuit_breaker_recovery_timeout_seconds)),
+                success_threshold=max(1, int(settings.circuit_breaker_success_threshold)),
+            )
+        )
+        logger.info(
+            "circuit_breaker_enabled threshold=%d window=%ds recovery=%ds",
+            settings.circuit_breaker_failure_threshold,
+            settings.circuit_breaker_failure_window_seconds,
+            settings.circuit_breaker_recovery_timeout_seconds,
+        )
+
     orchestrators: dict[str, OrchestratorApi] = {
-        agent_id: OrchestratorApi(agent=agent_instance, state_store=store)
+        agent_id: OrchestratorApi(
+            agent=agent_instance,
+            state_store=store,
+            health_tracker=health_tracker,
+            circuit_breaker=circuit_breaker,
+        )
         for agent_id, agent_instance in base_agent_registry.items()
     }
     custom_store = CustomAgentStore(persist_dir=settings.custom_agents_dir)
@@ -182,6 +236,8 @@ def _build_runtime_components() -> RuntimeComponents:
         policy_approval_service=policy_approval_service,
         orchestrator_registry=orchestrators,
         custom_agent_store=custom_store,
+        model_health_tracker=health_tracker,
+        circuit_breaker=circuit_breaker,
     )
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
     _sync_custom_agents(components)

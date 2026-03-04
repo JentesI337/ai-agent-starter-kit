@@ -21,6 +21,8 @@ from app.orchestrator.recovery_strategy import (
     RecoveryStrategyResolver,
 )
 from app.orchestrator.step_types import PipelineStep
+from app.services.circuit_breaker import CircuitBreakerRegistry
+from app.services.model_health_tracker import ModelHealthTracker
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
 
@@ -73,10 +75,18 @@ class AdaptiveInferenceResolution:
 
 
 class PipelineRunner:
-    def __init__(self, agent: AgentContract, state_store: StateStore):
+    def __init__(
+        self,
+        agent: AgentContract,
+        state_store: StateStore,
+        health_tracker: ModelHealthTracker | None = None,
+        circuit_breaker: CircuitBreakerRegistry | None = None,
+    ):
         self.agent = agent
         self.state_store = state_store
-        self.model_router = ModelRouter()
+        self._health_tracker = health_tracker
+        self._circuit_breaker = circuit_breaker
+        self.model_router = ModelRouter(health_tracker=health_tracker)
         self._recovery_metrics_file = Path(self.state_store.persist_dir) / "pipeline_recovery_metrics.json"
         self._recovery_metrics = self._load_recovery_metrics()
         self._recovery_strategy_resolver = RecoveryStrategyResolver(self)
@@ -451,6 +461,8 @@ class PipelineRunner:
                 ),
                 recovery_backoff_jitter=bool(settings.pipeline_runner_recovery_backoff_jitter),
             ),
+            circuit_breaker=self._circuit_breaker,
+            health_tracker=self._health_tracker,
         )
         return await machine.run()
 
