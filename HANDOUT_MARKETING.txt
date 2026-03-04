@@ -1,0 +1,106 @@
+AI Agent Starter Kit
+Handout für Partner, Kunden und interne Stakeholder
+Stand: 04.03.2026
+
+==================================================
+WAS ES IST
+==================================================
+Das AI Agent Starter Kit ist eine produktionsnahe Plattform für KI-gestützte Assistenz,
+Automatisierung und Orchestrierung.
+
+Mit fertig aufgebautem Frontend und einem robusten, polierten Backend ermöglicht die
+Lösung einen schnellen Einstieg in echte Anwendungsfälle – von Entwicklungsunterstützung
+bis Prozessautomatisierung.
+
+
+==================================================
+WARUM JETZT
+==================================================
+Unternehmen suchen aktuell drei Dinge gleichzeitig:
+1) Geschwindigkeit bei der Umsetzung von KI-Use-Cases
+2) Sicherheit und Kontrolle statt Black-Box-Automation
+3) Erweiterbarkeit ohne kompletten Rebuild
+
+Genau hier setzt das AI Agent Starter Kit an.
+
+
+==================================================
+KERNNUTZEN AUF EINEN BLICK
+==================================================
+- Schnell produktiv:
+  Klare APIs, WebSocket-Interaktion und modulare Agentenarchitektur.
+
+- Verlässlich im Betrieb:
+  Deterministische Pipeline, Fallback-Strategien, Guardrails und Lifecycle-Events.
+
+- Multi-Agent-fähig:
+  Head-, Coding-, Review- und Custom-Agent-Workflows aus einer Plattform.
+
+- Sicher steuerbar:
+  Tool-Policies, Approval-Flows, Depth-/Subrun-Grenzen, Isolationsregeln.
+
+- Beobachtbar und auditierbar:
+  Laufhistorie, Statusmodelle, Event-Streams, Monitoring- und Diagnose-Endpunkte.
+
+- Zukunftssicher:
+  Skills-System, MCP-Integration, Runtime-Switch (local/api), konfigurierbare Speicherstrategien.
+
+
+==================================================
+TYPISCHE EINSATZSZENARIEN
+==================================================
+- Engineering Copilot für Teams
+  Codeanalyse, strukturierte Umsetzungsschritte, Review-Unterstützung.
+
+- Wissens- und Kontextassistenz
+  Session-Memory + Long-Term-Memory für konsistente, wiederverwendbare Ergebnisse.
+
+- Kontrollierte Automatisierung
+  Tool-Ausführung mit Freigabelogik statt unkontrollierter Agentenaktionen.
+
+- Orchestrierte Subtasks
+  Komplexe Aufgaben werden in steuerbare Child-Runs zerlegt und transparent verfolgt.
+
+
+==================================================
+WAS ENTSCHEIDER DARAN SCHÄTZEN
+==================================================
+- Time-to-Value statt langer Experimentierphase
+- Governance und Nachvollziehbarkeit von Anfang an
+- Klare technische Grundlage für Pilot, Rollout und Skalierung
+- Geringes Migrationsrisiko durch modulare Architektur
+
+
+==================================================
+WETTBEWERBSVORTEIL
+==================================================
+Viele KI-Demos sind schnell, aber nicht belastbar.
+Dieses Starter Kit ist auf reale Betriebsanforderungen ausgelegt:
+- Steuerbarkeit
+- Sicherheit
+- Wiederholbarkeit
+- Erweiterbarkeit
+
+Nicht nur "es funktioniert einmal" – sondern "es funktioniert kontrolliert im Alltag".
+
+
+==================================================
+CALL TO ACTION
+==================================================
+Nächster sinnvoller Schritt:
+- 30–60 Minuten Live-Demo entlang eines konkreten Use-Cases
+- Danach: fokussierter Pilot mit klaren KPIs (Zeitersparnis, Qualität, Durchlaufzeit)
+
+Kontakt:
+[Name]
+[Rolle]
+[E-Mail]
+[Telefon]
+
+
+==================================================
+KURZPITCH (15 SEKUNDEN)
+==================================================
+"Das AI Agent Starter Kit bringt KI-Agenten schnell in den produktiven Einsatz –
+mit modernem Frontend, robustem Backend und den Guardrails, die Unternehmen für
+sicheren, skalierbaren Betrieb wirklich brauchen."
