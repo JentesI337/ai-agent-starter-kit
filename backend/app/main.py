@@ -89,7 +89,6 @@ app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 PRIMARY_AGENT_ID = "head-agent"
 CODER_AGENT_ID = "coder-agent"
 REVIEW_AGENT_ID = "review-agent"
-LEGACY_AGENT_ALIASES = {"head-coder": PRIMARY_AGENT_ID}
 control_plane_state = ControlPlaneState()
 idempotency_mgr = IdempotencyManager(
     ttl_seconds=settings.idempotency_registry_ttl_seconds,
@@ -412,7 +411,7 @@ def _normalize_agent_id(agent_id: str | None) -> str:
     return _normalize_agent_id_impl(
         agent_id,
         primary_agent_id=PRIMARY_AGENT_ID,
-        legacy_agent_aliases=LEGACY_AGENT_ALIASES,
+        legacy_agent_aliases={},
     )
 def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = None) -> set[str]:
     if components is None:

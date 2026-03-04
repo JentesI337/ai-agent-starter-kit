@@ -387,7 +387,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 {
                     "type": "status",
                     "agent": deps.agent.name,
-                    "message": f"Head agent delegated this request to {resolved_agent_id}.",
+                    "message": f"Request routed to {resolved_agent_id} based on capability matching.",
                     "routing_reason": routing_reason,
                     "requested_agent_id": requested_agent_id,
                     "effective_agent_id": resolved_agent_id,
@@ -969,7 +969,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         {
                             "type": "status",
                             "agent": deps.agent.name,
-                            "message": f"Head agent delegated this request to {resolved_agent_id}.",
+                            "message": f"Request routed to {resolved_agent_id} based on capability matching.",
                             "routing_reason": routing_reason,
                             "requested_agent_id": requested_agent_id,
                             "effective_agent_id": resolved_agent_id,

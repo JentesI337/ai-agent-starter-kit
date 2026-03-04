@@ -168,7 +168,7 @@ def test_rest_agent_endpoint_with_agent(monkeypatch) -> None:
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"echo:{user_message}",
             }
         )
@@ -224,7 +224,7 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"echo:{user_message}",
             }
         )
@@ -241,7 +241,7 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
             {
                 "type": "user_message",
                 "content": "hi",
-                "agent_id": "head-coder",
+                "agent_id": "head-agent",
             }
         )
 
@@ -1084,7 +1084,7 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"subrun:{user_message}",
                 "request_id": request_id,
                 "session_id": session_id,
@@ -1103,7 +1103,7 @@ def test_websocket_subrun_spawn_emits_status_and_announce(monkeypatch) -> None:
             {
                 "type": "subrun_spawn",
                 "content": "background task",
-                "agent_id": "head-coder",
+                "agent_id": "head-agent",
             }
         )
 
@@ -1222,7 +1222,7 @@ def test_websocket_subrun_spawn_leaf_blocked_by_depth_guard(monkeypatch) -> None
     )
 
 
-def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None:
+def test_websocket_routes_code_requests_to_coder_agent(monkeypatch) -> None:
     _set_local_runtime()
 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
@@ -1291,7 +1291,7 @@ def test_websocket_head_agent_routes_coding_intent_to_coder(monkeypatch) -> None
 
     assert any(
         evt.get("type") == "status"
-        and "delegated this request to coder-agent" in str(evt.get("message", "")).lower()
+        and "request routed to coder-agent based on capability matching." in str(evt.get("message", "")).lower()
         for evt in events
     )
     assert any(evt.get("type") == "final" and evt.get("agent") == "coder-agent" for evt in events)
@@ -1320,7 +1320,7 @@ def test_runs_start_and_wait_returns_ok(monkeypatch) -> None:
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"echo:{user_message}",
                 "request_id": request_id,
                 "session_id": session_id,
@@ -1364,7 +1364,7 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"subrun:{user_message}",
                 "request_id": request_id,
                 "session_id": session_id,
@@ -1381,7 +1381,7 @@ def test_subrun_management_endpoints(monkeypatch) -> None:
     parent_session_id = None
     with client.websocket_connect("/ws/agent") as ws:
         _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json({"type": "subrun_spawn", "content": "mgmt", "agent_id": "head-coder"})
+        ws.send_json({"type": "subrun_spawn", "content": "mgmt", "agent_id": "head-agent"})
 
         for _ in range(48):
             evt = _unwrap_event(receive_json_with_timeout(ws))
@@ -1432,7 +1432,7 @@ def test_websocket_subrun_spawn_policy_rejected_emits_specific_lifecycle(monkeyp
 
     with client.websocket_connect("/ws/agent") as ws:
         _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json({"type": "subrun_spawn", "content": "blocked", "agent_id": "head-coder"})
+        ws.send_json({"type": "subrun_spawn", "content": "blocked", "agent_id": "head-agent"})
 
         events = []
         for _ in range(20):
@@ -1491,7 +1491,7 @@ def test_websocket_reply_shaping_suppression_emits_lifecycle(monkeypatch) -> Non
         await send_event(
             {
                 "type": "status",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": "Reply suppressed by shaping: no_reply_token",
             }
         )
@@ -1504,7 +1504,7 @@ def test_websocket_reply_shaping_suppression_emits_lifecycle(monkeypatch) -> Non
 
     with client.websocket_connect("/ws/agent") as ws:
         _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json({"type": "user_message", "content": "hi", "agent_id": "head-coder"})
+        ws.send_json({"type": "user_message", "content": "hi", "agent_id": "head-agent"})
 
         events = []
         for _ in range(20):
@@ -1537,7 +1537,7 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
         await send_event(
             {
                 "type": "final",
-                "agent": "head-coder",
+                "agent": "head-agent",
                 "message": f"subrun:{user_message}",
                 "request_id": request_id,
                 "session_id": session_id,
@@ -1554,7 +1554,7 @@ def test_subrun_visibility_scope_self_denies_and_tree_allows(monkeypatch) -> Non
     parent_session_id = None
     with client.websocket_connect("/ws/agent") as ws:
         _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json({"type": "subrun_spawn", "content": "visible", "agent_id": "head-coder"})
+        ws.send_json({"type": "subrun_spawn", "content": "visible", "agent_id": "head-agent"})
 
         for _ in range(48):
             evt = _unwrap_event(receive_json_with_timeout(ws))

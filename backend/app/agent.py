@@ -2610,6 +2610,3 @@ class CoderAgent(HeadAgent):
 class ReviewAgent(HeadAgent):
     def __init__(self):
         super().__init__(name=settings.review_agent_name, role="review-agent")
-
-
-HeadCodingAgent = HeadAgent

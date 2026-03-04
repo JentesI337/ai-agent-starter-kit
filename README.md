@@ -198,4 +198,4 @@ Custom agents are persisted as JSON files in `backend/custom_agents` (configurab
 
 ## Goal support
 
-This gives you a running UI + head coding agent foundation so the head agent can be used to design/build more agents and evolve their configurations.
+This gives you a running UI + head generalist/orchestrator foundation so the head agent can be used to design/build more agents and evolve their configurations.

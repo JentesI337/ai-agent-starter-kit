@@ -28,7 +28,7 @@ def _unwrap_event(envelope: dict) -> dict:
     return envelope["event"]
 
 
-def test_ws_handler_routes_coding_intent_to_coder_agent(monkeypatch) -> None:
+def test_ws_handler_routes_code_requests_to_coder_agent(monkeypatch) -> None:
     _set_local_runtime()
 
     async def fake_ensure_model_ready(send_event, session_id, model_name):
@@ -81,7 +81,7 @@ def test_ws_handler_routes_coding_intent_to_coder_agent(monkeypatch) -> None:
 
     assert any(
         evt.get("type") == "status"
-        and "delegated this request to coder-agent" in str(evt.get("message", "")).lower()
+        and "request routed to coder-agent based on capability matching." in str(evt.get("message", "")).lower()
         for evt in events
     )
     assert any(evt.get("type") == "final" and evt.get("agent") == "coder-agent" for evt in events)

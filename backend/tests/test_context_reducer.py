@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.agent import HeadCodingAgent
+from app.agent import HeadAgent
 from app.state.context_reducer import ContextReducer
 
 
@@ -23,7 +23,7 @@ def test_context_reducer_honors_token_budget() -> None:
 
 
 def test_agent_step_budgets_sum_to_total_context() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     budgets = agent._step_budgets(8000)
 

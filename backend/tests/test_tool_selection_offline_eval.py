@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent import CoderAgent, HeadCodingAgent
+from app.agent import CoderAgent, HeadAgent
 from app.config import settings
 from app.errors import ToolExecutionError
 from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
@@ -28,7 +28,7 @@ FULL_TOOLS = {
 
 def test_extract_actions_requires_strict_json_object() -> None:
     candidate = "[TOOL_CALL] tool => \"CreateFile\""
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     actions, parse_error = agent._extract_actions(candidate)
 
@@ -37,7 +37,7 @@ def test_extract_actions_requires_strict_json_object() -> None:
 
 
 def test_structured_alias_is_normalized_to_registry_tool() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     actions, parse_error = agent._extract_actions('{"actions":[{"tool":"CreateFile","args":{"path":"a.txt","content":"x"}}]}')
 
@@ -48,7 +48,7 @@ def test_structured_alias_is_normalized_to_registry_tool() -> None:
 
 
 def test_evaluator_blocks_dangerous_run_command() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     evaluated_args, error = agent._evaluate_action("run_command", {"command": "rm -rf /"}, FULL_TOOLS)
 
@@ -57,7 +57,7 @@ def test_evaluator_blocks_dangerous_run_command() -> None:
 
 
 def test_evaluator_validates_spawn_subrun_payload() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     evaluated_args, error = agent._evaluate_action(
         "spawn_subrun",
@@ -80,7 +80,7 @@ def test_evaluator_validates_spawn_subrun_payload() -> None:
 
 
 def test_execute_tools_supports_spawn_subrun_tool(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -126,7 +126,7 @@ def test_execute_tools_supports_spawn_subrun_tool(monkeypatch) -> None:
 
 
 def test_execute_tools_supports_structured_spawn_subrun_response(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     async def send_event(_: dict) -> None:
         return
@@ -174,7 +174,7 @@ def test_execute_tools_supports_structured_spawn_subrun_response(monkeypatch) ->
 
 
 def test_execute_tools_sanitizes_spawn_subrun_handover_and_scope_metadata(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     async def send_event(_: dict) -> None:
         return
@@ -233,7 +233,7 @@ def test_execute_tools_sanitizes_spawn_subrun_handover_and_scope_metadata(monkey
 
 
 def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     attempts = {"count": 0}
 
     def fake_invoke(tool: str, args: dict) -> str:
@@ -257,7 +257,7 @@ def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
 
 
 def test_run_tool_with_policy_accepts_sync_invoke_returning_awaitable(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     async def _awaitable_result() -> str:
         return "ok-awaitable"
@@ -280,7 +280,7 @@ def test_run_tool_with_policy_accepts_sync_invoke_returning_awaitable(monkeypatc
 
 
 def test_run_command_policy_unsupported_can_be_approved_and_retried(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     attempts = {"count": 0}
     approval_calls = {"count": 0}
     events: list[dict] = []
@@ -335,7 +335,7 @@ def test_run_command_policy_unsupported_can_be_approved_and_retried(monkeypatch)
 
 
 def test_offline_tool_call_accuracy_curated_set() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     cases = [
         ({"tool": "list_dir", "args": {}}, "list_dir"),
         ({"tool": "CreateFile", "args": {"path": "x.txt", "content": "y"}}, "write_file"),
@@ -363,7 +363,7 @@ def test_offline_tool_call_accuracy_curated_set() -> None:
 
 
 def test_final_response_sanitizer_removes_tool_call_artifacts() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     raw = (
         "Done.\n"
         "[TOOL_CALL] {tool => \"list_dir\", args => { --path \".\" }} [/TOOL_CALL]\n"
@@ -379,7 +379,7 @@ def test_final_response_sanitizer_removes_tool_call_artifacts() -> None:
 
 
 def test_augment_actions_adds_followup_for_file_task() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     async def send_event(_: dict) -> None:
         return
@@ -414,7 +414,7 @@ def test_augment_actions_adds_followup_for_file_task() -> None:
 
 
 def test_is_file_creation_task_requires_explicit_file_phrase() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     assert agent._is_file_creation_task("Please explain JavaScript closures") is False
     assert agent._is_file_creation_task("create a file with hello world") is True
@@ -459,7 +459,7 @@ def test_augment_actions_followup_uses_prompt_profile_tool_selector_prompt(monke
 
 
 def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "run_command", "write_file"])
     monkeypatch.setattr(settings, "agent_tools_deny", ["run_command"])
 
@@ -474,7 +474,7 @@ def test_effective_tool_policy_combines_global_and_per_run(monkeypatch) -> None:
 
 
 def test_effective_tool_policy_ignores_unknown_only_request_allow(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "list_dir"])
     monkeypatch.setattr(settings, "agent_tools_deny", [])
 
@@ -488,7 +488,7 @@ def test_effective_tool_policy_ignores_unknown_only_request_allow(monkeypatch) -
 
 
 def test_effective_tool_policy_blocks_vision_tool_when_disabled(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     monkeypatch.setattr(settings, "vision_enabled", False)
     monkeypatch.setattr(settings, "agent_tools_allow", ["read_file", "analyze_image"])
     monkeypatch.setattr(settings, "agent_tools_deny", [])
@@ -504,7 +504,7 @@ def test_effective_tool_policy_blocks_vision_tool_when_disabled(monkeypatch) -> 
 
 
 def test_validate_actions_respects_active_tool_policy() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     actions, parse_error = agent._extract_actions('{"actions":[{"tool":"write_file","args":{"path":"a.txt","content":"x"}}]}')
     assert parse_error is None
 
@@ -515,7 +515,7 @@ def test_validate_actions_respects_active_tool_policy() -> None:
 
 
 def test_hooks_are_called_for_tool_execution() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     captured: list[tuple[str, dict]] = []
 
     class _Hook:
@@ -567,7 +567,7 @@ def test_hooks_are_called_for_tool_execution() -> None:
 
 
 def test_hook_agent_end_is_called_on_run_completion() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     captured: list[tuple[str, dict]] = []
 
     class _Hook:
@@ -623,7 +623,7 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
 
 
 def test_reply_shaping_suppresses_no_reply_token() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     shaped = agent._shape_final_response("NO_REPLY", tool_results="[read_file]\ncontent")
 
@@ -633,7 +633,7 @@ def test_reply_shaping_suppresses_no_reply_token() -> None:
 
 
 def test_reply_shaping_deduplicates_tool_confirmations() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     text = (
         "read_file completed successfully\n"
         "read_file completed successfully\n"
@@ -648,19 +648,19 @@ def test_reply_shaping_deduplicates_tool_confirmations() -> None:
 
 
 def test_web_research_task_detection_positive() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     assert agent._is_web_research_task("can you search on the web for the best ai models?") is True
 
 
 def test_web_research_task_detection_does_not_trigger_on_latest_framework_request() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     assert agent._is_web_research_task("make a to do app with the latest angular version") is False
 
 
 def test_synthesis_task_type_prefers_implementation_over_generic_latest_signal() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     resolved = agent._resolve_synthesis_task_type(
         user_message="implement a todo app with the latest angular version",
@@ -671,7 +671,7 @@ def test_synthesis_task_type_prefers_implementation_over_generic_latest_signal()
 
 
 def test_implementation_evidence_requires_successful_write_or_command() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     assert agent._has_implementation_evidence("[write_file]\ncreated app component") is True
     assert agent._has_implementation_evidence("[run_command] ERROR: command not allowed") is False
@@ -679,7 +679,7 @@ def test_implementation_evidence_requires_successful_write_or_command() -> None:
 
 
 def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     decision = agent._detect_intent_gate("build a big research report about llms and write it to markdown")
 
@@ -688,7 +688,7 @@ def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
 
 
 def test_augment_actions_adds_spawn_subrun_for_orchestration_request() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -720,7 +720,7 @@ def test_augment_actions_adds_spawn_subrun_for_orchestration_request() -> None:
 
 
 def test_augment_actions_adds_web_fetch_for_web_research() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
 
     events: list[dict] = []
 
@@ -754,7 +754,7 @@ def test_augment_actions_adds_web_fetch_for_web_research() -> None:
 
 
 def test_execute_tools_loop_detector_warns_and_blocks(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -811,7 +811,7 @@ def test_execute_tools_loop_detector_warns_and_blocks(monkeypatch) -> None:
 
 
 def test_execute_tools_loop_detector_poll_no_progress_ignores_different_tool_signatures(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -864,7 +864,7 @@ def test_execute_tools_loop_detector_poll_no_progress_ignores_different_tool_sig
 
 
 def test_execute_tools_loop_detector_poll_no_progress_blocks_same_signature(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -918,7 +918,7 @@ def test_execute_tools_loop_detector_poll_no_progress_blocks_same_signature(monk
 
 
 def test_execute_tools_ping_pong_requires_no_progress_evidence(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -977,7 +977,7 @@ def test_execute_tools_ping_pong_requires_no_progress_evidence(monkeypatch) -> N
 
 
 def test_execute_tools_ping_pong_blocks_with_no_progress_evidence(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1035,7 +1035,7 @@ def test_execute_tools_ping_pong_blocks_with_no_progress_evidence(monkeypatch) -
 
 
 def test_execute_tools_ping_pong_warns_before_critical(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1100,7 +1100,7 @@ def test_execute_tools_ping_pong_warns_before_critical(monkeypatch) -> None:
 
 
 def test_execute_tools_ping_pong_blocks_at_critical_threshold(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1168,7 +1168,7 @@ def test_execute_tools_ping_pong_blocks_at_critical_threshold(monkeypatch) -> No
 
 
 def test_execute_tools_ping_pong_warn_is_deduplicated(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1232,7 +1232,7 @@ def test_execute_tools_ping_pong_warn_is_deduplicated(monkeypatch) -> None:
 
 
 def test_execute_tools_generic_repeat_warning_bucket_progression(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1300,7 +1300,7 @@ def test_execute_tools_generic_repeat_warning_bucket_progression(monkeypatch) ->
 
 
 def test_execute_tools_ping_pong_warning_bucket_progression(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1374,7 +1374,7 @@ def test_execute_tools_ping_pong_warning_bucket_progression(monkeypatch) -> None
 
 
 def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1422,7 +1422,7 @@ def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
 
 
 def test_execute_tools_blocks_when_command_slot_missing() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1453,7 +1453,7 @@ def test_execute_tools_blocks_when_command_slot_missing() -> None:
 
 
 def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1504,7 +1504,7 @@ def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> N
 
 
 def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1552,7 +1552,7 @@ def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> 
 
 
 def test_execute_tools_forces_single_run_command_when_intent_is_clear(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1598,7 +1598,7 @@ def test_execute_tools_forces_single_run_command_when_intent_is_clear(monkeypatc
 
 
 def test_execute_tools_blocks_on_policy_for_execute_command_intent() -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1629,7 +1629,7 @@ def test_execute_tools_blocks_on_policy_for_execute_command_intent() -> None:
 
 
 def test_execute_tools_emits_tool_selection_empty_for_ambiguous_input(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:
@@ -1666,7 +1666,7 @@ def test_execute_tools_emits_tool_selection_empty_for_ambiguous_input(monkeypatc
 
 
 def test_head_and_coder_agents_use_distinct_prompt_profiles() -> None:
-    head = HeadCodingAgent()
+    head = HeadAgent()
     coder = CoderAgent()
 
     assert head.role == "head-agent"
@@ -1678,7 +1678,7 @@ def test_head_and_coder_agents_use_distinct_prompt_profiles() -> None:
 
 
 def test_execute_tools_web_fetch_404_retries_with_fallback(monkeypatch) -> None:
-    agent = HeadCodingAgent()
+    agent = HeadAgent()
     events: list[dict] = []
 
     async def send_event(payload: dict) -> None:

@@ -10,7 +10,7 @@ def test_build_lifecycle_event_has_expected_shape() -> None:
         session_id="s1",
         stage="request_received",
         details={"x": 1},
-        agent="head-coder",
+        agent="head-agent",
     )
 
     assert payload["type"] == "lifecycle"

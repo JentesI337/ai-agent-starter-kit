@@ -103,7 +103,7 @@ WebSocket test stability:
 }
 ```
 
-Available agent IDs: `head-agent`, `coder-agent`, and `review-agent` (`head-coder` is still accepted as legacy alias).
+Available agent IDs: `head-agent`, `coder-agent`, and `review-agent`.
 
 Available presets:
 - `research`

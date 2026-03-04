@@ -449,7 +449,7 @@ class ToolExecutionManager:
         if intent == "execute_command" and "run_command" not in effective_allowed_tools:
             blocked_message = (
                 "I can execute commands for you, but command execution is currently blocked by the active tool policy. "
-                "Please allow `run_command` (or switch to a coding-capable profile) and retry."
+                "Please allow `run_command` (or select a specialist agent with command execution capability) and retry."
             )
             await emit_tool_selection_empty(
                 "policy_block",

@@ -252,6 +252,3 @@ class ReviewAgentAdapter(AgentContract):
             r"\b(\+\+\+|---|@@)\b",
         )
         return any(re.search(pattern, raw, re.IGNORECASE) for pattern in patterns)
-
-
-HeadCoderAgentAdapter = HeadAgentAdapter
