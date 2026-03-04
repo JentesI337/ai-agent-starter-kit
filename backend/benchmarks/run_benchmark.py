@@ -38,7 +38,10 @@ class BenchmarkCase:
     required_regex_patterns: list[str] = field(default_factory=list)
     regex_min_match_counts: dict[str, int] = field(default_factory=dict)
     required_lifecycle_stages: list[str] = field(default_factory=lambda: ["request_received", "request_completed"])
+    required_lifecycle_detail_equals: dict[str, dict[str, str]] = field(default_factory=dict)
     completion_stages: list[str] = field(default_factory=lambda: ["request_completed"])
+    clarification_response: str | None = None
+    max_auto_clarifications: int = 0
     allow_errors: bool = False
     gate: bool = True
 
@@ -108,7 +111,17 @@ def _load_cases_from_json(path: Path) -> list[BenchmarkCase]:
                 required_lifecycle_stages=[
                     str(item) for item in raw.get("required_lifecycle_stages", ["request_received", "request_completed"])
                 ],
+                required_lifecycle_detail_equals={
+                    str(stage): {str(field_name): str(field_value) for field_name, field_value in dict(required).items()}
+                    for stage, required in dict(raw.get("required_lifecycle_detail_equals", {})).items()
+                },
                 completion_stages=[str(item) for item in raw.get("completion_stages", ["request_completed"])],
+                clarification_response=(
+                    str(raw.get("clarification_response", "")).strip() or None
+                    if raw.get("clarification_response") is not None
+                    else None
+                ),
+                max_auto_clarifications=int(raw.get("max_auto_clarifications", 0)),
                 allow_errors=bool(raw.get("allow_errors", False)),
                 gate=bool(raw.get("gate", True)),
             )
@@ -173,6 +186,7 @@ async def _run_single_case(
     final_received_ms: int | None = None
     final_text = ""
     completed = False
+    auto_clarifications_sent = 0
     completion_stages = {item.strip() for item in case.completion_stages if str(item).strip()}
 
     message_payload: dict[str, Any] = {
@@ -246,6 +260,25 @@ async def _run_single_case(
                         final_received_ms = now_ms
                         final_text = str(event.get("message", ""))
 
+                    if (
+                        event_type == "clarification_needed"
+                        and case.clarification_response
+                        and auto_clarifications_sent < max(0, case.max_auto_clarifications)
+                    ):
+                        follow_up_payload: dict[str, Any] = {
+                            "type": "user_message",
+                            "content": case.clarification_response,
+                            "agent_id": case.agent_id,
+                        }
+                        if case.preset:
+                            follow_up_payload["preset"] = case.preset
+                        if case.tool_policy:
+                            follow_up_payload["tool_policy"] = case.tool_policy
+                        if effective_model:
+                            follow_up_payload["model"] = effective_model
+                        await ws.send(json.dumps(follow_up_payload, ensure_ascii=False))
+                        auto_clarifications_sent += 1
+
                     handle.write(
                         json.dumps(
                             {
@@ -261,8 +294,10 @@ async def _run_single_case(
                     if completed:
                         break
 
-    except TimeoutError:
+    except (TimeoutError, asyncio.TimeoutError):
         errors.append("timeout_while_waiting_for_events")
+    except asyncio.CancelledError:
+        errors.append("recv_cancelled")
     except Exception as exc:
         errors.append(f"exception:{type(exc).__name__}:{exc}")
 
@@ -307,6 +342,19 @@ async def _run_single_case(
 
     for stage in case.required_lifecycle_stages:
         checks.append((stage in lifecycle_stages, f"missing_lifecycle:{stage}"))
+
+    lifecycle_samples = event_samples.get("lifecycle", [])
+    for stage, required_fields in case.required_lifecycle_detail_equals.items():
+        matched = any(
+            str(sample.get("stage", "")).strip() == stage
+            and isinstance(sample.get("details"), dict)
+            and all(
+                str(dict(sample.get("details") or {}).get(field_name)) == str(field_value)
+                for field_name, field_value in required_fields.items()
+            )
+            for sample in lifecycle_samples
+        )
+        checks.append((matched, f"missing_lifecycle_details:{stage}:{required_fields}"))
 
     if errors and not case.allow_errors:
         checks.append((False, "error_event_or_exception"))
@@ -476,6 +524,10 @@ async def _run(args: argparse.Namespace) -> int:
     if selected_levels:
         cases = [item for item in cases if item.level.lower() in selected_levels]
 
+    selected_case_ids = {item.strip() for item in str(args.case_ids or "").split(",") if item.strip()}
+    if selected_case_ids:
+        cases = [item for item in cases if item.case_id in selected_case_ids]
+
     if not cases:
         print("No benchmark cases selected.", file=sys.stderr)
         return 2
@@ -581,6 +633,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ws-url", default=None, help="Explicit WebSocket URL. Default derives from --base-url.")
     parser.add_argument("--scenario-file", default=None, help="Path to benchmark scenario JSON.")
     parser.add_argument("--levels", default="easy,mid,hard", help="Comma-separated levels to run.")
+    parser.add_argument("--case-ids", default="", help="Optional comma-separated case IDs to run.")
     parser.add_argument("--runs-per-case", type=int, default=3, help="Number of runs per benchmark case.")
     parser.add_argument("--model", default=None, help="Override model for all benchmark cases.")
     parser.add_argument(

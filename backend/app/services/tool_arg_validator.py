@@ -13,6 +13,7 @@ class ToolArgValidator:
             "read_file": self._validate_path_only_tool_args,
             "write_file": self._validate_write_file_args,
             "run_command": self._validate_command_tool_args,
+            "code_execute": self._validate_code_execute_args,
             "apply_patch": self._validate_apply_patch_args,
             "file_search": self._validate_file_search_args,
             "grep_search": self._validate_grep_search_args,
@@ -115,6 +116,58 @@ class ToolArgValidator:
             if err:
                 return err
             normalized_args["cwd"] = cwd
+        return None
+
+    def _validate_code_execute_args(self, normalized_args: dict[str, object]) -> str | None:
+        code, err = self._require_str_arg(normalized_args, "code", max_len=200000)
+        if err:
+            return err
+        normalized_args["code"] = code
+
+        if "language" in normalized_args:
+            language, err = self._require_str_arg(normalized_args, "language", max_len=32)
+            if err:
+                return err
+            normalized_language = (language or "").strip().lower()
+            if normalized_language not in {"python", "javascript", "js"}:
+                return "argument 'language' must be one of: python, javascript, js"
+            normalized_args["language"] = normalized_language
+        else:
+            normalized_args["language"] = "python"
+
+        timeout, err = self._optional_int_arg(
+            normalized_args,
+            "timeout",
+            default=30,
+            min_value=1,
+            max_value=60,
+        )
+        if err:
+            return err
+        normalized_args["timeout"] = timeout
+
+        max_output_chars, err = self._optional_int_arg(
+            normalized_args,
+            "max_output_chars",
+            default=10000,
+            min_value=500,
+            max_value=20000,
+        )
+        if err:
+            return err
+        normalized_args["max_output_chars"] = max_output_chars
+
+        if "strategy" in normalized_args:
+            strategy, err = self._require_str_arg(normalized_args, "strategy", max_len=32)
+            if err:
+                return err
+            normalized_strategy = (strategy or "").strip().lower()
+            if normalized_strategy not in {"process", "direct", "docker"}:
+                return "argument 'strategy' must be one of: process, direct, docker"
+            normalized_args["strategy"] = normalized_strategy
+        else:
+            normalized_args["strategy"] = "process"
+
         return None
 
     def _validate_apply_patch_args(self, normalized_args: dict[str, object]) -> str | None:

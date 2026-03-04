@@ -32,7 +32,7 @@ def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_pa
         should_steer_interrupt=None,
     ):
         _ = (payload, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
-        return "[ok] tool phase completed"
+        return "[write_file]\nupdated backend/app/example.py"
 
     async def fake_synthesize_execute(payload, session_id, request_id, send_event, model=None):
         _ = (payload, session_id, request_id, send_event, model)

@@ -178,7 +178,13 @@ class HeadAgent:
         self._reply_shaper = ReplyShaper()
         self._verification = VerificationService()
         self._reflection_service = (
-            ReflectionService(client=self.client, threshold=settings.reflection_threshold)
+            ReflectionService(
+                client=self.client,
+                threshold=settings.reflection_threshold,
+                factual_grounding_hard_min=settings.reflection_factual_grounding_hard_min,
+                tool_results_max_chars=settings.reflection_tool_results_max_chars,
+                plan_max_chars=settings.reflection_plan_max_chars,
+            )
             if settings.reflection_enabled
             else None
         )
@@ -314,7 +320,13 @@ class HeadAgent:
             model=model,
         )
         self._reflection_service = (
-            ReflectionService(client=self.client, threshold=settings.reflection_threshold)
+            ReflectionService(
+                client=self.client,
+                threshold=settings.reflection_threshold,
+                factual_grounding_hard_min=settings.reflection_factual_grounding_hard_min,
+                tool_results_max_chars=settings.reflection_tool_results_max_chars,
+                plan_max_chars=settings.reflection_plan_max_chars,
+            )
             if settings.reflection_enabled
             else None
         )
@@ -523,33 +535,48 @@ class HeadAgent:
             if settings.clarification_protocol_enabled:
                 ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
                 threshold = max(0.0, min(1.0, float(settings.clarification_confidence_threshold)))
-                if ambiguity.is_ambiguous and ambiguity.confidence <= threshold:
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="clarification_needed",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "ambiguity_type": ambiguity.ambiguity_type,
-                            "confidence": ambiguity.confidence,
-                            "question": ambiguity.clarification_question,
-                            "threshold": threshold,
-                        },
-                    )
-                    await send_event(
-                        {
-                            "type": "clarification_needed",
-                            "agent": self.name,
-                            "request_id": request_id,
-                            "session_id": session_id,
-                            "message": ambiguity.clarification_question or "Could you clarify your request?",
-                            "default_interpretation": ambiguity.default_interpretation,
-                            "ambiguity_type": ambiguity.ambiguity_type,
-                            "confidence": ambiguity.confidence,
-                        }
-                    )
-                    status = "completed"
-                    return ambiguity.clarification_question or "Could you clarify your request?"
+                if ambiguity.is_ambiguous and ambiguity.confidence < threshold:
+                    if ambiguity.default_interpretation:
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="clarification_auto_resolved",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "ambiguity_type": ambiguity.ambiguity_type,
+                                "confidence": ambiguity.confidence,
+                                "threshold": threshold,
+                                "action": "proceed_with_default",
+                                "default_interpretation": ambiguity.default_interpretation[:200],
+                            },
+                        )
+                    else:
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="clarification_needed",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "ambiguity_type": ambiguity.ambiguity_type,
+                                "confidence": ambiguity.confidence,
+                                "question": ambiguity.clarification_question,
+                                "threshold": threshold,
+                            },
+                        )
+                        await send_event(
+                            {
+                                "type": "clarification_needed",
+                                "agent": self.name,
+                                "request_id": request_id,
+                                "session_id": session_id,
+                                "message": ambiguity.clarification_question or "Could you clarify your request?",
+                                "default_interpretation": ambiguity.default_interpretation,
+                                "ambiguity_type": ambiguity.ambiguity_type,
+                                "confidence": ambiguity.confidence,
+                            }
+                        )
+                        status = "completed"
+                        return ambiguity.clarification_question or "Could you clarify your request?"
 
             await self._invoke_hooks(
                 hook_name="before_prompt_build",
@@ -1049,8 +1076,10 @@ class HeadAgent:
                             "score": verdict.score,
                             "goal_alignment": verdict.goal_alignment,
                             "completeness": verdict.completeness,
+                            "factual_grounding": verdict.factual_grounding,
                             "issues": verdict.issues[:3],
                             "should_retry": verdict.should_retry,
+                            "hard_factual_fail": verdict.hard_factual_fail,
                         },
                     )
                     if not verdict.should_retry:
@@ -1123,13 +1152,13 @@ class HeadAgent:
                     session_id=session_id,
                     details={
                         "task_type": synthesis_task_type,
-                        "required_evidence_tools": ["write_file", "apply_patch", "run_command"],
+                        "required_evidence_tools": ["write_file", "apply_patch", "run_command", "code_execute"],
                     },
                 )
                 final_text = (
                     "I could not complete the implementation in this run because no code-edit or command-execution "
                     "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
-                    "or `run_command`) and retry."
+                    "`run_command`, or `code_execute`) and retry."
                 )
             final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
             await self._emit_lifecycle(
@@ -1948,6 +1977,11 @@ class HeadAgent:
                 f"Agent tries to run '{resource}' but is blocked because of policy restrictions. "
                 "Do you want to allow this command?"
             )
+        if tool == "code_execute":
+            return (
+                f"Agent tries to execute sandboxed code '{resource}' but is blocked because of policy restrictions. "
+                "Do you want to allow this code execution?"
+            )
         if tool == "spawn_subrun":
             return (
                 f"Agent tries to spawn subprocess '{resource}' but is blocked because of policy restrictions. "
@@ -2025,7 +2059,7 @@ class HeadAgent:
     def _has_implementation_evidence(self, tool_results: str | None) -> bool:
         return any(
             self._has_successful_tool_output(tool_results, tool_name)
-            for tool_name in ("write_file", "apply_patch", "run_command")
+            for tool_name in ("write_file", "apply_patch", "run_command", "code_execute")
         )
 
     def _sanitize_final_response(self, final_text: str) -> str:

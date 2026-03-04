@@ -1,0 +1,136 @@
+{
+  "summary": {
+    "started_at": "2026-03-04T09:38:07.942373+00:00",
+    "finished_at": "2026-03-04T09:38:44.875093+00:00",
+    "scenario_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\benchmarks\\scenarios\\default.json",
+    "ws_url": "ws://127.0.0.1:8000/ws/agent",
+    "base_url": "http://127.0.0.1:8000",
+    "model_override": null,
+    "runs_per_case": 1,
+    "total_runs": 1,
+    "passed_runs": 0,
+    "failed_runs": 1,
+    "success_rate_percent": 0.0,
+    "gated_total_runs": 0,
+    "gated_passed_runs": 0,
+    "gated_failed_runs": 0,
+    "gated_success_rate_percent": 0.0,
+    "by_level": {
+      "mid": {
+        "total": 1,
+        "passed": 0,
+        "gated_total": 0,
+        "gated_passed": 0
+      }
+    },
+    "latency_ms": {
+      "duration_ms": {
+        "count": 1,
+        "p50": 36931.0,
+        "p95": 36931.0
+      },
+      "first_token_ms": {
+        "count": 1,
+        "p50": 22664.0,
+        "p95": 22664.0
+      },
+      "by_level": {
+        "mid": {
+          "duration_ms": {
+            "count": 1,
+            "p50": 36931.0,
+            "p95": 36931.0
+          },
+          "first_token_ms": {
+            "count": 1,
+            "p50": 22664.0,
+            "p95": 22664.0
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "case_id": "mid_code_execute_diagnostic",
+      "level": "mid",
+      "run_index": 1,
+      "gate": false,
+      "passed": false,
+      "reason": "missing_substring:4;missing_lifecycle:tool_started;missing_lifecycle:tool_completed;missing_lifecycle_details:tool_completed:{'tool': 'code_execute', 'status': 'ok'}",
+      "duration_ms": 36931,
+      "first_event_ms": 313,
+      "first_token_ms": 22664,
+      "final_received_ms": 36929,
+      "final_text_length": 212,
+      "event_count": 115,
+      "event_type_counts": {
+        "lifecycle": 56,
+        "status": 2,
+        "agent_step": 2,
+        "token": 54,
+        "final": 1
+      },
+      "lifecycle_stages": [
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "planning_started",
+        "planning_completed",
+        "verification_plan",
+        "verification_plan_semantic",
+        "terminal_wait_started",
+        "context_segmented",
+        "tool_selection_started",
+        "tool_capability_preselection_skipped",
+        "skills_snapshot_skipped",
+        "retrieval_sources_empty",
+        "tool_selection_completed",
+        "tool_selection_empty",
+        "replanning_started",
+        "replanning_completed",
+        "context_segmented",
+        "tool_selection_started",
+        "tool_capability_preselection_skipped",
+        "skills_snapshot_skipped",
+        "retrieval_sources_empty",
+        "tool_selection_completed",
+        "tool_selection_empty",
+        "replanning_exhausted",
+        "terminal_wait_completed",
+        "verification_tool_result",
+        "context_segmented",
+        "streaming_started",
+        "synthesis_contract_check_started",
+        "synthesis_contract_check_completed",
+        "streaming_completed",
+        "reflection_completed",
+        "reply_shaping_started",
+        "reply_shaping_completed",
+        "implementation_evidence_missing",
+        "verification_final",
+        "run_completed",
+        "terminal_wait_completed",
+        "lane_released",
+        "request_completed"
+      ],
+      "errors": [],
+      "output_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\monitoring\\benchmarks_live\\20260304-103806-993f97b1\\mid_code_execute_diagnostic__run01.events.jsonl"
+    }
+  ]
+}

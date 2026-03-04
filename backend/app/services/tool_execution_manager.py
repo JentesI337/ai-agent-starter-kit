@@ -741,6 +741,7 @@ class ToolExecutionManager:
             "- write_file: path, content\n"
             "- apply_patch: path, search, replace, optional replace_all\n"
             "- run_command/start_background_command: command, optional cwd\n"
+            "- code_execute: code, optional language, optional timeout, optional max_output_chars, optional strategy\n"
             "- spawn_subrun: message, optional mode(run|session), optional agent_id, optional model, optional timeout_seconds, optional tool_policy\n"
             "- file_search: pattern, optional max_results\n"
             "- grep_search: query, optional include_pattern, optional is_regexp, optional max_results\n"

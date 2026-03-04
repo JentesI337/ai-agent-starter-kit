@@ -47,6 +47,9 @@
       "prompt": "Führe eine ausführliche Recherche durch. Orchestriere dafür explizit einen Unteragenten-Run (Subrun) und liefere danach eine kurze zusammengeführte Zusammenfassung.",
       "gate": true,
       "tool_policy": {
+        "also_allow": [
+          "code_execute"
+        ],
         "deny": [
           "run_command",
           "start_background_command",
@@ -165,6 +168,38 @@
       "allow_errors": true,
       "required_substrings": [],
       "required_lifecycle_stages": []
+    },
+    {
+      "case_id": "mid_code_execute_diagnostic",
+      "level": "mid",
+      "description": "Diagnostic sandbox code execution path validation (non-gated)",
+      "prompt": "Nutze genau einmal das Tool code_execute mit Python-Code: print(2+2).",
+      "clarification_response": "Priorität: Nur diese eine Aufgabe ausführen: genau ein code_execute-Aufruf mit print(2+2).",
+      "max_auto_clarifications": 3,
+      "gate": false,
+      "tool_policy": {
+        "deny": [
+          "run_command",
+          "start_background_command",
+          "kill_background_process"
+        ]
+      },
+      "timeout_ms": 120000,
+      "min_final_chars": 1,
+      "min_event_count": 6,
+      "required_substrings": [],
+      "required_lifecycle_stages": [
+        "tool_started",
+        "tool_completed",
+        "request_completed"
+      ],
+      "required_lifecycle_detail_equals": {
+        "tool_completed": {
+          "tool": "code_execute",
+          "status": "ok"
+        }
+      },
+      "allow_errors": true
     }
   ]
 }

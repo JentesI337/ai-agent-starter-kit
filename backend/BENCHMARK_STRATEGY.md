@@ -15,6 +15,9 @@ Wir nutzen ein **szenariobasiertes WebSocket-Benchmarking** mit drei Schwierigke
 - `hard_reasoning_format` (gated): strukturtreuer Research-Case ohne Shell/Tool-Seiteneffekte
 - `hard_reasoning_depth` (gated): inhaltliche Tiefe mit KPI-/Phasenanforderungen ohne Shell/Tool-Seiteneffekte
 - `hard_tools_diagnostic` (non-gated): tool-lastiger Diagnosefall zur Umgebungs-/Policy-Beobachtung
+- `mid_code_execute_diagnostic` (non-gated): validiert den `code_execute`-Sandboxpfad inkl. Ergebnis-/Sicherheitskommunikation
+	- erzwingt expliziten `code_execute`-Aufruf und prüft `tool_completed`-Details (`tool=code_execute`, `status=ok`)
+	- beantwortet optional genau eine Rückfrage automatisch (`clarification_response`), um den Lauf deterministisch fortzusetzen
 
 Zusätzlich ist ein dedizierter Orchestrierungs-Case enthalten:
 
@@ -47,6 +50,7 @@ Pro Run:
 - beobachtete Lifecycle-Stages
 - erforderliche Eventtypen/-status (z. B. `subrun_status: accepted/running/completed`)
 - erforderliche Event-Feldwerte (z. B. `subrun_status.agent_id=head-agent`, `mode=run`)
+- erforderliche Lifecycle-Detailwerte je Stage (z. B. `tool_completed.tool=code_execute`, `status=ok`)
 - regex-basierte Qualitätskriterien (Pflicht-Sektionen, Formatmuster, Mindestanzahl strukturierter Punkte)
 - Raw Event Stream (`*.events.jsonl`)
 
@@ -78,6 +82,8 @@ Zusätzlich gibt es pro Case ein Flag `gate`:
 Optional kann ein Case `allow_errors=true` setzen, wenn primär ein mechanischer Ablauf (z. B. Subrun-Orchestrierung) validiert werden soll und nicht-fatal auftretende Tool-/Web-Fehler den Case nicht sofort als fehlgeschlagen markieren sollen.
 
 Über `completion_stages` kann ein Case alternative gültige Abschlusszustände definieren (z. B. diagnostisch: `request_completed` oder `request_failed_llm`).
+
+Bei Fällen mit erwartbarer Rückfrage kann `clarification_response` plus `max_auto_clarifications` gesetzt werden; der Runner sendet dann diese Antwort über denselben WebSocket und wartet weiter auf den regulären Abschluss.
 
 ## Erweiterbarkeit (v3+)
 

@@ -33,7 +33,7 @@ def collect_policy_override_candidates(
     normalize_tool_name,
     process_tools: set[str] | None = None,
 ) -> list[PolicyOverrideCandidate]:
-    allowed_process_tools = process_tools or {"run_command", "spawn_subrun"}
+    allowed_process_tools = process_tools or {"run_command", "code_execute", "spawn_subrun"}
     reviewed: set[tuple[str, str]] = set()
     candidates: list[PolicyOverrideCandidate] = []
 
@@ -55,6 +55,13 @@ def collect_policy_override_candidates(
             candidate = args.get("command")
             if isinstance(candidate, str):
                 resource = candidate.strip()
+        elif tool == "code_execute":
+            code_candidate = args.get("code")
+            language_candidate = args.get("language")
+            if isinstance(code_candidate, str):
+                snippet = code_candidate.strip().splitlines()[0][:160] if code_candidate.strip() else "(empty code)"
+                language = str(language_candidate).strip() if isinstance(language_candidate, str) else "python"
+                resource = f"{language}: {snippet}"
         elif tool == "spawn_subrun":
             candidate = args.get("message")
             if isinstance(candidate, str):

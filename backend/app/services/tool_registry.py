@@ -235,6 +235,30 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("command_execution", "build_and_test", "environment_interaction"),
         ),
+        "code_execute": ToolSpec(
+            name="code_execute",
+            required_args=("code",),
+            optional_args=("language", "timeout", "max_output_chars", "strategy"),
+            timeout_seconds=45.0,
+            max_retries=0,
+            description=(
+                "Execute code in a sandboxed environment. "
+                "Supports python and javascript with timeout and output limits."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "minLength": 1},
+                    "language": {"type": "string", "enum": ["python", "javascript", "js"]},
+                    "timeout": {"type": "integer", "minimum": 1, "maximum": 60},
+                    "max_output_chars": {"type": "integer", "minimum": 500, "maximum": 20000},
+                    "strategy": {"type": "string", "enum": ["process", "direct", "docker"]},
+                },
+                "required": ["code"],
+                "additionalProperties": False,
+            },
+            capabilities=("code_execution", "calculation", "data_analysis", "testing"),
+        ),
         "apply_patch": ToolSpec(
             name="apply_patch",
             required_args=("path", "search", "replace"),

@@ -8,6 +8,7 @@ def test_build_default_tool_registry_contains_known_tools() -> None:
 
     assert "read_file" in set(registry.keys())
     assert "run_command" in set(registry.keys())
+    assert "code_execute" in set(registry.keys())
     assert "web_search" in set(registry.keys())
     assert "http_request" in set(registry.keys())
     assert "analyze_image" in set(registry.keys())
@@ -70,9 +71,9 @@ def test_http_request_default_retry_class_is_none() -> None:
 def test_build_function_calling_tools_uses_typed_parameters() -> None:
     registry = build_default_tool_registry(command_timeout_seconds=30)
 
-    tools = registry.build_function_calling_tools(allowed_tools={"run_command", "spawn_subrun"})
+    tools = registry.build_function_calling_tools(allowed_tools={"run_command", "code_execute", "spawn_subrun"})
 
-    assert len(tools) == 2
+    assert len(tools) == 3
     by_name = {
         item["function"]["name"]: item["function"]
         for item in tools
@@ -83,6 +84,12 @@ def test_build_function_calling_tools_uses_typed_parameters() -> None:
     assert run_schema["additionalProperties"] is False
     assert run_schema["required"] == ["command"]
     assert run_schema["properties"]["command"]["type"] == "string"
+
+    code_execute = by_name["code_execute"]
+    code_schema = code_execute["parameters"]
+    assert code_schema["additionalProperties"] is False
+    assert code_schema["required"] == ["code"]
+    assert code_schema["properties"]["language"]["enum"] == ["python", "javascript", "js"]
 
     spawn_subrun = by_name["spawn_subrun"]
     spawn_schema = spawn_subrun["parameters"]

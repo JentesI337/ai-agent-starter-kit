@@ -591,7 +591,7 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
         allowed_tools,
         should_steer_interrupt=None,
     ):
-        return ""
+        return "[run_command]\necho done"
 
     async def fake_synth_execute(payload, session_id, request_id, send_event, model):
         return "final response"

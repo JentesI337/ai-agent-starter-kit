@@ -104,15 +104,11 @@ class AmbiguityDetector:
                 default_interpretation=None,
             )
 
-        intents = self._count_intents(text)
-        if intents > 2:
-            return AmbiguityAssessment(
-                is_ambiguous=True,
-                confidence=0.5,
-                ambiguity_type="multi_intent",
-                clarification_question="You seem to be asking about multiple things. Which should I prioritize?",
-                default_interpretation=None,
-            )
+        # NOTE: multi_intent detection removed by design.
+        # The planner pipeline (PlanGraph with dependency-aware steps,
+        # replan loop, and synthesizer) is purpose-built to decompose
+        # and execute multi-intent requests. A naive regex gate here
+        # would block the pipeline's core competency.
 
         return AmbiguityAssessment(
             is_ambiguous=False,
@@ -144,13 +140,6 @@ class AmbiguityDetector:
             if left in word_set and right in word_set:
                 return True
         return False
-
-    def _count_intents(self, text: str) -> int:
-        normalized = re.sub(r"\s+", " ", (text or "").strip().lower())
-        if not normalized:
-            return 0
-        segments = [segment.strip() for segment in re.split(r"(?:\band\b|\bund\b|;|\.)", normalized) if segment.strip()]
-        return len(segments)
 
     @staticmethod
     def _tokenize_words(text: str) -> list[str]:

@@ -81,3 +81,25 @@ def test_validate_analyze_image_applies_prompt_optional() -> None:
     assert error is None
     assert args["image_path"] == "screenshots/ui.png"
     assert args["prompt"] == "Find CTA buttons"
+
+
+def test_validate_code_execute_applies_defaults() -> None:
+    validator = _validator()
+    args = {"code": "print('hi')"}
+
+    error = validator.validate("code_execute", args)
+
+    assert error is None
+    assert args["language"] == "python"
+    assert args["timeout"] == 30
+    assert args["max_output_chars"] == 10000
+    assert args["strategy"] == "process"
+
+
+def test_validate_code_execute_rejects_invalid_language() -> None:
+    validator = _validator()
+    args = {"code": "puts 'hi'", "language": "ruby"}
+
+    error = validator.validate("code_execute", args)
+
+    assert error == "argument 'language' must be one of: python, javascript, js"

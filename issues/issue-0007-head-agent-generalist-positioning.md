@@ -13,7 +13,7 @@ Aktuell ist die Trennung zwar technisch vorhanden (`head-agent`, `coder-agent`, 
   - Fundstelle: `README.md` (Abschnitt „Goal support“)
 
 ### P1 — Laufzeit-/UX-Texte mit Coding-Profil-Suggestion für Head-Flows
-- Blocked-Message empfiehlt „switch to a coding-capable profile“ (kann Head-Agent-Kontext falsch framet).
+- Blocked-Message empfiehlt „switch to a coding-capable profile“ (kann Head-Agent-Kontext falsch framen).
   - Datei: `backend/app/services/tool_execution_manager.py`
 
 ### P1 — Legacy-Aliasse/Namen, die Head↔Coder historisch vermischen

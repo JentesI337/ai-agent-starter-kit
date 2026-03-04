@@ -13,6 +13,15 @@ class ToolProvider(Protocol):
 
     def run_command(self, command: str, cwd: str | None = None) -> str: ...
 
+    async def code_execute(
+        self,
+        code: str,
+        language: str = "python",
+        timeout: int = 30,
+        max_output_chars: int = 10000,
+        strategy: str = "process",
+    ) -> str: ...
+
     def apply_patch(self, path: str, search: str, replace: str, replace_all: bool = False) -> str: ...
 
     def file_search(self, pattern: str, max_results: int = 100) -> str: ...

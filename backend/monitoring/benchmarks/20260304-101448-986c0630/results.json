@@ -1,0 +1,229 @@
+{
+  "summary": {
+    "started_at": "2026-03-04T09:14:51.109122+00:00",
+    "finished_at": "2026-03-04T09:19:00.387585+00:00",
+    "scenario_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\benchmarks\\scenarios\\default.json",
+    "ws_url": "ws://127.0.0.1:8000/ws/agent",
+    "base_url": "http://127.0.0.1:8000",
+    "model_override": null,
+    "runs_per_case": 1,
+    "total_runs": 3,
+    "passed_runs": 0,
+    "failed_runs": 3,
+    "success_rate_percent": 0.0,
+    "gated_total_runs": 2,
+    "gated_passed_runs": 0,
+    "gated_failed_runs": 2,
+    "gated_success_rate_percent": 0.0,
+    "by_level": {
+      "mid": {
+        "total": 3,
+        "passed": 0,
+        "gated_total": 2,
+        "gated_passed": 0
+      }
+    },
+    "latency_ms": {
+      "duration_ms": {
+        "count": 3,
+        "p50": 90015.0,
+        "p95": 117016.79999999999
+      },
+      "first_token_ms": {
+        "count": 1,
+        "p50": 16910.0,
+        "p95": 16910.0
+      },
+      "by_level": {
+        "mid": {
+          "duration_ms": {
+            "count": 3,
+            "p50": 90015.0,
+            "p95": 117016.79999999999
+          },
+          "first_token_ms": {
+            "count": 1,
+            "p50": 16910.0,
+            "p95": 16910.0
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "case_id": "mid_architecture_plan",
+      "level": "mid",
+      "run_index": 1,
+      "gate": true,
+      "passed": false,
+      "reason": "missing_completion_stage:request_completed;final_too_short_lt_300;missing_substring:1.;missing_substring:5;regex_count_below:(?m)^\\s*[1-5]\\.:expected>=5:got=0;missing_lifecycle:planning_completed;missing_lifecycle:request_completed;error_event_or_exception",
+      "duration_ms": 90015,
+      "first_event_ms": 1080,
+      "first_token_ms": null,
+      "final_received_ms": null,
+      "final_text_length": 0,
+      "event_count": 24,
+      "event_type_counts": {
+        "lifecycle": 22,
+        "status": 1,
+        "clarification_needed": 1
+      },
+      "lifecycle_stages": [
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "clarification_needed",
+        "terminal_wait_completed",
+        "lane_released",
+        "clarification_waiting_response"
+      ],
+      "errors": [
+        "timeout_while_waiting_for_events"
+      ],
+      "output_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\monitoring\\benchmarks\\20260304-101448-986c0630\\mid_architecture_plan__run01.events.jsonl"
+    },
+    {
+      "case_id": "mid_orchestration_subrun",
+      "level": "mid",
+      "run_index": 1,
+      "gate": true,
+      "passed": false,
+      "reason": "missing_completion_stage:request_completed;final_too_short_lt_120;missing_event_type:subrun_status;missing_event_type:final;missing_event_status:subrun_status:accepted;missing_event_status:subrun_status:running;missing_event_fields:subrun_status:{'agent_id': 'head-agent', 'mode': 'run'};missing_lifecycle:planning_completed;missing_lifecycle:request_completed",
+      "duration_ms": 120017,
+      "first_event_ms": 234,
+      "first_token_ms": null,
+      "final_received_ms": null,
+      "final_text_length": 0,
+      "event_count": 23,
+      "event_type_counts": {
+        "lifecycle": 22,
+        "clarification_needed": 1
+      },
+      "lifecycle_stages": [
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "clarification_needed",
+        "terminal_wait_completed",
+        "lane_released",
+        "clarification_waiting_response"
+      ],
+      "errors": [
+        "timeout_while_waiting_for_events"
+      ],
+      "output_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\monitoring\\benchmarks\\20260304-101448-986c0630\\mid_orchestration_subrun__run01.events.jsonl"
+    },
+    {
+      "case_id": "mid_code_execute_diagnostic",
+      "level": "mid",
+      "run_index": 1,
+      "gate": false,
+      "passed": false,
+      "reason": "missing_substring:4;missing_lifecycle:tool_completed",
+      "duration_ms": 39220,
+      "first_event_ms": 191,
+      "first_token_ms": 16910,
+      "final_received_ms": 39218,
+      "final_text_length": 212,
+      "event_count": 194,
+      "event_type_counts": {
+        "lifecycle": 56,
+        "status": 2,
+        "agent_step": 2,
+        "token": 133,
+        "final": 1
+      },
+      "lifecycle_stages": [
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "planning_started",
+        "planning_completed",
+        "verification_plan",
+        "verification_plan_semantic",
+        "terminal_wait_started",
+        "context_segmented",
+        "tool_selection_started",
+        "tool_capability_preselection_skipped",
+        "skills_snapshot_skipped",
+        "retrieval_sources_empty",
+        "tool_selection_completed",
+        "tool_selection_empty",
+        "replanning_started",
+        "replanning_completed",
+        "context_segmented",
+        "tool_selection_started",
+        "tool_capability_preselection_skipped",
+        "skills_snapshot_skipped",
+        "retrieval_sources_empty",
+        "tool_selection_completed",
+        "tool_selection_empty",
+        "replanning_exhausted",
+        "terminal_wait_completed",
+        "verification_tool_result",
+        "context_segmented",
+        "streaming_started",
+        "synthesis_contract_check_started",
+        "synthesis_contract_check_completed",
+        "streaming_completed",
+        "reflection_completed",
+        "reply_shaping_started",
+        "reply_shaping_completed",
+        "implementation_evidence_missing",
+        "verification_final",
+        "run_completed",
+        "terminal_wait_completed",
+        "lane_released",
+        "request_completed"
+      ],
+      "errors": [],
+      "output_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\monitoring\\benchmarks\\20260304-101448-986c0630\\mid_code_execute_diagnostic__run01.events.jsonl"
+    }
+  ]
+}

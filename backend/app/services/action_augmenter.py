@@ -272,7 +272,7 @@ class ActionAugmenter:
             "You previously selected tools for a task.\n"
             "The user intent likely requires creating or updating files, but no write_file action was selected.\n"
             "Return strict JSON only:\n"
-            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_search|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
+            "{\"actions\":[{\"tool\":\"list_dir|read_file|write_file|run_command|code_execute|apply_patch|file_search|grep_search|list_code_usages|get_changed_files|start_background_command|get_background_output|kill_background_process|web_search|web_fetch|spawn_subrun\",\"args\":{}}]}\n"
             "Choose up to 2 additional actions. Include write_file when enough content is available.\n"
             "If still insufficient context, return {\"actions\":[]}\n\n"
             "Memory:\n"

@@ -49,11 +49,13 @@ def test_assess_clear_request_is_not_ambiguous() -> None:
     assert verdict.clarification_question is None
 
 
-def test_assess_multi_intent_is_flagged_at_boundary_confidence() -> None:
+def test_assess_multi_intent_is_not_ambiguous_because_planner_handles_it() -> None:
     detector = AmbiguityDetector()
 
-    verdict = detector.assess("check logs and deploy and restart")
+    verdict = detector.assess("check logs and deploy and restart and verify")
 
-    assert verdict.is_ambiguous is True
-    assert verdict.ambiguity_type == "multi_intent"
-    assert verdict.confidence == 0.5
+    # Multi-intent is NOT ambiguous by design: the planner pipeline
+    # (PlanGraph, replan loop, synthesizer) decomposes multi-intent
+    # requests into executable steps.
+    assert verdict.is_ambiguous is False
+    assert verdict.ambiguity_type is None

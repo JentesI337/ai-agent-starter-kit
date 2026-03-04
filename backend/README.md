@@ -199,7 +199,8 @@ Available endpoints:
 - Memory context per session (`session_id`) with rolling window, persisted in `MEMORY_PERSIST_DIR`.
 - Persisted session files are automatically trimmed to `MEMORY_MAX_ITEMS` entries.
 - External run state persistence in `ORCHESTRATOR_STATE_DIR` with per-run JSON and summary snapshots.
-- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`.
+- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `code_execute`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`.
+- `code_execute` runs Python/JavaScript snippets with timeout, output limits, temporary jail execution, network disabled by default, and policy checks for obvious filesystem escape patterns.
 - Execution model: Plan -> Execute tools -> Review/final response.
 - Guardrails: empty/oversized input and invalid model/session values are blocked and returned as `error` events.
 - Tool selection is validated; malformed JSON or invalid actions are reported as lifecycle/error events (no silent fallback).

@@ -1,0 +1,124 @@
+{
+  "summary": {
+    "started_at": "2026-03-04T09:35:23.085351+00:00",
+    "finished_at": "2026-03-04T09:37:23.116466+00:00",
+    "scenario_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\benchmarks\\scenarios\\default.json",
+    "ws_url": "ws://127.0.0.1:8000/ws/agent",
+    "base_url": "http://127.0.0.1:8000",
+    "model_override": null,
+    "runs_per_case": 1,
+    "total_runs": 1,
+    "passed_runs": 0,
+    "failed_runs": 1,
+    "success_rate_percent": 0.0,
+    "gated_total_runs": 0,
+    "gated_passed_runs": 0,
+    "gated_failed_runs": 0,
+    "gated_success_rate_percent": 0.0,
+    "by_level": {
+      "mid": {
+        "total": 1,
+        "passed": 0,
+        "gated_total": 0,
+        "gated_passed": 0
+      }
+    },
+    "latency_ms": {
+      "duration_ms": {
+        "count": 1,
+        "p50": 120021.0,
+        "p95": 120021.0
+      },
+      "first_token_ms": {
+        "count": 0,
+        "p50": null,
+        "p95": null
+      },
+      "by_level": {
+        "mid": {
+          "duration_ms": {
+            "count": 1,
+            "p50": 120021.0,
+            "p95": 120021.0
+          },
+          "first_token_ms": {
+            "count": 0,
+            "p50": null,
+            "p95": null
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "case_id": "mid_code_execute_diagnostic",
+      "level": "mid",
+      "run_index": 1,
+      "gate": false,
+      "passed": false,
+      "reason": "missing_completion_stage:request_completed;final_too_short_lt_30;missing_substring:Ergebnis:;missing_substring:4;missing_substring:Sicherheit:;missing_regex:(?im)^\\s*ergebnis:.*\\b4\\b;missing_regex:(?im)^\\s*sicherheit:.*(sandbox|isoliert);missing_lifecycle:tool_started;missing_lifecycle:tool_completed;missing_lifecycle:request_completed;missing_lifecycle_details:tool_completed:{'tool': 'code_execute', 'status': 'ok'}",
+      "duration_ms": 120021,
+      "first_event_ms": 328,
+      "first_token_ms": null,
+      "final_received_ms": null,
+      "final_text_length": 0,
+      "event_count": 48,
+      "event_type_counts": {
+        "lifecycle": 44,
+        "status": 2,
+        "clarification_needed": 2
+      },
+      "lifecycle_stages": [
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "clarification_needed",
+        "terminal_wait_completed",
+        "lane_released",
+        "clarification_waiting_response",
+        "request_received",
+        "inbox_enqueued",
+        "run_dequeued",
+        "request_dispatched",
+        "queued",
+        "lane_acquired",
+        "tool_policy_decision",
+        "tool_policy_layers_logged",
+        "agent_depth_policy_applied",
+        "model_route_selected",
+        "terminal_wait_started",
+        "run_started",
+        "guardrails_passed",
+        "tool_policy_resolved",
+        "toolchain_checked",
+        "memory_updated",
+        "context_reduced",
+        "context_segmented",
+        "clarification_needed",
+        "terminal_wait_completed",
+        "lane_released",
+        "clarification_waiting_response"
+      ],
+      "errors": [
+        "timeout_while_waiting_for_events"
+      ],
+      "output_file": "C:\\Users\\wisni\\code\\git\\ai-agent-starter-kit\\backend\\monitoring\\benchmarks_live\\20260304-103521-5801ff1c\\mid_code_execute_diagnostic__run01.events.jsonl"
+    }
+  ]
+}

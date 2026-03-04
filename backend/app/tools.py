@@ -19,6 +19,7 @@ import httpx
 
 from app.config import settings
 from app.errors import ToolExecutionError
+from app.services.code_sandbox import CodeSandbox
 from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
@@ -738,6 +739,42 @@ class AgentTooling:
         output = output.strip() or "(no output)"
         self._raise_if_env_missing(command=command, leader=leader, returncode=completed.returncode, output=output)
         return f"exit_code={completed.returncode}\n{output[:12000]}"
+
+    async def code_execute(
+        self,
+        code: str,
+        language: str = "python",
+        timeout: int = 30,
+        max_output_chars: int = 10000,
+        strategy: str = "process",
+    ) -> str:
+        sandbox = CodeSandbox(
+            strategy=strategy,
+            workspace_root=self.workspace_root,
+            default_timeout=max(1, min(int(timeout), 60)),
+            default_max_output_chars=max(500, min(int(max_output_chars), 20000)),
+            allow_network=False,
+        )
+        result = await sandbox.execute(
+            code=code,
+            language=language,
+            timeout=timeout,
+            max_output_chars=max_output_chars,
+        )
+        payload = {
+            "success": result.success,
+            "strategy": result.strategy,
+            "language": result.language,
+            "exit_code": result.exit_code,
+            "timed_out": result.timed_out,
+            "truncated": result.truncated,
+            "duration_ms": result.duration_ms,
+            "error_type": result.error_type,
+            "error_message": result.error_message,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
     def _build_command_allowlist(self) -> set[str]:
         values: list[str] = []

@@ -148,6 +148,7 @@ class ReviewAgentAdapter(AgentContract):
         "write_file",
         "apply_patch",
         "run_command",
+        "code_execute",
         "start_background_command",
         "kill_background_process",
     }

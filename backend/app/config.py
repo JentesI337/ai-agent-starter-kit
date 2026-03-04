@@ -1,7 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from dotenv import load_dotenv
 import os
 import json
+import pathlib as _pathlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -134,6 +135,19 @@ def _resolve_prompt(default: str, *env_keys: str) -> str:
     return default
 
 
+def _load_prompt_appendix(filename: str, fallback: str = "") -> str:
+    """Load a Markdown prompt file from app/prompts/. Returns fallback if missing."""
+    base = _pathlib.Path(__file__).parent / "prompts" / filename
+    try:
+        return "\n\n" + base.read_text(encoding="utf-8").strip()
+    except OSError:
+        return fallback
+
+
+_AGENT_RULES_APPENDIX: str = _load_prompt_appendix("agent_rules.md")
+_TOOL_ROUTING_APPENDIX: str = _load_prompt_appendix("tool_routing.md")
+
+
 PROMPT_SETTING_KEYS: tuple[str, ...] = (
     "head_agent_system_prompt",
     "head_agent_plan_prompt",
@@ -205,7 +219,8 @@ class Settings(BaseModel):
         "AGENT_SYSTEM_PROMPT",
     )
     head_agent_tool_selector_prompt: str = _resolve_prompt(
-        "You select tools for user tasks. Strictly follow output format requirements.",
+        "You select tools for user tasks. Strictly follow output format requirements."
+        + _TOOL_ROUTING_APPENDIX,
         "HEAD_AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_TOOL_SELECTOR_PROMPT",
         "HEAD_AGENT_SYSTEM_PROMPT",
@@ -231,6 +246,7 @@ class Settings(BaseModel):
             "- For analysis: show your reasoning chain.\n"
             "- End with concrete next steps the user can take.\n"
             "- If tool outputs contradicted your initial assumption, say so."
+            + _AGENT_RULES_APPENDIX
         ),
         "HEAD_AGENT_FINAL_PROMPT",
         "HEAD_AGENT_SYSTEM_PROMPT",
@@ -347,7 +363,8 @@ class Settings(BaseModel):
         "AGENT_SYSTEM_PROMPT",
     )
     agent_tool_selector_prompt: str = _resolve_prompt(
-        "You are a senior head agent. Think step-by-step and return practical plans.",
+        "You are a senior head agent. Think step-by-step and return practical plans."
+        + _TOOL_ROUTING_APPENDIX,
         "AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_SYSTEM_PROMPT",
     )
@@ -371,6 +388,7 @@ class Settings(BaseModel):
             "- For analysis: show your reasoning chain.\n"
             "- End with concrete next steps the user can take.\n"
             "- If tool outputs contradicted your initial assumption, say so."
+            + _AGENT_RULES_APPENDIX
         ),
         "AGENT_FINAL_PROMPT",
         "AGENT_SYSTEM_PROMPT",
@@ -640,7 +658,28 @@ class Settings(BaseModel):
         True,
     )
     reflection_enabled: bool = _parse_bool_env("REFLECTION_ENABLED", True)
-    reflection_threshold: float = max(0.0, min(1.0, float(os.getenv("REFLECTION_THRESHOLD", "0.6"))))
+    reflection_threshold: float = Field(
+        default=float(os.getenv("REFLECTION_THRESHOLD", "0.6")),
+        ge=0.0,
+        le=1.0,
+        validate_default=True,
+    )
+    reflection_factual_grounding_hard_min: float = Field(
+        default=float(os.getenv("REFLECTION_FACTUAL_GROUNDING_HARD_MIN", "0.4")),
+        ge=0.0,
+        le=1.0,
+        validate_default=True,
+    )
+    reflection_tool_results_max_chars: int = Field(
+        default=int(os.getenv("REFLECTION_TOOL_RESULTS_MAX_CHARS", "8000")),
+        ge=500,
+        validate_default=True,
+    )
+    reflection_plan_max_chars: int = Field(
+        default=int(os.getenv("REFLECTION_PLAN_MAX_CHARS", "2000")),
+        ge=200,
+        validate_default=True,
+    )
     clarification_protocol_enabled: bool = _parse_bool_env("CLARIFICATION_PROTOCOL_ENABLED", True)
     clarification_confidence_threshold: float = max(
         0.0,
@@ -824,6 +863,40 @@ class Settings(BaseModel):
         "yes",
         "on",
     }
+
+    @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
+    @classmethod
+    def _validate_reflection_score_range(cls, value: object, info: ValidationInfo) -> float:
+        field_name = str(info.field_name or "reflection score")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field_name} must be a number between 0.0 and 1.0.") from exc
+        if not 0.0 <= numeric <= 1.0:
+            raise ValueError(f"{field_name} must be between 0.0 and 1.0.")
+        return numeric
+
+    @field_validator("reflection_tool_results_max_chars", mode="before")
+    @classmethod
+    def _validate_reflection_tool_results_max_chars(cls, value: object) -> int:
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reflection_tool_results_max_chars must be an integer >= 500.") from exc
+        if numeric < 500:
+            raise ValueError("reflection_tool_results_max_chars must be >= 500.")
+        return numeric
+
+    @field_validator("reflection_plan_max_chars", mode="before")
+    @classmethod
+    def _validate_reflection_plan_max_chars(cls, value: object) -> int:
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reflection_plan_max_chars must be an integer >= 200.") from exc
+        if numeric < 200:
+            raise ValueError("reflection_plan_max_chars must be >= 200.")
+        return numeric
 
     @property
     def mcp_servers(self) -> list[McpServerConfig]:
