@@ -39,7 +39,7 @@ class _FakeClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    def stream(self, method: str, url: str):
+    def stream(self, method: str, url: str, **kwargs):
         self._called_urls.append(url)
         response = self._responses.get(url)
         if response is None:

@@ -20,6 +20,6 @@ def evaluate_context_window_guard(*, tokens: int, warn_below_tokens: int, hard_m
 
     return ContextWindowGuardResult(
         tokens=safe_tokens,
-        should_warn=safe_tokens > 0 and safe_tokens < warn_below,
-        should_block=safe_tokens > 0 and safe_tokens < hard_min,
+        should_warn=safe_tokens < warn_below,
+        should_block=safe_tokens < hard_min,
     )

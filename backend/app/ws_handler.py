@@ -4,6 +4,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -166,48 +167,52 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         runtime_state.runtime,
         runtime_state.model,
     )
-    active_event_agent_name = deps.agent.name
+    active_agent_name_cv: ContextVar[str] = ContextVar('active_agent_name', default=deps.agent.name)
+    active_agent_name_cv.set(deps.agent.name)
 
     class ClientDisconnectedError(Exception):
         pass
 
+    _send_lock = asyncio.Lock()
+
     async def send_event(payload: dict):
         nonlocal sequence_number
-        try:
-            sequence_number += 1
-            if "session_id" not in payload:
-                payload["session_id"] = connection_session_id
-            if payload.get("type") == "lifecycle":
-                request_id = str(payload.get("request_id") or "").strip()
-                if request_id:
-                    deps.state_append_event_safe(
-                        run_id=request_id,
-                        event=payload,
-                    )
-            envelope = {
-                "seq": sequence_number,
-                "event": payload,
-            }
-            deps.logger.debug(
-                "ws_send_event session_id=%s seq=%s type=%s request_id=%s",
-                payload.get("session_id", connection_session_id),
-                sequence_number,
-                payload.get("type"),
-                payload.get("request_id"),
-            )
-            if payload.get("type") == "clarification_needed":
-                pending_session_id = str(payload.get("session_id") or connection_session_id)
-                question = str(payload.get("message") or "").strip()
-                if question:
-                    pending_clarifications.setdefault(pending_session_id, {})["question"] = question
-            await websocket.send_text(json.dumps(envelope))
-        except (WebSocketDisconnect, RuntimeError) as exc:
-            deps.logger.info(
-                "ws_send_event_disconnected session_id=%s type=%s",
-                payload.get("session_id", connection_session_id),
-                payload.get("type"),
-            )
-            raise ClientDisconnectedError() from exc
+        async with _send_lock:
+            try:
+                sequence_number += 1
+                if "session_id" not in payload:
+                    payload["session_id"] = connection_session_id
+                if payload.get("type") == "lifecycle":
+                    request_id = str(payload.get("request_id") or "").strip()
+                    if request_id:
+                        deps.state_append_event_safe(
+                            run_id=request_id,
+                            event=payload,
+                        )
+                envelope = {
+                    "seq": sequence_number,
+                    "event": payload,
+                }
+                deps.logger.debug(
+                    "ws_send_event session_id=%s seq=%s type=%s request_id=%s",
+                    payload.get("session_id", connection_session_id),
+                    sequence_number,
+                    payload.get("type"),
+                    payload.get("request_id"),
+                )
+                if payload.get("type") == "clarification_needed":
+                    pending_session_id = str(payload.get("session_id") or connection_session_id)
+                    question = str(payload.get("message") or "").strip()
+                    if question:
+                        pending_clarifications.setdefault(pending_session_id, {})["question"] = question
+                await websocket.send_text(json.dumps(envelope))
+            except (WebSocketDisconnect, RuntimeError) as exc:
+                deps.logger.info(
+                    "ws_send_event_disconnected session_id=%s type=%s",
+                    payload.get("session_id", connection_session_id),
+                    payload.get("type"),
+                )
+                raise ClientDisconnectedError() from exc
 
     await send_event(
         {
@@ -220,13 +225,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         }
     )
 
-    async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None):
+    async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None, agent_name: str | None = None):
         lifecycle_event = build_lifecycle_event(
             request_id=request_id,
             session_id=session_id,
             stage=stage,
             details=details,
-            agent=active_event_agent_name,
+            agent=agent_name or active_agent_name_cv.get(deps.agent.name),
         )
         lifecycle_status = deps.lifecycle_status_from_stage(stage)
         if lifecycle_status is not None:
@@ -384,8 +389,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         )
 
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
-        nonlocal active_event_agent_name
-        active_event_agent_name = selected_agent.name
+        active_agent_name_cv.set(selected_agent.name)
 
         if routing_reason:
             if resolved_agent_id == "review-agent" and routing_reason in {"review_intent", "preset_review"}:
@@ -597,7 +601,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         while True:
             request_id = str(uuid.uuid4())
             session_id = connection_session_id
-            active_event_agent_name = deps.agent.name
+            active_agent_name_cv.set(deps.agent.name)
             try:
                 raw = await websocket.receive_text()
                 inbound_type = peek_ws_inbound_type(raw)
@@ -860,6 +864,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             continue
 
                         content = f"{original_message}\n\nClarification: {clarification}"
+                        pending_agent_id = str(pending.get("agent_id") or "").strip()
+                        if pending_agent_id and pending_agent_id in deps.agent_registry:
+                            requested_agent_id = pending_agent_id
                         pending_clarifications.pop(session_id, None)
 
                     current_runtime_state = deps.runtime_manager.get_state()
@@ -973,7 +980,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 )
 
                 resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
-                active_event_agent_name = selected_agent.name
+                active_agent_name_cv.set(selected_agent.name)
 
                 if routing_reason:
                     if resolved_agent_id == "review-agent" and routing_reason in {"review_intent", "preset_review"}:
@@ -1038,6 +1045,12 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             "base_url": state.base_url,
                         }
                     )
+                    await send_lifecycle(
+                        stage="request_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                    )
+                    deps.state_mark_completed_safe(run_id=request_id)
                     continue
 
                 if data.type == "subrun_spawn":

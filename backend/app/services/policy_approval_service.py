@@ -26,6 +26,8 @@ class ApprovalDecision:
 
 
 class PolicyApprovalService:
+    _RECORD_TTL_SECONDS = 3600
+
     def __init__(self, allow_always_store_file: str | None = None):
         self._lock = asyncio.Lock()
         self._records: dict[str, dict] = {}
@@ -82,9 +84,28 @@ class PolicyApprovalService:
         async with self._lock:
             self._records[approval_id] = record
             self._events[approval_id] = asyncio.Event()
+            self._evict_stale_records_locked()
             created = dict(record)
             created["idempotent_reuse"] = False
             return created
+
+    def _evict_stale_records_locked(self) -> None:
+        now = datetime.now(timezone.utc)
+        stale_ids: list[str] = []
+        for aid, rec in self._records.items():
+            if rec.get("status") == "pending":
+                continue
+            created_str = rec.get("created_at") or ""
+            try:
+                created_dt = datetime.fromisoformat(created_str)
+            except (ValueError, TypeError):
+                stale_ids.append(aid)
+                continue
+            if (now - created_dt).total_seconds() > self._RECORD_TTL_SECONDS:
+                stale_ids.append(aid)
+        for aid in stale_ids:
+            self._records.pop(aid, None)
+            self._events.pop(aid, None)
 
     def _normalize_scope(self, scope: str | None) -> str:
         candidate = (scope or "tool_resource").strip().lower()
@@ -263,7 +284,7 @@ class PolicyApprovalService:
             event = self._events.get(approval_id)
             if record is None or event is None:
                 return None
-            if record.get("status") in {"approved", "denied"}:
+            if record.get("status") in {"approved", "denied", "cancelled"}:
                 decision = str(record.get("decision") or "").strip().lower()
                 return decision or None
 

@@ -1,6 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import json
 import sqlite3
+import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,7 +37,7 @@ class EpisodicEntry:
     key_actions: list[str] = field(default_factory=list)
     outcome: str = "success"
     tags: list[str] = field(default_factory=list)
-    entry_id: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    entry_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -42,11 +45,26 @@ class LongTermMemoryStore:
     def __init__(self, db_path: str):
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self._ensure_schema()
 
+    @staticmethod
+    def _parse_list_field(raw: object) -> list[str]:
+        text = str(raw or "").strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return [item.strip() for item in text.split(",") if item.strip()]
+
     def add_failure(self, entry: FailureEntry) -> None:
-        tags_text = ",".join(tag.strip() for tag in entry.tags if str(tag).strip())
-        with sqlite3.connect(str(self._db_path)) as connection:
+        tags_text = json.dumps([tag.strip() for tag in entry.tags if str(tag).strip()])
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO failure_journal (
@@ -85,14 +103,14 @@ class LongTermMemoryStore:
         entry_id: str | None = None,
         timestamp: str | None = None,
     ) -> None:
-        key_actions_text = ",".join(
-            action.strip() for action in (key_actions or []) if str(action).strip()
+        key_actions_text = json.dumps(
+            [action.strip() for action in (key_actions or []) if str(action).strip()]
         )
-        tags_text = ",".join(tag.strip() for tag in (tags or []) if str(tag).strip())
-        row_id = (entry_id or "").strip() or datetime.now(timezone.utc).isoformat()
+        tags_text = json.dumps([tag.strip() for tag in (tags or []) if str(tag).strip()])
+        row_id = (entry_id or "").strip() or uuid.uuid4().hex
         row_timestamp = (timestamp or "").strip() or datetime.now(timezone.utc).isoformat()
 
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO episodic (
@@ -141,7 +159,7 @@ class LongTermMemoryStore:
         source_sessions_text = ",".join(
             session.strip() for session in entry.source_sessions if str(session).strip()
         )
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO semantic (
@@ -166,7 +184,7 @@ class LongTermMemoryStore:
     def search_failures(self, task_description: str, limit: int = 3) -> list[FailureEntry]:
         normalized_query = str(task_description or "").strip().lower()
         rows: list[tuple] = []
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             if normalized_query:
                 terms = [token for token in normalized_query.split() if len(token) >= 3][:6]
                 if not terms:
@@ -205,7 +223,7 @@ class LongTermMemoryStore:
 
         entries: list[FailureEntry] = []
         for row in rows:
-            tags = [tag.strip() for tag in str(row[7] or "").split(",") if tag.strip()]
+            tags = self._parse_list_field(row[7])
             entries.append(
                 FailureEntry(
                     failure_id=str(row[0] or ""),
@@ -223,7 +241,7 @@ class LongTermMemoryStore:
     def search_episodic(self, query: str, limit: int = 5) -> list[EpisodicEntry]:
         normalized_query = str(query or "").strip().lower()
         rows: list[tuple] = []
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             if normalized_query:
                 terms = [token for token in normalized_query.split() if len(token) >= 3][:6]
                 if not terms:
@@ -262,8 +280,8 @@ class LongTermMemoryStore:
 
         entries: list[EpisodicEntry] = []
         for row in rows:
-            key_actions = [item.strip() for item in str(row[4] or "").split(",") if item.strip()]
-            tags = [item.strip() for item in str(row[6] or "").split(",") if item.strip()]
+            key_actions = self._parse_list_field(row[4])
+            tags = self._parse_list_field(row[6])
             entries.append(
                 EpisodicEntry(
                     session_id=str(row[1] or ""),
@@ -282,7 +300,7 @@ class LongTermMemoryStore:
         if not normalized_key:
             return None
 
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             row = connection.execute(
                 """
                 SELECT key, value, confidence, source_sessions, last_updated
@@ -306,7 +324,7 @@ class LongTermMemoryStore:
         )
 
     def get_all_semantic(self, limit: int = 100) -> list[SemanticEntry]:
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             rows = connection.execute(
                 """
                 SELECT key, value, confidence, source_sessions, last_updated
@@ -332,7 +350,7 @@ class LongTermMemoryStore:
         return entries
 
     def _ensure_schema(self) -> None:
-        with sqlite3.connect(str(self._db_path)) as connection:
+        with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS episodic (

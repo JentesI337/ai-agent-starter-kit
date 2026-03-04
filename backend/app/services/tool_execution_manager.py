@@ -113,6 +113,9 @@ class ToolExecutionManager:
         self._retrieval_service: ReliableRetrievalService | None = None
         self._retrieval_cache_key: tuple[bool, int, float, float, float] | None = None
 
+    def update_registry(self, registry: object) -> None:
+        self._registry = registry
+
     @staticmethod
     def _infer_required_capabilities(*, user_message: str, plan_text: str, intent: str | None) -> set[str]:
         text = f"{user_message}\n{plan_text}".lower()
@@ -313,7 +316,7 @@ class ToolExecutionManager:
 
         intent_decision = detect_intent_gate(user_message)
         intent = getattr(intent_decision, "intent", None)
-        confidence = getattr(intent_decision, "confidence", "low")
+        confidence = getattr(intent_decision, "confidence", 0.0)
         extracted_command = getattr(intent_decision, "extracted_command", None)
         missing_slots = tuple(getattr(intent_decision, "missing_slots", ()) or ())
         required_capabilities = self._infer_required_capabilities(
@@ -548,7 +551,7 @@ class ToolExecutionManager:
         await emit_lifecycle("tool_selection_completed", {"actions": len(actions)})
         if not actions:
             empty_reason = "ambiguous_input"
-            if intent is not None and confidence == "low":
+            if intent is not None and isinstance(confidence, (int, float)) and confidence < 0.3:
                 empty_reason = "low_confidence"
             await emit_tool_selection_empty(
                 empty_reason,
@@ -602,7 +605,7 @@ class ToolExecutionManager:
     def _redact_secret_like_values(value: str) -> str:
         text = str(value)
         text = re.sub(
-            r"(?i)(api[_-]?key|token|password|secret)\s*([:=])\s*([^\s,;\"']+)",
+            r"(?i)(api[_-]?key|token|password|secret)\s*([:=])\s*(?:(?:\"([^\"]*)\")|(\S+))",
             lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
             text,
         )
@@ -912,7 +915,7 @@ class ToolExecutionManager:
         memory_context: str,
         model: str | None,
         intent: str | None,
-        confidence: str,
+        confidence: str | int | float,
         extracted_command: str | None,
         approve_blocked_process_tools_if_needed: Callable[..., Awaitable[set[str]]],
         validate_actions: Callable[[list[dict], set[str]], tuple[list[dict], int]],
@@ -937,7 +940,7 @@ class ToolExecutionManager:
             allowed_tools=updated_allowed_tools,
         )
 
-        if not augmented_actions and intent == "execute_command" and confidence == "high":
+        if not augmented_actions and intent == "execute_command" and isinstance(confidence, (int, float)) and confidence >= 0.8:
             if extracted_command:
                 augmented_actions = [
                     {
@@ -1072,6 +1075,32 @@ class ToolExecutionManager:
                             "skipped_count": skipped,
                         },
                     )
+
+            if read_only_actions:
+                gated_read_only_actions: list[dict] = []
+                for ro_action in read_only_actions:
+                    ro_prep = prepare_action_for_execution(
+                        action=ro_action,
+                        allowed_tools=effective_allowed_tools,
+                        normalize_tool_name=normalize_tool_name,
+                        evaluate_action=evaluate_action,
+                    )
+                    ro_fallback = ro_action.get("tool") if isinstance(ro_action, dict) else ""
+                    ro_tool = ro_prep.tool or (str(ro_fallback).strip() if isinstance(ro_fallback, str) else "")
+                    if ro_prep.error:
+                        results.append(f"[{ro_tool}] REJECTED: {ro_prep.error}")
+                        continue
+                    sig = loop_gatekeeper.build_signature(tool=ro_tool, args=ro_prep.normalized_args)
+                    pre = loop_gatekeeper.before_tool_call(tool=ro_tool, signature=sig, index=0)
+                    for stage, details in pre.lifecycle_events:
+                        await emit_lifecycle(stage, details)
+                    if pre.blocked:
+                        results.append(f"[{ro_tool}] REJECTED: {pre.rejection_message}")
+                        if pre.break_run:
+                            break
+                        continue
+                    gated_read_only_actions.append(ro_action)
+                read_only_actions = gated_read_only_actions
 
             if read_only_actions:
                 await emit_lifecycle(
@@ -1362,115 +1391,128 @@ class ToolExecutionManager:
                         )
                         retry_args = dict(evaluated_args)
                         retry_args["url"] = fallback_url
-                        attempt_calls += 1
-                        try:
-                            retry_started = monotonic()
-                            retry_result = await run_tool_with_policy(tool=tool, args=retry_args, policy=policy)
-                            retry_elapsed_ms = int((monotonic() - retry_started) * 1000)
-                            clipped, transform_meta = self._transform_tool_result_for_persist(
-                                tool=tool,
-                                raw_result=retry_result,
-                                config=config,
-                                app_settings=app_settings,
-                            )
+                        if tool_call_count + 1 >= tool_call_cap:
                             await emit_lifecycle(
-                                "tool_result_transformed",
+                                "tool_retry_skipped_budget",
                                 {
                                     "tool": tool,
                                     "index": idx,
                                     "call_id": call_id,
-                                    "retried": True,
-                                    **transform_meta,
+                                    "reason": "call_budget_exhausted",
+                                    "used_calls": tool_call_count,
+                                    "limit_calls": tool_call_cap,
                                 },
                             )
-                            await invoke_hooks(
-                                "tool_result_persist",
-                                {
-                                    "tool": tool,
-                                    "args": dict(retry_args),
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "status": "ok",
-                                    "result_chars": len(clipped),
-                                    "retried": True,
-                                },
-                            )
-                            memory_add(tool, clipped)
-                            await emit_lifecycle(
-                                "tool_result_persisted",
-                                {
-                                    "tool": tool,
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "result_chars": len(clipped),
-                                    "status": "ok",
-                                    "retried": True,
-                                },
-                            )
-                            results.append(f"[{tool}]\n{clipped}")
-                            await emit_lifecycle(
-                                "tool_completed",
-                                {
-                                    "tool": tool,
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "status": "ok",
-                                    "result_chars": len(clipped),
-                                    "duration_ms": retry_elapsed_ms,
-                                    "elapsed_ms": retry_elapsed_ms,
-                                    "retried": True,
-                                },
-                            )
-                            await emit_lifecycle(
-                                "tool_retry_completed",
-                                {
-                                    "tool": tool,
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "reason": "http_404",
-                                    "from_url": primary_url,
-                                    "to_url": fallback_url,
-                                },
-                            )
-                            await invoke_hooks(
-                                "after_tool_call",
-                                {
-                                    "tool": tool,
-                                    "args": dict(retry_args),
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "status": "ok",
-                                    "duration_ms": retry_elapsed_ms,
-                                    "result_chars": len(clipped),
-                                    "retried": True,
-                                },
-                            )
-                            retried_successfully = True
-                        except ToolExecutionError as retry_exc:
-                            merged_details: dict[str, object] = {}
-                            original_details = getattr(exc, "details", None)
-                            if isinstance(original_details, dict):
-                                merged_details.update(original_details)
-                            retry_details = getattr(retry_exc, "details", None)
-                            if isinstance(retry_details, dict):
-                                merged_details["retry_error"] = dict(retry_details)
-                            exc = ToolExecutionError(
-                                f"{exc} | retry_failed: {retry_exc}",
-                                error_code=getattr(exc, "error_code", None),
-                                details=merged_details,
-                            )
-                            await emit_lifecycle(
-                                "tool_retry_failed",
-                                {
-                                    "tool": tool,
-                                    "index": idx,
-                                    "call_id": call_id,
-                                    "reason": "http_404",
-                                    "from_url": primary_url,
-                                    "to_url": fallback_url,
-                                    "error": str(retry_exc),
-                                },
-                            )
+                        else:
+                            attempt_calls += 1
+                            try:
+                                retry_started = monotonic()
+                                retry_result = await run_tool_with_policy(tool=tool, args=retry_args, policy=policy)
+                                retry_elapsed_ms = int((monotonic() - retry_started) * 1000)
+                                clipped, transform_meta = self._transform_tool_result_for_persist(
+                                    tool=tool,
+                                    raw_result=retry_result,
+                                    config=config,
+                                    app_settings=app_settings,
+                                )
+                                await emit_lifecycle(
+                                    "tool_result_transformed",
+                                    {
+                                        "tool": tool,
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "retried": True,
+                                        **transform_meta,
+                                    },
+                                )
+                                await invoke_hooks(
+                                    "tool_result_persist",
+                                    {
+                                        "tool": tool,
+                                        "args": dict(retry_args),
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "status": "ok",
+                                        "result_chars": len(clipped),
+                                        "retried": True,
+                                    },
+                                )
+                                memory_add(tool, clipped)
+                                await emit_lifecycle(
+                                    "tool_result_persisted",
+                                    {
+                                        "tool": tool,
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "result_chars": len(clipped),
+                                        "status": "ok",
+                                        "retried": True,
+                                    },
+                                )
+                                results.append(f"[{tool}]\n{clipped}")
+                                await emit_lifecycle(
+                                    "tool_completed",
+                                    {
+                                        "tool": tool,
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "status": "ok",
+                                        "result_chars": len(clipped),
+                                        "duration_ms": retry_elapsed_ms,
+                                        "elapsed_ms": retry_elapsed_ms,
+                                        "retried": True,
+                                    },
+                                )
+                                await emit_lifecycle(
+                                    "tool_retry_completed",
+                                    {
+                                        "tool": tool,
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "reason": "http_404",
+                                        "from_url": primary_url,
+                                        "to_url": fallback_url,
+                                    },
+                                )
+                                await invoke_hooks(
+                                    "after_tool_call",
+                                    {
+                                        "tool": tool,
+                                        "args": dict(retry_args),
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "status": "ok",
+                                        "duration_ms": retry_elapsed_ms,
+                                        "result_chars": len(clipped),
+                                        "retried": True,
+                                    },
+                                )
+                                retried_successfully = True
+                            except ToolExecutionError as retry_exc:
+                                merged_details: dict[str, object] = {}
+                                original_details = getattr(exc, "details", None)
+                                if isinstance(original_details, dict):
+                                    merged_details.update(original_details)
+                                retry_details = getattr(retry_exc, "details", None)
+                                if isinstance(retry_details, dict):
+                                    merged_details["retry_error"] = dict(retry_details)
+                                exc = ToolExecutionError(
+                                    f"{exc} | retry_failed: {retry_exc}",
+                                    error_code=getattr(exc, "error_code", None),
+                                    details=merged_details,
+                                )
+                                await emit_lifecycle(
+                                    "tool_retry_failed",
+                                    {
+                                        "tool": tool,
+                                        "index": idx,
+                                        "call_id": call_id,
+                                        "reason": "http_404",
+                                        "from_url": primary_url,
+                                        "to_url": fallback_url,
+                                        "error": str(retry_exc),
+                                    },
+                                )
 
                 tool_call_count += attempt_calls
                 if retried_successfully:

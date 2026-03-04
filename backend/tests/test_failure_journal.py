@@ -56,9 +56,9 @@ def test_failure_journal_logs_entry_when_run_raises(monkeypatch, tmp_path) -> No
     assert row[1] == "please plan this task"
     assert row[2] == "RuntimeError"
     assert "simulated planner failure" in row[3]
-    assert row[4] == ""
-    assert row[5] == ""
-    assert row[6] == ""
+    assert "RuntimeError" in row[4]  # solution populated with error type context
+    assert "RuntimeError" in row[5]  # prevention populated with error type context
+    assert "RuntimeError" in row[6]  # tags include the error type
     assert any(event.get("stage") == "run_started" for event in events)
 
 

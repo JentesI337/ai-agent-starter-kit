@@ -57,7 +57,8 @@ class StateStore:
             "error": None,
             "meta": transformed_meta,
         }
-        self._write_run(run_id, state)
+        with self._lock:
+            self._write_run(run_id, state)
         return state
 
     def get_run(self, run_id: str) -> dict | None:
@@ -212,12 +213,15 @@ class StateStore:
             text = f"{text[:max_chars]}...[truncated:{omitted}]"
         return text
 
+    _SENSITIVE_KEY_RE = re.compile(
+        r"(?:^|_|-)(password|secret|token|api_key|apikey|authorization|auth_token)(?:$|_|-)",
+        re.IGNORECASE,
+    )
+
     def _is_sensitive_key(self, key: str | None) -> bool:
         if not key:
             return False
-        normalized = key.strip().lower()
-        markers = ("password", "secret", "token", "api_key", "apikey", "authorization", "auth")
-        return any(marker in normalized for marker in markers)
+        return bool(self._SENSITIVE_KEY_RE.search(key.strip()))
 
     def _redact_secret_like_values(self, value: str) -> str:
         text = value

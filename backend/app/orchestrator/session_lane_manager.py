@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from time import monotonic
+
+_logger = logging.getLogger(__name__)
 
 
 class SessionLaneManager:
@@ -29,6 +32,7 @@ class SessionLaneManager:
                 lock = asyncio.Lock()
                 self._session_locks[key] = lock
             self._session_last_used[key] = monotonic()
+            self._session_active_counts[key] = self._session_active_counts.get(key, 0) + 1
             return lock
 
     async def _mark_session_active(self, key: str) -> None:
@@ -90,15 +94,21 @@ class SessionLaneManager:
         key = (session_id or "").strip() or "default"
         queue_started = monotonic()
         session_lock = await self._get_or_create_session_lock(key)
+        entered = False
 
-        async with session_lock:
-            async with self._global_semaphore:
-                await self._mark_session_active(key)
-                queue_wait_ms = int((monotonic() - queue_started) * 1000)
-                try:
-                    yield {"queue_wait_ms": queue_wait_ms, "session_id": key}
-                finally:
-                    await self._mark_session_released(key)
+        try:
+            async with session_lock:
+                async with self._global_semaphore:
+                    entered = True
+                    queue_wait_ms = int((monotonic() - queue_started) * 1000)
+                    try:
+                        yield {"queue_wait_ms": queue_wait_ms, "session_id": key}
+                    finally:
+                        await self._mark_session_released(key)
+        except BaseException:
+            if not entered:
+                await self._mark_session_released(key)
+            raise
 
     async def run_in_lane(
         self,
@@ -122,5 +132,10 @@ class SessionLaneManager:
                     try:
                         await on_released(details)
                     except Exception:
+                        _logger.warning(
+                            "on_released callback failed for session %s",
+                            session_id,
+                            exc_info=True,
+                        )
                         if run_error is None:
                             raise

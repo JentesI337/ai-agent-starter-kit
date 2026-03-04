@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import inspect
 import json
+import logging
 import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -237,7 +238,8 @@ class HeadAgent:
         self._source_agent_id_context.reset(token)
 
     def register_hook(self, hook: object) -> None:
-        self._hooks.append(hook)
+        if hook not in self._hooks:
+            self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
         temperature_resolver = DynamicTemperatureResolver(
@@ -388,6 +390,9 @@ class HeadAgent:
             if hasattr(self, "planner_agent"):
                 self.planner_agent._failure_retriever = self._failure_retriever
         except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to initialise long-term memory store", exc_info=True,
+            )
             self._long_term_memory = None
             self._long_term_memory_db_path = None
             self._reflection_feedback_store = None
@@ -628,7 +633,9 @@ class HeadAgent:
                             }
                         )
                         status = "completed"
-                        return ambiguity.clarification_question or "Could you clarify your request?"
+                        clarification_text = ambiguity.clarification_question or "Could you clarify your request?"
+                        self.memory.add(session_id, "assistant", clarification_text)
+                        return clarification_text
 
             await self._invoke_hooks(
                 hook_name="before_prompt_build",
@@ -1024,6 +1031,7 @@ class HeadAgent:
                     session_id=session_id,
                     details={"response_chars": len(final_text), "fallback": "web_search_unavailable"},
                 )
+                status = "completed"
                 return final_text
 
             await send_event(
@@ -1362,18 +1370,15 @@ class HeadAgent:
                             task_description=user_message[:500],
                             error_type=type(exc).__name__,
                             root_cause=error_text[:500],
-                            solution="",
-                            prevention="",
-                            tags=[],
+                            solution=f"Review {type(exc).__name__} handling in agent run",
+                            prevention=f"Add guard for {type(exc).__name__} before reaching this code path",
+                            tags=[type(exc).__name__],
                         )
                     )
                 except Exception:
                     pass
             raise
         finally:
-            self._active_request_id_context.reset(request_id_token)
-            self._active_session_id_context.reset(session_id_token)
-            self._active_send_event_context.reset(send_event_token)
             if (
                 status == "completed"
                 and settings.session_distillation_enabled
@@ -1389,19 +1394,27 @@ class HeadAgent:
                         model=model,
                     )
                 except Exception:
-                    pass
-            await self._invoke_hooks(
-                hook_name="agent_end",
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                payload={
-                    "status": status,
-                    "error": error_text,
-                    "final_chars": len(final_text),
-                    "model": model or self.client.model,
-                },
-            )
+                    logging.getLogger(__name__).warning(
+                        "Session distillation failed for session %s", session_id, exc_info=True,
+                    )
+            try:
+                await self._invoke_hooks(
+                    hook_name="agent_end",
+                    send_event=send_event,
+                    request_id=request_id,
+                    session_id=session_id,
+                    payload={
+                        "status": status,
+                        "error": error_text,
+                        "final_chars": len(final_text),
+                        "model": model or self.client.model,
+                    },
+                )
+            except Exception:
+                pass
+            self._active_request_id_context.reset(request_id_token)
+            self._active_session_id_context.reset(session_id_token)
+            self._active_send_event_context.reset(send_event_token)
 
     async def _distill_session_knowledge(
         self,
@@ -1529,6 +1542,12 @@ class HeadAgent:
         plan_budget = max(256, int(budget * 0.25))
         tool_budget = max(256, int(budget * 0.30))
         final_budget = max(512, int(budget * 0.45))
+        total = plan_budget + tool_budget + final_budget
+        if total > budget:
+            scale = budget / total
+            plan_budget = int(plan_budget * scale)
+            tool_budget = int(tool_budget * scale)
+            final_budget = budget - plan_budget - tool_budget
         return {
             "plan": plan_budget,
             "tool": tool_budget,
@@ -1877,7 +1896,7 @@ class HeadAgent:
         if self._is_steer_interrupted(tool_results):
             return "steer_interrupted"
 
-        if self._parse_blocked_tool_result(tool_results):
+        if self._parse_blocked_tool_result(tool_results) is not None:
             return "blocked"
 
         normalized_results = (tool_results or "").strip()
@@ -1885,7 +1904,7 @@ class HeadAgent:
             return "empty"
 
         lowered = normalized_results.lower()
-        has_ok = "[ok]" in lowered or re.search(r"\bok\b", lowered) is not None
+        has_ok = "] ok" in lowered or "[ok]" in lowered
         has_error = "[error]" in lowered or " error:" in lowered
         if has_error and not has_ok:
             return "error_only"
@@ -1905,11 +1924,10 @@ class HeadAgent:
         error_tool_replan_attempts_used: int,
         max_error_tool_replan_attempts: int,
     ) -> str | None:
-        if (
-            tool_results_state == "error_only"
-            and error_tool_replan_attempts_used < max_error_tool_replan_attempts
-        ):
-            return "tool_selection_error_replan"
+        if tool_results_state == "error_only":
+            if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
+                return "tool_selection_error_replan"
+            return None
 
         regular_replan_budget_remaining = iteration < max_replan_iterations - 1
         if regular_replan_budget_remaining:
@@ -2193,17 +2211,11 @@ class HeadAgent:
         if self._is_subrun_orchestration_task(message):
             return "orchestration"
 
-        implementation_markers = (
-            "implement",
-            "fix",
-            "refactor",
-            "test",
-            "code",
-            "bug",
-            "feature",
+        _IMPLEMENTATION_RE = re.compile(
+            r"\b(?:implement|fix|refactor|test|code|bug|feature)\b", re.IGNORECASE
         )
         lowered = message.lower()
-        if self._is_file_creation_task(message) or any(marker in lowered for marker in implementation_markers):
+        if self._is_file_creation_task(message) or _IMPLEMENTATION_RE.search(lowered):
             return "implementation"
         if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
             return "research"
@@ -2358,7 +2370,7 @@ class HeadAgent:
                 self._validate_tool_registry_dispatch()
                 # Registry neu verdrahten, damit ToolExecutionManager
                 # nach MCP-Init die aktualisierten Tool-Capabilities sieht.
-                self._tool_execution_manager._registry = self.tool_registry
+                self._tool_execution_manager.update_registry(self.tool_registry)
                 await self._emit_lifecycle(
                     send_event,
                     stage="mcp_tools_initialized",
@@ -2431,12 +2443,15 @@ class HeadAgent:
                         invoke_tool_fn(tool, args),
                         timeout=policy.timeout_seconds,
                     )
+                phase1_start = asyncio.get_event_loop().time()
                 sync_result = await asyncio.wait_for(
                     asyncio.to_thread(invoke_tool_fn, tool, args),
                     timeout=policy.timeout_seconds,
                 )
                 if inspect.isawaitable(sync_result):
-                    return await asyncio.wait_for(sync_result, timeout=policy.timeout_seconds)
+                    elapsed = asyncio.get_event_loop().time() - phase1_start
+                    remaining = max(0.1, policy.timeout_seconds - elapsed)
+                    return await asyncio.wait_for(sync_result, timeout=remaining)
                 return sync_result
             except asyncio.TimeoutError as exc:
                 last_error = exc

@@ -131,42 +131,49 @@ class SubrunLane:
                 f"Subrun depth policy blocked request: leaf agent '{selected_agent_id}' cannot spawn child runs."
             )
 
-        parent_spec = self._run_specs.get(parent_request_id)
-        depth = (parent_spec.depth + 1) if parent_spec else 1
-        if depth > self._max_spawn_depth:
-            raise GuardrailViolation(
-                f"Subrun depth limit exceeded: requested depth {depth}, max {self._max_spawn_depth}."
+        async with self._lock:
+            parent_spec = self._run_specs.get(parent_request_id)
+            depth = (parent_spec.depth + 1) if parent_spec else 1
+            if depth > self._max_spawn_depth:
+                raise GuardrailViolation(
+                    f"Subrun depth limit exceeded: requested depth {depth}, max {self._max_spawn_depth}."
+                )
+
+            existing_children = len(self._children_by_parent.get(parent_request_id, set()))
+            if existing_children >= self._max_children_per_parent:
+                raise GuardrailViolation(
+                    f"Subrun child limit exceeded for parent {parent_request_id}: "
+                    f"{existing_children}/{self._max_children_per_parent}."
+                )
+
+            parent_run_id = parent_spec.run_id if parent_spec else None
+            root_run_id = parent_spec.root_run_id if parent_spec else parent_request_id
+
+            spec = SubrunSpec(
+                run_id=run_id,
+                parent_request_id=parent_request_id,
+                parent_session_id=parent_session_id,
+                child_session_id=child_session_id,
+                user_message=user_message,
+                runtime=runtime,
+                model=model,
+                tool_policy=tool_policy,
+                preset=(preset or "").strip().lower() or None,
+                timeout_seconds=max(0, int(timeout_seconds)),
+                depth=depth,
+                parent_run_id=parent_run_id,
+                root_run_id=root_run_id,
+                agent_id=selected_agent_id,
+                mode=selected_mode,
+                orchestrator_agent_ids=orchestrator_agent_ids,
+                orchestrator_api=selected_orchestrator,
             )
 
-        existing_children = len(self._children_by_parent.get(parent_request_id, set()))
-        if existing_children >= self._max_children_per_parent:
-            raise GuardrailViolation(
-                f"Subrun child limit exceeded for parent {parent_request_id}: "
-                f"{existing_children}/{self._max_children_per_parent}."
-            )
-
-        parent_run_id = parent_spec.run_id if parent_spec else None
-        root_run_id = parent_spec.root_run_id if parent_spec else parent_request_id
-
-        spec = SubrunSpec(
-            run_id=run_id,
-            parent_request_id=parent_request_id,
-            parent_session_id=parent_session_id,
-            child_session_id=child_session_id,
-            user_message=user_message,
-            runtime=runtime,
-            model=model,
-            tool_policy=tool_policy,
-            preset=(preset or "").strip().lower() or None,
-            timeout_seconds=max(0, int(timeout_seconds)),
-            depth=depth,
-            parent_run_id=parent_run_id,
-            root_run_id=root_run_id,
-            agent_id=selected_agent_id,
-            mode=selected_mode,
-            orchestrator_agent_ids=orchestrator_agent_ids,
-            orchestrator_api=selected_orchestrator,
-        )
+            self._run_specs[run_id] = spec
+            self._children_by_parent[parent_request_id].add(run_id)
+            self._parent_by_child[run_id] = parent_request_id
+            if child_session_id != parent_session_id:
+                self._children_by_session[parent_session_id].add(child_session_id)
 
         self._state_store.init_run(
             run_id=run_id,
@@ -220,11 +227,6 @@ class SubrunLane:
         task = asyncio.create_task(self._run(spec=spec, send_event=send_event))
         async with self._lock:
             self._run_tasks[run_id] = task
-            self._run_specs[run_id] = spec
-            self._children_by_parent[parent_request_id].add(run_id)
-            self._parent_by_child[run_id] = parent_request_id
-            if child_session_id != parent_session_id:
-                self._children_by_session[parent_session_id].add(child_session_id)
         self._persist_registry_safe()
         return run_id
 
@@ -534,29 +536,29 @@ class SubrunLane:
         status = "failed"
         notes: str | None = None
 
-        await self._set_status(
-            run_id=spec.run_id,
-            status="running",
-            details={"started_at": started_at_ts},
-        )
-        self._state_store.set_task_status(run_id=spec.run_id, task_id="request", label="request", status="active")
-
-        await send_event(
-            {
-                "type": "subrun_status",
-                "run_id": spec.run_id,
-                "parent_request_id": spec.parent_request_id,
-                "parent_session_id": spec.parent_session_id,
-                "child_session_id": spec.child_session_id,
-                "status": "running",
-                "depth": spec.depth,
-                "agent_id": spec.agent_id,
-                "mode": spec.mode,
-                "started_at": started_at_ts,
-            }
-        )
-
         try:
+            await self._set_status(
+                run_id=spec.run_id,
+                status="running",
+                details={"started_at": started_at_ts},
+            )
+            self._state_store.set_task_status(run_id=spec.run_id, task_id="request", label="request", status="active")
+
+            await send_event(
+                {
+                    "type": "subrun_status",
+                    "run_id": spec.run_id,
+                    "parent_request_id": spec.parent_request_id,
+                    "parent_session_id": spec.parent_session_id,
+                    "child_session_id": spec.child_session_id,
+                    "status": "running",
+                    "depth": spec.depth,
+                    "agent_id": spec.agent_id,
+                    "mode": spec.mode,
+                    "started_at": started_at_ts,
+                }
+            )
+
             async with self._semaphore:
                 if spec.timeout_seconds > 0:
                     final_text = await asyncio.wait_for(

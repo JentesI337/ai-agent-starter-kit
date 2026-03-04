@@ -92,6 +92,24 @@ class MemoryStore:
 
                 repaired_items.append(item)
 
+            if pending_tool_calls:
+                for orphan_id in sorted(pending_tool_calls):
+                    synthetic_item = MemoryItem(
+                        role="tool:__synthetic__",
+                        content=json.dumps(
+                            {
+                                "tool_call_id": orphan_id,
+                                "role": "tool",
+                                "isError": True,
+                                "content": "[tool execution was interrupted — no result available]",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    repaired_items.append(synthetic_item)
+                    repaired += 1
+                pending_tool_calls.clear()
+
             if repaired > 0:
                 self._store[key] = deque(repaired_items, maxlen=self.max_items_per_session)
                 self._rewrite_session_file(session_id=key)
@@ -114,6 +132,8 @@ class MemoryStore:
                     if item.role == last_conversation_role:
                         continue
                     last_conversation_role = item.role
+                elif item.role.startswith("tool:"):
+                    last_conversation_role = None
                 valid_items.append(item)
 
             removed = original_len - len(valid_items)

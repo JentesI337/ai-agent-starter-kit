@@ -146,10 +146,12 @@ class VisionService:
         if not api_key:
             raise ValueError("VISION_API_KEY is required for gemini provider")
         model_name = self.model or "gemini-1.5-flash"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        headers = {"x-goog-api-key": api_key}
         payload = await self._request_json(
             "POST",
             url,
+            headers=headers,
             json_body={
                 "contents": [
                     {

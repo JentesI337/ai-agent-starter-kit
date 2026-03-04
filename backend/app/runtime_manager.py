@@ -70,6 +70,8 @@ class RuntimeManager:
             model=settings.local_model,
         )
         self._ollama_cmd = self._resolve_ollama_command()
+        self._switch_lock = asyncio.Lock()
+        self._gateway_process: subprocess.Popen | None = None
         self._persist_state()
 
     def get_state(self) -> RuntimeState:
@@ -122,36 +124,37 @@ class RuntimeManager:
         if target not in ("local", "api"):
             raise RuntimeSwitchError(f"Unsupported runtime target: {target}")
 
-        previous = RuntimeState(**asdict(self._state))
-        last_error: Exception | None = None
+        async with self._switch_lock:
+            previous = RuntimeState(**asdict(self._state))
+            last_error: Exception | None = None
 
-        for attempt in (1, 2):
-            try:
-                await self._log(send_event, session_id, "switch_started", attempt, f"Switching to {target}")
-                next_state = self._build_target_state(target)
+            for attempt in (1, 2):
+                try:
+                    await self._log(send_event, session_id, "switch_started", attempt, f"Switching to {target}")
+                    next_state = self._build_target_state(target)
 
-                if target == "api":
-                    await self.ensure_api_runtime_authenticated(runtime=target)
-                    await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                    await self._log(send_event, session_id, "api_model_selected", attempt, f"Using API model {settings.api_model}")
-                    next_state.model = settings.api_model
-                else:
-                    await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                    next_state.model = await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
+                    if target == "api":
+                        await self.ensure_api_runtime_authenticated(runtime=target)
+                        await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
+                        await self._log(send_event, session_id, "api_model_selected", attempt, f"Using API model {settings.api_model}")
+                        next_state.model = settings.api_model
+                    else:
+                        await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
+                        next_state.model = await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
 
-                self._state = next_state
-                self._state.features = _normalize_feature_flags(previous.features)
-                self._persist_state()
-                await self._log(send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}")
-                return self._state
-            except Exception as exc:
-                last_error = exc
-                await self._log(send_event, session_id, "switch_attempt_failed", attempt, str(exc), level="error")
+                    self._state = next_state
+                    self._state.features = _normalize_feature_flags(previous.features)
+                    self._persist_state()
+                    await self._log(send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}")
+                    return self._state
+                except Exception as exc:
+                    last_error = exc
+                    await self._log(send_event, session_id, "switch_attempt_failed", attempt, str(exc), level="error")
 
-        self._state = previous
-        self._persist_state()
-        await self._log(send_event, session_id, "switch_rollback", 2, f"Rollback to {previous.runtime}", level="error")
-        raise RuntimeSwitchError(str(last_error) if last_error else "Runtime switch failed")
+            self._state = previous
+            self._persist_state()
+            await self._log(send_event, session_id, "switch_rollback", 2, f"Rollback to {previous.runtime}", level="error")
+            raise RuntimeSwitchError(str(last_error) if last_error else "Runtime switch failed")
 
     async def ensure_model_ready(self, send_event: SendEvent, session_id: str, model_name: str) -> str:
         return await self._ensure_model_available(send_event, session_id, 1, model_name)
@@ -206,13 +209,13 @@ class RuntimeManager:
             env = os.environ.copy()
             env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
             if os.name == "nt":
-                subprocess.Popen(
+                self._gateway_process = subprocess.Popen(
                     [self._ollama_cmd, "serve"],
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                     env=env,
                 )
             else:
-                subprocess.Popen(
+                self._gateway_process = subprocess.Popen(
                     [self._ollama_cmd, "serve"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -225,6 +228,19 @@ class RuntimeManager:
                 return
             await asyncio.sleep(0.5)
         raise RuntimeSwitchError(f"Gateway not reachable on port {port}")
+
+    def shutdown_gateway(self) -> None:
+        """Terminate the managed Ollama gateway process if one is running."""
+        proc = self._gateway_process
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=10)
+        except Exception:
+            proc.kill()
+        finally:
+            self._gateway_process = None
 
     async def _ensure_model_available(self, send_event: SendEvent, session_id: str, attempt: int, model_name: str) -> str:
         candidates = self._candidate_models(model_name)

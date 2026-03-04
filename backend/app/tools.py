@@ -259,14 +259,18 @@ class AgentTooling:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{job_id}.log"
         log_file = log_path.open("w", encoding="utf-8")
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=run_cwd,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        try:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=run_cwd,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception:
+            log_file.close()
+            raise
         with self._bg_lock:
             self._background_jobs[job_id] = {
                 "process": proc,
@@ -335,9 +339,10 @@ class AgentTooling:
                 headers={"User-Agent": "ai-agent-starter-kit/1.0"},
             ) as client:
                 while True:
-                    self._enforce_safe_web_target(current_url)
+                    pinned_ip = self._enforce_safe_web_target(current_url)
+                    connect_url, extra_headers = self._apply_dns_pin(current_url, pinned_ip)
 
-                    async with client.stream("GET", current_url) as response:
+                    async with client.stream("GET", connect_url, headers=extra_headers) as response:
                         status = int(response.status_code)
 
                         if 300 <= status < 400:
@@ -523,10 +528,13 @@ class AgentTooling:
                 "http_request method must be one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
             )
 
-        self._enforce_safe_web_target(requested_url)
+        pinned_ip = self._enforce_safe_web_target(requested_url)
+        _, pin_headers = self._apply_dns_pin(requested_url, pinned_ip)
 
         limit = max(1, min(int(max_chars), 100000))
         request_headers: dict[str, str] = {"User-Agent": "ai-agent-starter-kit/1.0"}
+        # Apply DNS-pin Host header before user headers so the user can override
+        request_headers.update(pin_headers)
         if headers:
             try:
                 parsed_headers = json.loads(headers)
@@ -568,9 +576,10 @@ class AgentTooling:
         response_url = requested_url
         try:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                connect_url, _ = self._apply_dns_pin(requested_url, pinned_ip)
                 async with client.stream(
                     normalized_method,
-                    requested_url,
+                    connect_url,
                     headers=request_headers,
                     content=request_content,
                     json=request_json,
@@ -622,7 +631,16 @@ class AgentTooling:
                 f"http_request failed for method={normalized_method} url={requested_url}: {exc}"
             ) from exc
 
-    def _enforce_safe_web_target(self, url: str) -> None:
+    def _enforce_safe_web_target(self, url: str) -> str | None:
+        """Validate URL.  Returns a validated IP string for DNS-pinning (HTTP
+        scheme only) or ``None`` when the URL already uses an IP literal or is
+        HTTPS (where TLS certificate validation prevents DNS-rebinding
+        exploitation).
+
+        Callers should replace the hostname in the URL with the returned IP and
+        set the ``Host`` header to the original hostname to close the TOCTOU
+        gap between this validation and the actual TCP connect.
+        """
         parsed = urlparse((url or "").strip())
         if parsed.scheme not in {"http", "https"}:
             raise ToolExecutionError("web_fetch only supports http/https URLs.")
@@ -648,7 +666,7 @@ class AgentTooling:
         if literal_ip is not None:
             if not literal_ip.is_global:
                 raise ToolExecutionError(f"web_fetch blocked non-public target IP: {literal_ip}")
-            return
+            return None  # already an IP literal – no DNS rebinding risk
 
         resolved_ips = self._resolve_hostname_ips(host, parsed.port)
         if not resolved_ips:
@@ -657,11 +675,41 @@ class AgentTooling:
             if not resolved.is_global:
                 raise ToolExecutionError(f"web_fetch blocked non-public resolved IP: {resolved}")
 
+        if parsed.scheme == "http":
+            return str(next(iter(resolved_ips)))
+        # HTTPS: TLS certificate validation binds the connection to the
+        # legitimate server; DNS rebinding to an internal host would cause a
+        # certificate mismatch → connection refused.  No pinning needed.
+        return None
+
     def _parse_ip_literal(self, host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
         try:
             return ipaddress.ip_address(host)
         except ValueError:
             return None
+
+    @staticmethod
+    def _apply_dns_pin(url: str, pinned_ip: str | None) -> tuple[str, dict[str, str]]:
+        """Rewrite *url* to connect via *pinned_ip* (DNS-rebinding mitigation).
+
+        Returns ``(connect_url, extra_headers)`` where *connect_url* has the
+        hostname replaced with the validated IP (for HTTP) and *extra_headers*
+        contains a ``Host`` header preserving the original hostname.
+
+        When *pinned_ip* is ``None`` (IP literal or HTTPS), the URL is returned
+        unchanged and extra_headers is empty.
+        """
+        if pinned_ip is None:
+            return url, {}
+        parsed = urlparse(url)
+        original_host = parsed.hostname or ""
+        ip_in_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+        if parsed.port:
+            netloc = f"{ip_in_url}:{parsed.port}"
+        else:
+            netloc = ip_in_url
+        pinned_url = parsed._replace(netloc=netloc).geturl()
+        return pinned_url, {"Host": original_host}
 
     def _resolve_hostname_ips(
         self,
@@ -793,9 +841,6 @@ class AgentTooling:
         return self._extract_command_leader(command)
 
     def _enforce_command_allowlist(self, command: str) -> str:
-        if not self._command_allowlist_enabled:
-            return self._extract_command_leader(command)
-
         leader = self._extract_command_leader(command)
         if not leader:
             self._raise_command_policy_error(
@@ -823,6 +868,9 @@ class AgentTooling:
             )
 
         self._enforce_command_safety(command=command, leader=leader)
+
+        if not self._command_allowlist_enabled:
+            return leader
 
         if leader not in self._command_allowlist and leader not in self._command_allowlist_overrides:
             self._raise_command_policy_error(
@@ -925,6 +973,8 @@ class AgentTooling:
 
         if not candidate.exists() or not candidate.is_dir():
             raise ToolExecutionError(f"Command cwd does not exist: {candidate}")
+        if self.workspace_root not in candidate.parents and candidate != self.workspace_root:
+            raise ToolExecutionError("Command cwd escapes workspace root.")
         return candidate
 
     def check_toolchain(self) -> tuple[bool, dict]:

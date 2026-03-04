@@ -144,7 +144,7 @@ class RecoveryStrategyResolver:
         prompt_compaction_applied = False
         payload_truncation_applied = False
 
-        if reason == "context_overflow" and has_fallback:
+        if reason == "context_overflow":
             metadata = self._hooks._resolve_priority_recovery_metadata(ctx=ctx)
             priority_steps = metadata.priority_steps
             recovery_priority_overridden = metadata.recovery_priority_overridden
@@ -178,7 +178,8 @@ class RecoveryStrategyResolver:
                     break
                 if step == "overflow_fallback_retry":
                     if not (
-                        overflow_fallback_retry_enabled
+                        has_fallback
+                        and overflow_fallback_retry_enabled
                         and overflow_fallback_retry_attempts < overflow_fallback_retry_max_attempts
                     ):
                         continue
@@ -201,7 +202,7 @@ class RecoveryStrategyResolver:
             recovery_branch = "guarded_compaction_failure_recovery"
             recovery_strategy = "compaction_failure:fallback_retry"
 
-        elif reason == "truncation_required" and has_fallback:
+        elif reason == "truncation_required":
             metadata = self._hooks._resolve_priority_recovery_metadata(ctx=ctx)
             priority_steps = metadata.priority_steps
             recovery_priority_overridden = metadata.recovery_priority_overridden
@@ -235,7 +236,8 @@ class RecoveryStrategyResolver:
                     break
                 if step == "truncation_fallback_retry":
                     if not (
-                        truncation_recovery_enabled and truncation_recovery_attempts < truncation_recovery_max_attempts
+                        has_fallback
+                        and truncation_recovery_enabled and truncation_recovery_attempts < truncation_recovery_max_attempts
                     ):
                         continue
                     truncation_recovery_attempts += 1

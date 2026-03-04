@@ -21,6 +21,9 @@ def test_classify_tool_results_state_variants() -> None:
 def test_resolve_replan_reason_uses_regular_budget_first() -> None:
     agent = HeadAgent()
 
+    # When error_tool budget is exhausted (0/0), error_only state should NOT
+    # fall through to the generic replan path — that would cause infinite
+    # error retry loops (M-1 fix).
     reason = agent._resolve_replan_reason(
         tool_results_state="error_only",
         iteration=0,
@@ -31,7 +34,7 @@ def test_resolve_replan_reason_uses_regular_budget_first() -> None:
         max_error_tool_replan_attempts=0,
     )
 
-    assert reason == "tool_results_invalidated_plan"
+    assert reason is None
 
 
 def test_resolve_replan_reason_allows_single_empty_fallback_after_regular_budget() -> None:

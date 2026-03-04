@@ -97,7 +97,16 @@ class ModelHealthTracker:
             buf.append(sample)
 
     def snapshot(self, model_id: str) -> ModelHealthSnapshot | None:
-        """Compute a point-in-time snapshot.  Read-only, lock-free (deque is GIL-safe for reads)."""
+        """Compute a point-in-time snapshot.
+
+        This is intentionally not async-locked.
+        ``deque`` operations are thread-safe under CPython's GIL for single
+        append/pop, but ``list(buf)`` iterates without holding ``self._lock``.
+        This is acceptable for a *best-effort* health snapshot: a concurrent
+        ``record()`` call could append during iteration, leading to a mildly
+        inconsistent read — but never a crash, since ``deque`` is C-level
+        thread-safe for iteration in CPython.
+        """
         buf = self._buffers.get(model_id)
         if not buf:
             return None

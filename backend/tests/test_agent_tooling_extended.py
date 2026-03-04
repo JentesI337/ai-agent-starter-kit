@@ -84,7 +84,7 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def stream(self, _method: str, _url: str):
+        def stream(self, _method: str, _url: str, **kwargs):
             return _FakeResponse()
 
     def _public_getaddrinfo(host: str, port: int, *args, **kwargs):
@@ -142,7 +142,7 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def stream(self, _method: str, _url: str):
+        def stream(self, _method: str, _url: str, **kwargs):
             return _FakeResponse()
 
     def _public_getaddrinfo(host: str, port: int, *args, **kwargs):

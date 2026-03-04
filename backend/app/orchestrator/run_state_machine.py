@@ -75,7 +75,7 @@ def is_allowed_run_state_transition(previous: str | None, target: str) -> bool:
     if prev is None:
         return True
     if prev == nxt:
-        return True
+        return nxt not in TERMINAL_RUN_STATES
 
     if prev in TERMINAL_RUN_STATES:
         return False

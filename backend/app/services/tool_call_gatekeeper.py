@@ -147,8 +147,10 @@ class ToolCallGatekeeper:
         self.signature_history.append(signature)
         if len(self.signature_history) > 12:
             self.signature_history = self.signature_history[-12:]
-        if signature in self.signature_history[:-1]:
-            self.repeat_signature_hits += 1
+        self.repeat_signature_hits = sum(
+            1 for i, s in enumerate(self.signature_history[:-1])
+            if s == self.signature_history[-1]
+        )
 
         current_count = self.signature_counts.get(signature, 0) + 1
         self.signature_counts[signature] = current_count
@@ -400,7 +402,7 @@ class ToolCallGatekeeper:
             if signature_value == other_signature
         }
 
-        alternating_count = len(alternating_tail) + 1
+        alternating_count = len(alternating_tail) + 1  # +1 for the pending call that continues the pattern
         no_progress_evidence = bool(hashes_a and hashes_b and len(hashes_a) == 1 and len(hashes_b) == 1)
 
         return {

@@ -305,6 +305,12 @@ class StdioMcpConnection(_JsonRpcMcpConnection):
         if content_length <= 0:
             return None
 
+        max_content_length = 10 * 1024 * 1024
+        if content_length > max_content_length:
+            raise ValueError(
+                f"MCP content_length {content_length} exceeds maximum {max_content_length}"
+            )
+
         payload = await self._process.stdout.readexactly(content_length)
         parsed = json.loads(payload.decode("utf-8"))
         if not isinstance(parsed, dict):

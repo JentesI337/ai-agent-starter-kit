@@ -165,6 +165,7 @@ class FallbackStateMachine:
         self._current_candidate_model = self._models[0]
         self._current_result = ""
         self._current_exception: LlmClientError | None = None
+        self._transform_retry_pending = False  # tracks whether we already retried after a message transform
         self._attempt = FallbackAttemptState(
             attempts=0,
             max_attempts=max(1, int(max_attempts)),
@@ -579,25 +580,31 @@ class FallbackStateMachine:
                     )
 
                 if self._current_model_index >= len(self._models) - 1:
-                    await self._emit_recovery_summary(
-                        final_outcome="failure",
-                        final_model=self._current_candidate_model,
-                        final_reason=reason,
+                    # Allow retry with same model if a message-transforming strategy was applied
+                    message_transformed = (
+                        recovery_resolution.prompt_compaction_applied
+                        or recovery_resolution.payload_truncation_applied
                     )
-                    await self._send_event(
-                        build_lifecycle_event(
-                            request_id=self._request_id,
-                            session_id=self._session_id,
-                            stage="model_fallback_exhausted",
-                            details={
-                                "model": self._current_candidate_model,
-                                "reason": reason,
-                            },
-                            agent=self._hooks.agent.name,
+                    if not (retryable and message_transformed):
+                        await self._emit_recovery_summary(
+                            final_outcome="failure",
+                            final_model=self._current_candidate_model,
+                            final_reason=reason,
                         )
-                    )
-                    self._state = FallbackState.FINALIZE_FAILURE
-                    continue
+                        await self._send_event(
+                            build_lifecycle_event(
+                                request_id=self._request_id,
+                                session_id=self._session_id,
+                                stage="model_fallback_exhausted",
+                                details={
+                                    "model": self._current_candidate_model,
+                                    "reason": reason,
+                                },
+                                agent=self._hooks.agent.name,
+                            )
+                        )
+                        self._state = FallbackState.FINALIZE_FAILURE
+                        continue
 
                 if not retryable:
                     await self._emit_recovery_summary(
@@ -649,7 +656,19 @@ class FallbackStateMachine:
                     if delay_seconds > 0:
                         await asyncio.sleep(delay_seconds)
 
-                self._current_model_index += 1
+                # Only advance to next model if no message-transforming strategy was applied;
+                # transforming strategies should retry with the same model once before advancing.
+                message_was_transformed = (
+                    recovery_resolution.prompt_compaction_applied
+                    or recovery_resolution.payload_truncation_applied
+                )
+                if message_was_transformed and not self._transform_retry_pending:
+                    # First time transform applied — retry same model
+                    self._transform_retry_pending = True
+                else:
+                    # Either no transform, or we already retried after a transform — advance
+                    self._current_model_index += 1
+                    self._transform_retry_pending = False
                 self._state = FallbackState.SELECT_MODEL
                 continue
 

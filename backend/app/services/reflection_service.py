@@ -97,6 +97,17 @@ class ReflectionService:
         )
         return self._parse_verdict(raw_verdict, threshold=effective_threshold)
 
+    @staticmethod
+    def _sanitize_for_prompt(text: str, max_chars: int) -> str:
+        sanitized = (text or "")[:max_chars]
+        sanitized = sanitized.replace("```", "` ` `")
+        sanitized = re.sub(
+            r"(?i)(return\s+json|you\s+must|ignore\s+previous|disregard|override|system\s*:)",
+            r"[\1]",
+            sanitized,
+        )
+        return sanitized
+
     def _build_reflection_prompt(
         self,
         *,
@@ -105,14 +116,16 @@ class ReflectionService:
         tool_results: str,
         final_answer: str,
     ) -> str:
+        safe_tool_results = self._sanitize_for_prompt(tool_results, self.tool_results_max_chars)
+        safe_plan = self._sanitize_for_prompt(plan_text, self.plan_max_chars)
         return (
             "Evaluate this response. Return JSON with these fields:\n"
             '{"goal_alignment": 0.0-1.0, "completeness": 0.0-1.0, '
             '"factual_grounding": 0.0-1.0, "issues": ["..."], '
             '"suggested_fix": "..." or null}\n\n'
             f"User question: {user_message}\n"
-            f"Plan: {plan_text[:self.plan_max_chars]}\n"
-            f"Tool outputs: {tool_results[:self.tool_results_max_chars]}\n"
+            f"Plan: {safe_plan}\n"
+            f"Tool outputs: {safe_tool_results}\n"
             f"Final answer: {final_answer}"
         )
 

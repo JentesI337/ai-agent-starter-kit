@@ -244,7 +244,19 @@ class CodeSandbox:
         return None
 
     def _build_sandbox_env(self) -> dict[str, str]:
-        env = dict(os.environ)
+        safe_keys = {
+            "PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE",
+            "HOMEDRIVE", "HOMEPATH", "COMSPEC", "SHELL", "LANG", "LC_ALL",
+            "VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH", "PYTHONHOME",
+            "NODE_PATH", "GOPATH", "GOROOT", "JAVA_HOME",
+            "TERM", "COLORTERM", "PROGRAMFILES", "PROGRAMFILES(X86)",
+            "COMMONPROGRAMFILES", "APPDATA", "LOCALAPPDATA",
+            "WINDIR", "SYSTEMDRIVE", "USERNAME", "LOGNAME", "USER",
+        }
+        env: dict[str, str] = {}
+        for key, value in os.environ.items():
+            if key.upper() in {k.upper() for k in safe_keys}:
+                env[key] = value
         env["NO_PROXY"] = "*"
         env["no_proxy"] = "*"
         env["HTTP_PROXY"] = ""
@@ -315,6 +327,16 @@ class CodeSandbox:
                 "import requests",
                 "from requests",
                 "http.client",
+                "__import__('socket",
+                '__import__("socket',
+                "__import__(\"socket",
+                "importlib.import_module",
+                "import aiohttp",
+                "from aiohttp",
+                "import httpx",
+                "from httpx",
+                "import urllib3",
+                "from urllib3",
             )
         else:
             blocked_tokens = (
@@ -340,6 +362,11 @@ class CodeSandbox:
             r"\bos\.listdir\(\s*['\"](?:/|[a-z]:\\\\)",
             r"\bpathlib\.path\(\s*['\"](?:/|[a-z]:\\\\)",
             r"\.{2}[/\\\\]",
+            r"\bchr\(\s*\d+\s*\)\s*\+\s*chr\(",
+            r"\bbase64\.b64decode\b",
+            r"\bbytes\(\s*\[",
+            r"\bcodecs\.decode\b",
+            r"\bbytearray\(\s*\[",
         )
         for pattern in blocked_patterns:
             if re.search(pattern, lowered, flags=re.IGNORECASE):

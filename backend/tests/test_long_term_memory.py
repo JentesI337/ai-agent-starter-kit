@@ -40,7 +40,9 @@ def test_long_term_memory_add_failure_persists_row(tmp_path) -> None:
     assert row[3] == "tool timeout"
     assert row[4] == ""
     assert row[5] == ""
-    assert row[6] == "tests,timeout"
+    # M-22: tags are now stored as JSON arrays
+    import json
+    assert json.loads(row[6]) == ["tests", "timeout"]
 
 
 def test_long_term_memory_search_failures_and_semantic_retrieval(tmp_path) -> None:
