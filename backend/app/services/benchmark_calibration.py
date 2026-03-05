@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from app.config import settings
 from app.services.reflection_feedback_store import ReflectionFeedbackStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,7 @@ class BenchmarkCalibrationService:
         try:
             snapshots = list(tracker.all_snapshots())
         except Exception:
+            logger.debug("ModelHealthTracker.all_snapshots() failed", exc_info=True)
             snapshots = []
 
         if not snapshots:
@@ -155,11 +159,15 @@ class BenchmarkCalibrationService:
         if best_strategy is None:
             return []
 
-        current = 1.0
-        recommended = 1.0
-        if "fallback_retry" in best_strategy:
-            current = float(settings.model_score_runtime_bonus)
-            recommended = min(20.0, current + 1.0)
+        # CB-3: Empfehlung nur erzeugen, wenn ein qualifizierter Strategy-Hit vorliegt
+        # ("fallback_retry" war effektiv) UND ein tatsächliches Parameter-Delta besteht.
+        if "fallback_retry" not in best_strategy:
+            return []
+
+        current = float(settings.model_score_runtime_bonus)
+        recommended = min(20.0, current + 1.0)
+        if abs(current - recommended) < 1e-6:
+            return []
 
         return [
             CalibrationRecommendation(

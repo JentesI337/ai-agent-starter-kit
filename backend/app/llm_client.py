@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import AsyncGenerator
 import httpx
 import json
@@ -13,7 +14,17 @@ logger = logging.getLogger("app.llm_client")
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 0.8
+# N-3: Basis für exponentielles Backoff (0.8s, 1.6s, 3.2s …) + 20 % Jitter
+# verhindert thundering-herd bei gleichzeitigen Rate-Limit-Antworten.
+RETRY_BASE_DELAY_SECONDS = 0.8
+RETRY_MAX_DELAY_SECONDS = 30.0
+
+
+def _retry_delay(attempt: int) -> float:
+    """Exponentielles Backoff: base * 2^(attempt-1), gekappt auf max, +20%-Jitter."""
+    delay = min(RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_DELAY_SECONDS)
+    delay += random.uniform(0.0, delay * 0.2)
+    return delay
 
 
 class LlmClient:
@@ -114,7 +125,7 @@ class LlmClient:
                                 body_text[:300],
                             )
                             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                                await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                                await asyncio.sleep(_retry_delay(attempt))
                                 continue
                             raise LlmClientError(f"LLM stream request failed ({response.status_code}): {body_text[:600]}")
 
@@ -181,7 +192,7 @@ class LlmClient:
                                 body_text[:300],
                             )
                             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                                await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                                await asyncio.sleep(_retry_delay(attempt))
                                 continue
                             raise LlmClientError(
                                 f"LLM stream request failed ({response.status_code}): {body_text[:600]}"
@@ -253,7 +264,7 @@ class LlmClient:
                             response.text[:300],
                         )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                            await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                            await asyncio.sleep(_retry_delay(attempt))
                             continue
                         raise LlmClientError(
                             f"LLM request failed ({response.status_code}): {response.text[:600]}"
@@ -347,7 +358,7 @@ class LlmClient:
                             response.text[:300],
                         )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                            await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                            await asyncio.sleep(_retry_delay(attempt))
                             continue
                         raise LlmClientError(
                             f"LLM request failed ({response.status_code}): {response.text[:600]}"
@@ -430,7 +441,7 @@ class LlmClient:
                             response.text[:300],
                         )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                            await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+                            await asyncio.sleep(_retry_delay(attempt))
                             continue
                         raise LlmClientError(
                             f"LLM request failed ({response.status_code}): {response.text[:600]}"

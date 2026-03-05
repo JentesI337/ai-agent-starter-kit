@@ -239,8 +239,22 @@ class PolicyApprovalService:
             return
         prefix = f"{normalized_session_id}::"
         async with self._lock:
+            # In-memory session-tool keys entfernen
             keys_to_remove = {key for key in self._session_allow_all if key.startswith(prefix)}
             self._session_allow_all -= keys_to_remove
+            # Bug 3: Disk-backed session-scoped allow_always rules ebenfalls entfernen.
+            # Ohne diesen Schritt überleben session_tool / session_tool_resource Regeln
+            # Server-Restarts und bleiben aktiv, obwohl die Session längst beendet ist.
+            before = len(self._allow_always_rules)
+            self._allow_always_rules = [
+                rule for rule in self._allow_always_rules
+                if not (
+                    rule.get("scope") in {"session_tool", "session_tool_resource"}
+                    and rule.get("session_id") == normalized_session_id
+                )
+            ]
+            if len(self._allow_always_rules) != before:
+                self._persist_allow_always_rules()
 
     async def decide(self, approval_id: str, decision: str, scope: str | None = None) -> dict | None:
         normalized_decision = (decision or "").strip().lower()

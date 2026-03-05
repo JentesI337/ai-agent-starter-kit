@@ -36,6 +36,21 @@ def test_extract_actions_requires_strict_json_object() -> None:
     assert parse_error is not None
 
 
+def test_extract_actions_empty_list_is_valid_no_action_signal() -> None:
+    """CB-1: Das Modell darf explizit {"actions":[]} zurückgeben.
+    Dies ist ein valides "keine Aktion"-Signal und darf NICHT als Parse-Fehler
+    behandelt werden, der einen Repair-Call auslöst."""
+    for raw in (
+        '{"actions":[]}',
+        '{"actions":[], "reasoning": "nothing to do"}',
+        '  { "actions" : [] }  ',
+    ):
+        agent = HeadAgent()
+        actions, parse_error = agent._extract_actions(raw)
+        assert actions == [], f"Expected empty list for input: {raw!r}"
+        assert parse_error is None, f"Expected no parse error for valid empty-actions JSON: {raw!r}"
+
+
 def test_structured_alias_is_normalized_to_registry_tool() -> None:
     agent = HeadAgent()
 
