@@ -18,6 +18,15 @@ from app.interfaces.request_context import RequestContext
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
 
+# Multi-agency integration (lazy import to avoid circular)
+_coordination_bridge_type = None
+def _get_bridge_type():
+    global _coordination_bridge_type
+    if _coordination_bridge_type is None:
+        from app.multi_agency.coordination_bridge import CoordinationBridge
+        _coordination_bridge_type = CoordinationBridge
+    return _coordination_bridge_type
+
 
 TERMINAL_STATUSES = {"completed", "failed", "timed_out", "cancelled"}
 SubrunCompletionCallback = Callable[..., Awaitable[None]]
@@ -93,12 +102,17 @@ class SubrunLane:
         self._parent_by_child: dict[str, str] = {}
         self._children_by_session: dict[str, set[str]] = defaultdict(set)
         self._completion_callback: SubrunCompletionCallback | None = None
+        self._coordination_bridge: object | None = None  # CoordinationBridge instance
         self._lock = asyncio.Lock()
         self._registry_file = Path(self._state_store.persist_dir) / "subrun_registry.json"
         self._restore_registry()
 
     def set_completion_callback(self, callback: SubrunCompletionCallback | None) -> None:
         self._completion_callback = callback
+
+    def set_coordination_bridge(self, bridge: object | None) -> None:
+        """Attach a CoordinationBridge for confidence-based routing on completion."""
+        self._coordination_bridge = bridge
 
     async def spawn(
         self,
@@ -662,6 +676,30 @@ class SubrunLane:
                     )
                 except Exception:
                     pass
+
+            # Multi-agency: evaluate confidence via CoordinationBridge
+            bridge = self._coordination_bridge
+            if bridge is not None:
+                try:
+                    BridgeType = _get_bridge_type()
+                    if isinstance(bridge, BridgeType):
+                        confidence_decision = await bridge.on_subrun_completed(
+                            parent_session_id=spec.parent_session_id,
+                            run_id=spec.run_id,
+                            child_agent_id=spec.agent_id,
+                            terminal_reason=str(handover.get("terminal_reason") or "subrun-unknown"),
+                            child_output=(final_text or None),
+                            handover_contract=handover,
+                        )
+                        # Attach confidence decision to handover for upstream use
+                        handover["confidence_decision"] = {
+                            "action": confidence_decision.action,
+                            "confidence": confidence_decision.confidence,
+                            "reason": confidence_decision.reason,
+                            "selected_agent_id": confidence_decision.selected_agent_id,
+                        }
+                except Exception:
+                    pass  # Multi-agency evaluation must never crash a subrun
         except Exception:
             pass
         finally:

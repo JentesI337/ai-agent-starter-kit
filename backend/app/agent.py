@@ -2740,6 +2740,23 @@ class HeadAgent:
         if not run_id:
             raise ToolExecutionError("spawn_subrun handler returned an empty run_id.")
 
+        # Multi-agency: evaluate confidence decision if present in handover
+        confidence_decision = handover_contract.get("confidence_decision")
+        if isinstance(confidence_decision, dict):
+            action = str(confidence_decision.get("action", "")).strip()
+            conf = float(confidence_decision.get("confidence", 0.0))
+            reason = str(confidence_decision.get("reason", "")).strip()
+            handover_contract["confidence_evaluated"] = True
+            handover_contract["confidence_action"] = action
+            handover_contract["confidence_reason"] = reason
+            # Log the confidence evaluation for observability
+            if action == "redelegate":
+                handover_contract["redelegate_to"] = confidence_decision.get("selected_agent_id")
+            elif action == "review":
+                handover_contract["review_by"] = confidence_decision.get("selected_agent_id")
+        else:
+            handover_contract["confidence_evaluated"] = False
+
         handover_json = json.dumps(handover_contract, ensure_ascii=False)
         delegation_json = (
             f" delegation_scope={json.dumps(delegation_scope, ensure_ascii=False)}"

@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app, agent, agent_registry, runtime_manager, subrun_lane
 from app.runtime_manager import RuntimeState
-from backend.tests.async_test_guards import receive_json_with_timeout
-from backend.tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
+from tests.async_test_guards import receive_json_with_timeout
+from tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
 
 
 def _set_local_runtime() -> None:

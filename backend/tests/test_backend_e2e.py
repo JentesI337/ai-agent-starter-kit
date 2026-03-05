@@ -14,7 +14,7 @@ from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepE
 from app.runtime_manager import RuntimeState
 from app.services.reflection_service import ReflectionVerdict
 from app.skills.service import SkillsRuntimeConfig, SkillsService
-from backend.tests.async_test_guards import receive_json_with_timeout
+from tests.async_test_guards import receive_json_with_timeout
 
 
 def _set_local_runtime() -> None:
