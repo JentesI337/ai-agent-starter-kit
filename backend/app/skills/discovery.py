@@ -21,7 +21,7 @@ def discover_skills(skills_root: str, max_discovered: int) -> list[SkillDefiniti
         try:
             results.append(parse_skill_markdown(root_skill))
         except Exception:
-            return []
+            pass  # M-25: skip broken root skill, continue with child discovery
 
     for child in sorted(root.iterdir()):
         if len(results) >= max_discovered:

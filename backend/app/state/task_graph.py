@@ -27,11 +27,15 @@ class TaskGraph:
     def __init__(self) -> None:
         self._nodes: dict[str, TaskNode] = {}
 
-    def ensure_task(self, task_id: str, label: str) -> TaskNode:
+    def ensure_task(self, task_id: str, label: str, created_at: str | None = None) -> TaskNode:
         node = self._nodes.get(task_id)
         if node is None:
             node = TaskNode(task_id=task_id, label=label)
+            if created_at:
+                node.created_at = created_at
             self._nodes[task_id] = node
+        else:
+            node.label = label
         return node
 
     def set_status(self, task_id: str, status: TaskStatus) -> None:

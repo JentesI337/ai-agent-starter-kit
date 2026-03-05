@@ -121,9 +121,11 @@ class SessionLaneManager:
         async with self.acquire(session_id) as details:
             if on_acquired is not None:
                 await on_acquired(details)
+            result: str = ""
             run_error: Exception | None = None
             try:
-                return await run()
+                result = await run()
+                return result
             except Exception as exc:
                 run_error = exc
                 raise
@@ -138,4 +140,5 @@ class SessionLaneManager:
                             exc_info=True,
                         )
                         if run_error is None:
-                            raise
+                            # Don't let on_released error override the successful result
+                            pass

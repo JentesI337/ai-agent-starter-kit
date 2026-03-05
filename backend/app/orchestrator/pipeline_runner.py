@@ -227,17 +227,30 @@ class PipelineRunner:
             )
         )
 
-        final_text = await self._run_with_fallback(
-            user_message=user_message,
-            send_event=send_event,
-            session_id=session_id,
-            request_id=request_id,
-            runtime=runtime,
-            route=route,
-            tool_policy=tool_policy,
-            prompt_mode=prompt_mode,
-            should_steer_interrupt=should_steer_interrupt,
-        )
+        try:
+            final_text = await self._run_with_fallback(
+                user_message=user_message,
+                send_event=send_event,
+                session_id=session_id,
+                request_id=request_id,
+                runtime=runtime,
+                route=route,
+                tool_policy=tool_policy,
+                prompt_mode=prompt_mode,
+                should_steer_interrupt=should_steer_interrupt,
+            )
+        except Exception:
+            for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
+                try:
+                    self.state_store.set_task_status(
+                        run_id=request_id,
+                        task_id=str(step),
+                        label=str(step),
+                        status="failed",
+                    )
+                except Exception:
+                    pass
+            raise
 
         await send_event(
             build_lifecycle_event(

@@ -305,6 +305,33 @@ class FallbackStateMachine:
                     self._current_exception = exc
                     self._state = FallbackState.HANDLE_FAILURE
                     continue
+                except Exception as exc:
+                    # Catch-all for unexpected exceptions (TypeError, asyncio.CancelledError, etc.)
+                    _latency_ms_err = max(0, int((time.monotonic() - _attempt_start_mono) * 1000))
+                    if self._health_tracker is not None:
+                        try:
+                            await self._health_tracker.record(
+                                model_id=self._current_candidate_model,
+                                latency_ms=_latency_ms_err,
+                                success=False,
+                                request_id=self._request_id,
+                            )
+                        except Exception:
+                            pass
+                    if self._circuit_breaker is not None:
+                        try:
+                            _cb_tx = await self._circuit_breaker.record_failure(self._current_candidate_model)
+                            if _cb_tx is not None:
+                                await self._emit_cb_state_change(_cb_tx)
+                        except Exception:
+                            pass
+                    # Wrap as LlmClientError so HANDLE_FAILURE can process it
+                    wrapped = LlmClientError(str(exc))
+                    if not hasattr(wrapped, "reason"):
+                        wrapped.reason = "unexpected_error"
+                    self._current_exception = wrapped
+                    self._state = FallbackState.HANDLE_FAILURE
+                    continue
 
 
             if self._state == FallbackState.HANDLE_SUCCESS:
@@ -422,7 +449,7 @@ class FallbackStateMachine:
                     self._attempt.recovery_strategy_counts[strategy_name] = int(self._attempt.recovery_strategy_counts.get(strategy_name, 0) or 0) + 1
                     self._attempt.recovery_strategy_applied_total += 1
                     self._attempt.last_failed_strategy_by_reason[reason] = strategy_name
-                    if retryable and has_fallback:
+                    if retryable:
                         self._attempt.pending_recovery_outcome = (self._current_candidate_model, reason, strategy_name)
 
                 if recovery_resolution.signal_priority_applied:

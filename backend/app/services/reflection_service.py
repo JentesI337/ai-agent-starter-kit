@@ -149,7 +149,7 @@ class ReflectionService:
         except json.JSONDecodeError:
             pass
 
-        match = re.search(r"\{[\s\S]*\}", cleaned)
+        match = re.search(r"\{[\s\S]*?\}", cleaned)
         if not match:
             return None
         try:

@@ -197,6 +197,9 @@ class ToolSelectorAgent(AgentContract):
             known_allow = {item for item in normalized_allow if item in DEFAULT_ALLOWED_TOOLS}
             if known_allow:
                 allowed &= known_allow
+            elif normalized_allow:
+                # All specified allow entries are unknown → block everything
+                allowed = set()
 
         deny_values = tool_policy.get("deny")
         if isinstance(deny_values, list):

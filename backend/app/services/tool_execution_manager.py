@@ -247,9 +247,9 @@ class ToolExecutionManager:
         if normalized_mode == "full":
             cap = configured_cap
         elif normalized_mode == "subagent":
-            cap = min(configured_cap, 1200)
+            cap = min(configured_cap, 850)
         else:
-            cap = min(configured_cap, 3000)
+            cap = min(configured_cap, 5500)
 
         if len(source) <= cap:
             return source, False
@@ -531,7 +531,7 @@ class ToolExecutionManager:
             effective_allowed_tools=effective_allowed_tools,
             user_message=user_message,
             plan_text=plan_text,
-            memory_context=memory_context,
+            memory_context=effective_memory_context,
             model=model,
             intent=intent,
             confidence=confidence,
@@ -551,7 +551,7 @@ class ToolExecutionManager:
         await emit_lifecycle("tool_selection_completed", {"actions": len(actions)})
         if not actions:
             empty_reason = "ambiguous_input"
-            if intent is not None and isinstance(confidence, (int, float)) and confidence < 0.3:
+            if intent is not None and isinstance(confidence, str) and confidence == "low":
                 empty_reason = "low_confidence"
             await emit_tool_selection_empty(
                 empty_reason,
@@ -599,7 +599,8 @@ class ToolExecutionManager:
             return text[:max_chars]
         omitted = max(0, len(text) - (head_size + tail_size))
         separator = f"\n\n... [{omitted} chars truncated] ...\n\n"
-        return f"{text[:head_size]}{separator}{text[-tail_size:]}"
+        result = f"{text[:head_size]}{separator}{text[-tail_size:]}"
+        return result[:max_chars] if len(result) > max_chars else result
 
     @staticmethod
     def _redact_secret_like_values(value: str) -> str:
@@ -940,14 +941,19 @@ class ToolExecutionManager:
             allowed_tools=updated_allowed_tools,
         )
 
-        if not augmented_actions and intent == "execute_command" and isinstance(confidence, (int, float)) and confidence >= 0.8:
+        if not augmented_actions and intent == "execute_command" and isinstance(confidence, str) and confidence == "high":
             if extracted_command:
-                augmented_actions = [
-                    {
-                        "tool": "run_command",
-                        "args": {"command": extracted_command},
-                    }
-                ]
+                injected_action = {
+                    "tool": "run_command",
+                    "args": {"command": extracted_command},
+                }
+                # M-11: validate injected action through the same pipeline
+                validated_injected, _ = await validate_actions(
+                    [injected_action],
+                    updated_allowed_tools,
+                )
+                if validated_injected:
+                    augmented_actions = validated_injected
                 await emit_lifecycle(
                     "tool_selection_followup_completed",
                     {
@@ -1122,20 +1128,31 @@ class ToolExecutionManager:
                             smart_truncate_enabled=config.smart_truncate_enabled,
                             app_settings=app_settings,
                             memory_add=memory_add,
+                            emit_lifecycle=emit_lifecycle,
                         )
                         for action in read_only_actions
                     ],
                     return_exceptions=True,
                 )
-                for item in read_only_results:
+                for ro_idx, item in enumerate(read_only_results):
                     if isinstance(item, Exception):
                         results.append(f"[read_only_parallel] ERROR: {item}")
                         tool_error_count += 1
+                        tool_call_count += 1
                         continue
                     if item is None:
                         continue
                     results.append(item)
                     tool_call_count += 1
+                    # H-1: update loop_gatekeeper for parallel read-only results
+                    ro_tool_match = item.split("]", 1)[0].lstrip("[") if item.startswith("[") else ""
+                    if ro_tool_match:
+                        ro_sig = loop_gatekeeper.build_signature(tool=ro_tool_match, args={})
+                        post = loop_gatekeeper.after_tool_success(
+                            tool=ro_tool_match, signature=ro_sig, index=ro_idx, result=item,
+                        )
+                        for stage, details in post.lifecycle_events:
+                            await emit_lifecycle(stage, details)
                 await emit_lifecycle(
                     "tool_parallel_read_only_completed",
                     {"count": len(read_only_actions)},
@@ -1516,8 +1533,19 @@ class ToolExecutionManager:
 
                 tool_call_count += attempt_calls
                 if retried_successfully:
+                    # M-10: update loop_gatekeeper after successful retry
+                    post_decision = loop_gatekeeper.after_tool_success(
+                        tool=tool,
+                        signature=signature,
+                        index=idx,
+                        result=clipped,
+                    )
+                    for stage, details in post_decision.lifecycle_events:
+                        await emit_lifecycle(stage, details)
                     continue
 
+                # L-6: recalculate elapsed after potential retry
+                error_elapsed_ms = int((monotonic() - tool_started) * 1000)
                 tool_error_count += 1
                 results.append(f"[{tool}] ERROR: {exc}")
                 error_code = getattr(exc, "error_code", None)
@@ -1616,6 +1644,7 @@ class ToolExecutionManager:
         smart_truncate_enabled: bool,
         app_settings: Settings,
         memory_add: Callable[[str, str], None],
+        emit_lifecycle: Callable[..., Awaitable[None]] | None = None,
     ) -> str | None:
         prep = prepare_action_for_execution(
             action=action,
@@ -1629,10 +1658,19 @@ class ToolExecutionManager:
             return f"[{tool}] REJECTED: {prep.error}"
         evaluated_args = prep.normalized_args
         policy = build_execution_policy(tool)
-        if tool == "spawn_subrun":
-            result = await invoke_spawn_subrun_tool(args=evaluated_args, model=model)
-        else:
-            result = await run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
+        # M-13: emit tool_started lifecycle event
+        if emit_lifecycle is not None:
+            await emit_lifecycle("tool_started", {"tool": tool, "parallel_read_only": True})
+        try:
+            if tool == "spawn_subrun":
+                result = await invoke_spawn_subrun_tool(args=evaluated_args, model=model)
+            else:
+                result = await run_tool_with_policy(tool=tool, args=evaluated_args, policy=policy)
+        except Exception as exc:
+            # M-13: emit tool_failed lifecycle event
+            if emit_lifecycle is not None:
+                await emit_lifecycle("tool_failed", {"tool": tool, "parallel_read_only": True, "error": str(exc)[:300]})
+            raise
         temp_config = ToolExecutionConfig(
             call_cap=1,
             time_cap_seconds=1.0,
@@ -1655,4 +1693,7 @@ class ToolExecutionManager:
             app_settings=app_settings,
         )
         memory_add(tool, clipped)
+        # M-13: emit tool_completed lifecycle event
+        if emit_lifecycle is not None:
+            await emit_lifecycle("tool_completed", {"tool": tool, "parallel_read_only": True, "result_chars": len(clipped), "status": "ok"})
         return f"[{tool}]\n{clipped}"

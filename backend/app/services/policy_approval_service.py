@@ -65,23 +65,22 @@ class PolicyApprovalService:
                     reused["idempotent_reuse"] = True
                     return reused
 
-        approval_id = str(uuid.uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
-        record = {
-            "approval_id": approval_id,
-            "run_id": run_id,
-            "session_id": session_id,
-            "agent_name": agent_name,
-            "tool": tool,
-            "resource": resource,
-            "display_text": display_text,
-            "status": "pending",
-            "decision": None,
-            "options": ["allow_once", "allow_session", "cancel"],
-            "created_at": created_at,
-            "updated_at": created_at,
-        }
-        async with self._lock:
+            approval_id = str(uuid.uuid4())
+            created_at = datetime.now(timezone.utc).isoformat()
+            record = {
+                "approval_id": approval_id,
+                "run_id": run_id,
+                "session_id": session_id,
+                "agent_name": agent_name,
+                "tool": tool,
+                "resource": resource,
+                "display_text": display_text,
+                "status": "pending",
+                "decision": None,
+                "options": ["allow_once", "allow_session", "cancel"],
+                "created_at": created_at,
+                "updated_at": created_at,
+            }
             self._records[approval_id] = record
             self._events[approval_id] = asyncio.Event()
             self._evict_stale_records_locked()
@@ -93,15 +92,19 @@ class PolicyApprovalService:
         now = datetime.now(timezone.utc)
         stale_ids: list[str] = []
         for aid, rec in self._records.items():
-            if rec.get("status") == "pending":
-                continue
             created_str = rec.get("created_at") or ""
             try:
                 created_dt = datetime.fromisoformat(created_str)
             except (ValueError, TypeError):
                 stale_ids.append(aid)
                 continue
-            if (now - created_dt).total_seconds() > self._RECORD_TTL_SECONDS:
+            age_seconds = (now - created_dt).total_seconds()
+            if rec.get("status") == "pending":
+                # Evict stale pending records after 2x TTL
+                if age_seconds > self._RECORD_TTL_SECONDS * 2:
+                    stale_ids.append(aid)
+                continue
+            if age_seconds > self._RECORD_TTL_SECONDS:
                 stale_ids.append(aid)
         for aid in stale_ids:
             self._records.pop(aid, None)
@@ -197,9 +200,12 @@ class PolicyApprovalService:
 
     async def is_preapproved(self, *, tool: str, resource: str, session_id: str | None = None) -> bool:
         normalized_session_id = (session_id or "").strip()
+        normalized_tool = (tool or "").strip().lower()
         async with self._lock:
-            if normalized_session_id and normalized_session_id in self._session_allow_all:
-                return True
+            if normalized_session_id and normalized_tool:
+                session_tool_key = f"{normalized_session_id}::{normalized_tool}"
+                if session_tool_key in self._session_allow_all:
+                    return True
             return any(
                 self._rule_matches(
                     rule=rule,
@@ -214,8 +220,10 @@ class PolicyApprovalService:
         normalized_session_id = (session_id or "").strip()
         if not normalized_session_id:
             return
+        prefix = f"{normalized_session_id}::"
         async with self._lock:
-            self._session_allow_all.discard(normalized_session_id)
+            keys_to_remove = {key for key in self._session_allow_all if key.startswith(prefix)}
+            self._session_allow_all -= keys_to_remove
 
     async def decide(self, approval_id: str, decision: str, scope: str | None = None) -> dict | None:
         normalized_decision = (decision or "").strip().lower()
@@ -250,8 +258,10 @@ class PolicyApprovalService:
 
             if normalized_decision == "allow_session":
                 normalized_session_id = str(record.get("session_id") or "").strip()
-                if normalized_session_id:
-                    self._session_allow_all.add(normalized_session_id)
+                normalized_tool = str(record.get("tool") or "").strip().lower()
+                if normalized_session_id and normalized_tool:
+                    session_tool_key = f"{normalized_session_id}::{normalized_tool}"
+                    self._session_allow_all.add(session_tool_key)
 
             if normalized_decision == "allow_always":
                 normalized_rule = self._normalize_rule(

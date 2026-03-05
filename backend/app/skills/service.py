@@ -75,6 +75,11 @@ class SkillsService:
             return None
         if (monotonic() - entry.cached_at_monotonic) > ttl_seconds:
             return None
+        # M-24: also check mtime signature to catch file changes within TTL window
+        if self._config.snapshot_cache_use_mtime:
+            current_sig = self._build_mtime_signature()
+            if entry.signature != current_sig:
+                return None
         return entry.snapshot
 
     def _try_read_snapshot_cache(self, *, signature: str) -> SkillSnapshot | None:

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 
 
-_TOOL_BLOCK_PATTERN = re.compile(r"(?ms)^\[[^\]\n]+\]\n")
+_TOOL_BLOCK_PATTERN = re.compile(r"(?ms)^\[[^\]\n]+\]\n?")
 
 
 @dataclass(frozen=True)

@@ -545,6 +545,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 request_id = str(dequeued.meta.get("request_id") or dequeued.run_id or "")
                 queue_mode = str(dequeued.meta.get("queue_mode") or deps.settings.queue_mode_default)
                 prompt_mode = str(dequeued.meta.get("prompt_mode") or deps.settings.prompt_mode_default)
+                # H-11: resolve agent name before emitting pre-job lifecycle events
+                _queued_agent_id = str(dequeued.meta.get("requested_agent_id") or deps.primary_agent_id)
+                try:
+                    _, _queued_agent, _ = deps.resolve_agent(_queued_agent_id)
+                    _queued_agent_name = _queued_agent.name
+                except Exception:
+                    _queued_agent_name = None
                 if deferred_follow_up:
                     current_deferrals += 1
                     follow_up_deferrals[session_id] = current_deferrals
@@ -557,6 +564,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             "max_deferrals": max_follow_up_deferrals,
                             "queue_size": session_inbox.size(session_id),
                         },
+                        agent_name=_queued_agent_name,
                     )
                 elif queue_mode == "follow_up":
                     follow_up_deferrals[session_id] = 0
@@ -568,6 +576,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             "deferred_count": current_deferrals,
                             "queue_size": session_inbox.size(session_id),
                         },
+                        agent_name=_queued_agent_name,
                     )
                 else:
                     follow_up_deferrals[session_id] = 0
@@ -580,9 +589,17 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         "prompt_mode": prompt_mode,
                         "queue_size": session_inbox.size(session_id),
                     },
+                    agent_name=_queued_agent_name,
                 )
                 try:
                     await execute_user_message_job(dict(dequeued.meta))
+                except ClientDisconnectedError:
+                    # H-18: client disconnected — mark run failed & stop processing queue
+                    deps.state_mark_completed_safe(run_id=request_id)
+                    # Drain remaining queued items to prevent zombie waits
+                    while session_inbox.dequeue(session_id) is not None:
+                        pass
+                    return
                 except Exception as exc:
                     await handle_request_failure(request_id=request_id, session_id=session_id, exc=exc)
         finally:

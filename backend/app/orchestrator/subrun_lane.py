@@ -224,6 +224,9 @@ class SubrunLane:
             }
         )
 
+        async with self._lock:
+            # M-15: register placeholder BEFORE create_task to prevent zombie tasks
+            self._run_tasks[run_id] = None  # type: ignore[assignment]
         task = asyncio.create_task(self._run(spec=spec, send_event=send_event))
         async with self._lock:
             self._run_tasks[run_id] = task
@@ -238,7 +241,13 @@ class SubrunLane:
             self._persist_registry_safe()
             return self._run_status.get(run_id)
 
-        await asyncio.wait_for(task, timeout=timeout)
+        try:
+            done, _ = await asyncio.wait({task}, timeout=timeout)
+            if not done:
+                # Timeout elapsed but task continues running (NOT cancelled)
+                pass
+        except Exception:
+            pass
         self._prune_retained_statuses()
         self._persist_registry_safe()
         return self._run_status.get(run_id)
@@ -525,7 +534,7 @@ class SubrunLane:
         task.cancel()
         try:
             await task
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, Exception):
             pass
         return True
 
@@ -586,77 +595,80 @@ class SubrunLane:
         ended_at_ts = datetime.now(timezone.utc).isoformat()
         handover = self._build_handover_contract(status=status, result_text=final_text, notes=notes)
 
-        await self._set_status(
-            run_id=spec.run_id,
-            status=status,
-            details={
-                "started_at": started_at_ts,
-                "ended_at": ended_at_ts,
-                "duration_seconds": elapsed,
-                "notes": notes,
-                "result_chars": len(final_text),
-                "handover": handover,
-            },
-        )
-
-        await send_event(
-            {
-                "type": "subrun_status",
-                "run_id": spec.run_id,
-                "parent_request_id": spec.parent_request_id,
-                "parent_session_id": spec.parent_session_id,
-                "child_session_id": spec.child_session_id,
-                "status": status,
-                "duration_seconds": elapsed,
-                "agent_id": spec.agent_id,
-                "mode": spec.mode,
-                "started_at": started_at_ts,
-                "ended_at": ended_at_ts,
-            }
-        )
-
-        await self._emit_announce_with_retry(
-            spec=spec,
-            send_event=send_event,
-            payload={
-                "type": "subrun_announce",
-                "run_id": spec.run_id,
-                "parent_request_id": spec.parent_request_id,
-                "parent_session_id": spec.parent_session_id,
-                "child_session_id": spec.child_session_id,
-                "status": status,
-                "result": (final_text or "(not available)")[:2000],
-                "notes": notes,
-                "stats": {
+        try:
+            await self._set_status(
+                run_id=spec.run_id,
+                status=status,
+                details={
                     "started_at": started_at_ts,
                     "ended_at": ended_at_ts,
                     "duration_seconds": elapsed,
+                    "notes": notes,
                     "result_chars": len(final_text),
+                    "handover": handover,
                 },
-                "usage": None,
-                "agent_id": spec.agent_id,
-                "mode": spec.mode,
-                "handover": handover,
-            },
-        )
+            )
 
-        completion_callback = self._completion_callback
-        if completion_callback is not None:
-            try:
-                await completion_callback(
-                    parent_session_id=spec.parent_session_id,
-                    run_id=spec.run_id,
-                    child_agent_id=spec.agent_id,
-                    terminal_reason=str(handover.get("terminal_reason") or "subrun-unknown"),
-                    child_output=(final_text or None),
-                )
-            except Exception:
-                pass
+            await send_event(
+                {
+                    "type": "subrun_status",
+                    "run_id": spec.run_id,
+                    "parent_request_id": spec.parent_request_id,
+                    "parent_session_id": spec.parent_session_id,
+                    "child_session_id": spec.child_session_id,
+                    "status": status,
+                    "duration_seconds": elapsed,
+                    "agent_id": spec.agent_id,
+                    "mode": spec.mode,
+                    "started_at": started_at_ts,
+                    "ended_at": ended_at_ts,
+                }
+            )
 
-        async with self._lock:
-            self._run_tasks.pop(spec.run_id, None)
-        self._prune_retained_statuses()
-        self._persist_registry_safe()
+            await self._emit_announce_with_retry(
+                spec=spec,
+                send_event=send_event,
+                payload={
+                    "type": "subrun_announce",
+                    "run_id": spec.run_id,
+                    "parent_request_id": spec.parent_request_id,
+                    "parent_session_id": spec.parent_session_id,
+                    "child_session_id": spec.child_session_id,
+                    "status": status,
+                    "result": (final_text or "(not available)")[:2000],
+                    "notes": notes,
+                    "stats": {
+                        "started_at": started_at_ts,
+                        "ended_at": ended_at_ts,
+                        "duration_seconds": elapsed,
+                        "result_chars": len(final_text),
+                    },
+                    "usage": None,
+                    "agent_id": spec.agent_id,
+                    "mode": spec.mode,
+                    "handover": handover,
+                },
+            )
+
+            completion_callback = self._completion_callback
+            if completion_callback is not None:
+                try:
+                    await completion_callback(
+                        parent_session_id=spec.parent_session_id,
+                        run_id=spec.run_id,
+                        child_agent_id=spec.agent_id,
+                        terminal_reason=str(handover.get("terminal_reason") or "subrun-unknown"),
+                        child_output=(final_text or None),
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        finally:
+            async with self._lock:
+                self._run_tasks.pop(spec.run_id, None)
+            self._prune_retained_statuses()
+            self._persist_registry_safe()
 
     async def _run_subrun(self, *, spec: SubrunSpec, send_event: SendEvent) -> str:
         async def relay(payload: dict) -> None:

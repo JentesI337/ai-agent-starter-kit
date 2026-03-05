@@ -134,6 +134,8 @@ class MemoryStore:
                     last_conversation_role = item.role
                 elif item.role.startswith("tool:"):
                     last_conversation_role = None
+                elif item.role == "plan":
+                    last_conversation_role = None
                 valid_items.append(item)
 
             removed = original_len - len(valid_items)
@@ -166,7 +168,7 @@ class MemoryStore:
                     try:
                         payload = json.loads(line)
                         role = str(payload.get("role", "")).strip()
-                        content = str(payload.get("content", "")).strip()
+                        content = str(payload.get("content", ""))
                         if not role:
                             continue
                         if session_id not in self._store:
@@ -187,7 +189,7 @@ class MemoryStore:
         self._trim_file(file_path)
 
     def _normalize_session_id(self, session_id: str) -> str:
-        safe_session_id = "".join(ch for ch in session_id if ch.isalnum() or ch in ("-", "_"))
+        safe_session_id = "".join(ch for ch in session_id if ch.isalnum() or ch in ("-", "_", "."))
         return safe_session_id or "session"
 
     def _trim_file(self, file_path: Path) -> None:

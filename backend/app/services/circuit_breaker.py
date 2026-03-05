@@ -62,6 +62,8 @@ class CircuitBreakerRegistry:
         HALF_OPEN → OPEN     when any failure occurs during probing
     """
 
+    _MAX_TRACKED_MODELS: int = 64
+
     def __init__(self, config: CircuitBreakerConfig | None = None) -> None:
         self._config = config or CircuitBreakerConfig()
         self._lock = asyncio.Lock()
@@ -218,8 +220,34 @@ class CircuitBreakerRegistry:
 
     def _ensure_circuit(self, model_id: str) -> _ModelCircuit:
         if model_id not in self._circuits:
+            # H-17: evict stale CLOSED entries when dict grows too large
+            if len(self._circuits) >= self._MAX_TRACKED_MODELS:
+                self._evict_stale_circuits()
             self._circuits[model_id] = _ModelCircuit()
         return self._circuits[model_id]
+
+    def _evict_stale_circuits(self) -> None:
+        """Remove CLOSED circuits with no recent failures to bound dict size."""
+        now = time.monotonic()
+        evictable = [
+            mid for mid, c in self._circuits.items()
+            if c.state == CircuitState.CLOSED and not c.failure_timestamps
+        ]
+        for mid in evictable:
+            del self._circuits[mid]
+            if len(self._circuits) < self._MAX_TRACKED_MODELS:
+                break
+        # If still too large, evict oldest CLOSED entries with stale failures
+        if len(self._circuits) >= self._MAX_TRACKED_MODELS:
+            candidates = [
+                (mid, c) for mid, c in self._circuits.items()
+                if c.state == CircuitState.CLOSED
+            ]
+            candidates.sort(key=lambda x: x[1].failure_timestamps[0] if x[1].failure_timestamps else 0)
+            for mid, _ in candidates:
+                del self._circuits[mid]
+                if len(self._circuits) < self._MAX_TRACKED_MODELS:
+                    break
 
     def _recovery_timeout_elapsed(self, circuit: _ModelCircuit) -> bool:
         return (time.monotonic() - circuit.opened_at_mono) >= self._config.recovery_timeout_seconds

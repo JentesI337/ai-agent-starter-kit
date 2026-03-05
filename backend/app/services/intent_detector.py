@@ -108,9 +108,7 @@ class IntentDetector:
 
         if re.search(r"[|><=&;]", text):
             return True
-        if text.startswith(("./", ".\\", "/", "~", "..\\", "../")):
-            return True
-        if "\\" in text or "/" in text:
+        if text.startswith(("./", ".\\", "~", "..\\", "../")):
             return True
 
         token = text.split()[0].strip().strip('"\'').lower()

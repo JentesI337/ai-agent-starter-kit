@@ -114,7 +114,8 @@ class StateStore:
                         if not existing_id:
                             continue
                         existing_label = str(item.get("label", existing_id))
-                        graph.ensure_task(existing_id, existing_label)
+                        existing_created_at = str(item.get("created_at", "")).strip() or None
+                        graph.ensure_task(existing_id, existing_label, created_at=existing_created_at)
                         existing_status = str(item.get("status", "pending"))
                         if existing_status in {"pending", "active", "completed", "failed"}:
                             graph.set_status(existing_id, existing_status)
@@ -341,7 +342,8 @@ class SqliteStateStore(StateStore):
             "error": None,
             "meta": transformed_meta,
         }
-        self._upsert_run(run_id=run_id, state=state)
+        with self._lock:
+            self._upsert_run(run_id=run_id, state=state)
         return state
 
     def get_run(self, run_id: str) -> dict | None:
@@ -386,7 +388,8 @@ class SqliteStateStore(StateStore):
                         if not existing_id:
                             continue
                         existing_label = str(item.get("label", existing_id))
-                        graph.ensure_task(existing_id, existing_label)
+                        existing_created_at = str(item.get("created_at", "")).strip() or None
+                        graph.ensure_task(existing_id, existing_label, created_at=existing_created_at)
                         existing_status = str(item.get("status", "pending"))
                         if existing_status in {"pending", "active", "completed", "failed"}:
                             graph.set_status(existing_id, existing_status)

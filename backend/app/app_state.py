@@ -93,9 +93,10 @@ class LazyRuntimeRegistry:
 
         with self._lock:
             if self._components is None:
-                self._components = self._builder()
+                components = self._builder()
                 if self._initializer is not None:
-                    self._initializer(self._components)
+                    self._initializer(components)
+                self._components = components
 
         return self._components
 

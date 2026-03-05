@@ -128,8 +128,8 @@ class VerificationService:
             )
 
         lowered = normalized_results.lower()
-        has_error = " error" in lowered or "[error]" in lowered
-        has_ok = "[ok]" in lowered or " ok" in lowered
+        has_error = "] error" in lowered or "[error]" in lowered
+        has_ok = "[ok]" in lowered or "] ok" in lowered
         if has_error and not has_ok:
             return VerificationResult(
                 status="warning",

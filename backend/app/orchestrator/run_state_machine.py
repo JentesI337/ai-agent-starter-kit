@@ -46,6 +46,8 @@ def resolve_run_state_from_stage(stage: str) -> str | None:
         return "queued"
     if normalized.startswith("planning") or normalized.startswith("replanning") or normalized == "run_started":
         return "planning"
+    if normalized in {"tool_result_persisted", "run_accounted", "memory_write_applied", "memory_write_skipped"}:
+        return "persisted"
     if (
         normalized.startswith("tool_")
         or normalized.startswith("skills_")
@@ -61,8 +63,6 @@ def resolve_run_state_from_stage(stage: str) -> str | None:
         return "synthesis"
     if normalized in {"reply_suppressed", "response_emitted", "response_stream_completed"}:
         return "finalizing"
-    if normalized in {"tool_result_persisted", "run_accounted", "memory_write_applied", "memory_write_skipped"}:
-        return "persisted"
 
     return None
 

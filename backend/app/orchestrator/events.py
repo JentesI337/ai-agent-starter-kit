@@ -72,9 +72,16 @@ def build_lifecycle_event(
     phase = "progress"
     if stage.endswith("_started") or stage.endswith("_received") or stage.endswith("_requested"):
         phase = "start"
-    elif stage.endswith("_completed") or stage.endswith("_done"):
+    elif stage.endswith("_completed") or stage.endswith("_done") or stage.endswith("_passed"):
         phase = "end"
-    elif stage.endswith("_failed") or stage.endswith("_rejected"):
+    elif (
+        stage.endswith("_failed")
+        or stage.endswith("_rejected")
+        or stage.endswith("_exhausted")
+        or stage.endswith("_exceeded")
+        or stage.endswith("_blocked")
+        or stage.endswith("_missing")
+    ):
         phase = "error"
 
     payload = {

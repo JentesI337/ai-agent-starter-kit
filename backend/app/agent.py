@@ -65,6 +65,9 @@ SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]
 PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
 STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
+_IMPLEMENTATION_RE = re.compile(
+    r"\b(?:implement|fix|refactor|test(?:s|ing)?|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -202,6 +205,8 @@ class HeadAgent:
         self._mcp_bridge: McpBridge | None = None
         self._mcp_initialized = False
         self._mcp_init_lock = asyncio.Lock()
+        self._configure_lock = asyncio.Lock()  # H-6: guards configure_runtime vs concurrent run()
+        self._reconfiguring = False
         if settings.mcp_enabled and settings.mcp_servers:
             self._mcp_bridge = McpBridge(settings.mcp_servers)
         # Registry muss vor ToolExecutionManager gebaut werden, damit
@@ -339,23 +344,28 @@ class HeadAgent:
         )
 
     def configure_runtime(self, base_url: str, model: str) -> None:
-        self.client = LlmClient(
-            base_url=base_url,
-            model=model,
-        )
-        self._reflection_service = (
-            ReflectionService(
-                client=self.client,
-                threshold=settings.reflection_threshold,
-                factual_grounding_hard_min=settings.reflection_factual_grounding_hard_min,
-                tool_results_max_chars=settings.reflection_tool_results_max_chars,
-                plan_max_chars=settings.reflection_plan_max_chars,
+        # H-6: use a flag to prevent reconfiguration during active runs
+        self._reconfiguring = True
+        try:
+            self.client = LlmClient(
+                base_url=base_url,
+                model=model,
             )
-            if settings.reflection_enabled
-            else None
-        )
-        self.planner_agent.configure_runtime(base_url=base_url, model=model)
-        self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
+            self._reflection_service = (
+                ReflectionService(
+                    client=self.client,
+                    threshold=settings.reflection_threshold,
+                    factual_grounding_hard_min=settings.reflection_factual_grounding_hard_min,
+                    tool_results_max_chars=settings.reflection_tool_results_max_chars,
+                    plan_max_chars=settings.reflection_plan_max_chars,
+                )
+                if settings.reflection_enabled
+                else None
+            )
+            self.planner_agent.configure_runtime(base_url=base_url, model=model)
+            self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
+        finally:
+            self._reconfiguring = False
 
     def set_spawn_subrun_handler(self, handler: SpawnSubrunHandler | None) -> None:
         self._spawn_subrun_handler = handler
@@ -721,6 +731,7 @@ class HeadAgent:
             max_error_tool_replan_attempts = max(0, int(settings.run_error_tool_replan_max_attempts))
             empty_tool_replan_attempts_used = 0
             error_tool_replan_attempts_used = 0
+            regular_replan_attempts_used = 0
             total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
             await self._emit_lifecycle(
                 send_event,
@@ -783,7 +794,7 @@ class HeadAgent:
 
                 replan_reason = self._resolve_replan_reason(
                     tool_results_state=tool_results_state,
-                    iteration=iteration,
+                    iteration=regular_replan_attempts_used,
                     max_replan_iterations=max_replan_iterations,
                     empty_tool_replan_attempts_used=empty_tool_replan_attempts_used,
                     max_empty_tool_replan_attempts=max_empty_tool_replan_attempts,
@@ -810,6 +821,8 @@ class HeadAgent:
                     empty_tool_replan_attempts_used += 1
                 if replan_reason == "tool_selection_error_replan":
                     error_tool_replan_attempts_used += 1
+                if replan_reason == "tool_results_invalidated_plan":
+                    regular_replan_attempts_used += 1
 
                 await self._emit_lifecycle(
                     send_event,
@@ -946,6 +959,7 @@ class HeadAgent:
                         **final_verification.details,
                     },
                 )
+                self.memory.add(session_id, "assistant", interrupted_message)
                 await send_event(
                     {
                         "type": "status",
@@ -1225,6 +1239,27 @@ class HeadAgent:
                     session_id=session_id,
                     details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
                 )
+            # L-5: run evidence gates BEFORE shaping to avoid wasted shaping work
+            if self._requires_implementation_evidence(
+                user_message=user_message,
+                synthesis_task_type=synthesis_task_type,
+            ) and not self._has_implementation_evidence(tool_results):
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="implementation_evidence_missing",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "task_type": synthesis_task_type,
+                        "required_evidence_tools": ["write_file", "apply_patch", "run_command", "code_execute"],
+                    },
+                )
+                final_text = (
+                    "I could not complete the implementation in this run because no code-edit or command-execution "
+                    "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
+                    "`run_command`, or `code_execute`) and retry."
+                )
+
             await self._emit_lifecycle(
                 send_event,
                 stage="reply_shaping_started",
@@ -1254,25 +1289,6 @@ class HeadAgent:
                     },
                 )
             final_text = shape_result.text
-            if self._requires_implementation_evidence(
-                user_message=user_message,
-                synthesis_task_type=synthesis_task_type,
-            ) and not self._has_implementation_evidence(tool_results):
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="implementation_evidence_missing",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "task_type": synthesis_task_type,
-                        "required_evidence_tools": ["write_file", "apply_patch", "run_command", "code_execute"],
-                    },
-                )
-                final_text = (
-                    "I could not complete the implementation in this run because no code-edit or command-execution "
-                    "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
-                    "`run_command`, or `code_execute`) and retry."
-                )
 
             # Orchestration Evidence Gate: verhindert, dass fabrizierte Erfolgsmeldungen
             # den Nutzer täuschen, wenn ein Subrun nie erfolgreich abgeschlossen wurde.
@@ -1318,6 +1334,7 @@ class HeadAgent:
                 final_text = "No output generated."
 
             if shape_result.suppressed:
+                suppressed_text = final_text or f"Reply suppressed: {shape_result.reason or 'suppressed'}"
                 await self._emit_lifecycle(
                     send_event,
                     stage="reply_suppressed",
@@ -1325,11 +1342,13 @@ class HeadAgent:
                     session_id=session_id,
                     details={"reason": shape_result.reason or "suppressed"},
                 )
+                self.memory.add(session_id, "assistant", suppressed_text)
                 await send_event(
                     {
-                        "type": "status",
+                        "type": "final",
                         "agent": self.name,
-                        "message": f"Reply suppressed by shaping: {shape_result.reason or 'suppressed'}",
+                        "message": suppressed_text,
+                        "suppressed": True,
                     }
                 )
             else:
@@ -1427,6 +1446,10 @@ class HeadAgent:
         model: str | None,
     ) -> None:
         if self._long_term_memory is None:
+            return
+
+        # Skip distillation on early-exit paths where final_text is empty/trivial
+        if not (final_text or "").strip() or len((final_text or "").strip()) < 10:
             return
 
         distillation_prompt = (
@@ -1742,6 +1765,23 @@ class HeadAgent:
 
         also_allow_set = self._normalize_tool_set((tool_policy or {}).get("also_allow")) or set()
         base_allowed |= (also_allow_set - deny_set)
+
+        # M-27: apply per-agent tool policy overrides
+        agents_policy = (tool_policy or {}).get("agents")
+        if isinstance(agents_policy, dict):
+            agent_id = (self.name or "").strip().lower()
+            agent_override = agents_policy.get(agent_id)
+            if isinstance(agent_override, dict):
+                agent_allow = self._normalize_tool_set(agent_override.get("allow"))
+                if agent_allow is not None and agent_allow:
+                    base_allowed &= agent_allow
+                agent_deny = self._normalize_tool_set(agent_override.get("deny"))
+                if agent_deny:
+                    base_allowed -= agent_deny
+                agent_also_allow = self._normalize_tool_set(agent_override.get("also_allow"))
+                if agent_also_allow:
+                    base_allowed |= (agent_also_allow - deny_set)
+
         return base_allowed
 
     async def _execute_tools(
@@ -1888,9 +1928,13 @@ class HeadAgent:
         return self.tool_registry.build_function_calling_tools(allowed_tools=allowed_tools)
 
     def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
-        _ = plan_text
         state = self._classify_tool_results_state(tool_results)
-        return state in {"blocked", "usable"}
+        if state not in {"blocked", "usable"}:
+            return False
+        # L-2: check plan_text for explicit completion/done markers
+        if plan_text and any(marker in plan_text.lower() for marker in ("[done]", "[completed]", "[aborted]")):
+            return False
+        return True
 
     def _classify_tool_results_state(self, tool_results: str | None) -> str:
         if self._is_steer_interrupted(tool_results):
@@ -1905,7 +1949,7 @@ class HeadAgent:
 
         lowered = normalized_results.lower()
         has_ok = "] ok" in lowered or "[ok]" in lowered
-        has_error = "[error]" in lowered or " error:" in lowered
+        has_error = "[error]" in lowered or "] error" in lowered
         if has_error and not has_ok:
             return "error_only"
         return "usable"
@@ -1929,7 +1973,7 @@ class HeadAgent:
                 return "tool_selection_error_replan"
             return None
 
-        regular_replan_budget_remaining = iteration < max_replan_iterations - 1
+        regular_replan_budget_remaining = iteration < max_replan_iterations
         if regular_replan_budget_remaining:
             return "tool_results_invalidated_plan"
 
@@ -1950,7 +1994,7 @@ class HeadAgent:
     ) -> str:
         return (
             "The previous plan failed. Analyze WHY and create a better plan.\n\n"
-            f"Original user request: {user_message}\n"
+            f"Original user request: {user_message[:2000]}\n"
             f"Previous plan: {previous_plan[:2000]}\n"
             f"Tool results (including errors): {(tool_results or '')[:3000]}\n\n"
             "Your analysis must include:\n"
@@ -2211,11 +2255,7 @@ class HeadAgent:
         if self._is_subrun_orchestration_task(message):
             return "orchestration"
 
-        _IMPLEMENTATION_RE = re.compile(
-            r"\b(?:implement|fix|refactor|test|code|bug|feature)\b", re.IGNORECASE
-        )
-        lowered = message.lower()
-        if self._is_file_creation_task(message) or _IMPLEMENTATION_RE.search(lowered):
+        if self._is_file_creation_task(message) or _IMPLEMENTATION_RE.search(message):
             return "implementation"
         if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
             return "research"
@@ -2251,7 +2291,7 @@ class HeadAgent:
     def _has_successful_tool_output(self, tool_results: str | None, tool_name: str) -> bool:
         if not tool_results:
             return False
-        pattern = re.compile(rf"\[{re.escape(tool_name)}\]\s*\n(?!\s*ERROR:)", re.IGNORECASE)
+        pattern = re.compile(rf"\[{re.escape(tool_name)}\]\s*\n?(?!\s*ERROR:)", re.IGNORECASE)
         return bool(pattern.search(tool_results))
 
     def _has_implementation_evidence(self, tool_results: str | None) -> bool:
@@ -2364,7 +2404,10 @@ class HeadAgent:
             if self._mcp_initialized:
                 return
             try:
-                await self._mcp_bridge.initialize()
+                # M-8: only call initialize() if bridge has no connections yet
+                # to avoid double-init leaking connections on partial failure retry
+                if not self._mcp_bridge._connections:
+                    await self._mcp_bridge.initialize()
                 self._mcp_initialized = True
                 self.tool_registry = self._build_tool_registry()
                 self._validate_tool_registry_dispatch()
@@ -2395,7 +2438,7 @@ class HeadAgent:
         lowered = normalized.lower()
         if lowered in TOOL_NAME_ALIASES:
             return TOOL_NAME_ALIASES[lowered]
-        return normalized
+        return lowered
 
     def _evaluate_action(self, tool: str, args: dict, allowed_tools: set[str]) -> tuple[dict, str | None]:
         if tool not in allowed_tools:
@@ -2475,6 +2518,8 @@ class HeadAgent:
                     raise
                 if not self._is_retryable_tool_error(exc, policy.retry_class):
                     raise
+            # L-1: exponential backoff between retries
+            await asyncio.sleep(min(2 ** (attempt - 1), 8))
 
         if isinstance(last_error, ToolExecutionError):
             raise last_error
@@ -2519,17 +2564,20 @@ class HeadAgent:
 
         self.tools.allow_command_leader_temporarily(leader)
         invoke_tool_fn = self._invoke_tool
+        remaining_timeout = policy.timeout_seconds
         if asyncio.iscoroutinefunction(invoke_tool_fn):
             return await asyncio.wait_for(
                 invoke_tool_fn(tool, args),
-                timeout=policy.timeout_seconds,
+                timeout=remaining_timeout,
             )
+        phase1_start = asyncio.get_event_loop().time()
         sync_result = await asyncio.wait_for(
             asyncio.to_thread(invoke_tool_fn, tool, args),
-            timeout=policy.timeout_seconds,
+            timeout=remaining_timeout,
         )
         if inspect.isawaitable(sync_result):
-            return await asyncio.wait_for(sync_result, timeout=policy.timeout_seconds)
+            elapsed = asyncio.get_event_loop().time() - phase1_start
+            return await asyncio.wait_for(sync_result, timeout=max(0.1, remaining_timeout - elapsed))
         return sync_result
 
     async def _invoke_spawn_subrun_tool(

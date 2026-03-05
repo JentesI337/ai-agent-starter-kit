@@ -41,12 +41,12 @@ class ContextReducer:
     ) -> ReducedContext:
         budget = max(128, budget_tokens)
         max_chars = budget * 5
-        tool_budget = max(32, int(budget * 0.45))
-        memory_budget = max(32, int(budget * 0.35))
-        snapshot_budget = max(16, int(budget * 0.15))
+        tool_budget = max(32, int(budget * 0.40))
+        memory_budget = max(32, int(budget * 0.30))
+        snapshot_budget = max(16, int(budget * 0.10))
 
         sections: list[str] = []
-        task_section = "Current task:\n" + self._truncate_to_tokens(user_message.strip(), max(24, int(budget * 0.25)))
+        task_section = "Current task:\n" + self._truncate_to_tokens(user_message.strip(), max(24, int(budget * 0.20)))
         sections.append(task_section)
 
         if self._contains_identifier_like_content(user_message, memory_lines, tool_outputs, snapshot_lines):
