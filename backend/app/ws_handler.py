@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.errors import (
+    ClientDisconnectedError,
     GuardrailViolation,
     LlmClientError,
     PolicyApprovalCancelledError,
@@ -170,8 +171,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     active_agent_name_cv: ContextVar[str] = ContextVar('active_agent_name', default=deps.agent.name)
     active_agent_name_cv.set(deps.agent.name)
 
-    class ClientDisconnectedError(Exception):
-        pass
+    # ClientDisconnectedError is imported from app.errors — no longer a local class.
 
     _send_lock = asyncio.Lock()
 

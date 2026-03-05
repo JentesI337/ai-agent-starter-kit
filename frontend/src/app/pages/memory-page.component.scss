@@ -1,30 +1,48 @@
+/* ─── Memory Page ────────────────────────────────────────────────────────────
+   Shares the same dark design language as the chat page.
+   All colour tokens come from :root in styles.scss.
+   ─────────────────────────────────────────────────────────────────────────── */
+
 .memory {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   height: 100%;
+  overflow: auto;
+  color: var(--c-text);
 }
 
+/* ─── Header ─────────────────────────────────────────────────────────────── */
 .memory-header h1 {
-  margin: 0;
+  margin: 0 0 3px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  color: var(--c-text);
 }
 
 .subtitle {
-  margin: 4px 0 0;
-  color: #4b5563;
+  margin: 0;
+  color: var(--c-text-dim);
+  font-size: 0.8rem;
 }
 
+/* ─── Panel base ─────────────────────────────────────────────────────────── */
 .panel {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-xl);
+  padding: 16px;
+  background: var(--c-surface);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
+/* ─── Controls ───────────────────────────────────────────────────────────── */
 .controls {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
   align-items: end;
 }
 
@@ -32,7 +50,10 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--c-text-dim);
+  letter-spacing: 0.2px;
 }
 
 .checkbox {
@@ -41,83 +62,170 @@
   gap: 6px !important;
 }
 
-input {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 6px 8px;
+/* ─── Form elements ──────────────────────────────────────────────────────── */
+input[type="text"],
+input[type="number"],
+input:not([type="checkbox"]) {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.83rem;
+  background: rgba(6, 16, 36, 0.75);
+  color: var(--c-text);
+  transition: border-color var(--t), box-shadow var(--t);
+
+  &:focus {
+    outline: none;
+    border-color: rgba(59, 127, 255, 0.55);
+    box-shadow: 0 0 0 3px rgba(59, 127, 255, 0.14);
+  }
+
+  &::placeholder { color: var(--c-text-muted); }
 }
 
+/* ─── Button ─────────────────────────────────────────────────────────────── */
 button {
-  border: 1px solid #111827;
-  background: #111827;
-  color: #fff;
-  border-radius: 8px;
-  padding: 6px 10px;
+  padding: 7px 16px;
+  border: 1px solid rgba(255, 217, 102, 0.50);
+  border-radius: var(--r-md);
   cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0d1a00;
+  background: linear-gradient(160deg, #ffe566 0%, #ffc933 100%);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.35);
+  transition: filter var(--t), transform var(--t), box-shadow var(--t);
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(255,200,50,0.28);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    filter: brightness(0.96);
+  }
 }
 
 button:disabled {
-  opacity: 0.7;
+  opacity: 0.38;
   cursor: not-allowed;
+  transform: none !important;
+  filter: none !important;
 }
 
+/* ─── Section headings ───────────────────────────────────────────────────── */
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--c-gold);
+}
+
+/* ─── Summary grid ───────────────────────────────────────────────────────── */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
-  gap: 8px;
-  font-size: 13px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 16px;
+  font-size: 0.81rem;
+  color: var(--c-text-dim);
+
+  strong {
+    color: var(--c-text);
+    font-weight: 500;
+    margin-right: 4px;
+  }
 }
 
+/* ─── Session list ───────────────────────────────────────────────────────── */
 .session {
-  border-top: 1px solid #e5e7eb;
-  padding-top: 8px;
-  margin-top: 8px;
-}
+  border-top: 1px solid var(--c-border);
+  padding-top: 12px;
+  margin-top: 12px;
 
-.session:first-of-type {
-  border-top: none;
-  margin-top: 0;
-  padding-top: 0;
+  &:first-of-type {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+  }
 }
 
 .session-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  font-size: 13px;
-  margin-bottom: 6px;
+  gap: 10px;
+  font-size: 0.79rem;
+  margin-bottom: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--c-text-dim);
+
+  strong {
+    color: var(--c-gold);
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
 }
 
+/* ─── Tables ─────────────────────────────────────────────────────────────── */
 .table-header,
 .table-row {
   display: grid;
   grid-template-columns: 160px 140px 120px minmax(220px, 1fr);
   gap: 8px;
-  font-size: 12px;
-  padding: 4px 0;
+  font-size: 0.78rem;
+  padding: 6px 4px;
 }
 
 .table-header {
-  color: #6b7280;
-  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  border-bottom: 1px solid var(--c-border);
+  padding-bottom: 6px;
 }
 
 .table-row {
-  border-bottom: 1px dashed #f3f4f6;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--c-text-dim);
+  transition: background var(--t);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+  }
+
+  &:last-child { border-bottom: none; }
 }
 
 .content {
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--c-text);
 }
 
+/* ─── State & hints ──────────────────────────────────────────────────────── */
 .error {
-  color: #b91c1c;
+  color: var(--c-red);
   margin: 0;
+  font-size: 0.84rem;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 80, 80, 0.30);
+  border-radius: var(--r-md);
+  background: var(--c-red-dim);
 }
 
 .hint {
   margin: 6px 0 0;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: 0.75rem;
+  color: var(--c-text-muted);
+  font-style: italic;
 }
+

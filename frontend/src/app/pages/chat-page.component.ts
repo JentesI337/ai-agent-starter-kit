@@ -869,6 +869,24 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (event.type === 'socket_close') {
+      // Verbindung unterbrochen während ein Agent-Request aktiv war.
+      // activeAssistantIndex zurücksetzen, damit der Frontend-Status nicht endlos
+      // auf "aktiv" bleibt und die Reconnect-Schleife keinen veralteten Run-State trägt.
+      if (this.activeAssistantIndex !== null) {
+        const partial = this.lines[this.activeAssistantIndex]?.text ?? '';
+        if (!partial.trim()) {
+          this.lines.splice(this.activeAssistantIndex, 1);
+        }
+        this.activeAssistantIndex = null;
+        this.lines.push({
+          role: 'system',
+          text: 'Connection lost while agent was responding. Response may be incomplete. Reconnecting…',
+        });
+      }
+      return;
+    }
+
     if (event.type === 'sequence_gap') {
       this.lines.push({
         role: 'system',

@@ -616,7 +616,7 @@ class HeadAgent:
                 ),
             )
 
-            if settings.clarification_protocol_enabled:
+            if settings.clarification_protocol_enabled and effective_prompt_mode != "subagent":
                 ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
                 threshold = max(0.0, min(1.0, float(settings.clarification_confidence_threshold)))
                 if ambiguity.is_ambiguous and ambiguity.confidence < threshold:

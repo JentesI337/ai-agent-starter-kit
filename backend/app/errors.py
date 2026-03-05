@@ -60,6 +60,15 @@ class LlmModelNotFoundError(LlmClientError):
     reason: str = "model_not_found"
 
 
+class ClientDisconnectedError(Exception):
+    """Raised by send_event when the WebSocket connection is no longer alive.
+
+    Must NOT be caught by retry/fallback logic — the client has gone away and
+    no further events can be delivered.
+    """
+    pass
+
+
 class LlmTimeoutError(LlmClientError):
     reason: str = "timeout"
 

@@ -1,9 +1,59 @@
-html,
-body {
-	margin: 0;
-	height: 100%;
+/* ─── Design Tokens ────────────────────────────────────────────────────────── */
+:root {
+  /* Colour Palette */
+  --c-bg:           #060d1a;
+  --c-bg-deep:      #030810;
+  --c-surface:      rgba(10, 22, 46, 0.80);
+  --c-surface-2:    rgba(15, 32, 64, 0.72);
+  --c-border:       rgba(255, 255, 255, 0.10);
+  --c-border-hi:    rgba(255, 255, 255, 0.18);
+
+  --c-gold:         #ffd966;
+  --c-gold-dim:     rgba(255, 217, 102, 0.22);
+  --c-gold-border:  rgba(255, 217, 102, 0.35);
+
+  --c-blue:         #3b7fff;
+  --c-blue-dim:     rgba(59, 127, 255, 0.22);
+  --c-blue-border:  rgba(59, 127, 255, 0.40);
+
+  --c-text:         #e8f0ff;
+  --c-text-dim:     #8aa4ce;
+  --c-text-muted:   #4e6a96;
+
+  --c-red:          #ff7575;
+  --c-red-dim:      rgba(255, 80, 80, 0.15);
+  --c-green:        #4de88a;
+
+  /* Elevation */
+  --shadow-sm:  0 2px 8px  rgba(0, 0, 0, 0.35);
+  --shadow-md:  0 6px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg:  0 14px 48px rgba(0, 0, 0, 0.55);
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  /* Transitions */
+  --t: 160ms ease;
 }
 
-* {
-	box-sizing: border-box;
+/* ─── Reset & Base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--c-bg-deep);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar              { width: 5px; height: 5px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: rgba(255,255,255,0.14); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover  { background: rgba(255,255,255,0.26); }
