@@ -147,6 +147,12 @@ class LlmClient:
                             except Exception:
                                 continue
                         return
+        except GeneratorExit:
+            # The consumer (e.g. asyncio.wait_for timeout) closed the generator.
+            # Return cleanly so the surrounding async-with blocks can run their
+            # __aexit__ and close the HTTP connection without propagating
+            # GeneratorExit into httpcore's instrumentation path.
+            return
         except httpx.TimeoutException as exc:
             logger.warning("llm_stream_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM timeout: {exc}") from exc
@@ -211,6 +217,10 @@ class LlmClient:
                             if chunk.get("done"):
                                 break
                         return
+        except GeneratorExit:
+            # Same as above: clean up on consumer cancellation without
+            # leaking GeneratorExit into the httpcore connection machinery.
+            return
         except httpx.TimeoutException as exc:
             logger.warning("llm_native_stream_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM timeout: {exc}") from exc

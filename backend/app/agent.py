@@ -1971,6 +1971,11 @@ class HeadAgent:
         has_ok = "] ok" in lowered or "[ok]" in lowered
         has_error = "[error]" in lowered or "] error" in lowered
         if has_error and not has_ok:
+            # Timeout errors must be classified separately: replanning with the
+            # same tool call will just time out again, so we break the loop
+            # immediately instead of burning all error-replan attempts.
+            if "tool timeout" in lowered or "timed out" in lowered:
+                return "timeout_error"
             return "error_only"
         return "usable"
 
@@ -1988,6 +1993,11 @@ class HeadAgent:
         error_tool_replan_attempts_used: int,
         max_error_tool_replan_attempts: int,
     ) -> str | None:
+        # A timed-out tool call will time out again with the same arguments.
+        # Do not waste replan budget — break the loop immediately.
+        if tool_results_state == "timeout_error":
+            return None
+
         if tool_results_state == "error_only":
             if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
                 return "tool_selection_error_replan"

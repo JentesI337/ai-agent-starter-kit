@@ -441,6 +441,12 @@ class SynthesizerAgent(AgentContract):
         )
 
         resolved = not repaired_failures
+        # Accept the repaired text if it fully resolves the contract OR if it
+        # makes a measurable improvement (fewer failures than the original).
+        # Previously the code discarded the repaired text on any remaining
+        # failure, causing failure_count_before == failure_count_after == N even
+        # after the LLM produced a better (but still imperfect) response.
+        improved = len(repaired_failures) < len(failures)
         await self._emit_lifecycle_fn(
             send_event,
             "synthesis_contract_check_completed",
@@ -455,7 +461,7 @@ class SynthesizerAgent(AgentContract):
             },
         )
 
-        if resolved and repaired_text:
+        if repaired_text and (resolved or improved):
             return repaired_text
         return final_text
 
