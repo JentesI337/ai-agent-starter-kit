@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 import sys
 import socket
+import subprocess
 
 import pytest
 
@@ -21,6 +22,33 @@ def test_apply_patch_replaces_single_match(tmp_path: Path) -> None:
 
     assert "replacements=1" in result
     assert target.read_text(encoding="utf-8") == "hi world\nsecond line\n"
+
+
+def test_list_dir_and_write_file_paths(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    assert tooling.list_dir(".") == "(empty)"
+
+    write_result = tooling.write_file("nested/out.txt", "hello")
+    assert "nested" in write_result
+    assert "out.txt" in write_result
+
+    listing = tooling.list_dir("nested")
+    assert "out.txt" in listing
+
+
+def test_list_dir_missing_directory_raises(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    with pytest.raises(ToolExecutionError, match="Directory not found"):
+        tooling.list_dir("does-not-exist")
+
+
+def test_write_file_rejects_too_large_payload(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    with pytest.raises(ToolExecutionError, match="Content too large"):
+        tooling.write_file("large.txt", "x" * 300001)
 
 
 def test_file_and_grep_search_find_expected_entries(tmp_path: Path) -> None:
@@ -51,6 +79,32 @@ def test_background_process_start_read_and_kill(tmp_path: Path) -> None:
 
     killed = tooling.kill_background_process(job_id=job_id)
     assert job_id in killed
+
+
+def test_get_changed_files_success_and_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    calls: list[list[str]] = []
+
+    def _fake_run(cmd, capture_output, text, timeout):
+        calls.append(cmd)
+        if cmd[-2:] == ["status", "--short"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=" M app.py\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="app.py\n", stderr="")
+
+    monkeypatch.setattr(tools_module.subprocess, "run", _fake_run)
+    output = tooling.get_changed_files()
+
+    assert "status:" in output
+    assert "unstaged_files:" in output
+    assert len(calls) == 2
+
+    def _fake_run_fail(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="git failed")
+
+    monkeypatch.setattr(tools_module.subprocess, "run", _fake_run_fail)
+    with pytest.raises(ToolExecutionError, match="git failed"):
+        tooling.get_changed_files()
 
 
 def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path) -> None:
@@ -228,3 +282,63 @@ def test_analyze_image_uses_vision_service(monkeypatch: pytest.MonkeyPatch, tmp_
     result = asyncio.run(tooling.analyze_image("screen.png", prompt="Find text"))
 
     assert "login form" in result
+
+
+def test_code_execute_returns_serialized_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    class _FakeResult:
+        success = True
+        strategy = "process"
+        language = "python"
+        exit_code = 0
+        timed_out = False
+        truncated = False
+        duration_ms = 12
+        error_type = None
+        error_message = None
+        stdout = "ok"
+        stderr = ""
+
+    class _FakeSandbox:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def execute(self, code, language, timeout, max_output_chars):
+            assert code == "print('x')"
+            assert language == "python"
+            assert timeout == 5
+            assert max_output_chars == 900
+            return _FakeResult()
+
+    monkeypatch.setattr(tools_module, "CodeSandbox", _FakeSandbox)
+
+    payload = asyncio.run(
+        tooling.code_execute(
+            code="print('x')",
+            language="python",
+            timeout=5,
+            max_output_chars=900,
+            strategy="process",
+        )
+    )
+
+    assert '"success": true' in payload
+    assert '"stdout": "ok"' in payload
+
+
+def test_resolve_command_cwd_validations(tmp_path: Path) -> None:
+    tooling = AgentTooling(workspace_root=str(tmp_path))
+
+    assert tooling._resolve_command_cwd(None) == tmp_path.resolve()
+
+    subdir = tmp_path / "repo"
+    subdir.mkdir()
+    assert tooling._resolve_command_cwd("repo") == subdir.resolve()
+
+    outside = tmp_path.parent
+    with pytest.raises(ToolExecutionError, match="escapes workspace root"):
+        tooling._resolve_command_cwd(str(outside))
+
+    with pytest.raises(ToolExecutionError, match="does not exist"):
+        tooling._resolve_command_cwd("missing-dir")

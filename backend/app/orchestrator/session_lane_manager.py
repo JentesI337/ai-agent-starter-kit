@@ -140,5 +140,4 @@ class SessionLaneManager:
                             exc_info=True,
                         )
                         if run_error is None:
-                            # Don't let on_released error override the successful result
-                            pass
+                            raise

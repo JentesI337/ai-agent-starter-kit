@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
-from app.errors import GuardrailViolation, LlmClientError
+from app.errors import GuardrailViolation, LlmClientError, PolicyApprovalCancelledError
 from app.model_routing.router import ModelRouteDecision
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
 from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
@@ -285,6 +285,10 @@ class FallbackStateMachine:
                     self._state = FallbackState.HANDLE_SUCCESS
                     continue
                 except GuardrailViolation:
+                    if self._circuit_breaker is not None:
+                        await self._circuit_breaker.release_probe(self._current_candidate_model)
+                    raise
+                except PolicyApprovalCancelledError:
                     if self._circuit_breaker is not None:
                         await self._circuit_breaker.release_probe(self._current_candidate_model)
                     raise

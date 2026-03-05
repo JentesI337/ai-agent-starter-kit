@@ -45,6 +45,24 @@ def test_collect_policy_override_candidates_skips_allowed_and_invalid_actions() 
     assert candidates == []
 
 
+def test_collect_policy_override_candidates_handles_code_execute_and_custom_process_set() -> None:
+    actions = [
+        {"tool": "code_execute", "args": {"code": "print('x')\nprint('y')", "language": "python"}},
+        {"tool": "run_command", "args": {"command": "pytest -q"}},
+    ]
+
+    candidates = collect_policy_override_candidates(
+        actions=actions,
+        allowed_tools=set(),
+        normalize_tool_name=_identity,
+        process_tools={"code_execute"},
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].tool == "code_execute"
+    assert candidates[0].resource.startswith("python: print('x')")
+
+
 def test_prepare_action_for_execution_rejects_invalid_payload() -> None:
     result = prepare_action_for_execution(
         action={},
@@ -220,3 +238,27 @@ def test_summary_payload_contains_reason_counts() -> None:
     assert payload["loop_blocked"] == 1
     assert payload["loop_reason_counts"]["generic_repeat"] == 1
     assert payload["loop_detector_ping_pong_enabled"] is False
+
+
+def test_summary_payload_reason_counts_never_negative() -> None:
+    gatekeeper = ToolCallGatekeeper(
+        warn_threshold=2,
+        critical_threshold=3,
+        circuit_breaker_threshold=6,
+        warning_bucket_size=10,
+        generic_repeat_enabled=False,
+        ping_pong_enabled=True,
+        poll_no_progress_enabled=False,
+        poll_no_progress_threshold=3,
+    )
+    signature_a = gatekeeper.build_signature(tool="read_file", args={"path": "a.txt"})
+    signature_b = gatekeeper.build_signature(tool="read_file", args={"path": "b.txt"})
+    gatekeeper.after_tool_success(tool="read_file", signature=signature_a, index=1, result="A")
+    gatekeeper.after_tool_success(tool="read_file", signature=signature_b, index=2, result="B")
+    gatekeeper.after_tool_success(tool="read_file", signature=signature_a, index=3, result="A")
+    gatekeeper.before_tool_call(tool="read_file", signature=signature_b, index=4)
+
+    payload = gatekeeper.summary_payload()
+
+    assert payload["loop_blocked"] == 1
+    assert payload["loop_reason_counts"]["generic_repeat"] == 0

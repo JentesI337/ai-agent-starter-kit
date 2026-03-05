@@ -1532,16 +1532,18 @@ class HeadAgent:
         allowed_tools: set[str],
         should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
-        tool_selector_output = await self.tool_selector_agent.execute(
-            payload,
+        return await self._execute_tools(
+            user_message=payload.user_message,
+            plan_text=payload.plan_text,
+            memory_context=payload.reduced_context,
             session_id=session_id,
             request_id=request_id,
             send_event=send_event,
             model=model,
             allowed_tools=allowed_tools,
+            prompt_mode=payload.prompt_mode,
             should_steer_interrupt=should_steer_interrupt,
         )
-        return tool_selector_output.tool_results
 
     async def _execute_synthesize_step(
         self,
@@ -1903,7 +1905,7 @@ class HeadAgent:
             complete_chat_with_tools=self.client.complete_chat_with_tools,
             build_function_calling_tools=self._build_function_calling_tools,
             supports_function_calling=self.client.supports_function_calling,
-            tool_selection_function_calling_enabled=settings.tool_selection_function_calling_enabled,
+            tool_selection_function_calling_enabled=False,
             tool_selector_system_prompt=self.prompt_profile.tool_selector_prompt,
             extract_actions=self._extract_actions,
             repair_tool_selection_json=self._repair_tool_selection_json,
@@ -1973,15 +1975,15 @@ class HeadAgent:
                 return "tool_selection_error_replan"
             return None
 
-        regular_replan_budget_remaining = iteration < max_replan_iterations
-        if regular_replan_budget_remaining:
-            return "tool_results_invalidated_plan"
-
         if (
             tool_results_state == "empty"
             and empty_tool_replan_attempts_used < max_empty_tool_replan_attempts
         ):
             return "tool_selection_empty_replan"
+
+        regular_replan_budget_remaining = iteration < max_replan_iterations
+        if regular_replan_budget_remaining:
+            return "tool_results_invalidated_plan"
 
         return None
 
@@ -2320,6 +2322,14 @@ class HeadAgent:
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
         actions, parse_error = self._action_parser.parse(raw)
         if parse_error is None and not actions and str(raw or "").strip():
+            candidate = self._extract_json_candidate(raw)
+            if candidate:
+                try:
+                    parsed_candidate = json.loads(candidate)
+                    if isinstance(parsed_candidate, dict) and parsed_candidate.get("actions") == []:
+                        return actions, None
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
             parse_error = "invalid_tool_json"
         return actions, parse_error
 

@@ -77,6 +77,14 @@ class ToolExecutionResult:
 
 
 class ToolExecutionManager:
+    @staticmethod
+    def _is_high_confidence(confidence: str | int | float) -> bool:
+        if isinstance(confidence, str):
+            return confidence.strip().lower() == "high"
+        if isinstance(confidence, (int, float)):
+            return float(confidence) >= 0.8
+        return False
+
     READ_ONLY_TOOLS = {
         "list_dir",
         "read_file",
@@ -941,14 +949,14 @@ class ToolExecutionManager:
             allowed_tools=updated_allowed_tools,
         )
 
-        if not augmented_actions and intent == "execute_command" and isinstance(confidence, str) and confidence == "high":
+        if not augmented_actions and intent == "execute_command" and self._is_high_confidence(confidence):
             if extracted_command:
                 injected_action = {
                     "tool": "run_command",
                     "args": {"command": extracted_command},
                 }
                 # M-11: validate injected action through the same pipeline
-                validated_injected, _ = await validate_actions(
+                validated_injected, _ = validate_actions(
                     [injected_action],
                     updated_allowed_tools,
                 )

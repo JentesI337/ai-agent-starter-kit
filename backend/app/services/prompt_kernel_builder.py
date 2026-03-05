@@ -11,7 +11,7 @@ _KERNEL_VERSION = "prompt-kernel.v1.1"
 
 _MODE_SECTION_LIMITS: dict[str, int | None] = {
     "full": None,
-    "minimal": 6000,
+    "minimal": 2000,
     "subagent": 900,
 }
 

@@ -38,6 +38,12 @@ if [[ "$SKIP_INSTALL" != "1" ]]; then
 fi
 
 step "Running backend end-to-end tests"
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  export PYTHONPATH="$ROOT_DIR:$PYTHONPATH"
+else
+  export PYTHONPATH="$ROOT_DIR"
+fi
+
 OLLAMA_BIN=python ./.venv/bin/python -m pytest tests -q \
   --cov=app \
   --cov-report=term-missing \

@@ -51,6 +51,13 @@ if (-not $SkipInstall) {
 
 Write-Step "Running backend end-to-end tests"
 $env:OLLAMA_BIN = 'python'
+$existingPythonPath = $env:PYTHONPATH
+if ([string]::IsNullOrWhiteSpace($existingPythonPath)) {
+    $env:PYTHONPATH = $rootDir
+}
+else {
+    $env:PYTHONPATH = "$rootDir;$existingPythonPath"
+}
 & $venvPython -m pytest tests -q `
     --cov=app `
     --cov-report=term-missing `
