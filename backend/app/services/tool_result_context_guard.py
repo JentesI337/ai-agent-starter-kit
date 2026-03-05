@@ -25,6 +25,9 @@ def _split_tool_result_blocks(text: str) -> list[str]:
         return [source]
 
     blocks: list[str] = []
+    # Bug 7: preserve any preamble text that appears before the first [header] block
+    if matches[0].start() > 0:
+        blocks.append(source[: matches[0].start()])
     for index, match in enumerate(matches):
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(source)

@@ -220,11 +220,11 @@ class IntentDetector:
         if any(marker in text for marker in explicit_markers):
             return True
 
-        freshness_markers = ("latest", "current", "news")
-        web_context_markers = ("web", "online", "internet", "source", "sources")
-        return any(marker in text for marker in freshness_markers) and any(
-            marker in text for marker in web_context_markers
-        )
+        # Bug 11: use word-boundary matching to avoid false positives
+        # (e.g. "current" inside "concurrent", "source" inside "resource")
+        _freshness_re = re.compile(r"\b(?:latest|current|news)\b")
+        _web_context_re = re.compile(r"\b(?:web|online|internet|sources?)\b")
+        return bool(_freshness_re.search(text)) and bool(_web_context_re.search(text))
 
     def is_subrun_orchestration_task(self, user_message: str) -> bool:
         text = (user_message or "").lower()

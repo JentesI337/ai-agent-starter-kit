@@ -15,8 +15,7 @@ class ActionParser:
             if recovered_actions:
                 return recovered_actions, None
             return [], "LLM JSON could not be decoded."
-        if set(parsed.keys()) - {"actions"}:
-            return [], "LLM JSON root contains unsupported fields."
+        # Bug 10: tolerate extra fields (e.g. "reasoning") — only extract "actions"
         actions = parsed.get("actions", [])
         if not isinstance(actions, list):
             return [], "LLM JSON field 'actions' is not a list."

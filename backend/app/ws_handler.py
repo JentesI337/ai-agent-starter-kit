@@ -247,6 +247,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
     async def handle_request_failure(*, request_id: str, session_id: str, exc: Exception) -> None:
         if isinstance(exc, PolicyApprovalCancelledError):
+            # BUG-4: mark state BEFORE send_event to avoid leaving run "active" on disconnect
+            deps.state_mark_failed_safe(run_id=request_id, error="policy_approval_cancelled")
             await send_event(
                 {
                     "type": "status",
@@ -262,7 +264,6 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 session_id=session_id,
                 details={"reason": "policy_approval_cancelled", "error": str(exc)},
             )
-            deps.state_mark_failed_safe(run_id=request_id, error="policy_approval_cancelled")
             return
         if isinstance(exc, GuardrailViolation):
             deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
@@ -594,14 +595,20 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 try:
                     await execute_user_message_job(dict(dequeued.meta))
                 except ClientDisconnectedError:
-                    # H-18: client disconnected — mark run failed & stop processing queue
-                    deps.state_mark_completed_safe(run_id=request_id)
-                    # Drain remaining queued items to prevent zombie waits
+                    # BUG-5/BUG-3: client disconnected — mark run failed and drain remaining queue
+                    deps.state_mark_failed_safe(run_id=request_id, error="client_disconnected")
                     while session_inbox.dequeue(session_id) is not None:
                         pass
                     return
                 except Exception as exc:
-                    await handle_request_failure(request_id=request_id, session_id=session_id, exc=exc)
+                    try:
+                        await handle_request_failure(request_id=request_id, session_id=session_id, exc=exc)
+                    except ClientDisconnectedError:
+                        # BUG-3: handle_request_failure itself disconnected — ensure state is terminated
+                        deps.state_mark_failed_safe(run_id=request_id, error="client_disconnected_during_error_handling")
+                        while session_inbox.dequeue(session_id) is not None:
+                            pass
+                        return
         finally:
             worker = session_workers.get(session_id)
             if worker is current_task:
@@ -1228,9 +1235,24 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     session_id,
                     selected_model,
                 )
+                # BUG-13/BUG-14: track clarification_needed in non-queue direct-execution path
+                _direct_clarification_requested = False
+
+                async def _send_event_direct_wrapped(payload: EventPayload) -> None:
+                    nonlocal _direct_clarification_requested
+                    if payload.get("type") == "clarification_needed":
+                        _direct_clarification_requested = True
+                        pending_clarifications[session_id] = {
+                            "original_message": content,
+                            "question": str(payload.get("message") or "").strip(),
+                            "request_id": request_id,
+                            "agent_id": resolved_agent_id,
+                        }
+                    await send_event(payload)
+
                 await selected_orchestrator.run_user_message(
                     user_message=content,
-                    send_event=send_event,
+                    send_event=_send_event_direct_wrapped,
                     request_context=RequestContext(
                         session_id=session_id,
                         request_id=request_id,
@@ -1254,12 +1276,21 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     session_id,
                     selected_model,
                 )
-                await send_lifecycle(
-                    stage="request_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                )
-                deps.state_mark_completed_safe(run_id=request_id)
+                # BUG-14: do not mark completed if clarification is still pending
+                if _direct_clarification_requested:
+                    await send_lifecycle(
+                        stage="clarification_waiting_response",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"queue_size": session_inbox.size(session_id)},
+                    )
+                else:
+                    await send_lifecycle(
+                        stage="request_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                    )
+                    deps.state_mark_completed_safe(run_id=request_id)
             except (WebSocketDisconnect, ClientDisconnectedError):
                 deps.logger.info("ws_disconnected session_id=%s", session_id)
                 break

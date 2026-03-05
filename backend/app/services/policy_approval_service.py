@@ -116,6 +116,23 @@ class PolicyApprovalService:
             return "tool_resource"
         return candidate
 
+    def _validate_scope(self, scope: str | None) -> str:
+        """Like _normalize_scope but raises ValueError for non-empty unknown scopes.
+
+        Bug 14: prevents a misspelled or attacker-controlled scope string from
+        silently escalating to a global 'tool_resource' rule when the caller
+        explicitly provided a scope value.
+        """
+        if scope is None or scope.strip() == "":
+            return "tool_resource"
+        candidate = scope.strip().lower()
+        if candidate not in ALLOW_ALWAYS_SCOPES:
+            raise ValueError(
+                f"Invalid approval scope '{scope}'. "
+                f"Allowed values: {sorted(ALLOW_ALWAYS_SCOPES)}"
+            )
+        return candidate
+
     def _normalize_rule(
         self,
         *,
@@ -229,7 +246,8 @@ class PolicyApprovalService:
         normalized_decision = (decision or "").strip().lower()
         if normalized_decision not in APPROVAL_DECISIONS:
             raise ValueError(f"Unsupported approval decision: {decision}")
-        normalized_scope = self._normalize_scope(scope)
+        # Bug 14: reject invalid scope strings instead of silently promoting to global
+        normalized_scope = self._validate_scope(scope)
 
         async with self._lock:
             record = self._records.get(approval_id)

@@ -115,35 +115,21 @@ def looks_like_coding_request(message: str) -> bool:
     if not text:
         return False
 
-    keyword_markers = (
-        "code",
-        "python",
-        "javascript",
-        "typescript",
-        "java",
-        "c++",
-        "c#",
-        "golang",
-        "rust",
-        "sql",
-        "html",
-        "css",
-        "bug",
-        "debug",
-        "fix",
-        "refactor",
-        "implement",
-        "function",
-        "class",
-        "api",
-        "endpoint",
-        "test",
-        "pytest",
-        "unit test",
-        "write file",
-        "apply patch",
+    # Bug 12: word-boundary matching for short/ambiguous keywords to avoid false positives
+    # e.g. "test" in "contest", "class" in "classify", "fix" in "prefix", "code" in "decode"
+    _CODING_WB_RE = re.compile(
+        r"\b(?:code|bug|fix|class|api|test|function|endpoint|debug|refactor|implement)\b"
     )
-    if any(marker in text for marker in keyword_markers):
+    if _CODING_WB_RE.search(text):
+        return True
+
+    # These tokens are long/distinctive enough to be safe as plain substring matches
+    unambiguous_markers = (
+        "python", "javascript", "typescript", "java", "c++", "c#",
+        "golang", "rust", "sql", "html", "css",
+        "pytest", "unit test", "write file", "apply patch",
+    )
+    if any(marker in text for marker in unambiguous_markers):
         return True
 
     return bool(re.search(r"\b(build|create|generate|update)\b.*\b(script|module|component|service|backend|frontend)\b", text))
@@ -168,27 +154,12 @@ def infer_request_capabilities(*, message: str, preset: str | None = None) -> se
     if any(marker in text for marker in review_markers):
         capabilities.update({"review_analysis", "security_review", "quality_review"})
 
-    coding_markers = (
-        "code",
-        "python",
-        "javascript",
-        "typescript",
-        "java",
-        "golang",
-        "rust",
-        "implement",
-        "bug",
-        "debug",
-        "fix",
-        "refactor",
-        "function",
-        "class",
-        "api",
-        "endpoint",
-        "pytest",
-        "test",
+    # Bug 12: word-boundary matching for short/ambiguous coding keywords
+    _INFER_CODING_WB_RE = re.compile(
+        r"\b(?:code|bug|fix|class|api|test|function|endpoint|debug|refactor|implement)\b"
     )
-    if any(marker in text for marker in coding_markers):
+    unambiguous_coding = ("python", "javascript", "typescript", "java", "golang", "rust", "pytest")
+    if _INFER_CODING_WB_RE.search(text) or any(m in text for m in unambiguous_coding):
         capabilities.update({"code_reasoning", "code_modification", "tooling"})
 
     command_markers = (

@@ -67,11 +67,6 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
     async def collect_event(payload: dict):
         events.append(payload)
 
-    deps.agent.configure_runtime(
-        base_url=runtime_state.base_url,
-        model=runtime_state.model,
-    )
-
     directive_result = parse_directives_from_message(
         request.message or "",
         queue_mode_default=settings.queue_mode_default,
@@ -85,6 +80,12 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
         selected_model = await deps.runtime_manager.ensure_model_ready(collect_event, session_id, selected_model)
     else:
         selected_model = await deps.runtime_manager.resolve_api_request_model(selected_model)
+
+    # BUG-9: configure_runtime with resolved selected_model, not the default runtime model
+    deps.agent.configure_runtime(
+        base_url=runtime_state.base_url,
+        model=selected_model,
+    )
 
     normalized_tool_policy = tool_policy_to_dict(getattr(request, "tool_policy", None), include_also_allow=True)
 
