@@ -109,3 +109,88 @@ def tool_policy_to_dict(
             if normalized_agents:
                 payload["agents"] = normalized_agents
     return payload or None
+
+
+# ---------------------------------------------------------------------------
+# L1.3  Tool-Profile Sets – named allow-lists for common scenarios
+# ---------------------------------------------------------------------------
+# Each profile maps to a *frozen* set of tool names.  Agent code can
+# reference ``TOOL_PROFILES["read_only"]`` instead of hard-coding lists.
+
+TOOL_PROFILES: dict[str, frozenset[str] | None] = {
+    # Strictly non-mutating; safe for any context.
+    "read_only": frozenset({
+        "list_dir",
+        "read_file",
+        "file_search",
+        "grep_search",
+        "list_code_usages",
+        "get_changed_files",
+        "get_background_output",
+        "analyze_image",
+    }),
+    # Read-only + web access (no code execution, no file writes).
+    "research": frozenset({
+        "list_dir",
+        "read_file",
+        "file_search",
+        "grep_search",
+        "list_code_usages",
+        "get_changed_files",
+        "get_background_output",
+        "analyze_image",
+        "web_search",
+        "web_fetch",
+        "http_request",
+    }),
+    # Code-editing profile – enables write/execute but not web.
+    "coding": frozenset({
+        "list_dir",
+        "read_file",
+        "write_file",
+        "apply_patch",
+        "run_command",
+        "code_execute",
+        "file_search",
+        "grep_search",
+        "list_code_usages",
+        "get_changed_files",
+        "start_background_command",
+        "get_background_output",
+        "kill_background_process",
+        "analyze_image",
+    }),
+    # All available tools — resolves to None (no restriction) so that
+    # dynamically registered tools (MCP, plugins) are automatically
+    # included without manual sync.
+    "full": None,
+}
+
+
+def resolve_tool_profile(
+    profile_name: str | None,
+    *,
+    extra_allow: list[str] | None = None,
+    extra_deny: list[str] | None = None,
+) -> frozenset[str] | None:
+    """Return the effective tool set for *profile_name*.
+
+    If *profile_name* is ``None`` or unknown, returns ``None`` (= no
+    restriction).  A profile mapped to ``None`` (e.g. ``"full"``) also
+    returns ``None``.  *extra_allow* / *extra_deny* let callers
+    fine-tune the profile without duplicating the definition.
+    """
+    if profile_name is None:
+        return None
+    if profile_name not in TOOL_PROFILES:
+        return None
+    base = TOOL_PROFILES[profile_name]
+    if base is None:
+        # "full" or any unrestricted profile → no restriction
+        return None
+    result = set(base)
+    if extra_allow:
+        result.update(t for t in extra_allow if t)
+    if extra_deny:
+        result -= set(extra_deny)
+    return frozenset(result)

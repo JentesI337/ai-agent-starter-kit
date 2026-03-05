@@ -47,6 +47,8 @@ from app.services.prompt_ab_registry import PromptAbRegistry
 from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
 from app.services.failure_retriever import FailureRetriever
 from app.services.mcp_bridge import McpBridge
+from app.services.tool_retry_strategy import ToolRetryStrategy
+from app.services.platform_info import detect_platform
 from app.services.verification_service import VerificationService
 from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.tool_arg_validator import ToolArgValidator
@@ -215,6 +217,8 @@ class HeadAgent:
         # nicht mit "registry_missing_filter" abbricht.
         self.tool_registry = self._build_tool_registry()
         self._tool_execution_manager = ToolExecutionManager(registry=self.tool_registry)
+        self._retry_strategy = ToolRetryStrategy()
+        self._platform = detect_platform()
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
         self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
@@ -1640,6 +1644,7 @@ class HeadAgent:
             prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
             sections={
                 "system": system_prompt or "",
+                "platform": self._platform.summary(),
                 "context": rendered_text or "",
                 "task": user_message or "",
                 "tool_results": tool_text,
@@ -1923,7 +1928,7 @@ class HeadAgent:
             complete_chat_with_tools=self.client.complete_chat_with_tools,
             build_function_calling_tools=self._build_function_calling_tools,
             supports_function_calling=self.client.supports_function_calling,
-            tool_selection_function_calling_enabled=False,
+            tool_selection_function_calling_enabled=settings.tool_selection_function_calling_enabled,
             tool_selector_system_prompt=self.prompt_profile.tool_selector_prompt,
             extract_actions=self._extract_actions,
             repair_tool_selection_json=self._repair_tool_selection_json,
@@ -1945,7 +1950,11 @@ class HeadAgent:
         )
 
     def _build_function_calling_tools(self, allowed_tools: set[str]) -> list[dict]:
-        return self.tool_registry.build_function_calling_tools(allowed_tools=allowed_tools)
+        provider = getattr(self.client, "provider", "openai") or "openai"
+        return self.tool_registry.build_function_calling_tools(
+            allowed_tools=allowed_tools,
+            provider=provider,
+        )
 
     def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
         state = self._classify_tool_results_state(tool_results)
@@ -1970,13 +1979,25 @@ class HeadAgent:
         lowered = normalized_results.lower()
         has_ok = "] ok" in lowered or "[ok]" in lowered
         has_error = "[error]" in lowered or "] error" in lowered
+        # D-11: detect suspicious patterns (empty body, placeholder output)
+        suspicious_patterns = (
+            "no output", "n/a", "not available", "null", "undefined",
+            "placeholder", "{}", "[]",
+        )
+        has_suspicious = any(p in lowered for p in suspicious_patterns)
+
+        if has_error and has_ok:
+            # D-11   BREAKING: was "usable" before D-11.
+            # Mixed OK + ERROR now triggers partial_error to enable
+            # targeted replanning of only the failed tools.
+            return "partial_error"
         if has_error and not has_ok:
-            # Timeout errors must be classified separately: replanning with the
-            # same tool call will just time out again, so we break the loop
-            # immediately instead of burning all error-replan attempts.
             if "tool timeout" in lowered or "timed out" in lowered:
                 return "timeout_error"
             return "error_only"
+        if has_suspicious and not has_ok:
+            # D-11   BREAKING: was "usable" before D-11.
+            return "all_suspicious"
         return "usable"
 
     def _is_steer_interrupted(self, tool_results: str | None) -> bool:
@@ -2001,6 +2022,20 @@ class HeadAgent:
         if tool_results_state == "error_only":
             if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
                 return "tool_selection_error_replan"
+            return None
+
+        # D-11: partial_error — some tools worked, some failed. Re-plan only
+        # the failed portion while keeping successful results.
+        if tool_results_state == "partial_error":
+            if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
+                return "tool_selection_partial_error_replan"
+            return None
+
+        # D-11: all_suspicious — every result looks like empty/placeholder output.
+        # Treat similarly to empty results but with a specific reason tag.
+        if tool_results_state == "all_suspicious":
+            if empty_tool_replan_attempts_used < max_empty_tool_replan_attempts:
+                return "tool_selection_suspicious_replan"
             return None
 
         if (
@@ -2761,13 +2796,13 @@ class HeadAgent:
         }
 
     def _is_retryable_tool_error(self, error: ToolExecutionError, retry_class: str) -> bool:
-        if retry_class == "none":
-            return False
-        text = str(error).lower()
-        transient_markers = ("timeout", "tempor", "busy", "try again", "connection")
-        if retry_class == "timeout":
-            return "timeout" in text
-        return any(marker in text for marker in transient_markers)
+        decision = self._retry_strategy.decide(
+            error_text=str(error),
+            retry_class=retry_class,
+            attempt=0,
+            max_retries=1,
+        )
+        return decision.should_retry
 
     async def _invoke_tool(self, tool: str, args: dict) -> str:
         if tool == "spawn_subrun":

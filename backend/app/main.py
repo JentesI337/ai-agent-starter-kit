@@ -49,6 +49,7 @@ from app.runtime_debug_endpoints import (
     api_runtime_status,
     api_test_ping,
     api_runtime_update_features,
+    api_tool_telemetry_stats,
 )
 from app.runtime_manager import RuntimeManager
 from app.services import (
@@ -505,6 +506,18 @@ custom_agent_store = LazyObjectProxy(lambda: _get_runtime_components().custom_ag
 agent = LazyObjectProxy(lambda: _get_runtime_components().agent)
 orchestrator_api = LazyObjectProxy(lambda: _get_runtime_components().orchestrator_api)
 subrun_lane = LazyObjectProxy(lambda: _get_runtime_components().subrun_lane)
+
+
+def _get_tool_telemetry():
+    """Lazy accessor for the ToolTelemetry instance inside the agent's TEM."""
+    try:
+        a = _get_runtime_components().agent
+        tem = getattr(a, "_tool_execution_manager", None)
+        return getattr(tem, "_telemetry", None) if tem else None
+    except Exception:
+        return None
+
+
 def _normalize_agent_id(agent_id: str | None) -> str:
     return _normalize_agent_id_impl(
         agent_id,
@@ -792,6 +805,7 @@ app.include_router(
         resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
         ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
         calibration_recommendations_handler=lambda: api_calibration_recommendations(_runtime_debug_dependencies),
+        tool_telemetry_handler=lambda: api_tool_telemetry_stats(_get_tool_telemetry()),
     )
 )
 app.include_router(

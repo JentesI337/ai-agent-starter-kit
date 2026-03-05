@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.agent import CoderAgent, HeadAgent
 from app.config import settings
 from app.errors import ToolExecutionError
@@ -248,6 +250,8 @@ def test_execute_tools_sanitizes_spawn_subrun_handover_and_scope_metadata(monkey
 
 
 def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
+    """run_command is NOT in _TRANSIENT_RETRY_TOOLS (side-effects!),
+    so a transient error must NOT trigger automatic retry."""
     agent = HeadAgent()
     attempts = {"count": 0}
 
@@ -259,16 +263,16 @@ def test_run_command_retries_on_transient_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(agent, "_invoke_tool", fake_invoke)
 
-    result = asyncio.run(
-        agent._run_tool_with_policy(
-            tool="run_command",
-            args={"command": "echo hi"},
-            policy=agent._build_execution_policy("run_command"),
+    with pytest.raises(ToolExecutionError):
+        asyncio.run(
+            agent._run_tool_with_policy(
+                tool="run_command",
+                args={"command": "echo hi"},
+                policy=agent._build_execution_policy("run_command"),
+            )
         )
-    )
 
-    assert result == "ok"
-    assert attempts["count"] == 2
+    assert attempts["count"] == 1  # no retry for side-effectful tool
 
 
 def test_run_tool_with_policy_accepts_sync_invoke_returning_awaitable(monkeypatch) -> None:

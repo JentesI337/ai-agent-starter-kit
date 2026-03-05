@@ -23,6 +23,7 @@ def build_runtime_debug_router(
     resolved_prompts_handler: Callable[[], JsonDict | Awaitable[JsonDict]],
     ping_handler: Callable[[], JsonDict | Awaitable[JsonDict]],
     calibration_recommendations_handler: Callable[[], JsonDict | Awaitable[JsonDict]],
+    tool_telemetry_handler: Callable[[], JsonDict | Awaitable[JsonDict]] | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -64,5 +65,12 @@ def build_runtime_debug_router(
         result = calibration_recommendations_handler()
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
+
+    if tool_telemetry_handler is not None:
+        @router.get("/api/tools/stats")
+        async def get_tool_telemetry_stats():
+            result = tool_telemetry_handler()
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
 
     return router

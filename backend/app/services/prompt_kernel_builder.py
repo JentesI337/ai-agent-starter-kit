@@ -15,7 +15,7 @@ _MODE_SECTION_LIMITS: dict[str, int | None] = {
     "subagent": 900,
 }
 
-_SECTION_ORDER: tuple[str, ...] = ("system", "policy", "context", "skills", "tools", "task")
+_SECTION_ORDER: tuple[str, ...] = ("system", "platform", "policy", "context", "skills", "tools", "task")
 _SECTION_ALIASES: dict[str, str] = {
     "system_prompt": "system",
     "instructions": "system",
@@ -32,6 +32,8 @@ _SECTION_ALIASES: dict[str, str] = {
     "tool_results": "tools",
     "current_task": "task",
     "plan": "task",
+    "platform_info": "platform",
+    "environment": "platform",
 }
 
 

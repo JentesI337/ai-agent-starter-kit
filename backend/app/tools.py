@@ -761,6 +761,25 @@ class AgentTooling:
             cleaned = f"{cleaned[:max_chars]}...[truncated:{omitted}]"
         return cleaned
 
+    # ── L3.8  Probe-Before-Execute ────────────────────────────────────
+
+    @staticmethod
+    def probe_command(command_name: str) -> tuple[bool, str]:
+        """Check whether *command_name* is available on the system.
+
+        Returns ``(available, detail)`` where *detail* is the resolved
+        path or an error message.  Uses ``shutil.which`` for portability.
+        """
+        import shutil
+
+        clean = command_name.strip().split()[0] if command_name and command_name.strip() else ""
+        if not clean:
+            return False, "empty command name"
+        path = shutil.which(clean)
+        if path:
+            return True, path
+        return False, f"'{clean}' not found in PATH"
+
     def run_command(self, command: str, cwd: str | None = None) -> str:
         if not command.strip():
             raise ToolExecutionError("Command must not be empty.")

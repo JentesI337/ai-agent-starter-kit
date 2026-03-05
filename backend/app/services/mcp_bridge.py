@@ -49,8 +49,56 @@ class McpBridge:
         connection = self._connections.get(tool_def.server_name)
         if connection is None:
             raise RuntimeError(f"MCP server is not connected: {tool_def.server_name}")
-        result = await connection.call_tool(tool_def.name, arguments)
-        return self._format_result(result)
+
+        max_retries = 2
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                result = await asyncio.wait_for(
+                    connection.call_tool(tool_def.name, arguments),
+                    timeout=30.0,
+                )
+                return self._format_result(result)
+            except (ConnectionError, OSError, asyncio.TimeoutError, RuntimeError) as exc:
+                last_error = exc
+                if attempt >= max_retries:
+                    break
+                # Try to reconnect before next attempt
+                server_name = tool_def.server_name
+                config = self._servers.get(server_name)
+                if config is not None:
+                    try:
+                        await connection.close()
+                    except Exception:
+                        pass
+                    try:
+                        new_conn = await self._connect(config)
+                        self._connections[server_name] = new_conn
+                        connection = new_conn
+                    except Exception:
+                        pass  # reconnect failed, will retry with old connection or fail
+                await asyncio.sleep(min(2 ** attempt, 8))
+
+        raise RuntimeError(
+            f"MCP call_tool failed after {max_retries + 1} attempts on '{tool_def.server_name}': {last_error}"
+        )
+
+    async def health_check(self, server_name: str | None = None) -> dict[str, bool]:
+        """Check connection health for one or all MCP servers."""
+        targets = (
+            {server_name: self._connections[server_name]}
+            if server_name and server_name in self._connections
+            else dict(self._connections)
+        )
+        results: dict[str, bool] = {}
+        for name, conn in targets.items():
+            try:
+                # Quick list_tools as a ping — lightweight and always supported
+                await asyncio.wait_for(conn.list_tools(), timeout=5.0)
+                results[name] = True
+            except Exception:
+                results[name] = False
+        return results
 
     def get_tool_specs(self) -> list[ToolSpec]:
         specs: list[ToolSpec] = []

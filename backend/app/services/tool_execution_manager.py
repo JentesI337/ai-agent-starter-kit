@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 import json
@@ -14,6 +15,9 @@ from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
 from app.services.tool_call_gatekeeper import ToolCallGatekeeper
 from app.services.tool_call_gatekeeper import prepare_action_for_execution
+from app.services.tool_outcome_verifier import ToolOutcomeVerifier
+from app.services.tool_telemetry import ToolTelemetry
+from app.services.learning_loop import LearningLoop
 from app.skills.retrieval import (
     ReliableRetrievalConfig,
     ReliableRetrievalService,
@@ -21,6 +25,9 @@ from app.skills.retrieval import (
 )
 
 STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
+
+_HOOK_TIMEOUT_SECONDS = 0.5
+_hook_logger = logging.getLogger("tool_execution_manager.hooks")
 
 
 @dataclass(frozen=True)
@@ -118,8 +125,37 @@ class ToolExecutionManager:
         self._llm_client = llm_client
         self._send_event = send_event
         self._prompt_kernel_builder = PromptKernelBuilder()
+        self._outcome_verifier = ToolOutcomeVerifier()
+        self._telemetry = ToolTelemetry()
+        self._learning_loop = LearningLoop()
         self._retrieval_service: ReliableRetrievalService | None = None
         self._retrieval_cache_key: tuple[bool, int, float, float, float] | None = None
+
+    @staticmethod
+    async def _safe_invoke_hooks(
+        invoke_hooks: Callable[[str, dict], Awaitable[None]],
+        hook_name: str,
+        payload: dict,
+    ) -> None:
+        """Invoke hooks with timeout + exception isolation.
+
+        Hooks must never crash a run or cause latency regressions.
+        """
+        try:
+            await asyncio.wait_for(
+                invoke_hooks(hook_name, payload),
+                timeout=_HOOK_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            _hook_logger.warning(
+                "Hook '%s' timed out after %.1fs — skipped",
+                hook_name,
+                _HOOK_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            raise  # never swallow cancellation
+        except Exception:
+            _hook_logger.exception("Hook '%s' raised an exception — isolated", hook_name)
 
     def update_registry(self, registry: object) -> None:
         self._registry = registry
@@ -496,7 +532,8 @@ class ToolExecutionManager:
                 message=blocked_message,
             )
 
-        await invoke_hooks(
+        await self._safe_invoke_hooks(
+            invoke_hooks,
             "before_prompt_build",
             {
                 "prompt_type": "tool_selection",
@@ -1276,7 +1313,8 @@ class ToolExecutionManager:
                 },
             )
 
-            await invoke_hooks(
+            await self._safe_invoke_hooks(
+                invoke_hooks,
                 "before_tool_call",
                 {
                     "tool": tool,
@@ -1285,6 +1323,11 @@ class ToolExecutionManager:
                     "call_id": call_id,
                 },
             )
+
+            _tel_span = self._telemetry.start_span(
+                tool=tool, call_id=call_id, args=dict(evaluated_args),
+            )
+            _tel_span_closed = False
 
             try:
                 tool_started = monotonic()
@@ -1309,7 +1352,8 @@ class ToolExecutionManager:
                         **transform_meta,
                     },
                 )
-                await invoke_hooks(
+                await self._safe_invoke_hooks(
+                    invoke_hooks,
                     "tool_result_persist",
                     {
                         "tool": tool,
@@ -1347,6 +1391,17 @@ class ToolExecutionManager:
                         break
                     continue
 
+                # ── Outcome Verification ──────────────────────────────
+                outcome = self._outcome_verifier.verify(
+                    tool=tool, result=clipped, args=evaluated_args,
+                )
+                outcome_payload: dict[str, object] = {
+                    "outcome_status": outcome.status,
+                    "outcome_reason": outcome.reason,
+                }
+                if outcome.error_category:
+                    outcome_payload["outcome_error_category"] = outcome.error_category
+
                 await emit_lifecycle(
                     "tool_completed",
                     {
@@ -1357,9 +1412,11 @@ class ToolExecutionManager:
                         "result_chars": len(clipped),
                         "duration_ms": tool_elapsed_ms,
                         "elapsed_ms": tool_elapsed_ms,
+                        **outcome_payload,
                     },
                 )
-                await invoke_hooks(
+                await self._safe_invoke_hooks(
+                    invoke_hooks,
                     "after_tool_call",
                     {
                         "tool": tool,
@@ -1369,7 +1426,23 @@ class ToolExecutionManager:
                         "status": "ok",
                         "duration_ms": tool_elapsed_ms,
                         "result_chars": len(clipped),
+                        **outcome_payload,
                     },
+                )
+                self._telemetry.end_span(
+                    _tel_span,
+                    status="ok",
+                    outcome_status=outcome_payload.get("outcome_status"),
+                    result_chars=len(clipped),
+                )
+                _tel_span_closed = True
+                # D-7: feed learning loop after every successful tool call
+                self._learning_loop.on_tool_outcome(
+                    tool=tool,
+                    success=outcome.status != "failed",
+                    duration_ms=tool_elapsed_ms,
+                    capability=self._infer_capability_from_tool(tool),
+                    args=dict(evaluated_args),
                 )
                 if tool == "read_file":
                     path_candidate = str(evaluated_args.get("path") or evaluated_args.get("filePath") or "").strip()
@@ -1467,7 +1540,8 @@ class ToolExecutionManager:
                                         **transform_meta,
                                     },
                                 )
-                                await invoke_hooks(
+                                await self._safe_invoke_hooks(
+                                    invoke_hooks,
                                     "tool_result_persist",
                                     {
                                         "tool": tool,
@@ -1516,7 +1590,8 @@ class ToolExecutionManager:
                                         "to_url": fallback_url,
                                     },
                                 )
-                                await invoke_hooks(
+                                await self._safe_invoke_hooks(
+                                    invoke_hooks,
                                     "after_tool_call",
                                     {
                                         "tool": tool,
@@ -1529,6 +1604,13 @@ class ToolExecutionManager:
                                         "retried": True,
                                     },
                                 )
+                                self._telemetry.end_span(
+                                    _tel_span,
+                                    status="ok",
+                                    retried=True,
+                                    result_chars=len(clipped),
+                                )
+                                _tel_span_closed = True
                                 retried_successfully = True
                             except ToolExecutionError as retry_exc:
                                 merged_details: dict[str, object] = {}
@@ -1605,7 +1687,8 @@ class ToolExecutionManager:
                     "tool_failed",
                     failed_details,
                 )
-                await invoke_hooks(
+                await self._safe_invoke_hooks(
+                    invoke_hooks,
                     "after_tool_call",
                     {
                         "tool": tool,
@@ -1618,6 +1701,21 @@ class ToolExecutionManager:
                         **({"error_code": error_code} if isinstance(error_code, str) and error_code else {}),
                         **({"error_category": error_category} if error_category else {}),
                     },
+                )
+                self._telemetry.end_span(
+                    _tel_span,
+                    status="error",
+                    error_category=error_category,
+                )
+                _tel_span_closed = True
+                # D-7: feed learning loop after every failed tool call
+                self._learning_loop.on_tool_outcome(
+                    tool=tool,
+                    success=False,
+                    duration_ms=error_elapsed_ms,
+                    capability=self._infer_capability_from_tool(tool),
+                    pitfall=str(exc)[:200],
+                    args=dict(evaluated_args),
                 )
                 if should_steer_interrupt is not None and should_steer_interrupt():
                     await emit_lifecycle(
@@ -1637,6 +1735,13 @@ class ToolExecutionManager:
                         },
                     )
                     return STEER_INTERRUPTED_MARKER
+            finally:
+                # F-5: ensure telemetry span is always closed, even on
+                # CancelledError or unexpected BaseException.
+                if not _tel_span_closed and _tel_span.is_open:
+                    self._telemetry.end_span(
+                        _tel_span, status="cancelled",
+                    )
 
         total_elapsed_ms = int((monotonic() - started_at) * 1000)
         await emit_lifecycle(
@@ -1653,6 +1758,32 @@ class ToolExecutionManager:
         )
 
         return "\n\n".join(results)
+
+    # ------------------------------------------------------------------
+    # D-7 helper: derive a rough capability tag from the tool name
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _infer_capability_from_tool(tool: str) -> str:
+        """Map tool names to high-level capability tags for the KB."""
+        _map: dict[str, str] = {
+            "read_file": "file_read",
+            "write_file": "file_write",
+            "create_file": "file_write",
+            "list_dir": "file_list",
+            "list_directory": "file_list",
+            "run_command": "shell",
+            "run_terminal_cmd": "shell",
+            "execute_command": "shell",
+            "spawn_subrun": "orchestration",
+            "spawn_sub_agent": "orchestration",
+            "web_search": "search",
+            "web_fetch": "web_fetch",
+            "fetch_webpage": "web_fetch",
+        }
+        if tool in _map:
+            return _map[tool]
+        # Fallback: use the tool name itself as capability
+        return tool.replace("_", " ").strip()
 
     async def _execute_read_only_action(
         self,

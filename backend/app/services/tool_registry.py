@@ -98,18 +98,40 @@ class ToolRegistry:
     def tool_names(self) -> set[str]:
         return set(self._specs.keys())
 
+    # Tools that are safe to retry on transient errors (idempotent / read-only).
+    # Mutating tools like run_command are excluded — they must NOT be blindly retried.
+    _TRANSIENT_RETRY_TOOLS: frozenset[str] = frozenset({
+        "web_fetch", "web_search", "http_request",
+        "list_dir", "read_file", "file_search", "grep_search",
+        "list_code_usages", "get_changed_files", "get_background_output",
+        "analyze_image",
+    })
+
     def build_execution_policy(self, name: str, *, retry_class: str | None = None) -> ToolExecutionPolicy:
         spec = self._specs[name]
         resolved_retry_class = retry_class
         if resolved_retry_class is None:
-            resolved_retry_class = "transient" if name in {"run_command", "web_fetch", "web_search"} else "none"
+            resolved_retry_class = "transient" if name in self._TRANSIENT_RETRY_TOOLS else "none"
+        # Read-only tools and network tools get at least 2 retries if spec says 0
+        resolved_max_retries = spec.max_retries
+        if resolved_retry_class == "transient" and resolved_max_retries == 0:
+            resolved_max_retries = 2
+        # MCP tools always get transient retry
+        if name.startswith("mcp_") and resolved_retry_class == "none":
+            resolved_retry_class = "transient"
+            resolved_max_retries = max(resolved_max_retries, 2)
         return ToolExecutionPolicy(
             retry_class=resolved_retry_class,
             timeout_seconds=spec.timeout_seconds,
-            max_retries=spec.max_retries,
+            max_retries=resolved_max_retries,
         )
 
-    def build_function_calling_tools(self, *, allowed_tools: set[str] | None = None) -> list[dict[str, Any]]:
+    def build_function_calling_tools(
+        self,
+        *,
+        allowed_tools: set[str] | None = None,
+        provider: str = "openai",
+    ) -> list[dict[str, Any]]:
         selected_names = set(self._specs.keys()) if allowed_tools is None else set(allowed_tools)
         definitions: list[dict[str, Any]] = []
         for name in sorted(selected_names):
@@ -126,7 +148,71 @@ class ToolRegistry:
                     },
                 }
             )
+        if provider == "gemini":
+            return [self._normalize_schema_gemini(d) for d in definitions]
+        if provider in ("anthropic", "claude"):
+            return [self._normalize_schema_anthropic(d) for d in definitions]
         return definitions
+
+    # ── Provider-specific schema normalization ─────────────────────────
+    _GEMINI_STRIP_KEYS: frozenset[str] = frozenset({
+        "format", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+        "minLength", "maxLength", "minItems", "maxItems", "pattern",
+    })
+
+    @classmethod
+    def _normalize_schema_gemini(cls, tool_def: dict[str, Any]) -> dict[str, Any]:
+        """Strip JSON Schema fields that Gemini rejects."""
+        import copy
+        result = copy.deepcopy(tool_def)
+        params = result.get("function", {}).get("parameters")
+        if isinstance(params, dict):
+            cls._strip_keys_recursive(params, cls._GEMINI_STRIP_KEYS)
+        return result
+
+    @classmethod
+    def _strip_keys_recursive(cls, schema: dict[str, Any], keys_to_strip: frozenset[str]) -> None:
+        for key in list(schema.keys()):
+            if key in keys_to_strip:
+                del schema[key]
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for prop_schema in properties.values():
+                if isinstance(prop_schema, dict):
+                    cls._strip_keys_recursive(prop_schema, keys_to_strip)
+        items = schema.get("items")
+        if isinstance(items, dict):
+            cls._strip_keys_recursive(items, keys_to_strip)
+        for key in ("anyOf", "oneOf", "allOf"):
+            variants = schema.get(key)
+            if isinstance(variants, list):
+                for variant in variants:
+                    if isinstance(variant, dict):
+                        cls._strip_keys_recursive(variant, keys_to_strip)
+
+    @staticmethod
+    def _normalize_schema_anthropic(tool_def: dict[str, Any]) -> dict[str, Any]:
+        """Patch root-level anyOf/oneOf unions that Anthropic rejects."""
+        import copy
+        result = copy.deepcopy(tool_def)
+        params = result.get("function", {}).get("parameters")
+        if isinstance(params, dict):
+            # Anthropic doesn't accept root-level anyOf — take the first object variant
+            for union_key in ("anyOf", "oneOf"):
+                variants = params.get(union_key)
+                if isinstance(variants, list) and variants:
+                    # Find the first object-type variant
+                    for variant in variants:
+                        if isinstance(variant, dict) and variant.get("type") == "object":
+                            params.clear()
+                            params.update(variant)
+                            break
+                    else:
+                        # No object variant found — wrap as object
+                        params.clear()
+                        params.update({"type": "object", "properties": {}, "required": []})
+                    break
+        return result
 
     def capabilities_for_tool(self, name: str) -> tuple[str, ...]:
         spec = self._specs.get(name)

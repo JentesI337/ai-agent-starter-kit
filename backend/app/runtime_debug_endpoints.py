@@ -217,3 +217,18 @@ def api_calibration_recommendations(deps: RuntimeDebugDependencies) -> dict:
         ],
         "env_patch": service.export_env_patch(recommendations),
     }
+
+
+def api_tool_telemetry_stats(telemetry: Any) -> dict:
+    """L2.6  Return per-tool statistics and session summary.
+
+    *telemetry* is the ``ToolTelemetry`` instance from the
+    ``ToolExecutionManager``.
+    """
+    if telemetry is None:
+        return {"summary": {}, "tools": {}, "trace": []}
+    return {
+        "summary": telemetry.get_summary(),
+        "tools": telemetry.get_tool_stats(),
+        "trace": telemetry.get_session_trace(last_n=50),
+    }

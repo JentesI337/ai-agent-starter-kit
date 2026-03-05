@@ -60,12 +60,13 @@ def test_registry_can_register_spec_and_build_policy() -> None:
     assert policy.retry_class == "none"
 
 
-def test_http_request_default_retry_class_is_none() -> None:
+def test_http_request_default_retry_class_is_transient() -> None:
     registry = build_default_tool_registry(command_timeout_seconds=30)
 
     policy = registry.build_execution_policy("http_request")
 
-    assert policy.retry_class == "none"
+    assert policy.retry_class == "transient"
+    assert policy.max_retries >= 1
 
 
 def test_build_function_calling_tools_uses_typed_parameters() -> None:

@@ -6,6 +6,65 @@ import re
 
 _TOOL_BLOCK_PATTERN = re.compile(r"(?ms)^\[[^\]\n]+\]\n?")
 
+# ---------------------------------------------------------------------------
+# L1.5  PII-Redaction patterns
+# ---------------------------------------------------------------------------
+# Each tuple: (compiled regex, replacement label).
+# Order matters — more specific patterns first to avoid partial matches.
+
+_PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # API keys / bearer tokens  (generic hex/base64 ≥ 20 chars after marker)
+    (
+        re.compile(
+            r"(?i)(api[_-]?key|token|bearer|secret|password|passwd|authorization)"
+            r"[\s:=]+['\"]?([A-Za-z0-9_\-/.+]{20,})['\"]?",
+        ),
+        r"\1=<REDACTED>",
+    ),
+    # AWS-style keys  (AKIA…, ASIA…)
+    (
+        re.compile(r"\b(AKIA|ASIA)[A-Z0-9]{16}\b"),
+        "<REDACTED_AWS_KEY>",
+    ),
+    # E-Mail
+    (
+        re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
+        "<REDACTED_EMAIL>",
+    ),
+    # US phone numbers  (###-###-####, (###) ###-####, +1…)
+    # Requires at least one separator to avoid matching plain 10-digit
+    # numbers (file sizes, timestamps, memory addresses).
+    (
+        re.compile(
+            r"(?<!\d)(?:\+1[\s.-])?\(?\d{3}\)[\s.\-]\d{3}[\s.\-]\d{4}(?!\d)"
+            r"|(?<!\d)\d{3}[\s.\-]\d{3}[\s.\-]\d{4}(?!\d)",
+        ),
+        "<REDACTED_PHONE>",
+    ),
+    # SSN-like  (###-##-####)
+    (
+        re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+        "<REDACTED_SSN>",
+    ),
+    # IPv4 addresses (except 127.0.0.1 and 0.0.0.0)
+    (
+        re.compile(
+            r"\b(?!127\.0\.0\.1\b)(?!0\.0\.0\.0\b)"
+            r"(?:25[0-5]|2[0-4]\d|1?\d{1,2})(?:\.(?:25[0-5]|2[0-4]\d|1?\d{1,2})){3}\b",
+        ),
+        "<REDACTED_IP>",
+    ),
+]
+
+
+def redact_pii(text: str) -> tuple[str, int]:
+    """Remove PII from *text*.  Returns ``(cleaned, redaction_count)``."""
+    count = 0
+    for pattern, replacement in _PII_PATTERNS:
+        text, n = pattern.subn(replacement, text)
+        count += n
+    return text, count
+
 
 @dataclass(frozen=True)
 class ToolResultContextGuardResult:
@@ -63,6 +122,12 @@ def enforce_tool_result_context_budget(
             ),
         )
 
+    # L1.5  PII redaction — runs before any truncation so we never
+    # accidentally preserve PII that would have been kept inside the
+    # context budget.
+    pre_redaction_chars = len(source)
+    source, pii_redactions = redact_pii(source)
+
     normalized_context_tokens = max(1, int(context_window_tokens))
     normalized_chars_per_token = max(1.0, float(chars_per_token_estimate))
     normalized_headroom = max(0.1, min(1.0, float(context_input_headroom_ratio)))
@@ -98,12 +163,15 @@ def enforce_tool_result_context_budget(
         reason = "context_budget"
 
     modified = reduced != source
+    if not modified and pii_redactions > 0:
+        modified = True
+    final_reason = reason if reason != "none" else ("pii_redacted" if pii_redactions > 0 else "none")
     return (
         reduced,
         ToolResultContextGuardResult(
             modified=modified,
-            original_chars=len(source),
+            original_chars=pre_redaction_chars,
             reduced_chars=len(reduced),
-            reason=reason if modified else "none",
+            reason=final_reason if modified else "none",
         ),
     )
