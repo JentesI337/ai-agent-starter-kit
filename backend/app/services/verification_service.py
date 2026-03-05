@@ -117,6 +117,21 @@ class VerificationService:
             details={"coverage": rounded_coverage},
         )
 
+    # Bug-3.2: Zeilenverankerte Regex-Muster statt Substring-Suche.
+    # Erkennt:
+    #   - strukturierte Header:  "status: error"/"status: failed" am Zeilenanfang
+    #   - Tag-Präfix-Notation:   "[error]" oder "[toolname] error" am Zeilenanfang
+    # Ok-Signale analog — ausschließlich am Zeilenanfang, um Mid-Sentence-Treffer
+    # wie "error handling is ok" sicher auszuschließen.
+    _ERROR_PATTERN = re.compile(
+        r"^(?:status\s*:\s*(?:error|failed)|\[error\]|\[[^\]]+\]\s*error(?:\b|$))",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    _OK_PATTERN = re.compile(
+        r"^(?:status\s*:\s*ok|\[ok\]|\[[^\]]+\]\s*ok(?:\b|$))",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
     def verify_tool_result(self, *, plan_text: str, tool_results: str) -> VerificationResult:
         normalized_plan = (plan_text or "").strip()
         normalized_results = (tool_results or "").strip()
@@ -127,9 +142,8 @@ class VerificationService:
                 details={"plan_chars": len(normalized_plan), "tool_result_chars": 0},
             )
 
-        lowered = normalized_results.lower()
-        has_error = "] error" in lowered or "[error]" in lowered
-        has_ok = "[ok]" in lowered or "] ok" in lowered
+        has_error = bool(self._ERROR_PATTERN.search(normalized_results))
+        has_ok = bool(self._OK_PATTERN.search(normalized_results))
         if has_error and not has_ok:
             return VerificationResult(
                 status="warning",

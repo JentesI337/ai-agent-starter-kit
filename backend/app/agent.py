@@ -207,6 +207,7 @@ class HeadAgent:
         self._mcp_init_lock = asyncio.Lock()
         self._configure_lock = asyncio.Lock()  # H-6: guards configure_runtime vs concurrent run()
         self._reconfiguring = False
+        self._active_run_count = 0  # H-6: tracks concurrently executing run() calls
         if settings.mcp_enabled and settings.mcp_servers:
             self._mcp_bridge = McpBridge(settings.mcp_servers)
         # Registry muss vor ToolExecutionManager gebaut werden, damit
@@ -344,7 +345,12 @@ class HeadAgent:
         )
 
     def configure_runtime(self, base_url: str, model: str) -> None:
-        # H-6: use a flag to prevent reconfiguration during active runs
+        # H-6: guard — reject reconfiguration while run() calls are in flight
+        if self._active_run_count > 0:
+            raise RuntimeError(
+                f"configure_runtime() abgewiesen: {self._active_run_count} aktive(r) "
+                "run()-Aufruf/Aufrufe. Bitte warten und erneut versuchen."
+            )
         self._reconfiguring = True
         try:
             self.client = LlmClient(
@@ -374,19 +380,29 @@ class HeadAgent:
         self._policy_approval_handler = handler
 
     def _refresh_long_term_memory_store(self) -> None:
-        if not bool(settings.long_term_memory_enabled):
+        def _clear_all() -> None:
             self._long_term_memory = None
             self._long_term_memory_db_path = None
             self._reflection_feedback_store = None
             self._failure_retriever = None
+            # CB-2: planner_agent muss in ALLEN clear-Pfaden zurückgesetzt werden,
+            # nicht nur im Exception-Catch-Pfad.
+            if hasattr(self, "planner_agent"):
+                self.planner_agent._failure_retriever = None
+
+        if not bool(settings.long_term_memory_enabled):
+            # N-2: LTM bereits deaktiviert und Stores bereits gecleart → kein Overhead.
+            if self._long_term_memory is None and self._failure_retriever is None:
+                return
+            _clear_all()
             return
 
         configured_path = str(getattr(settings, "long_term_memory_db_path", "") or "").strip()
         if not configured_path:
-            self._long_term_memory = None
-            self._long_term_memory_db_path = None
-            self._reflection_feedback_store = None
-            self._failure_retriever = None
+            # N-2: kein Pfad konfiguriert und bereits gecleart → kein Overhead.
+            if self._long_term_memory is None and self._failure_retriever is None:
+                return
+            _clear_all()
             return
 
         if self._long_term_memory is not None and self._long_term_memory_db_path == configured_path:
@@ -403,12 +419,7 @@ class HeadAgent:
             logging.getLogger(__name__).warning(
                 "Failed to initialise long-term memory store", exc_info=True,
             )
-            self._long_term_memory = None
-            self._long_term_memory_db_path = None
-            self._reflection_feedback_store = None
-            self._failure_retriever = None
-            if hasattr(self, "planner_agent"):
-                self.planner_agent._failure_retriever = None
+            _clear_all()
 
     def _build_long_term_memory_context(self, user_message: str) -> str:
         if self._long_term_memory is None:
@@ -454,6 +465,12 @@ class HeadAgent:
         should_steer_interrupt: Callable[[], bool] | None = None,
     ) -> str:
         self._refresh_long_term_memory_store()
+        # H-6: guard — refuse to start if configure_runtime() is mid-flight
+        if self._reconfiguring:
+            raise RuntimeError(
+                "run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen."
+            )
+        self._active_run_count += 1
         status = "failed"
         error_text: str | None = None
         final_text = ""
@@ -1434,6 +1451,7 @@ class HeadAgent:
             self._active_request_id_context.reset(request_id_token)
             self._active_session_id_context.reset(session_id_token)
             self._active_send_event_context.reset(send_event_token)
+            self._active_run_count -= 1  # H-6: release run slot
 
     async def _distill_session_knowledge(
         self,
@@ -2321,16 +2339,15 @@ class HeadAgent:
 
     def _extract_actions(self, raw: str) -> tuple[list[dict], str | None]:
         actions, parse_error = self._action_parser.parse(raw)
-        if parse_error is None and not actions and str(raw or "").strip():
-            candidate = self._extract_json_candidate(raw)
-            if candidate:
-                try:
-                    parsed_candidate = json.loads(candidate)
-                    if isinstance(parsed_candidate, dict) and parsed_candidate.get("actions") == []:
-                        return actions, None
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
-            parse_error = "invalid_tool_json"
+        # CB-1: parse_error=None mit leerer Liste ist in zwei Szenarien möglich:
+        #   (a) LLM hat explizit {"actions":[]} zurückgegeben → valides "keine Aktion"-Signal
+        #   (b) ActionParser hat kein JSON gefunden und "{}" fabriziert → echter Parse-Fehler
+        # Unterscheidung: enthält die Rohausgabe ein "{", stammt das leere Ergebnis
+        # aus einem echten JSON-Objekt (Fall a). Kein "{" → Fall b → als Fehler werten.
+        if parse_error is None:
+            if not actions and "{" not in str(raw or ""):
+                return [], "invalid_tool_json"
+            return actions, None
         return actions, parse_error
 
     async def _repair_tool_selection_json(self, raw: str, model: str | None) -> str:
