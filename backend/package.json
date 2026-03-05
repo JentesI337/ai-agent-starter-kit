@@ -1,0 +1,20 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "```powershell\r cd backend\r py -3.12 -m venv .venv\r .\\.venv\\Scripts\\Activate.ps1\r pip install -r requirements.txt\r copy .env.example .env\r uvicorn app.main:app --reload --port 8000\r ```",
+  "main": "script.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "vue": "^3.5.29"
+  }
+}

@@ -520,7 +520,23 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                     "agent_id": {"type": "string", "minLength": 1},
                     "model": {"type": "string", "minLength": 1},
                     "timeout_seconds": {"type": "integer", "minimum": 1},
-                    "tool_policy": {"type": "object"},
+                    "tool_policy": {
+                        "type": "object",
+                        "description": "Restrict or expand tools available to the spawned subrun. Use 'allow' to whitelist, 'deny' to blacklist tool names.",
+                        "properties": {
+                            "allow": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Tool names the subrun is allowed to use.",
+                            },
+                            "deny": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Tool names the subrun must not use.",
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
                 },
                 "required": ["message"],
                 "additionalProperties": False,

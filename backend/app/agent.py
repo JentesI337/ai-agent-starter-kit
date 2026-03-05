@@ -2636,6 +2636,16 @@ class HeadAgent:
         if child_policy is not None and not isinstance(child_policy, dict):
             raise ToolExecutionError("spawn_subrun 'tool_policy' must be an object.")
 
+        # Fix 6: pass orchestration context so the subrun knows it is a delegated task
+        # and does not re-plan the entire parent goal.
+        current_task_type = getattr(self, "_current_task_type", None)
+        orchestration_context: dict[str, Any] | None = None
+        if current_task_type in ("orchestration_pending", "orchestration_active"):
+            orchestration_context = {
+                "parent_task_type": current_task_type,
+                "delegated_task": True,
+            }
+
         spawn_result = await self._spawn_subrun_handler(
             parent_request_id=request_id,
             parent_session_id=session_id,
@@ -2647,6 +2657,7 @@ class HeadAgent:
             agent_id=agent_id,
             mode=mode,
             source_agent_id=source_agent_id,
+            orchestration_context=orchestration_context,
         )
 
         run_id = ""
@@ -2657,6 +2668,7 @@ class HeadAgent:
             "terminal_reason": "subrun-accepted",
             "confidence": 0.0,
             "result": None,
+            "synthesis_valid": None,
         }
 
         if isinstance(spawn_result, dict):
@@ -2673,6 +2685,10 @@ class HeadAgent:
                     source_agent_id=self.name,
                     target_agent_id=normalized_agent_id,
                 )
+            # Fix 5: propagate synthesis quality from subrun result
+            synthesis_valid = spawn_result.get("synthesis_valid")
+            if synthesis_valid is not None:
+                handover_contract["synthesis_valid"] = bool(synthesis_valid)
         else:
             run_id = str(spawn_result).strip()
 

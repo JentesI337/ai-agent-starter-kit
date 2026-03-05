@@ -247,10 +247,10 @@ def test_validate_spawn_subrun_tool_policy_normalization_and_errors() -> None:
     assert args["mode"] == "run"
     assert args["tool_policy"]["allow"] == ["read_file", "run_command"]
 
-    assert (
-        validator.validate("spawn_subrun", {"message": "x", "tool_policy": "invalid"})
-        == "argument 'tool_policy' must be an object"
-    )
+    # tool_policy with an invalid type is coerced to None instead of hard-blocking.
+    invalid_policy_args: dict = {"message": "x", "tool_policy": "invalid"}
+    assert validator.validate("spawn_subrun", invalid_policy_args) is None
+    assert invalid_policy_args["tool_policy"] is None
     assert (
         validator.validate("spawn_subrun", {"message": "x", "tool_policy": {"allow": "read_file"}})
         == "argument 'tool_policy.allow' must be a list"

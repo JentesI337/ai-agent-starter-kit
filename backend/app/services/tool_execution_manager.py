@@ -611,6 +611,16 @@ class ToolExecutionManager:
         return result[:max_chars] if len(result) > max_chars else result
 
     @staticmethod
+    def _build_tool_correction_hint(tool: str, error: str) -> str | None:
+        """Return a human-readable correction hint for known tool argument errors."""
+        if tool == "spawn_subrun" and "tool_policy" in error:
+            return (
+                'tool_policy must be a JSON object with optional "allow" and "deny" lists, '
+                'e.g. {"allow": ["web_fetch", "read_file"], "deny": ["run_command"]}'
+            )
+        return None
+
+    @staticmethod
     def _redact_secret_like_values(value: str) -> str:
         text = str(value)
         text = re.sub(
@@ -754,7 +764,7 @@ class ToolExecutionManager:
             "- apply_patch: path, search, replace, optional replace_all\n"
             "- run_command/start_background_command: command, optional cwd\n"
             "- code_execute: code, optional language, optional timeout, optional max_output_chars, optional strategy\n"
-            "- spawn_subrun: message, optional mode(run|session), optional agent_id, optional model, optional timeout_seconds, optional tool_policy\n"
+            "- spawn_subrun: message, optional mode(run|session), optional agent_id, optional model, optional timeout_seconds, optional tool_policy={\"allow\":[\"tool_name\"],\"deny\":[\"tool_name\"]}\n"
             "- file_search: pattern, optional max_results\n"
             "- grep_search: query, optional include_pattern, optional is_regexp, optional max_results\n"
             "- list_code_usages: symbol, optional include_pattern, optional max_results\n"
@@ -1215,17 +1225,24 @@ class ToolExecutionManager:
 
             if prep.error:
                 results.append(f"[{tool}] REJECTED: {prep.error}")
-                await send_event(
-                    {
-                        "type": "error",
-                        "agent": agent_name,
-                        "message": f"Tool blocked ({tool}): {prep.error}",
-                    }
-                )
-                await emit_lifecycle(
-                    "tool_blocked",
-                    {"tool": tool, "index": idx, "call_id": call_id, "error": prep.error},
-                )
+                correction_hint = self._build_tool_correction_hint(tool, prep.error)
+                error_event: dict[str, object] = {
+                    "type": "error",
+                    "agent": agent_name,
+                    "message": f"Tool blocked ({tool}): {prep.error}",
+                }
+                if correction_hint is not None:
+                    error_event["correction_hint"] = correction_hint
+                await send_event(error_event)
+                blocked_details: dict[str, object] = {
+                    "tool": tool,
+                    "index": idx,
+                    "call_id": call_id,
+                    "error": prep.error,
+                }
+                if correction_hint is not None:
+                    blocked_details["correction_hint"] = correction_hint
+                await emit_lifecycle("tool_blocked", blocked_details)
                 continue
             evaluated_args = prep.normalized_args
 

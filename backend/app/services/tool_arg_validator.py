@@ -397,7 +397,11 @@ class ToolArgValidator:
         tool_policy = normalized_args.get("tool_policy")
         if tool_policy is not None:
             if not isinstance(tool_policy, dict):
-                return "argument 'tool_policy' must be an object"
+                # Coerce invalid type to None instead of hard-blocking the tool call.
+                # tool_policy is optional; a wrong type should not abort spawn_subrun.
+                normalized_args["tool_policy"] = None
+                tool_policy = None
+        if tool_policy is not None:
             normalized_policy: ToolPolicyDict = {}
             for policy_key in ("allow", "deny"):
                 policy_values = tool_policy.get(policy_key)

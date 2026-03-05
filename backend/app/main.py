@@ -128,11 +128,16 @@ def _sanitize_handover_contract(payload: dict[str, Any] | None) -> dict[str, Any
         result: str | None = None
     else:
         result = str(result_value)[:2000]
-    return {
+    sanitized: dict[str, Any] = {
         "terminal_reason": terminal_reason,
         "confidence": confidence,
         "result": result,
     }
+    # Fix 5: propagate synthesis quality so the parent agent can detect subrun failures
+    raw_synthesis_valid = candidate.get("synthesis_valid")
+    if raw_synthesis_valid is not None:
+        sanitized["synthesis_valid"] = bool(raw_synthesis_valid)
+    return sanitized
 def _startup_sequence() -> None:
     config_validation = validate_environment_config(settings)
     if not bool(config_validation.get("is_valid", True)):
@@ -291,6 +296,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         agent_id: str,
         mode: str,
         source_agent_id: str | None = None,
+        orchestration_context: dict | None = None,  # Fix 6: inherited delegation context
     ) -> dict:
         _sync_custom_agents(components)
         runtime_state = components.runtime_manager.get_state()
@@ -369,13 +375,19 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                 await components.subrun_lane.wait_for_completion(run_id, timeout=wait_timeout)
             except asyncio.TimeoutError:
                 pass  # Handover enthält dann "subrun-timeout"-Status
-        return {
+        handover = _sanitize_handover_contract(components.subrun_lane.get_handover_contract(run_id))
+        # Fix 5: surface synthesis_valid at the top level of the result dict so agent.py
+        # can read it from spawn_result without digging into the handover sub-dict.
+        result: dict[str, Any] = {
             "run_id": run_id,
             "mode": mode,
             "agent_id": normalized_agent_id,
-            "handover": _sanitize_handover_contract(components.subrun_lane.get_handover_contract(run_id)),
+            "handover": handover,
             "delegation_scope": _sanitize_delegation_scope_metadata(isolation_decision.as_details()),
         }
+        if "synthesis_valid" in handover:
+            result["synthesis_valid"] = handover["synthesis_valid"]
+        return result
     async def _request_policy_override_from_agent(
         *,
         send_event,
