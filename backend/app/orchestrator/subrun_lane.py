@@ -108,6 +108,8 @@ class SubrunLane:
         self._completion_callback: SubrunCompletionCallback | None = None
         self._coordination_bridge: object | None = None  # CoordinationBridge instance
         self._lock = asyncio.Lock()
+        self._policy_holds: dict[str, asyncio.Event] = {}
+        self._policy_hold_notify: dict[str, asyncio.Future] = {}
         self._registry_file = Path(self._state_store.persist_dir) / "subrun_registry.json"
         self._restore_registry()
 
@@ -117,6 +119,109 @@ class SubrunLane:
     def set_coordination_bridge(self, bridge: object | None) -> None:
         """Attach a CoordinationBridge for confidence-based routing on completion."""
         self._coordination_bridge = bridge
+
+    # ------------------------------------------------------------------
+    # Policy-approval hold propagation
+    # ------------------------------------------------------------------
+
+    def is_subrun(self, run_id: str) -> bool:
+        """Return True if *run_id* is a known spawned subrun."""
+        return run_id in self._run_specs
+
+    def mark_policy_hold(self, run_id: str) -> None:
+        """Register that subrun *run_id* is blocked on a policy-approval gate.
+
+        Notifies any coroutine waiting in ``wait_for_policy_hold_clear_or_complete``
+        so it switches from listening for gate activation to listening for gate
+        resolution.
+        """
+        if run_id not in self._policy_holds:
+            self._policy_holds[run_id] = asyncio.Event()
+        self._fire_policy_hold_notify(run_id)
+
+    def release_policy_hold(self, run_id: str) -> None:
+        """Signal that the policy-approval gate for *run_id* was decided.
+
+        Safe to call even when no hold was registered (no-op in that case).
+        """
+        hold_ev = self._policy_holds.pop(run_id, None)
+        if hold_ev is not None:
+            hold_ev.set()
+        self._fire_policy_hold_notify(run_id)
+
+    def _fire_policy_hold_notify(self, run_id: str) -> None:
+        fut = self._policy_hold_notify.pop(run_id, None)
+        if fut is not None and not fut.done():
+            fut.set_result(None)
+
+    def _get_policy_hold_notify_future(self, run_id: str) -> asyncio.Future:
+        fut = self._policy_hold_notify.get(run_id)
+        if fut is None or fut.done():
+            loop = asyncio.get_running_loop()
+            fut = loop.create_future()
+            self._policy_hold_notify[run_id] = fut
+        return fut
+
+    async def wait_for_policy_hold_clear_or_complete(
+        self,
+        run_id: str,
+        timeout: float,
+    ) -> None:
+        """Wait until the subrun task finishes OR any policy-approval hold is cleared.
+
+        Intended for mode='run' spawns: gives the parent coroutine a chance to pause
+        until the user decides on a pending policy gate before continuing.  If no gate
+        fires within *timeout* seconds the method returns so long-running fire-and-forget
+        subruns do not block the parent indefinitely.
+        """
+        await asyncio.sleep(0)  # yield so the subrun task can start
+        task = self._run_tasks.get(run_id)
+        if task is None or task.done():
+            return
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            task = self._run_tasks.get(run_id)
+            if task is None or task.done():
+                return
+
+            hold_ev = self._policy_holds.get(run_id)
+            if hold_ev is not None and not hold_ev.is_set():
+                # Policy gate is open — wait for it to be cleared or the task to finish.
+                hold_wait = asyncio.create_task(hold_ev.wait())
+                try:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        return
+                    await asyncio.wait(
+                        {hold_wait, task},
+                        timeout=remaining,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    hold_wait.cancel()
+                # Gate was decided (or task finished): return control to the parent.
+                return
+
+            # No active hold — subscribe for the next state-change notification so we
+            # are woken up the instant a hold is registered instead of busy-polling.
+            notify_fut = self._get_policy_hold_notify_future(run_id)
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            await asyncio.wait(
+                {notify_fut, task},
+                timeout=remaining,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if task.done():
+                return
+            # notify_fut resolved → re-evaluate policy-hold state.
 
     async def spawn(
         self,

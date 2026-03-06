@@ -430,6 +430,15 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
             orchestrator_api=selected_orchestrator,
         )
+        # Fix: for non-blocking spawn modes, wait until any pending policy-approval gate
+        # is decided before returning control to the parent agent.  This prevents the
+        # parent from synthesising while a spawned subrun is blocked on a policy gate.
+        if mode != "wait":
+            _ph_timeout = float(effective_timeout) + float(settings.policy_approval_wait_seconds) + 5.0
+            with contextlib.suppress(TimeoutError):
+                await components.subrun_lane.wait_for_policy_hold_clear_or_complete(
+                    run_id, timeout=_ph_timeout
+                )
         # mode="wait": warte auf Abschluss des Kind-Runs, bevor Handover-Status gelesen wird.
         # Ohne diesen Wait liefert get_handover_contract immer "subrun-accepted" zurück,
         # weil der asyncio.Task noch nicht gestartet / abgeschlossen hat.
@@ -507,6 +516,10 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                     },
                 }
             )
+            # Propagate policy hold to parent run so its spawning coroutine can pause
+            # until the user makes a decision (fix: race condition for mode='run' spawns).
+            if components.subrun_lane.is_subrun(request_id):
+                components.subrun_lane.mark_policy_hold(request_id)
 
         decision = str(approval.get("decision") or "").strip().lower() or None
         if decision is None:
@@ -514,6 +527,8 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                 approval_id=approval["approval_id"],
                 timeout_seconds=settings.policy_approval_wait_seconds,
             )
+        # Release policy hold regardless of decision outcome (no-op if not a subrun).
+        components.subrun_lane.release_policy_hold(request_id)
         await send_event(
             {
                 "type": "lifecycle",

@@ -367,7 +367,9 @@ class RuntimeManager:
             return None
 
     def _persist_state(self) -> None:
-        self.state_file.write_text(json.dumps(asdict(self._state), indent=2), encoding="utf-8")
+        tmp = self.state_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(asdict(self._state), indent=2), encoding="utf-8")
+        tmp.replace(self.state_file)  # atomic on POSIX, near-atomic on Windows
 
     def _resolve_ollama_command(self) -> str:
         configured = (settings.ollama_bin or "").strip()

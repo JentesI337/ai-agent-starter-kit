@@ -27,6 +27,7 @@ from app.tool_catalog import TOOL_NAMES
 from app.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,
+    enforce_safe_url as _shared_enforce_safe_url,
     parse_ip_literal as _shared_parse_ip_literal,
     resolve_hostname_ips as _shared_resolve_hostname_ips,
     validate_ip_is_public as _shared_validate_ip_is_public,
@@ -667,10 +668,9 @@ class AgentTooling:
         SEC (SSRF-01/05): Delegates to the shared ``url_validator`` module
         so the same validation logic is reused across the entire backend.
         """
+    def _enforce_safe_web_target(self, url: str) -> str | None:
         try:
-            return __import__("app.url_validator", fromlist=["enforce_safe_url"]).enforce_safe_url(
-                url, label="web_fetch"
-            )
+            return _shared_enforce_safe_url(url, label="web_fetch")
         except UrlValidationError as exc:
             raise ToolExecutionError(str(exc)) from exc
 

@@ -6,6 +6,7 @@ import socket
 import pytest
 
 import app.tools as tools_module
+import app.url_validator as url_validator_module
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
 
@@ -76,7 +77,7 @@ def test_http_request_blocks_localhost(tmp_path) -> None:
 def test_http_request_post_json_body(monkeypatch, tmp_path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
     calls: list[dict] = []
-    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr(url_validator_module.socket, "getaddrinfo", _public_getaddrinfo)
     _patch_client(
         monkeypatch,
         _FakeResponse(

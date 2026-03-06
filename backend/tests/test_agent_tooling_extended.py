@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import app.tools as tools_module
+import app.url_validator as url_validator_module
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
 
@@ -146,7 +147,7 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
         ]
 
-    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr(url_validator_module.socket, "getaddrinfo", _public_getaddrinfo)
     monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
 
     result = asyncio.run(tooling.web_fetch("https://example.com/models", max_chars=4000))
@@ -206,7 +207,7 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port)),
         ]
 
-    monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
+    monkeypatch.setattr(url_validator_module.socket, "getaddrinfo", _public_getaddrinfo)
     monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
 
     try:

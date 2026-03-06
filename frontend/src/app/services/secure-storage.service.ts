@@ -91,7 +91,7 @@ export class SecureStorageService {
       sessionStorage.setItem(SEED_KEY, seed);
     }
     const rawKey = this.fromBase64(seed);
-    return crypto.subtle.importKey('raw', rawKey, ALGO, false, [
+    return crypto.subtle.importKey('raw', rawKey.buffer as ArrayBuffer, ALGO, false, [
       'encrypt',
       'decrypt',
     ]);

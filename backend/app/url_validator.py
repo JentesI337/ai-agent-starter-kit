@@ -152,6 +152,12 @@ def enforce_safe_url(
     for resolved in resolved_ips:
         validate_ip_is_public(resolved)
 
+    # Pin DNS to the validated IP for HTTP to close the TOCTOU gap.
+    # For HTTPS, TLS certificate validation binds the connection to the
+    # legitimate hostname, so DNS-pinning would break SNI/cert matching.
+    if parsed.scheme == "https":
+        return None
+
     # Return first resolved IP for DNS-pinning
     return str(next(iter(resolved_ips)))
 

@@ -144,8 +144,17 @@ class TestEnforceSafeUrl:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443)),
             ]
-            result = enforce_safe_url("https://example.com")
+            result = enforce_safe_url("http://example.com")
         assert result == "93.184.216.34"
+
+    def test_https_scheme_returns_none(self):
+        """HTTPS URLs skip DNS-pinning (TLS cert validation prevents rebinding)."""
+        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443)),
+            ]
+            result = enforce_safe_url("https://example.com")
+        assert result is None
 
     def test_ftp_scheme_rejected(self):
         with pytest.raises(UrlValidationError, match="schemes"):

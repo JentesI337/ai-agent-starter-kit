@@ -210,6 +210,7 @@ class HeadAgent:
         self._mcp_initialized = False
         self._mcp_init_lock = asyncio.Lock()
         self._configure_lock = asyncio.Lock()  # H-6: guards configure_runtime vs concurrent run()
+        self._run_lock = asyncio.Lock()  # H-6: protects _active_run_count
         self._reconfiguring = False
         self._active_run_count = 0  # H-6: tracks concurrently executing run() calls
         if settings.mcp_enabled and settings.mcp_servers:
@@ -566,9 +567,10 @@ class HeadAgent:
     ) -> str:
         self._refresh_long_term_memory_store()
         # H-6: guard — refuse to start if configure_runtime() is mid-flight
-        if self._reconfiguring:
-            raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
-        self._active_run_count += 1
+        async with self._run_lock:
+            if self._reconfiguring:
+                raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
+            self._active_run_count += 1
         status = "failed"
         error_text: str | None = None
         final_text = ""
@@ -1545,7 +1547,8 @@ class HeadAgent:
             self._active_request_id_context.reset(request_id_token)
             self._active_session_id_context.reset(session_id_token)
             self._active_send_event_context.reset(send_event_token)
-            self._active_run_count -= 1  # H-6: release run slot
+            async with self._run_lock:
+                self._active_run_count -= 1  # H-6: release run slot
 
     async def _distill_session_knowledge(
         self,

@@ -21,19 +21,27 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 class SecretFilter(logging.Filter):
     """Redact sensitive patterns from log messages before they are emitted."""
 
+    @staticmethod
+    def _sanitize_value(value: object) -> object:
+        if isinstance(value, str):
+            for pattern, replacement in _SECRET_PATTERNS:
+                value = pattern.sub(replacement, value)
+        return value
+
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
             for pattern, replacement in _SECRET_PATTERNS:
                 record.msg = pattern.sub(replacement, record.msg)
         if record.args:
-            sanitized_args: list[object] = []
-            for arg in record.args if isinstance(record.args, tuple) else (record.args,):
-                sanitized_arg = arg
-                if isinstance(sanitized_arg, str):
-                    for pattern, replacement in _SECRET_PATTERNS:
-                        sanitized_arg = pattern.sub(replacement, sanitized_arg)
-                sanitized_args.append(sanitized_arg)
-            record.args = tuple(sanitized_args)
+            if isinstance(record.args, dict):
+                record.args = {
+                    k: self._sanitize_value(v)
+                    for k, v in record.args.items()
+                }
+            elif isinstance(record.args, tuple):
+                record.args = tuple(self._sanitize_value(a) for a in record.args)
+            else:
+                record.args = (self._sanitize_value(record.args),)
         return True
 
 
