@@ -243,6 +243,11 @@ class HeadAgent:
             default=None,
         )
         self._build_sub_agents()
+        # Debug infrastructure
+        self._debug_continue_event: asyncio.Event = asyncio.Event()
+        self._debug_continue_event.set()  # Default: not paused
+        self._debug_breakpoints: set[str] = set()
+        self._debug_mode_active: bool = False
 
     def set_source_agent_context(self, source_agent_id: str | None):
         normalized = (source_agent_id or "").strip().lower() or None
@@ -3036,6 +3041,8 @@ class HeadAgent:
         session_id: str,
         details: dict | None = None,
     ) -> None:
+        if stage.startswith("debug_") and not settings.debug_mode:
+            return
         await send_event(
             build_lifecycle_event(
                 request_id=request_id,
@@ -3045,6 +3052,33 @@ class HeadAgent:
                 agent=self.name,
             )
         )
+
+    async def _debug_checkpoint(
+        self,
+        phase: str,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+    ) -> None:
+        """Cooperative pause point. Blocks only when a breakpoint is set or the user requested pause."""
+        if not self._debug_mode_active:
+            return
+        if phase not in self._debug_breakpoints and self._debug_continue_event.is_set():
+            return
+
+        self._debug_continue_event.clear()
+        await self._emit_lifecycle(
+            send_event,
+            "debug_breakpoint_hit",
+            request_id,
+            session_id,
+            details={"phase": phase, "breakpoint_id": f"bp-{phase}"},
+        )
+        try:
+            await asyncio.wait_for(self._debug_continue_event.wait(), timeout=300.0)
+        except asyncio.TimeoutError:
+            # Auto-resume after timeout to prevent indefinite blocking
+            self._debug_continue_event.set()
 
     async def _invoke_hooks(
         self,

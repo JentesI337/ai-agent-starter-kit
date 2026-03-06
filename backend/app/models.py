@@ -22,6 +22,7 @@ class WsInboundEnvelope(BaseModel):
     # frontend can set them structurally instead of embedding text directives.
     reasoning_level: str | None = Field(default=None, max_length=50)
     reasoning_visibility: str | None = Field(default=None, max_length=50)
+    breakpoints: list[str] | None = Field(default=None, max_length=20)
 
 
 class WsUserMessage(WsInboundEnvelope):
