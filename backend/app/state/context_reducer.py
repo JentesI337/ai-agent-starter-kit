@@ -54,9 +54,20 @@ class ContextReducer:
 
         if tool_outputs:
             safe_tool_outputs = [self.strip_sensitive_tool_results(item) for item in tool_outputs]
+            # SEC (OE-06): Sanitize tool outputs for prompt injection patterns
+            safe_tool_outputs = [self._sanitize_tool_output(item) for item in safe_tool_outputs]
             clipped_tools = self._collect_items(safe_tool_outputs, max_chars=max_chars // 2, max_tokens=tool_budget)
             if clipped_tools:
-                sections.append("Tool outputs:\n" + "\n\n".join(clipped_tools))
+                # SEC (OE-06): Wrap each tool output in content-isolation delimiters
+                # to prevent tool output content from being interpreted as instructions.
+                delimited_outputs = []
+                for i, output in enumerate(clipped_tools):
+                    delimited_outputs.append(
+                        f"<tool_output index=\"{i}\" isolation=\"content_only\">\n"
+                        f"{output}\n"
+                        f"</tool_output>"
+                    )
+                sections.append("Tool outputs:\n" + "\n\n".join(delimited_outputs))
 
         if memory_lines:
             clipped_memory = self._collect_items(memory_lines, max_chars=max_chars // 3, max_tokens=memory_budget)
@@ -82,6 +93,37 @@ class ContextReducer:
     def strip_sensitive_tool_results(self, context: str) -> str:
         sanitized = str(context or "")
         for pattern, replacement in self._SENSITIVE_PATTERNS:
+            sanitized = re.sub(pattern, replacement, sanitized)
+        return sanitized
+
+    # SEC (OE-06): Prompt-injection patterns commonly found in tool outputs.
+    # These markers are neutralized (escaped) so the LLM won't interpret
+    # injected content in fetched web pages, file contents, or API responses
+    # as new system/user instructions.
+    _INJECTION_PATTERNS: tuple[tuple[str, str], ...] = (
+        # Direct instruction override attempts
+        (r"(?i)\bignore\s+(all\s+)?previous\s+instructions?\b", "[PI_BLOCKED: instruction override]"),
+        (r"(?i)\byou\s+are\s+now\b", "[PI_BLOCKED: role reassignment]"),
+        (r"(?i)\bnew\s+system\s+prompt\b", "[PI_BLOCKED: system prompt injection]"),
+        (r"(?i)\bsystem\s*:\s*", "[PI_BLOCKED: role prefix]"),
+        (r"(?i)\bassistant\s*:\s*", "[PI_BLOCKED: role prefix]"),
+        (r"(?i)\buser\s*:\s*", "[PI_BLOCKED: role prefix]"),
+        # HTML/Markdown comment injection (commonly used in files)
+        (r"<!--\s*(?:ignore|system|override|inject|prompt)", "<!-- [PI_BLOCKED]"),
+        # Common prompt injection delimiters
+        (r"\[INST\]", "[PI_BLOCKED: instruction tag]"),
+        (r"\[/INST\]", "[PI_BLOCKED: instruction tag]"),
+        (r"<\|im_start\|>", "[PI_BLOCKED: chat tag]"),
+        (r"<\|im_end\|>", "[PI_BLOCKED: chat tag]"),
+        (r"<\|system\|>", "[PI_BLOCKED: chat tag]"),
+        (r"<\|user\|>", "[PI_BLOCKED: chat tag]"),
+        (r"<\|assistant\|>", "[PI_BLOCKED: chat tag]"),
+    )
+
+    def _sanitize_tool_output(self, text: str) -> str:
+        """SEC (OE-06): Neutralize prompt injection patterns in tool output."""
+        sanitized = str(text or "")
+        for pattern, replacement in self._INJECTION_PATTERNS:
             sanitized = re.sub(pattern, replacement, sanitized)
         return sanitized
 

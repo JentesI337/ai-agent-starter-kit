@@ -28,6 +28,8 @@ from app.services.directive_parser import (
 )
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.services.session_inbox_service import SessionInboxService
+from app.services.rate_limiter import get_ws_rate_limiter
+from app.services.session_security import validate_session_id_format
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 EventPayload = dict[str, Any]
@@ -374,10 +376,19 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         if isinstance(tool_policy, dict):
             raw_also_allow = tool_policy.get("also_allow")
             if isinstance(raw_also_allow, list):
+                # SEC: Restrict client-supplied also_allow to prevent enabling
+                # dangerous tools like run_command or code_execute via policy
+                # manipulation. Only allow safe tools to be added.
+                _ALSO_ALLOW_BLOCKLIST = frozenset({
+                    "run_command", "code_execute",
+                    "start_background_command", "kill_background_process",
+                    "write_file", "apply_patch",
+                })
                 incoming_also_allow = [
                     str(item).strip()
                     for item in raw_also_allow
                     if isinstance(item, str) and str(item).strip()
+                    and str(item).strip() not in _ALSO_ALLOW_BLOCKLIST
                 ]
 
         def should_steer_interrupt() -> bool:
@@ -628,11 +639,37 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             active_agent_name_cv.set(deps.agent.name)
             try:
                 raw = await websocket.receive_text()
+                # SEC: Enforce message size limit to prevent memory exhaustion
+                _ws_max_message_bytes = 128_000  # 128 KB hard limit
+                if len(raw) > _ws_max_message_bytes:
+                    await send_event(
+                        {
+                            "type": "error",
+                            "agent": deps.agent.name,
+                            "message": f"Message too large ({len(raw)} bytes, max {_ws_max_message_bytes}).",
+                        }
+                    )
+                    continue
+
+                # SEC (OE-03): Per-IP WebSocket message rate limiting
+                _ws_rate_limiter = get_ws_rate_limiter()
+                if _ws_rate_limiter.enabled:
+                    _client_ip = websocket.client.host if websocket.client else "unknown"
+                    if not _ws_rate_limiter.allow(_client_ip):
+                        await send_event(
+                            {
+                                "type": "error",
+                                "agent": deps.agent.name,
+                                "message": "Rate limit exceeded. Please slow down.",
+                            }
+                        )
+                        continue
                 inbound_type = peek_ws_inbound_type(raw)
                 if inbound_type not in SUPPORTED_WS_INBOUND_TYPES:
                     envelope = WsInboundEnvelope.model_validate_json(raw)
                     deps.sync_custom_agents()
-                    session_id = envelope.session_id or connection_session_id
+                    _client_session_id = envelope.session_id
+                    session_id = _client_session_id or connection_session_id
                     deps.logger.info(
                         "ws_message_received request_id=%s session_id=%s type=%s agent_id=%s content_len=%s requested_model=%s",
                         request_id,
@@ -703,7 +740,39 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
                 data = parse_ws_inbound_message(raw)
                 deps.sync_custom_agents()
-                session_id = data.session_id or connection_session_id
+
+                # SEC (OE-07): Validate client-provided session_id format.
+                # Reject IDs with invalid characters to prevent injection.
+                # Bind to connection by only allowing previously seen IDs
+                # or the server-generated connection_session_id.
+                _client_session_id = data.session_id
+                if _client_session_id:
+                    if not validate_session_id_format(_client_session_id):
+                        await send_event(
+                            {
+                                "type": "error",
+                                "agent": deps.agent.name,
+                                "message": "Invalid session_id format.",
+                            }
+                        )
+                        continue
+                    # Only allow session IDs that originated from this connection
+                    if _client_session_id not in used_session_ids:
+                        deps.logger.warning(
+                            "ws_session_id_rejected foreign session_id=%s connection=%s",
+                            _client_session_id,
+                            connection_session_id,
+                        )
+                        await send_event(
+                            {
+                                "type": "error",
+                                "agent": deps.agent.name,
+                                "message": "Session ID not recognized for this connection.",
+                            }
+                        )
+                        continue
+
+                session_id = _client_session_id or connection_session_id
                 used_session_ids.add(session_id)
 
                 if data.type == "policy_decision":
@@ -990,10 +1059,17 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 if isinstance(incoming_tool_policy, dict):
                     raw_also_allow = incoming_tool_policy.get("also_allow")
                     if isinstance(raw_also_allow, list):
+                        # SEC: Same blocklist as above to prevent policy manipulation
+                        _ALSO_ALLOW_BLOCKLIST = frozenset({
+                            "run_command", "code_execute",
+                            "start_background_command", "kill_background_process",
+                            "write_file", "apply_patch",
+                        })
                         incoming_also_allow = [
                             str(item).strip()
                             for item in raw_also_allow
                             if isinstance(item, str) and str(item).strip()
+                            and str(item).strip() not in _ALSO_ALLOW_BLOCKLIST
                         ]
                 applied_preset = (data.preset or "").strip().lower() or None
 

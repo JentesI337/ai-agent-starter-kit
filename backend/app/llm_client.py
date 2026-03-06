@@ -36,7 +36,9 @@ class LlmClient:
         headers = {
             "Content-Type": "application/json",
         }
-        auth_token = (settings.api_auth_token or "").strip()
+        # SEC (OE-04): Use dedicated LLM API key — never fall back to
+        # the internal auth token to avoid leaking it to external LLM providers.
+        auth_token = (settings.llm_api_key or "").strip()
         if auth_token:
             headers["Authorization"] = f"Bearer {auth_token}"
         return headers

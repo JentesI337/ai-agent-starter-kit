@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import socket
 import subprocess
 import threading
@@ -105,6 +106,7 @@ class AgentTooling:
         self._command_allowlist_overrides: set[str] = set()
         self._background_jobs: dict[str, dict] = {}
         self._bg_lock = threading.Lock()
+        self._bg_max_concurrent_jobs = 10
         self._web_fetch_max_redirects = 3
         self._web_fetch_max_download_bytes = max(1_000, int(settings.web_fetch_max_download_bytes))
         self._web_fetch_blocked_content_types = tuple(
@@ -252,22 +254,39 @@ class AgentTooling:
     def start_background_command(self, command: str, cwd: str | None = None) -> str:
         if not command.strip():
             raise ToolExecutionError("start_background_command requires non-empty 'command'.")
-        self._enforce_command_allowlist(command)
+        leader = self._enforce_command_allowlist(command)
+        # SEC: Consume temporary override so allow-once can't be reused
+        self._consume_temporary_override(leader)
+        with self._bg_lock:
+            active_count = sum(
+                1 for job in self._background_jobs.values()
+                if job["process"].poll() is None
+            )
+            if active_count >= self._bg_max_concurrent_jobs:
+                raise ToolExecutionError(
+                    f"Maximum concurrent background jobs ({self._bg_max_concurrent_jobs}) reached. "
+                    "Kill an existing job before starting a new one."
+                )
         run_cwd = self._resolve_command_cwd(cwd)
         job_id = str(uuid.uuid4())[:8]
         log_dir = self.workspace_root / ".agent_background"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{job_id}.log"
         log_file = log_path.open("w", encoding="utf-8")
+        # SEC (OE-02): Use shell=False with tokenized args to prevent shell injection
+        argv = self._tokenize_command(command)
         try:
             proc = subprocess.Popen(
-                command,
-                shell=True,
+                argv,
+                shell=False,
                 cwd=run_cwd,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+        except FileNotFoundError:
+            log_file.close()
+            raise ToolExecutionError(f"Command not found: {argv[0] if argv else command}")
         except Exception:
             log_file.close()
             raise
@@ -533,8 +552,6 @@ class AgentTooling:
 
         limit = max(1, min(int(max_chars), 100000))
         request_headers: dict[str, str] = {"User-Agent": "ai-agent-starter-kit/1.0"}
-        # Apply DNS-pin Host header before user headers so the user can override
-        request_headers.update(pin_headers)
         if headers:
             try:
                 parsed_headers = json.loads(headers)
@@ -542,12 +559,20 @@ class AgentTooling:
                 raise ToolExecutionError(f"http_request headers must be valid JSON object: {exc}") from exc
             if not isinstance(parsed_headers, dict):
                 raise ToolExecutionError("http_request headers must be a JSON object.")
+            # Security-sensitive headers that user input must not override
+            _FORBIDDEN_HEADER_KEYS = {"host", "transfer-encoding", "content-length"}
             for key, value in parsed_headers.items():
                 if not isinstance(key, str) or not key.strip():
                     raise ToolExecutionError("http_request headers keys must be non-empty strings.")
                 if not isinstance(value, str):
                     raise ToolExecutionError("http_request headers values must be strings.")
+                if key.strip().lower() in _FORBIDDEN_HEADER_KEYS:
+                    raise ToolExecutionError(
+                        f"http_request header '{key}' is forbidden for security reasons."
+                    )
                 request_headers[key.strip()] = value
+        # Apply DNS-pin Host header AFTER user headers to prevent SSRF bypass
+        request_headers.update(pin_headers)
 
         request_content: bytes | None = None
         request_json: object | None = None
@@ -635,7 +660,7 @@ class AgentTooling:
         """Validate URL.  Returns a validated IP string for DNS-pinning (HTTP
         scheme only) or ``None`` when the URL already uses an IP literal or is
         HTTPS (where TLS certificate validation prevents DNS-rebinding
-        exploitation).
+        exploitation because the cert is bound to the hostname).
 
         Callers should replace the hostname in the URL with the returned IP and
         set the ``Host`` header to the original hostname to close the TOCTOU
@@ -657,36 +682,61 @@ class AgentTooling:
             "localhost",
             "metadata.google.internal",
             "169.254.169.254",
+            "169.254.170.2",
+            "metadata.internal",
             "[::1]",
+            "0.0.0.0",
+            "[::ffff:127.0.0.1]",
+            "[::ffff:0.0.0.0]",
+            "[::ffff:169.254.169.254]",
+            "[0:0:0:0:0:0:0:1]",
         }
         if lowered_host in blocked_hostnames:
             raise ToolExecutionError(f"web_fetch blocked hostname: {host}")
 
         literal_ip = self._parse_ip_literal(host)
         if literal_ip is not None:
-            if not literal_ip.is_global:
-                raise ToolExecutionError(f"web_fetch blocked non-public target IP: {literal_ip}")
+            self._validate_ip_is_public(literal_ip)
             return None  # already an IP literal – no DNS rebinding risk
 
         resolved_ips = self._resolve_hostname_ips(host, parsed.port)
         if not resolved_ips:
             raise ToolExecutionError(f"web_fetch could not resolve hostname: {host}")
         for resolved in resolved_ips:
-            if not resolved.is_global:
-                raise ToolExecutionError(f"web_fetch blocked non-public resolved IP: {resolved}")
+            self._validate_ip_is_public(resolved)
 
-        if parsed.scheme == "http":
-            return str(next(iter(resolved_ips)))
-        # HTTPS: TLS certificate validation binds the connection to the
-        # legitimate server; DNS rebinding to an internal host would cause a
-        # certificate mismatch → connection refused.  No pinning needed.
-        return None
+        # Pin DNS to the validated IP for HTTP to close the TOCTOU gap.
+        # For HTTPS, TLS certificate validation binds the connection to the
+        # legitimate hostname, so DNS-pinning would break SNI/cert matching.
+        if parsed.scheme == "https":
+            return None
+        return str(next(iter(resolved_ips)))
 
     def _parse_ip_literal(self, host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
         try:
             return ipaddress.ip_address(host)
         except ValueError:
             return None
+
+    @staticmethod
+    def _validate_ip_is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+        """Reject any IP that is not a globally routable public address.
+
+        This blocks private ranges, loopback, link-local, multicast,
+        IPv6-mapped IPv4 private addresses, and other non-public targets.
+        """
+        if not ip.is_global:
+            raise ToolExecutionError(f"web_fetch blocked non-public target IP: {ip}")
+        # IPv6-mapped IPv4: e.g. ::ffff:127.0.0.1, ::ffff:10.0.0.1
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            if not ip.ipv4_mapped.is_global:
+                raise ToolExecutionError(
+                    f"web_fetch blocked IPv6-mapped private IPv4 address: {ip}"
+                )
+        # Secondary check: reject 0.0.0.0/8 (current-network)
+        if isinstance(ip, ipaddress.IPv4Address):
+            if ip.packed[0] == 0:
+                raise ToolExecutionError(f"web_fetch blocked zero-network IP: {ip}")
 
     @staticmethod
     def _apply_dns_pin(url: str, pinned_ip: str | None) -> tuple[str, dict[str, str]]:
@@ -780,18 +830,49 @@ class AgentTooling:
             return True, path
         return False, f"'{clean}' not found in PATH"
 
+    def _tokenize_command(self, command: str) -> list[str]:
+        """Tokenize a command string into a list of arguments.
+
+        SEC (OE-02): Uses shlex.split() instead of shell=True to prevent
+        shell-injection attacks via environment variable expansion,
+        IFS manipulation, or Unicode homoglyph bypasses.
+        On Windows, uses posix=True with manual quote-stripping to handle
+        paths with backslashes correctly.
+        """
+        import sys
+        try:
+            # On Windows use posix=False to preserve backslashes in paths;
+            # on POSIX use posix=True for correct quoting semantics.
+            use_posix = sys.platform != "win32"
+            tokens = shlex.split(command, posix=use_posix)
+            if not use_posix:
+                # posix=False preserves surrounding quotes; strip them
+                stripped = []
+                for t in tokens:
+                    if len(t) >= 2 and t[0] == t[-1] and t[0] in ('"', "'"):
+                        t = t[1:-1]
+                    stripped.append(t)
+                tokens = stripped
+        except ValueError as exc:
+            raise ToolExecutionError(f"Cannot tokenize command: {exc}") from exc
+        return tokens
+
     def run_command(self, command: str, cwd: str | None = None) -> str:
         if not command.strip():
             raise ToolExecutionError("Command must not be empty.")
         if len(command) > 1000:
             raise ToolExecutionError("Command is too long.")
         leader = self._enforce_command_allowlist(command)
+        # SEC: Consume temporary override after validation so it can't be reused
+        self._consume_temporary_override(leader)
 
         run_cwd = self._resolve_command_cwd(cwd)
+        # SEC (OE-02): Use shell=False with tokenized args to prevent shell injection
+        argv = self._tokenize_command(command)
         try:
             completed = subprocess.run(
-                command,
-                shell=True,
+                argv,
+                shell=False,
                 cwd=run_cwd,
                 capture_output=True,
                 text=True,
@@ -800,6 +881,10 @@ class AgentTooling:
         except subprocess.TimeoutExpired as exc:
             raise ToolExecutionError(
                 f"Command timeout after {self.command_timeout_seconds}s: {exc.cmd}"
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ToolExecutionError(
+                f"Command not found: {argv[0] if argv else command}"
             ) from exc
 
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
@@ -850,11 +935,21 @@ class AgentTooling:
         return {item.strip().lower() for item in values if isinstance(item, str) and item.strip()}
 
     def allow_command_leader_temporarily(self, leader: str) -> str | None:
+        """Add a command leader to overrides for single use only.
+
+        SEC: The override is consumed on first use to prevent permanent
+        escalation via prompt-injection-triggered approval.
+        """
         normalized = (leader or "").strip().lower()
         if not normalized:
             return None
         self._command_allowlist_overrides.add(normalized)
         return normalized
+
+    def _consume_temporary_override(self, leader: str) -> None:
+        """Remove a temporary override after it has been used once."""
+        normalized = (leader or "").strip().lower()
+        self._command_allowlist_overrides.discard(normalized)
 
     def extract_command_leader(self, command: str) -> str:
         return self._extract_command_leader(command)
@@ -975,8 +1070,12 @@ class AgentTooling:
         return name
 
     def _resolve_workspace_path(self, raw_path: str) -> Path:
-        target = (self.workspace_root / raw_path).resolve()
-        if self.workspace_root not in target.parents and target != self.workspace_root:
+        # SEC: Use os.path.realpath to resolve all symlinks/junctions,
+        # then verify the resolved path is within the resolved workspace root.
+        workspace_real = Path(os.path.realpath(self.workspace_root))
+        target_raw = self.workspace_root / raw_path
+        target = Path(os.path.realpath(target_raw))
+        if workspace_real not in target.parents and target != workspace_real:
             raise ToolExecutionError("Path escapes workspace root.")
         return target
 
@@ -984,15 +1083,15 @@ class AgentTooling:
         if not cwd:
             return self.workspace_root
 
+        workspace_real = Path(os.path.realpath(self.workspace_root))
         candidate = Path(cwd)
         if not candidate.is_absolute():
-            candidate = (self.workspace_root / candidate).resolve()
-        else:
-            candidate = candidate.resolve()
+            candidate = self.workspace_root / candidate
+        candidate = Path(os.path.realpath(candidate))
 
         if not candidate.exists() or not candidate.is_dir():
             raise ToolExecutionError(f"Command cwd does not exist: {candidate}")
-        if self.workspace_root not in candidate.parents and candidate != self.workspace_root:
+        if workspace_real not in candidate.parents and candidate != workspace_real:
             raise ToolExecutionError("Command cwd escapes workspace root.")
         return candidate
 

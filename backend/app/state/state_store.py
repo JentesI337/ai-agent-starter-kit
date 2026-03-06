@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Lock
 
 from app.config import settings
+from app.services.state_encryption import encrypt_state, decrypt_state
 from app.state.snapshots import build_summary_snapshot
 from app.state.task_graph import TaskGraph
 
@@ -244,12 +245,18 @@ class StateStore:
         file_path = self._run_file(run_id)
         if not file_path.exists():
             raise FileNotFoundError(f"Run state not found: {run_id}")
-        return json.loads(file_path.read_text(encoding="utf-8"))
+        raw = file_path.read_text(encoding="utf-8")
+        # SEC (OE-08): Decrypt state at rest
+        decrypted = decrypt_state(raw)
+        return json.loads(decrypted)
 
     def _write_run(self, run_id: str, state: dict) -> None:
         file_path = self._run_file(run_id)
         tmp = file_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = json.dumps(state, ensure_ascii=False, indent=2)
+        # SEC (OE-08): Encrypt state at rest
+        encrypted = encrypt_state(payload)
+        tmp.write_text(encrypted, encoding="utf-8")
         self._replace_with_retry(tmp, file_path)
         self._run_index_dirty = True
 
@@ -351,7 +358,9 @@ class SqliteStateStore(StateStore):
             row = self._conn.execute("SELECT state_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             if row is None:
                 return None
-            return json.loads(str(row["state_json"]))
+            # SEC (OE-08): Decrypt state at rest
+            decrypted = decrypt_state(str(row["state_json"]))
+            return json.loads(decrypted)
 
     def list_runs(self, limit: int = 200) -> list[dict]:
         with self._lock:
@@ -363,7 +372,9 @@ class SqliteStateStore(StateStore):
             items: list[dict] = []
             for row in rows:
                 try:
-                    items.append(json.loads(str(row["state_json"])))
+                    # SEC (OE-08): Decrypt state at rest
+                    decrypted = decrypt_state(str(row["state_json"]))
+                    items.append(json.loads(decrypted))
                 except Exception:
                     continue
             return items
@@ -459,11 +470,15 @@ class SqliteStateStore(StateStore):
         row = self._conn.execute("SELECT state_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         if row is None:
             raise FileNotFoundError(f"Run state not found: {run_id}")
-        return json.loads(str(row["state_json"]))
+        # SEC (OE-08): Decrypt state at rest
+        decrypted = decrypt_state(str(row["state_json"]))
+        return json.loads(decrypted)
 
     def _upsert_run(self, *, run_id: str, state: dict) -> None:
         updated_at_ts = datetime.now(timezone.utc).timestamp()
         payload = json.dumps(state, ensure_ascii=False)
+        # SEC (OE-08): Encrypt state at rest
+        encrypted = encrypt_state(payload)
         with self._conn:
             self._conn.execute(
                 """
@@ -473,5 +488,5 @@ class SqliteStateStore(StateStore):
                     state_json=excluded.state_json,
                     updated_at_ts=excluded.updated_at_ts
                 """,
-                (run_id, payload, updated_at_ts),
+                (run_id, encrypted, updated_at_ts),
             )

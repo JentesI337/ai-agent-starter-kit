@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — AI Agent Starter Kit
 
-> **Version:** 1.1 · **Stand:** 2025-07-16  
-> **Scope:** Vollständiges Backend-Architektur-Dokument — Design, Reasoning Pipeline, Orchestration Pipeline, alle Subsysteme.
+> **Version:** 1.4 · **Stand:** 2026-03-06  
+> **Scope:** Vollständiges Backend-Architektur-Dokument — Design, Reasoning Pipeline, Orchestration Pipeline, Multi-Agency-Subsystem, 15-Agenten-Ökosystem, alle Subsysteme.
 
 ---
 
@@ -18,13 +18,14 @@
 9. [Persistence-Schicht](#9-persistence-schicht)
 10. [Policy- & Guardrail-Schicht](#10-policy--guardrail-schicht)
 11. [Skills- & Extensions-Schicht](#11-skills--extensions-schicht)
-12. [Contract-System](#12-contract-system)
-13. [Konfiguration](#13-konfiguration)
-14. [Startup & Shutdown](#14-startup--shutdown)
-15. [Datenfluss: Request Lifecycle (End-to-End)](#15-datenfluss-request-lifecycle-end-to-end)
-16. [Concurrency-Modell](#16-concurrency-modell)
-17. [Fehler-Taxonomie & Recovery](#17-fehler-taxonomie--recovery)
-18. [Glossar](#18-glossar)
+12. [Multi-Agency-Subsystem](#12-multi-agency-subsystem)
+13. [Contract-System](#13-contract-system)
+14. [Konfiguration](#14-konfiguration)
+15. [Startup & Shutdown](#15-startup--shutdown)
+16. [Datenfluss: Request Lifecycle (End-to-End)](#16-datenfluss-request-lifecycle-end-to-end)
+17. [Concurrency-Modell](#17-concurrency-modell)
+18. [Fehler-Taxonomie & Recovery](#18-fehler-taxonomie--recovery)
+19. [Glossar](#19-glossar)
 
 ---
 
@@ -43,8 +44,12 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Transport: ws_handler · REST Routers · Control API  │   │
 │  ├──────────────────────────────────────────────────────┤   │
-│  │  Agents: HeadAgent · CoderAgent · ReviewAgent        │   │
+│  │  Agents: 15 Agenten (3 Core + 7 Specialist + 5 Industry) │   │
 │  │  + CustomAgentStore (dynamisch aus JSON geladen)     │   │
+│  ├──────────────────────────────────────────────────────┤   │
+│  │  Multi-Agency: CoordinationBridge · Supervisor       │   │
+│  │  · AgentRegistry · Blackboard · MessageBus           │   │
+│  │  · ConfidenceRouter · ParallelExecutor · Consensus   │   │
 │  ├──────────────────────────────────────────────────────┤   │
 │  │  Orchestration: OrchestratorApi · PipelineRunner     │   │
 │  │  · FallbackStateMachine · SessionLaneManager         │   │
@@ -53,7 +58,7 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 │  │  Model Routing: ModelRouter · ModelRegistry          │   │
 │  │  · ModelHealthTracker · ContextWindowGuard           │   │
 │  ├──────────────────────────────────────────────────────┤   │
-│  │  Services: 45+ Dienste (Reflection, Verification,    │   │
+│  │  Services: 60+ Dienste (Reflection, Verification,    │   │
 │  │  ActionParser, PromptKernel, ToolExecution,           │   │
 │  │  ToolTelemetry, LearningLoop, PlatformInfo, …)       │   │
 │  ├──────────────────────────────────────────────────────┤   │
@@ -76,7 +81,7 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 - **LLM-Integration:** `LlmClient` — OpenAI-kompatible API (`/v1/chat/completions`) oder native Ollama (`/api/chat`)
 - **Persistence:** SQLite (StateStore, LTM), JSONL (MemoryStore), JSON (CustomAgents, RuntimeState)
 - **Contracts:** Protocol-basierte Interfaces (kein Tight Coupling)
-- **Konfiguration:** Pydantic `Settings` Klasse mit ~180 Feldern, alle über Umgebungsvariablen steuerbar
+- **Konfiguration:** Pydantic `Settings` Klasse mit ~230 Feldern, alle über Umgebungsvariablen steuerbar
 
 ---
 
@@ -86,6 +91,7 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 Schicht 1   Transport          WebSocket Handler · REST Routers · Control API
                                 ↕
 Schicht 2   Agent/Orchestration HeadAgent.run() Pipeline · OrchestratorApi · PipelineRunner
+                                · Multi-Agency: CoordinationBridge · Supervisor · Consensus
                                 ↕
 Schicht 3   Runtime/Model       ModelRouter · ModelRegistry · LlmClient · ModelHealthTracker
                                 ↕
@@ -107,16 +113,18 @@ backend/app/
 ├── main.py                     # FastAPI App-Instanz, Router-Wiring, LazyRuntimeRegistry
 ├── app_setup.py                # build_fastapi_app(), configure_cors(), build_lifespan_context()
 ├── app_state.py                # ControlPlaneState, LazyMappingProxy, RuntimeComponents
-├── config.py                   # Settings(BaseModel) — ~180 konfigurierbare Felder
-├── agent.py                    # HeadAgent (2924 Zeilen) — Reasoning Pipeline
-├── ws_handler.py               # WebSocket Handler (1428 Zeilen)
+├── config.py                   # Settings(BaseModel) — ~230 konfigurierbare Felder
+├── agent.py                    # HeadAgent (~2900 Zeilen) — Reasoning Pipeline
+├── ws_handler.py               # WebSocket Handler (~1400 Zeilen)
 ├── llm_client.py               # LlmClient — OpenAI/Ollama Dual-Mode
 │
 ├── agents/                     # Spezialisierte Sub-Agents
 │   ├── planner_agent.py        # PlannerAgent (max_context=4096, temp=0.2, depth=2)
 │   ├── synthesizer_agent.py    # SynthesizerAgent (max_context=8192, temp=0.3, reflection=1)
 │   ├── tool_selector_agent.py  # ToolSelectorAgent (max_context=4096, temp=0.1)
-│   └── head_agent_adapter.py   # HeadAgentAdapter, CoderAgentAdapter wrapping concrete agents
+│   ├── tool_selector_legacy.py # LegacyRunnerBinding — WeakMethod Rückwärtskompatibilität
+│   ├── importantPattern.md     # Agent-Architektur-Pattern Dokumentation
+│   └── head_agent_adapter.py   # 15 AgentContract-Adapter (_BaseSpecialistAdapter, _ReadOnlyAgentAdapterMixin)
 │
 ├── contracts/                  # Protocol-basierte Interfaces
 │   ├── agent_contract.py       # AgentContract ABC + AgentConstraints
@@ -129,8 +137,8 @@ backend/app/
 │   └── request_context.py      # RequestContext frozen dataclass
 │
 ├── orchestrator/               # Pipeline-Steuerung
-│   ├── pipeline_runner.py      # PipelineRunner (1256 Zeilen) — FallbackStateMachine-Integration
-│   ├── fallback_state_machine.py # INIT→SELECT→EXECUTE→SUCCESS/FAILURE→FINALIZE (804 Zeilen)
+│   ├── pipeline_runner.py      # PipelineRunner (~1160 Zeilen) — FallbackStateMachine-Integration
+│   ├── fallback_state_machine.py # INIT→SELECT→EXECUTE→SUCCESS/FAILURE→FINALIZE (~750 Zeilen)
 │   ├── run_state_machine.py    # received→queued→planning→tool_loop→synthesis→persisted
 │   ├── step_types.py           # PipelineStep: PLAN | TOOL_SELECT | TOOL_EXECUTE | SYNTHESIZE
 │   ├── step_executors.py       # Frozen-Dataclass Wrappers für Step-Functions
@@ -145,7 +153,7 @@ backend/app/
 │   ├── capability_profile.py   # ModelCapabilityProfile (Pydantic)
 │   └── context_window_guard.py # evaluate_context_window_guard()
 │
-├── services/                   # 45+ Business-Services
+├── services/                   # 60+ Business-Services
 │   ├── reflection_service.py   # ReflectionService — LLM-basierte Qualitätsbewertung
 │   ├── verification_service.py # VerificationService — Plan/Tool/Final Verifikation
 │   ├── action_parser.py        # ActionParser — JSON-Reparatur, Truncation Recovery
@@ -161,7 +169,7 @@ backend/app/
 │   ├── policy_approval_service.py # PolicyApprovalService — Human-in-the-Loop
 │   ├── circuit_breaker.py      # CircuitBreakerRegistry — Failure/Recovery Tracking
 │   ├── model_health_tracker.py # ModelHealthTracker — Ring-Buffer, gemessene Profile
-│   ├── agent_resolution.py     # resolve_agent(), capability_route_agent()
+│   ├── agent_resolution.py     # resolve_agent(), capability_route_agent() — 15-Agenten-Routing
 │   ├── agent_isolation.py      # AgentIsolationPolicy — Memory/Tool/State Isolation
 │   ├── long_term_memory.py     # LongTermMemoryStore — SQLite, Failure/Episodic/Semantic
 │   ├── failure_retriever.py    # FailureRetriever — Past-Failure-Kontext für Planner
@@ -171,18 +179,55 @@ backend/app/
 │   ├── tool_telemetry.py       # ToolTelemetry — Span-Tracking, Per-Tool-Statistiken
 │   ├── tool_result_context_guard.py # enforce_tool_result_context_budget() + PII-Redaktion
 │   ├── learning_loop.py        # LearningLoop — Tool-Outcome-Feedback an AdaptiveToolSelector
-│   └── …                       # (+ 12 weitere)
+│   ├── adaptive_tool_selector.py # AdaptiveToolSelector — Weighted Scoring für Tool-Selection
+│   ├── session_inbox_service.py # SessionInboxService — Message Queue pro Session
+│   ├── session_query_service.py # SessionQueryService — Session-State-Abfragen
+│   ├── session_security.py     # SessionSecurity — HMAC-signierte Session-IDs (SEC OE-07)
+│   ├── state_encryption.py     # StateEncryption — AES-256-GCM Encryption-at-Rest (SEC OE-08)
+│   ├── rate_limiter.py         # RateLimiter — Token-Bucket per IP/Session (SEC OE-03)
+│   ├── directive_parser.py     # DirectiveParser — @queue:steer, @reasoning:high, etc.
+│   ├── request_normalization.py# RequestNormalization — Queue/Prompt/Reasoning-Level Normalisierung
+│   ├── action_augmenter.py     # ActionAugmenter — Intent-gesteuerte Argument-Erweiterung
+│   ├── tool_arg_validator.py   # ToolArgValidator — Argument-Validierung + Command-Policy
+│   ├── prompt_ab_registry.py   # PromptAbRegistry — Prompt-A/B-Testing-Varianten
+│   ├── error_taxonomy.py       # ErrorTaxonomy — Canonical Error-Klassifikation für Tools
+│   ├── self_healing_loop.py    # SelfHealingLoop — Root-Cause-Analyse + Recovery + Retry
+│   ├── graceful_degradation.py # GracefulDegradation — Partial Results statt "Failed"
+│   ├── tool_discovery_engine.py# ToolDiscoveryEngine — 4-Phasen Tool-Discovery-Pipeline
+│   ├── tool_knowledge_base.py  # ToolKnowledgeBase — SQLite Tool-Wissens-Speicher
+│   ├── tool_chain_planner.py   # ToolChainPlanner — Multi-Step Toolchain-Planung
+│   ├── tool_ecosystem_map.py   # ToolEcosystemMap — Graph der Tool-Ökosysteme
+│   ├── tool_provisioner.py     # ToolProvisioner — Install + Verify Pipeline mit Audit
+│   ├── tool_synthesizer.py     # ToolSynthesizer — Ad-hoc Script-Generierung in Sandbox
+│   ├── tool_policy_service.py  # ToolPolicyService — Policy-Verwaltung REST-Logik
+│   ├── execution_contract.py   # ExecutionContract — Pre/Post-Conditions für Tool-Calls
+│   ├── execution_pattern_detector.py # ExecutionPatternDetector — Anti-Pattern-Erkennung
+│   ├── code_sandbox.py         # CodeSandbox — Isolierte Code-Ausführung
+│   ├── environment_snapshot.py # EnvironmentSnapshot — Pre-Install-State + Rollback
+│   ├── package_manager_adapter.py # PackageManagerAdapter — npm/pip/apt/brew/choco Adapter
+│   ├── provisioning_policy.py  # ProvisioningPolicy — Governance für Tool-Installation
+│   ├── vision_service.py       # VisionService — Bild-Analyse via LLM
+│   ├── web_search.py           # WebSearch — Web-Suche mit Fallback-Providern
+│   ├── benchmark_calibration.py# BenchmarkCalibration — Modell-Benchmark-Kalibrierung
+│   ├── control_fingerprints.py # ControlFingerprints — Tool-Policy Fingerprint-Berechnung
+│   ├── idempotency_service.py  # IdempotencyService — Request-Deduplizierung
+│   ├── idempotency_manager.py  # IdempotencyManager — TTL-basierter Idempotency-Cache
+│   └── reflection_feedback_store.py # ReflectionFeedbackStore — Reflection-Verdicts Persistenz
 │
 ├── state/                      # Persistence Layer
 │   ├── state_store.py          # SqliteStateStore + StateStore Protocol
 │   ├── task_graph.py           # TaskGraph, TaskNode, TaskStatus
+│   ├── snapshots.py            # Run-Snapshot Serialisierung + Restore
 │   └── context_reducer.py      # ContextReducer — Budget-basierte Kontext-Komprimierung
 │
 ├── skills/                     # Skills Engine
 │   ├── service.py              # SkillsService — Discovery + Caching + Snapshot
 │   ├── discovery.py            # discover_skills() — SKILL.md Scanner
 │   ├── eligibility.py          # filter_eligible_skills()
-│   ├── models.py               # SkillSnapshot
+│   ├── models.py               # SkillDefinition, SkillSnapshot, SkillMetadata
+│   ├── parser.py               # Skill-Datei-Parser (SKILL.md → SkillDefinition)
+│   ├── retrieval.py            # Skill-Retrieval mit Relevanz-Scoring
+│   ├── snapshot.py             # build_skill_snapshot() + Prompt-Rendering
 │   └── prompt.py               # Skill-Prompt Rendering
 │
 ├── routers/                    # FastAPI Router-Definitionen
@@ -335,20 +380,60 @@ def configure_cors(*, app, settings):
 
 ### 5.1 HeadAgent — Zentrale Klasse
 
-`HeadAgent` (`agent.py`, 2924 Zeilen) ist die Kernklasse des Systems. Jeder Agent-Typ (head, coder, review) ist eine Spezialisierung:
+`HeadAgent` (`agent.py`, ~2900 Zeilen) ist die Kernklasse des Systems. 15 Agent-Typen spezialisieren sie:
 
 ```python
 class HeadAgent:
     def __init__(self, name, role, client, memory, tools, model_registry, context_reducer,
                  spawn_subrun_handler, policy_approval_handler): ...
+```
 
-class CoderAgent(HeadAgent):
-    def __init__(self):
-        super().__init__(name=settings.coder_agent_name, role="coding-agent")
+**15 registrierte Agenten:**
 
-class ReviewAgent(HeadAgent):
-    def __init__(self):
-        super().__init__(name=settings.review_agent_name, role="review-agent")
+| Agent-Klasse | Rolle | Adapter | Zugriff | Temp |
+|---|---|---|---|---|
+| `HeadAgent` | `head-agent` | `HeadAgentAdapter` | Unrestricted | 0.3 |
+| `CoderAgent` | `coding-agent` | `CoderAgentAdapter` | Unrestricted | 0.3 |
+| `ReviewAgent` | `review-agent` | `ReviewAgentAdapter` | Read-only | 0.2 |
+| `ResearcherAgent` | `researcher-agent` | `ResearcherAgentAdapter` | Read-only | 0.25 |
+| `ArchitectAgent` | `architect-agent` | `ArchitectAgentAdapter` | Read-only | 0.35 |
+| `TestAgent` | `test-agent` | `TestAgentAdapter` | Read + Test-Runner | 0.15 |
+| `SecurityAgent` | `security-agent` | `SecurityAgentAdapter` | Read + Audit-CLI | 0.1 |
+| `DocAgent` | `doc-agent` | `DocAgentAdapter` | Read + Write (.md) | 0.4 |
+| `RefactorAgent` | `refactor-agent` | `RefactorAgentAdapter` | Unrestricted | 0.2 |
+| `DevOpsAgent` | `devops-agent` | `DevOpsAgentAdapter` | Unrestricted | 0.2 |
+| `FinTechAgent` | `fintech-agent` | `FinTechAgentAdapter` | Read-only | 0.15 |
+| `HealthTechAgent` | `healthtech-agent` | `HealthTechAgentAdapter` | Read-only (strict) | 0.1 |
+| `LegalTechAgent` | `legaltech-agent` | `LegalTechAgentAdapter` | Read-only | 0.15 |
+| `ECommerceAgent` | `ecommerce-agent` | `ECommerceAgentAdapter` | Unrestricted | 0.25 |
+| `IndustryTechAgent` | `industrytech-agent` | `IndustryTechAgentAdapter` | Read + Commands | 0.2 |
+
+**Adapter-Architektur (`head_agent_adapter.py`):**
+
+```
+_BASE_WRITE_DENY (frozenset)        ← Modul-Konstante: 6 verbotene Tools
+     │
+_ReadOnlyAgentAdapterMixin          ← Mixin: _build_read_only_policy()
+     │
+_BaseSpecialistAdapter(AgentContract) ← Gemeinsames Scaffold:
+     │                                   name, configure_runtime, run(),
+     │                                   normalize_tool_policy() → No-Op-Default
+     │
+     ├── HeadAgentAdapter            ← Unrestricted
+     ├── CoderAgentAdapter           ← Unrestricted, output_schema=CoderAgentOutput
+     ├── ReviewAgentAdapter(Mixin)   ← Read-only + _has_review_evidence() Guard
+     ├── ResearcherAgentAdapter(Mixin) ← Read-only, max_context=16384
+     ├── ArchitectAgentAdapter(Mixin)  ← Read-only, reflection=2, depth=4
+     ├── TestAgentAdapter            ← _BASE_WRITE_DENY - {run_command, code_execute}
+     ├── SecurityAgentAdapter(Mixin) ← _BASE_WRITE_DENY - {run_command}
+     ├── DocAgentAdapter             ← No apply_patch/run_command/code_execute
+     ├── RefactorAgentAdapter        ← Unrestricted (full access)
+     ├── DevOpsAgentAdapter          ← Unrestricted (full access)
+     ├── FinTechAgentAdapter(Mixin)  ← Read-only, depth=4, max_context=16384
+     ├── HealthTechAgentAdapter(Mixin) ← Read-only (strictest), depth=4
+     ├── LegalTechAgentAdapter(Mixin)  ← Read-only, depth=3, max_context=12288
+     ├── ECommerceAgentAdapter       ← Unrestricted
+     └── IndustryTechAgentAdapter    ← _BASE_WRITE_DENY - {run_command, code_execute}
 ```
 
 **Injizierte Komponenten im Konstruktor:**
@@ -962,7 +1047,7 @@ class SessionLaneManager:
 
 ### 6.6 SubrunLane (`orchestrator/subrun_lane.py`)
 
-Rekursive Agent-Delegation mit Tiefenbegrenzung:
+Rekursive Agent-Delegation mit Tiefenbegrenzung und **Multi-Agency-Integration**:
 
 ```python
 class SubrunLane:
@@ -970,6 +1055,11 @@ class SubrunLane:
         self._semaphore = asyncio.Semaphore(max_concurrent)  # Default: 2
         self._max_spawn_depth = max_spawn_depth              # Default: 2
         self._max_children_per_parent = max_children_per_parent  # Default: 5
+        self._coordination_bridge = None  # Multi-Agency CoordinationBridge
+
+    def set_coordination_bridge(self, bridge):
+        """Attach CoordinationBridge for confidence-based routing on completion."""
+        self._coordination_bridge = bridge
 
     async def spawn(self, parent_request_id, parent_session_id, user_message,
                     runtime, model, timeout_seconds, tool_policy, send_event,
@@ -978,7 +1068,9 @@ class SubrunLane:
         # 2. Kinder-Limit prüfen (max_children_per_parent)
         # 3. Semaphore erwerben
         # 4. orchestrator_api.run_user_message(message, ..., request_context)
-        # 5. Ergebnis zurückgeben oder Timeout
+        # 5. Bei Completion: CoordinationBridge.on_subrun_completed() → Confidence-Evaluation
+        # 6. Confidence-Decision an handover_contract anhängen
+        # 7. Ergebnis zurückgeben oder Timeout
 ```
 
 **Spawn-Hierarchie:**
@@ -989,6 +1081,8 @@ Root Run (depth=0)
         └── Subrun A.2 (depth=2)
   └── Subrun B (depth=1)
 ```
+
+**Multi-Agency-Integration:** Wenn ein `CoordinationBridge` angehängt ist, wird nach dem Completion-Callback jeder Subrun-Abschluss durch `bridge.on_subrun_completed()` evaluiert. Die Confidence-Entscheidung (accept/review/redelegate/reject) wird am `handover_contract` als `confidence_decision` angehängt und fliesst in `agent.py` in die Handover-Auswertung ein.
 
 ### 6.7 Lifecycle Events (`orchestrator/events.py`)
 
@@ -1650,6 +1744,22 @@ skills_dir/SKILL.md → discover_skills() → filter_eligible_skills() →
     build_skill_snapshot() → SkillSnapshot(prompt, skills, counts)
 ```
 
+**Mitgelieferte Skills (11 SKILL.md-Dateien):**
+
+| Skill-Verzeichnis | Beschreibung |
+|---|---|
+| `git-workflow/` | Git-Workflow-Best-Practices |
+| `code-review-checklist/` | Code-Review-Checkliste |
+| `test-generation/` | Test-Generierungs-Patterns |
+| `api-design-patterns/` | REST-API-Design-Standards |
+| `python-best-practices/` | Python-Idiome & Best Practices |
+| `error-diagnosis/` | Fehlerdiagnose & Debugging |
+| `fintech-compliance/` | FinTech-Regulatorik (PSD2, PCI-DSS) |
+| `healthtech-compliance/` | HealthTech-Regulatorik (HIPAA, MDR) |
+| `legaltech-compliance/` | LegalTech-Regulatorik (DSGVO, CCPA) |
+| `ecommerce-patterns/` | E-Commerce-Patterns (Cart, Checkout) |
+| `industrytech-iot/` | IndustryTech/IoT-Patterns (OPC UA, Edge) |
+
 ### 11.2 McpBridge
 
 Model Context Protocol (MCP) Integration:
@@ -1700,11 +1810,268 @@ async def _invoke_hooks(self, *, hook_name, send_event, request_id, session_id, 
 
 ---
 
-## 12. Contract-System
+## 12. Multi-Agency-Subsystem
+
+> **Neu in v1.2.** Echte Multi-Agent-Koordination jenseits des bisherigen parametrisierten Single-Agent-Modells.
+
+### 12.1 Architektur-Überblick
+
+Das Multi-Agency-Subsystem (`app/multi_agency/`) ersetzt das bisherige Hub-and-Spoke-Modell (gleicher Code, unterschiedliche Prompts) durch echte strukturelle Differenzierung zwischen Agents und deterministische Koordination:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     CoordinationBridge                           │
+│              (Integration Layer → SubrunLane / Agent)            │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────┐   │
+│  │   Supervisor     │  │  Confidence      │  │  Consensus     │   │
+│  │   Coordinator    │  │  Router          │  │  Engine        │   │
+│  │                  │  │                  │  │                │   │
+│  │  Task Decomp.    │  │  Handover Eval.  │  │  5 Strategies  │   │
+│  │  Capability Fit  │  │  History Learn.  │  │  Conflict Res. │   │
+│  │  Quality Gates   │  │  Quality Gates   │  │  Result Merge  │   │
+│  │  Re-Delegation   │  │  Re-Delegation   │  │  Quorum        │   │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬───────┘   │
+│           │                     │                     │           │
+│  ┌────────▼─────────────────────▼─────────────────────▼───────┐   │
+│  │                    Shared Infrastructure                   │   │
+│  │                                                            │   │
+│  │  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐   │   │
+│  │  │  Blackboard   │  │  Message Bus│  │  Agent Registry  │   │   │
+│  │  │  (Shared      │  │  (Direct +  │  │  (Identity Cards │   │   │
+│  │  │   State)      │  │   Pub/Sub)  │  │   + Capabilities)│   │   │
+│  │  └──────────────┘  └─────────────┘  └──────────────────┘   │   │
+│  │                                                            │   │
+│  │  ┌─────────────────────────────────────────────────────┐   │   │
+│  │  │  ParallelFanOutExecutor (DAG + Race + Quorum)       │   │   │
+│  │  └─────────────────────────────────────────────────────┘   │   │
+│  └────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Kern-Unterscheidung zum alten Modell:**
+
+| Aspekt | Alt (v1.1) | Neu (v1.2) |
+|--------|-----------|-----------|
+| Agent-Differenzierung | Gleicher Code, anderes Prompt | Distinct IdentityCards mit Capabilities, Tools, Reasoning |
+| Koordination | LLM entscheidet alles | Supervisor mit deterministischer Arbeitsverteilung |
+| Kommunikation | Nur über Parent-Memory | Direkte Agent-zu-Agent-Messages + Blackboard |
+| Confidence | Serialisiert, nie evaluiert | ConfidenceRouter mit Routing-Entscheidungen |
+| Execution | Sequentiell | Parallel DAG, Fan-Out/Fan-In, Race, Quorum |
+| Konfliktlösung | Keine | ConsensusEngine mit 5 Voting-Strategien |
+| State Sharing | Implicit via Memory | Explizit via Blackboard mit Provenance |
+
+### 12.2 Blackboard (`multi_agency/blackboard.py`)
+
+Shared-State-System mit Provenance-Tracking, sichtbar für alle Agents einer Session:
+
+```python
+class Blackboard:
+    async def write(*, section, key, value, author_agent_id, confidence, tags) -> BlackboardEntry
+    async def read(*, section, key) -> BlackboardEntry | None
+    async def read_section(section) -> dict[str, BlackboardEntry]
+    async def read_by_agent(agent_id) -> list[BlackboardEntry]
+    async def read_history(*, section, key) -> list[BlackboardEntry]
+    async def get_conflicts() -> list[ConflictRecord]
+    def watch(*, section, key, callback)      # Key-spezifisch
+    def watch_all(callback)                    # Alle Änderungen
+    async def snapshot() -> dict[str, Any]     # Serialisierbar
+```
+
+**Features:**
+- **Sections:** Logische Gruppierung (z.B. `"plan"`, `"results"`, `"assignments"`)
+- **Provenance:** Jeder Eintrag hat `author_agent_id`, `timestamp`, `entry_id`
+- **Versioning:** Auto-inkrementierende Version pro Key, `supersedes`-Referenz
+- **Conflict Detection:** Erkennt Schreibkonflikte innerhalb eines 2-Sekunden-Fensters
+- **Watchers:** Async Callbacks bei Änderungen (key-spezifisch oder global)
+
+### 12.3 Agent Message Bus (`multi_agency/agent_message_bus.py`)
+
+Direkte Agent-zu-Agent-Kommunikation als Ersatz für die Hub-and-Spoke-Parent-Memory-Kommunikation:
+
+```python
+class AgentMessageBus:
+    async def register_agent(agent_id)
+    async def send(*, sender, recipient, payload, message_type, priority)
+    async def request(*, sender, recipient, payload, timeout) -> AgentMessage | None  # RPC
+    async def reply(*, original_message, sender, payload)
+    async def subscribe(agent_id, topic)
+    async def publish(*, sender, topic, payload)
+    async def receive(agent_id) -> AgentMessage | None         # Non-blocking
+    async def receive_wait(agent_id, timeout) -> AgentMessage | None  # Blocking
+```
+
+**Message-Typen:** `DIRECT`, `BROADCAST`, `REQUEST`, `REPLY`, `TOPIC`, `COORDINATION`, `RESULT`, `HEARTBEAT`
+
+**Priority-System:** `URGENT` → Front der Queue, `HIGH` → nach URGENT, `NORMAL`/`LOW` → FIFO
+
+**Dead Letter Queue:** Unzustellbare Nachrichten (unbekannter Recipient, voller Mailbox) landen in `_dead_letter_queue`
+
+### 12.4 Agent Identity (`multi_agency/agent_identity.py`)
+
+Echte strukturelle Differenzierung zwischen Agents (nicht nur Prompt-Unterschiede):
+
+```python
+@dataclass(frozen=True)
+class AgentIdentityCard:
+    agent_id: str
+    role: AgentRole              # COORDINATOR | SPECIALIST | REVIEWER | RESEARCHER | ...
+    reasoning_strategy: str      # BREADTH_FIRST | DEPTH_FIRST | VERIFY_FIRST | PLAN_EXECUTE | ...
+    capability_profile: AgentCapabilityProfile
+    confidence_threshold: float
+    delegation_preference: str   # "eager" | "selective" | "reluctant"
+```
+
+**Vordefinierte Agents (15 IdentityCards in `DEFAULT_AGENT_IDENTITIES`):**
+
+| Agent | Rolle | Reasoning | Key Capabilities | Delegation |
+|-------|-------|-----------|-----------------|------------|
+| `head-agent` | Coordinator | Plan-Execute | coordination, delegation, synthesis | Eager |
+| `coder-agent` | Specialist | Depth-First | code_reasoning, debugging, testing | Reluctant |
+| `review-agent` | Reviewer | Verify-First | review_analysis, security_review | Reluctant |
+| `researcher-agent` | Researcher | Breadth-First | web_retrieval, fact_checking | Reluctant |
+| `architect-agent` | Specialist | Breadth-First | system_design, architecture_review | Selective |
+| `test-agent` | Specialist | Verify-First | test_generation, test_strategy | Reluctant |
+| `security-agent` | Reviewer | Verify-First | security_audit, vulnerability_analysis | Reluctant |
+| `doc-agent` | Specialist | Plan-Execute | documentation, api_docs | Reluctant |
+| `refactor-agent` | Specialist | Depth-First | code_restructuring, pattern_application | Reluctant |
+| `devops-agent` | Specialist | Plan-Execute | ci_cd, infrastructure, deployment | Selective |
+| `fintech-agent` | Specialist | Verify-First | compliance_psd2, payment_systems | Reluctant |
+| `healthtech-agent` | Specialist | Verify-First | hipaa_compliance, medical_data | Reluctant |
+| `legaltech-agent` | Specialist | Verify-First | gdpr_compliance, legal_analysis | Reluctant |
+| `ecommerce-agent` | Specialist | Plan-Execute | cart_checkout, catalog_management | Selective |
+| `industrytech-agent` | Specialist | Depth-First | iot_protocols, edge_computing | Reluctant |
+
+**AgentRegistry:** Runtime-Discovery, Lookup by Role/Capability, `find_best_match()` für optimales Agent-Matching.
+
+### 12.5 Confidence Router (`multi_agency/confidence_router.py`)
+
+Evaluiert Handover-Contracts und trifft echte Routing-Entscheidungen basierend auf Confidence-Scores:
+
+```python
+class ConfidenceRouter:
+    def evaluate_handover(*, handover_contract, source_agent_id, task_description) -> ConfidenceRouteDecision
+    def route_by_confidence(*, required_capabilities, preferred_quality) -> ConfidenceRouteDecision
+    def record_outcome(*, agent_id, task_description, confidence, outcome)
+```
+
+**Entscheidungslogik:**
+
+| Adjusted Score | Action | Beschreibung |
+|---------------|--------|-------------|
+| ≥ 0.7 | `accept` | Ergebnis angenommen |
+| ≥ 0.5 | `review` | An Review-Agent weiterleiten |
+| ≥ 0.3 | `redelegate` | An alternativen Agent delegieren |
+| < 0.3 | `reject` | Ergebnis verworfen |
+
+**Score-Faktoren:** Raw Confidence × (1 − history_weight) + Historical Confidence × history_weight, mit Penalties für `subrun-error`/`subrun-timeout` (×0.3) und `synthesis_valid=False` (×0.5).
+
+### 12.6 Supervisor Coordinator (`multi_agency/supervisor.py`)
+
+Deterministische Arbeitsverteilung — ersetzt LLM-gesteuerte Delegations-Entscheidungen:
+
+```python
+class SupervisorCoordinator:
+    async def create_session(session_id, strategy) -> CoordinationSession
+    async def decompose_and_assign(*, session_id, task_descriptions) -> list[SupervisorDecision]
+    async def report_result(*, session_id, task_id, result, confidence, agent_id) -> SupervisorDecision
+    async def cancel_task(session_id, task_id, reason)
+    async def get_session_status(session_id) -> dict
+```
+
+**Workflow:**
+1. **Task Decomposition:** Eingehende Tasks mit `required_capabilities` annotiert
+2. **Capability Matching:** `AgentRegistry` findet den besten Agent (Score = matched/required)
+3. **Overload-Check:** Wenn Agent an `max_concurrent_tasks`, nächstbester Agent gewählt
+4. **Blackboard-Logging:** Jede Zuweisung und Re-Delegation wird auf das Blackboard geschrieben
+5. **Quality Gate:** `report_result()` prüft Confidence gegen Thresholds
+6. **Re-Delegation:** Bei Confidence < `re_delegation_threshold` → anderer Agent, maximal `max_retries`
+
+**Strategien:** `SEQUENTIAL`, `PARALLEL`, `PIPELINE`, `COMPETITIVE`, `HIERARCHICAL`
+
+### 12.7 Parallel Fan-Out Executor (`multi_agency/parallel_executor.py`)
+
+Ersetzt die sequentielle PlanGraph-Ausführung durch echte parallele DAG-Execution:
+
+```python
+class ParallelFanOutExecutor:
+    async def fan_out(*, tasks, mode, timeout) -> FanOutResult
+    async def execute_dag(*, steps: list[DAGStep], timeout) -> list[dict]
+```
+
+**Fan-Out-Modi:**
+
+| Modus | Verhalten |
+|-------|-----------|
+| `ALL` | Wartet auf alle Agents, gibt höchste Confidence zurück |
+| `RACE` | Erster fertig gewordener Agent gewinnt |
+| `QUORUM` | Akzeptiert wenn N Agents übereinstimmen |
+| `BEST` | Wartet auf alle, wählt höchste Confidence |
+
+**DAG-Execution:** Steps mit erfüllten Dependencies werden parallel ausgeführt. Dependency-Ergebnisse werden via `context["dependency_results"]` injiziert. Deadlock-Detection bei unerfüllbaren Dependencies.
+
+### 12.8 Consensus Engine (`multi_agency/consensus.py`)
+
+Multi-Agent-Abstimmung und Konfliktlösung:
+
+```python
+class ConsensusEngine:
+    def vote(*, votes, strategy, required_capabilities) -> ConsensusResult
+    def merge_results(*, results, merge_strategy) -> dict
+```
+
+**Voting-Strategien:**
+
+| Strategie | Gewichtung | Konsens-Kriterium |
+|-----------|-----------|-------------------|
+| `MAJORITY` | Gleich (1.0) | > 50% der Stimmen |
+| `WEIGHTED_CONFIDENCE` | Nach Confidence | > 50% des Gewichts |
+| `WEIGHTED_EXPERTISE` | Nach Capability-Match | > 50% des Gewichts |
+| `UNANIMOUS` | Gleich (1.0) | Alle müssen übereinstimmen |
+| `BEST_OF_N` | Nach Confidence | Höchste Confidence gewinnt |
+
+**Conflict Detection:** Jaccard-Similarity auf Wort-Ebene. Similarity < `conflict_similarity_threshold` (0.8) → Conflict Record.
+
+**Merge-Strategien:** `concatenate` (alle), `deduplicate` (unique), `best_sections` (höchste Confidence).
+
+### 12.9 Coordination Bridge (`multi_agency/coordination_bridge.py`)
+
+Integration Layer — verbindet das Multi-Agency-Subsystem mit der bestehenden Architektur:
+
+```python
+class CoordinationBridge:
+    def __init__(self, session_id, send_event)
+    async def initialize(agent_executor)
+    async def on_subrun_completed(*, parent_session_id, run_id, child_agent_id, ...) -> ConfidenceRouteDecision
+    def route_agent(*, required_capabilities, preferred_quality) -> ConfidenceRouteDecision
+    async def assign_tasks(tasks) -> list[SupervisorDecision]
+    async def execute_plan_parallel(steps, timeout) -> list[dict]
+    async def fan_out(tasks, mode, timeout) -> FanOutResult
+    async def vote_on_results(results, strategy) -> ConsensusResult
+    async def send_agent_message(*, sender, recipient, payload)
+    async def request_from_agent(*, sender, recipient, payload, timeout)
+```
+
+**7 Integrationspunkte:**
+
+1. **SubrunLane Completion** → `on_subrun_completed()` evaluiert Confidence, schreibt auf Blackboard
+2. **Agent Routing** → `route_agent()` mit historischer Confidence-Gewichtung
+3. **Task Assignment** → `assign_tasks()` via Supervisor mit Capability Matching
+4. **Parallel DAG** → `execute_plan_parallel()` ersetzt sequentiellen PlanGraph
+5. **Fan-Out** → `fan_out()` für parallele Agent-Ausführung
+6. **Consensus** → `vote_on_results()` für Multi-Agent-Abstimmung
+7. **Agent Messaging** → `send_agent_message()` / `request_from_agent()` für direkte Kommunikation
+
+**Blackboard-Watcher:** Reagiert automatisch auf `"results"` Section-Einträge und leitet Task-Ergebnisse an den Supervisor weiter.
+
+---
+
+## 13. Contract-System
 
 Alle Schicht-Grenzen sind durch **Protocol-basierte Interfaces** definiert (kein Tight Coupling):
 
-### 12.1 AgentContract
+### 13.1 AgentContract
 
 ```python
 class AgentContract(ABC):
@@ -1721,7 +2088,7 @@ class AgentConstraints:
     combine_steps: bool     # Steps zusammenfassen
 ```
 
-### 12.2 ToolProvider Protocol
+### 13.2 ToolProvider Protocol
 
 ```python
 class ToolProvider(Protocol):
@@ -1741,7 +2108,7 @@ class ToolProvider(Protocol):
         # Wird vor run_command genutzt um fehlende Tools frühzeitig zu erkennen
 ```
 
-### 12.3 ToolSelectorRuntime Protocol
+### 13.3 ToolSelectorRuntime Protocol
 
 ```python
 class ToolSelectorRuntime(Protocol):
@@ -1751,7 +2118,7 @@ class ToolSelectorRuntime(Protocol):
     ) -> str: ...
 ```
 
-### 12.4 Pipeline Schemas
+### 13.4 Pipeline Schemas
 
 ```python
 # Input/Output-Contracts für jeden Pipeline-Step:
@@ -1791,7 +2158,7 @@ class SynthesizerOutput:
     final_text: str
 ```
 
-### 12.5 RequestContext
+### 13.5 RequestContext
 
 ```python
 @dataclass(frozen=True)
@@ -1815,11 +2182,11 @@ class RequestContext:
 
 ---
 
-## 13. Konfiguration
+## 14. Konfiguration
 
-### 13.1 Settings-Klasse (`config.py`)
+### 14.1 Settings-Klasse (`config.py`)
 
-~180 Felder als Pydantic `BaseModel`, alle über Umgebungsvariablen steuerbar:
+~230 Felder als Pydantic `BaseModel`, alle über Umgebungsvariablen steuerbar:
 
 #### Kern-Parameter
 
@@ -1892,12 +2259,14 @@ class RequestContext:
 | `circuit_breaker_enabled` | `False` | Circuit-Breaker aktiv |
 | `model_health_tracker_enabled` | `False` | Live Health-Tracking aktiv |
 | `tool_selection_function_calling_enabled` | `False` | Function-Calling-basierte Tool-Selection |
+| `multi_agency_enabled` | `False` | Multi-Agency-Koordination (CoordinationBridge in SubrunLane) |
+| `capability_routing_enabled` | `True` | Capability-basiertes Agent-Routing (15 Agenten) |
 
 ---
 
-## 14. Startup & Shutdown
+## 15. Startup & Shutdown
 
-### 14.1 Startup-Sequenz (`startup_tasks.py`)
+### 15.1 Startup-Sequenz (`startup_tasks.py`)
 
 ```python
 def run_startup_sequence(*, settings, logger, ensure_runtime_components_initialized):
@@ -1915,7 +2284,7 @@ def clear_startup_persistence(*, settings, logger):
         # Löscht alle .json in state_store/runs/ und state_store/snapshots/
 ```
 
-### 14.2 Shutdown-Sequenz
+### 15.2 Shutdown-Sequenz
 
 ```python
 def run_shutdown_sequence(*, active_run_tasks, logger):
@@ -1925,7 +2294,7 @@ def run_shutdown_sequence(*, active_run_tasks, logger):
     active_run_tasks.clear()
 ```
 
-### 14.3 App-Lifespan
+### 15.3 App-Lifespan
 
 ```python
 def build_lifespan_context(*, on_startup, on_shutdown):
@@ -1939,17 +2308,29 @@ def build_lifespan_context(*, on_startup, on_shutdown):
     return _lifespan
 ```
 
-### 14.4 main.py — Wiring
+### 15.4 main.py — Wiring
 
 `main.py` ist die **Composition Root** — alle Abhängigkeiten werden hier verdrahtet:
 
 ```python
 app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 
-# Agents
+# Agents (15 IDs)
 PRIMARY_AGENT_ID = "head-agent"
 CODER_AGENT_ID = "coder-agent"
 REVIEW_AGENT_ID = "review-agent"
+RESEARCHER_AGENT_ID = "researcher-agent"
+ARCHITECT_AGENT_ID = "architect-agent"
+TEST_AGENT_ID = "test-agent"
+SECURITY_AGENT_ID = "security-agent"
+DOC_AGENT_ID = "doc-agent"
+REFACTOR_AGENT_ID = "refactor-agent"
+DEVOPS_AGENT_ID = "devops-agent"
+FINTECH_AGENT_ID = "fintech-agent"
+HEALTHTECH_AGENT_ID = "healthtech-agent"
+LEGALTECH_AGENT_ID = "legaltech-agent"
+ECOMMERCE_AGENT_ID = "ecommerce-agent"
+INDUSTRYTECH_AGENT_ID = "industrytech-agent"
 
 # Control Plane
 control_plane_state = ControlPlaneState()
@@ -1959,7 +2340,7 @@ idempotency_mgr = IdempotencyManager(ttl_seconds=..., max_entries=...)
 include_control_routers(app, run_start_handler=..., sessions_list_handler=..., ...)
 
 # Runtime Components (Lazy)
-# → HeadAgent, CoderAgent, ReviewAgent
+# → 15 Agents (HeadAgent..IndustryTechAgent) via base_agent_registry
 # → OrchestratorApi pro Agent
 # → ModelRouter, ModelHealthTracker, CircuitBreakerRegistry
 # → SubrunLane, SessionLaneManager
@@ -1973,7 +2354,7 @@ include_control_routers(app, run_start_handler=..., sessions_list_handler=..., .
 
 ---
 
-## 15. Datenfluss: Request Lifecycle (End-to-End)
+## 16. Datenfluss: Request Lifecycle (End-to-End)
 
 ```
  Client
@@ -1987,7 +2368,7 @@ include_control_routers(app, run_start_handler=..., sessions_list_handler=..., .
    ├── 2. parse_directives_from_message() → @queue:steer, @reasoning:high, etc.
    ├── 3. normalize_queue_mode(), normalize_prompt_mode()
    ├── 4. route_agent_for_message() → capability_route_agent()
-   │       → "head-agent" | "coder-agent" | "review-agent"
+   │       → "head-agent" | "coder-agent" | … | "industrytech-agent" (15 Agenten)
    ├── 5. resolve_agent(agent_id) → (agent_id, AgentLike, OrchestratorApi)
    ├── 6. session_inbox.enqueue(session_id, run_id, message, meta)
    ├── 7. ensure_session_worker(session_id)
@@ -2047,9 +2428,9 @@ include_control_routers(app, run_start_handler=..., sessions_list_handler=..., .
 
 ---
 
-## 16. Concurrency-Modell
+## 17. Concurrency-Modell
 
-### 16.1 Architektur
+### 17.1 Architektur
 
 ```
                     ┌──────────────────────────────┐
@@ -2072,7 +2453,7 @@ include_control_routers(app, run_start_handler=..., sessions_list_handler=..., .
    └──────────────────────────┘
 ```
 
-### 16.2 Guards
+### 17.2 Guards
 
 | Guard | Mechanismus | Default |
 |-------|-----------|---------|
@@ -2085,7 +2466,7 @@ include_control_routers(app, run_start_handler=..., sessions_list_handler=..., .
 | Active Run Counter | `_active_run_count` | Prevents configure during run |
 | Send-Event Lock | `asyncio.Lock` | Sequentielle WS-Sends |
 
-### 16.3 Steer-Interrupt
+### 17.3 Steer-Interrupt
 
 ```python
 def should_steer_interrupt() -> bool:
@@ -2096,9 +2477,9 @@ Wird in der Tool-Loop geprüft — bei `True` wird der aktuelle Run mit `steer_i
 
 ---
 
-## 17. Fehler-Taxonomie & Recovery
+## 18. Fehler-Taxonomie & Recovery
 
-### 17.1 Exception-Hierarchie
+### 18.1 Exception-Hierarchie
 
 | Exception | Kategorie | Recovery |
 |-----------|----------|---------|
@@ -2109,7 +2490,7 @@ Wird in der Tool-Loop geprüft — bei `True` wird der aktuelle Run mit `steer_i
 | `RuntimeSwitchError` | `runtime_error` | Benutzer informieren |
 | `ClientDisconnectedError` | `client_error` | Run abbrechen, State aufräumen |
 
-### 17.2 LLM-Failover-Recovery
+### 18.2 LLM-Failover-Recovery
 
 ```
 Fehler → classify(message) → failover_reason
@@ -2123,7 +2504,7 @@ Fehler → classify(message) → failover_reason
   └── non_retryable → sofort abbrechen
 ```
 
-### 17.3 Tool-Loop-Recovery
+### 18.3 Tool-Loop-Recovery
 
 ```
 Tool-Result-State → Recovery-Strategie
@@ -2140,7 +2521,7 @@ Tool-Result-State → Recovery-Strategie
 
 **Retry-Delegation (neu):** `_is_retryable_tool_error()` delegiert an `ToolRetryStrategy.decide()` anstatt inline Retry-Logik. Der Retry-Strategy klassifiziert Fehler nach Taxonomie (`ErrorCategory`) und wählt die passende Strategie (`BACKOFF`, `ESCALATE`, `REPLAN`, `SKIP`).
 
-### 17.4 Failure Journal
+### 18.4 Failure Journal
 
 ```python
 # Bei jeder Exception in run():
@@ -2157,7 +2538,7 @@ self._long_term_memory.add_failure(FailureEntry(
 
 ---
 
-## 18. Glossar
+## 19. Glossar
 
 | Begriff | Definition |
 |---------|-----------|
@@ -2186,6 +2567,17 @@ self._long_term_memory.add_failure(FailureEntry(
 | **PlatformInfo** | Gecachter Snapshot der Plattform-Umgebung (OS, Shell, Runtimes) |
 | **ToolProfile** | Vordefiniertes Tool-Set (read_only, research, coding, full) für Policy-Resolution |
 | **PII-Redaktion** | Automatische Entfernung sensibler Daten (API-Keys, E-Mail, etc.) aus Tool-Output |
+| **Blackboard** | Shared-State-System im Multi-Agency-Subsystem mit Provenance-Tracking und Conflict Detection |
+| **AgentMessageBus** | Direkte Agent-zu-Agent-Kommunikation (Direct, Broadcast, Request/Reply, Pub/Sub) |
+| **AgentIdentityCard** | Frozen Dataclass mit Rolle, Capabilities, Reasoning-Strategie pro Agent |
+| **AgentRegistry** | Runtime-Discovery für Agent-Identitäten (Lookup by Role, Capability, Best-Match) |
+| **ConfidenceRouter** | Evaluiert Handover-Confidence und trifft Routing-Entscheidungen (accept/review/redelegate/reject) |
+| **SupervisorCoordinator** | Deterministische Arbeitsverteilung mit Capability-Matching und Quality Gates |
+| **ParallelFanOutExecutor** | Parallele Agent-Ausführung mit Fan-Out/Fan-In, DAG, Race und Quorum Modi |
+| **ConsensusEngine** | Multi-Agent-Abstimmung mit 5 Voting-Strategien und Conflict Detection |
+| **CoordinationBridge** | Integration Layer zwischen Multi-Agency-Subsystem und bestehender SubrunLane/Agent-Architektur |
+| **Fan-Out/Fan-In** | Pattern: Aufgabe parallel an N Agents verteilen, Ergebnisse aggregieren |
+| **Quality Gate** | Confidence-basierte Prüfung ob ein Agent-Ergebnis akzeptiert, reviewed oder redelegiert wird |
 
 ---
 

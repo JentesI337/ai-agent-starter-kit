@@ -11,13 +11,21 @@ Eine reproduzierbare, erweiterbare Benchmark-Pipeline für den echten Agent-Lauf
 Wir nutzen ein **szenariobasiertes WebSocket-Benchmarking** mit drei Schwierigkeitsstufen und zwei Bewertungsmodi:
 
 - `easy`: deterministische Mini-Aufgabe (Antwortqualität + grundlegender Lifecycle)
+- `easy_lifecycle_full_pipeline` (gated): validiert die vollständige 11-Phasen-Pipeline (run_started → guardrails_passed → planning_completed → run_completed → request_completed)
+- `easy_structured_list` (gated): deterministische nummerierte Listenausgabe mit exakter Anzahlprüfung
 - `mid`: strukturierte Planungsaufgabe (mehrstufiges Reasoning)
+- `mid_comparative_analysis` (gated): strukturierter Multi-Kriterien-Vergleich mit Vor-/Nachteilen und Empfehlung
+- `mid_research_synthesis` (gated): Research-Synthese mit evidenzbasierten nummerierten Erkenntnissen
+- `mid_guardrail_tool_deny` (gated): Tool-Policy-Deny-Enforcement — Agent muss rein textuell antworten wenn alle Tools gesperrt sind
 - `hard_reasoning_format` (gated): strukturtreuer Research-Case ohne Shell/Tool-Seiteneffekte
 - `hard_reasoning_depth` (gated): inhaltliche Tiefe mit KPI-/Phasenanforderungen ohne Shell/Tool-Seiteneffekte
+- `hard_multi_domain_analysis` (gated): Cross-Domain-Analyse über Sicherheit, Skalierbarkeit, Observability und Developer Experience mit Top-5-Maßnahmen
+- `hard_logical_reasoning_chain` (gated): mehrstufiges deduktives Reasoning mit expliziter Argumentationskette (Prämissen → Hypothesen → Schlussfolgerung → Validierung)
 - `hard_tools_diagnostic` (non-gated): tool-lastiger Diagnosefall zur Umgebungs-/Policy-Beobachtung
 - `mid_code_execute_diagnostic` (non-gated): validiert den `code_execute`-Sandboxpfad inkl. Ergebnis-/Sicherheitskommunikation
 	- erzwingt expliziten `code_execute`-Aufruf und prüft `tool_completed`-Details (`tool=code_execute`, `status=ok`)
 	- beantwortet optional genau eine Rückfrage automatisch (`clarification_response`), um den Lauf deterministisch fortzusetzen
+- `mid_error_recovery_diagnostic` (non-gated): validiert graceful Degradation bei vollständig gesperrtem Tool-Zugriff
 
 Zusätzlich ist ein dedizierter Orchestrierungs-Case enthalten:
 

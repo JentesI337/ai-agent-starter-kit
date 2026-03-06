@@ -83,6 +83,17 @@ class CodeSandbox:
                 error_message=fs_violation,
             )
 
+        # SEC: Block dynamic code execution constructs that can bypass
+        # the static token/regex checks above (exec, eval, ctypes, etc.)
+        dangerous = self._detect_dangerous_constructs(code=code, language=normalized_language)
+        if dangerous:
+            return self._error_result(
+                strategy=self.strategy,
+                language=normalized_language,
+                error_type="dangerous_construct_blocked",
+                error_message=dangerous,
+            )
+
         if self.strategy == "docker":
             return await self._execute_docker(
                 code=code,
@@ -144,13 +155,123 @@ class CodeSandbox:
         timeout: int,
         max_output_chars: int,
     ) -> CodeExecutionResult:
-        _ = (code, language, timeout, max_output_chars)
-        return self._error_result(
-            strategy="docker",
-            language=language,
-            error_type="docker_unavailable",
-            error_message="docker strategy is not implemented yet in this phase",
-        )
+        """SEC (OE-04): Execute code inside a Docker container with isolation.
+
+        Isolation features:
+        - ``--network none``: No network access
+        - ``--read-only``: Read-only root filesystem
+        - ``--tmpfs /tmp``: Writable /tmp in memory (noexec)
+        - ``--memory 128m``: Memory limit to prevent OOM
+        - ``--cpus 0.5``: CPU limit
+        - ``--pids-limit 64``: Fork-bomb protection
+        - ``--no-new-privileges``: No privilege escalation
+        - ``--security-opt no-new-privileges``: Double enforcement
+        - Temporary workspace bind-mounted read-only
+        """
+        start = time.monotonic()
+
+        # Verify Docker is available
+        docker_path = shutil.which("docker")
+        if not docker_path:
+            return self._error_result(
+                strategy="docker",
+                language=language,
+                error_type="docker_unavailable",
+                error_message="docker executable not found in PATH",
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+
+        # Create temp dir with script
+        temp_dir = Path(tempfile.mkdtemp(prefix="code-sandbox-docker-", dir=str(self.workspace_root)))
+        script_name = "snippet.py" if language == "python" else "snippet.js"
+        script_path = temp_dir / script_name
+        script_path.write_text(code, encoding="utf-8")
+
+        # Select Docker image
+        if language == "python":
+            image = os.getenv("CODE_SANDBOX_DOCKER_IMAGE_PYTHON", "python:3.12-slim")
+            cmd_in_container = ["python", "-I", "-B", f"/sandbox/{script_name}"]
+        elif language == "javascript":
+            image = os.getenv("CODE_SANDBOX_DOCKER_IMAGE_JS", "node:20-slim")
+            cmd_in_container = ["node", f"/sandbox/{script_name}"]
+        else:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return self._error_result(
+                strategy="docker",
+                language=language,
+                error_type="unsupported_language",
+                error_message=f"Docker sandbox does not support language '{language}'",
+            )
+
+        docker_args = [
+            docker_path, "run", "--rm",
+            "--network", "none",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+            "--memory", "128m",
+            "--cpus", "0.5",
+            "--pids-limit", "64",
+            "--no-new-privileges",
+            "--security-opt", "no-new-privileges",
+            "--user", "nobody",
+            "-v", f"{str(temp_dir)}:/sandbox:ro",
+            "-w", "/sandbox",
+            image,
+            *cmd_in_container,
+        ]
+
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *docker_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._build_sandbox_env(),
+                creationflags=self._creationflags_for_platform(),
+                start_new_session=(os.name != "nt"),
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(), timeout=timeout + 10  # extra grace for Docker overhead
+                )
+                timed_out = False
+            except asyncio.TimeoutError:
+                timed_out = True
+                await self._terminate_process_tree(process)
+                stdout_bytes, stderr_bytes = await process.communicate()
+
+            raw_stdout = stdout_bytes.decode("utf-8", errors="replace")
+            raw_stderr = stderr_bytes.decode("utf-8", errors="replace")
+            stdout, stderr, truncated = self._limit_output(raw_stdout, raw_stderr, max_output_chars)
+            exit_code = process.returncode
+            duration_ms = int((time.monotonic() - start) * 1000)
+
+            return CodeExecutionResult(
+                success=(not timed_out) and (exit_code == 0),
+                strategy="docker",
+                language=language,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                timed_out=timed_out,
+                truncated=truncated,
+                duration_ms=duration_ms,
+                error_type="timeout" if timed_out else None,
+                error_message=(f"execution exceeded timeout of {timeout}s" if timed_out else None),
+            )
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            return self._error_result(
+                strategy="docker",
+                language=language,
+                error_type="execution_error",
+                error_message=str(exc),
+                duration_ms=duration_ms,
+            )
+        finally:
+            if process is not None and process.returncode is None:
+                await self._terminate_process_tree(process)
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def _run_code_with_temp_jail(
         self,
@@ -371,6 +492,45 @@ class CodeSandbox:
         for pattern in blocked_patterns:
             if re.search(pattern, lowered, flags=re.IGNORECASE):
                 return "filesystem access outside sandbox jail is blocked by policy"
+        return None
+
+    @staticmethod
+    def _detect_dangerous_constructs(*, code: str, language: str) -> str | None:
+        """Detect dynamic code execution patterns that can bypass static analysis.
+
+        This is a defense-in-depth layer: ``exec()``, ``eval()``,
+        ``compile()``, ``ctypes``, and ``importlib`` with dynamic strings
+        can all be used to circumvent the token-based network/filesystem
+        checks above.
+        """
+        lowered = (code or "").lower()
+        if language == "python":
+            dangerous_patterns = (
+                (r"\bexec\s*\(", "exec() is blocked in sandbox"),
+                (r"\beval\s*\(", "eval() is blocked in sandbox"),
+                (r"\bcompile\s*\(", "compile() is blocked in sandbox"),
+                (r"\b__import__\s*\(", "__import__() is blocked in sandbox"),
+                (r"\bimportlib\b", "importlib is blocked in sandbox"),
+                (r"\bctypes\b", "ctypes is blocked in sandbox"),
+                (r"\bsubprocess\b", "subprocess is blocked in sandbox"),
+                (r"\bglobals\s*\(\s*\)", "globals() is blocked in sandbox"),
+                (r"\bgetattr\s*\(", "getattr() is blocked in sandbox"),
+                (r"\b__builtins__\b", "__builtins__ access is blocked in sandbox"),
+                (r"\b__subclasses__\b", "__subclasses__ access is blocked in sandbox"),
+            )
+        elif language == "javascript":
+            dangerous_patterns = (
+                (r"\beval\s*\(", "eval() is blocked in sandbox"),
+                (r"\bFunction\s*\(", "Function() constructor is blocked in sandbox"),
+                (r"child_process", "child_process is blocked in sandbox"),
+                (r"\brequire\s*\(\s*['\"]fs", "fs module is blocked in sandbox"),
+            )
+        else:
+            return None
+
+        for pattern, reason in dangerous_patterns:
+            if re.search(pattern, lowered, flags=re.IGNORECASE):
+                return reason
         return None
 
     @staticmethod

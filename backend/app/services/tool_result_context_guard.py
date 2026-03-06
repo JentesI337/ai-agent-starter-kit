@@ -66,6 +66,54 @@ def redact_pii(text: str) -> tuple[str, int]:
     return text, count
 
 
+# ---------------------------------------------------------------------------
+# SEC (OE-06): Prompt-injection anomaly detection in tool results
+# ---------------------------------------------------------------------------
+
+_INJECTION_ANOMALY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"(?i)ignore\s+(all\s+)?previous\s+instructions?"),
+        "<PI_NEUTRALIZED>",
+    ),
+    (
+        re.compile(r"(?i)you\s+are\s+now\s+"),
+        "<PI_NEUTRALIZED>",
+    ),
+    (
+        re.compile(r"(?i)new\s+system\s+prompt"),
+        "<PI_NEUTRALIZED>",
+    ),
+    (
+        re.compile(r"(?i)(?:^|\n)\s*(?:system|assistant|user)\s*:"),
+        "\n<PI_NEUTRALIZED>:",
+    ),
+    (
+        re.compile(r"\[INST\]|\[/INST\]"),
+        "<PI_NEUTRALIZED>",
+    ),
+    (
+        re.compile(r"<\|(?:im_start|im_end|system|user|assistant)\|>"),
+        "<PI_NEUTRALIZED>",
+    ),
+    (
+        re.compile(r"<!--\s*(?:ignore|system|override|inject|prompt)", re.IGNORECASE),
+        "<!-- PI_NEUTRALIZED",
+    ),
+]
+
+
+def neutralize_prompt_injections(text: str) -> tuple[str, int]:
+    """SEC (OE-06): Detect and neutralize common prompt injection patterns.
+
+    Returns ``(cleaned_text, injection_count)``.
+    """
+    count = 0
+    for pattern, replacement in _INJECTION_ANOMALY_PATTERNS:
+        text, n = pattern.subn(replacement, text)
+        count += n
+    return text, count
+
+
 @dataclass(frozen=True)
 class ToolResultContextGuardResult:
     modified: bool
@@ -128,6 +176,9 @@ def enforce_tool_result_context_budget(
     pre_redaction_chars = len(source)
     source, pii_redactions = redact_pii(source)
 
+    # SEC (OE-06): Neutralize prompt injection patterns in tool results
+    source, injection_count = neutralize_prompt_injections(source)
+
     normalized_context_tokens = max(1, int(context_window_tokens))
     normalized_chars_per_token = max(1.0, float(chars_per_token_estimate))
     normalized_headroom = max(0.1, min(1.0, float(context_input_headroom_ratio)))
@@ -165,7 +216,9 @@ def enforce_tool_result_context_budget(
     modified = reduced != source
     if not modified and pii_redactions > 0:
         modified = True
-    final_reason = reason if reason != "none" else ("pii_redacted" if pii_redactions > 0 else "none")
+    if not modified and injection_count > 0:
+        modified = True
+    final_reason = reason if reason != "none" else ("pii_redacted" if pii_redactions > 0 else ("injection_neutralized" if injection_count > 0 else "none"))
     return (
         reduced,
         ToolResultContextGuardResult(

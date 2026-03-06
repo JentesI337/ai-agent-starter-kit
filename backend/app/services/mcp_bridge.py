@@ -4,12 +4,72 @@ import asyncio
 import json
 import os
 from itertools import count
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from app.mcp_types import McpServerConfig, McpToolDefinition
 from app.services.tool_registry import ToolSpec
+
+# SEC (OE-05): Allowlist of MCP server commands.
+# Only executables in this set (or resolved via shutil.which to one of these
+# base names) are permitted.  Configurable via MCP_COMMAND_ALLOWLIST env var.
+_DEFAULT_MCP_COMMAND_ALLOWLIST: frozenset[str] = frozenset({
+    "node", "npx", "python", "python3", "uvx",
+    "deno", "bun",
+    "docker",
+    "mcp-server",
+})
+
+
+def _load_mcp_command_allowlist() -> frozenset[str]:
+    """Load MCP command allowlist from env or use defaults."""
+    raw = os.getenv("MCP_COMMAND_ALLOWLIST", "").strip()
+    if not raw:
+        return _DEFAULT_MCP_COMMAND_ALLOWLIST
+    items = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    return frozenset(items) | _DEFAULT_MCP_COMMAND_ALLOWLIST
+
+
+def _validate_mcp_command(command: str, *, server_name: str) -> str:
+    """SEC (OE-05): Validate that an MCP server command is in the allowlist.
+
+    Resolves the command to its base name and checks against the allowlist.
+    Raises ValueError if the command is not permitted.
+    """
+    import shutil
+
+    if not command or not command.strip():
+        raise ValueError(f"MCP server '{server_name}' has an empty command")
+
+    clean = command.strip()
+    base_name = Path(clean).stem.lower()
+    # Remove common extensions
+    for ext in (".exe", ".cmd", ".bat", ".ps1", ".sh"):
+        if base_name.endswith(ext):
+            base_name = base_name[: -len(ext)]
+
+    allowlist = _load_mcp_command_allowlist()
+
+    if base_name in allowlist:
+        return clean
+
+    # Check if the full path resolves to an allowed name
+    resolved = shutil.which(clean)
+    if resolved:
+        resolved_name = Path(resolved).stem.lower()
+        for ext in (".exe", ".cmd", ".bat"):
+            if resolved_name.endswith(ext):
+                resolved_name = resolved_name[: -len(ext)]
+        if resolved_name in allowlist:
+            return clean
+
+    raise ValueError(
+        f"MCP server '{server_name}' command '{clean}' (base: '{base_name}') is not in the "
+        f"MCP command allowlist. Allowed: {sorted(allowlist)}. "
+        f"Set MCP_COMMAND_ALLOWLIST env var to extend."
+    )
 
 
 class McpConnection(Protocol):
@@ -286,10 +346,20 @@ class StdioMcpConnection(_JsonRpcMcpConnection):
         *,
         server_name: str,
     ) -> StdioMcpConnection:
+        # SEC (OE-05): Validate command against allowlist before execution
+        validated_command = _validate_mcp_command(command, server_name=server_name)
+
+        # SEC (OE-05): Validate args don't contain shell injection patterns
+        for arg in (args or []):
+            if any(c in str(arg) for c in (";", "&&", "||", "|", "`", "$(")):
+                raise ValueError(
+                    f"MCP server '{server_name}' arg contains shell metacharacter: '{arg}'"
+                )
+
         merged_env = os.environ.copy()
         merged_env.update({str(key): str(value) for key, value in (env or {}).items()})
         process = await asyncio.create_subprocess_exec(
-            command,
+            validated_command,
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,

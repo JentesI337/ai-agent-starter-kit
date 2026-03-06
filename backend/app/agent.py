@@ -340,6 +340,102 @@ class HeadAgent:
                 tool_repair_prompt=settings.coder_agent_tool_repair_prompt,
                 final_prompt=settings.coder_agent_final_prompt,
             )
+        if normalized_role == "researcher-agent":
+            return PromptProfile(
+                system_prompt=settings.researcher_agent_system_prompt,
+                plan_prompt=settings.researcher_agent_plan_prompt,
+                tool_selector_prompt=settings.researcher_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.researcher_agent_final_prompt,
+            )
+        if normalized_role == "architect-agent":
+            return PromptProfile(
+                system_prompt=settings.architect_agent_system_prompt,
+                plan_prompt=settings.architect_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.architect_agent_final_prompt,
+            )
+        if normalized_role == "test-agent":
+            return PromptProfile(
+                system_prompt=settings.test_agent_system_prompt,
+                plan_prompt=settings.test_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.test_agent_final_prompt,
+            )
+        if normalized_role == "security-agent":
+            return PromptProfile(
+                system_prompt=settings.security_agent_system_prompt,
+                plan_prompt=settings.head_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.security_agent_final_prompt,
+            )
+        if normalized_role == "doc-agent":
+            return PromptProfile(
+                system_prompt=settings.doc_agent_system_prompt,
+                plan_prompt=settings.head_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.doc_agent_final_prompt,
+            )
+        if normalized_role == "refactor-agent":
+            return PromptProfile(
+                system_prompt=settings.refactor_agent_system_prompt,
+                plan_prompt=settings.head_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.refactor_agent_final_prompt,
+            )
+        if normalized_role == "devops-agent":
+            return PromptProfile(
+                system_prompt=settings.devops_agent_system_prompt,
+                plan_prompt=settings.head_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.devops_agent_final_prompt,
+            )
+        if normalized_role == "fintech-agent":
+            return PromptProfile(
+                system_prompt=settings.fintech_agent_system_prompt,
+                plan_prompt=settings.fintech_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.fintech_agent_final_prompt,
+            )
+        if normalized_role == "healthtech-agent":
+            return PromptProfile(
+                system_prompt=settings.healthtech_agent_system_prompt,
+                plan_prompt=settings.healthtech_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.healthtech_agent_final_prompt,
+            )
+        if normalized_role == "legaltech-agent":
+            return PromptProfile(
+                system_prompt=settings.legaltech_agent_system_prompt,
+                plan_prompt=settings.legaltech_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.legaltech_agent_final_prompt,
+            )
+        if normalized_role == "ecommerce-agent":
+            return PromptProfile(
+                system_prompt=settings.ecommerce_agent_system_prompt,
+                plan_prompt=settings.ecommerce_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.ecommerce_agent_final_prompt,
+            )
+        if normalized_role == "industrytech-agent":
+            return PromptProfile(
+                system_prompt=settings.industrytech_agent_system_prompt,
+                plan_prompt=settings.industrytech_agent_plan_prompt,
+                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
+                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
+                final_prompt=settings.industrytech_agent_final_prompt,
+            )
         return PromptProfile(
             system_prompt=settings.head_agent_system_prompt,
             plan_prompt=settings.head_agent_plan_prompt,
@@ -2973,3 +3069,92 @@ class CoderAgent(HeadAgent):
 class ReviewAgent(HeadAgent):
     def __init__(self):
         super().__init__(name=settings.review_agent_name, role="review-agent")
+
+
+class ResearcherAgent(HeadAgent):
+    """Research specialist — breadth-first, fact-oriented, read-only."""
+
+    def __init__(self):
+        super().__init__(name=settings.researcher_agent_name, role="researcher-agent")
+
+
+class ArchitectAgent(HeadAgent):
+    """Architecture specialist — plan-execute, ADR-oriented, read-only."""
+
+    def __init__(self):
+        super().__init__(name=settings.architect_agent_name, role="architect-agent")
+
+
+class TestAgent(HeadAgent):
+    """Test specialist — verify-first, deterministic, test-runner focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.test_agent_name, role="test-agent")
+
+
+class SecurityAgent(HeadAgent):
+    """Security reviewer — depth-first, deterministic, read-only."""
+
+    def __init__(self):
+        super().__init__(name=settings.security_agent_name, role="security-agent")
+
+
+class DocAgent(HeadAgent):
+    """Documentation specialist — breadth-first, creative writing, markdown-focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.doc_agent_name, role="doc-agent")
+
+
+class RefactorAgent(HeadAgent):
+    """Refactoring specialist — plan-execute, safe-transformation focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.refactor_agent_name, role="refactor-agent")
+
+
+class DevOpsAgent(HeadAgent):
+    """DevOps specialist — plan-execute, infrastructure and CI/CD focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.devops_agent_name, role="devops-agent")
+
+
+# ---------------------------------------------------------------------------
+# Industry Expert Agents
+# ---------------------------------------------------------------------------
+
+
+class FinTechAgent(HeadAgent):
+    """FinTech specialist — compliance-aware, payment-flow, audit-trail focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.fintech_agent_name, role="fintech-agent")
+
+
+class HealthTechAgent(HeadAgent):
+    """HealthTech specialist — HIPAA/DSGVO, HL7 FHIR, clinical-workflow focused."""
+
+    def __init__(self):
+        super().__init__(name=settings.healthtech_agent_name, role="healthtech-agent")
+
+
+class LegalTechAgent(HeadAgent):
+    """LegalTech specialist — DSGVO/CCPA/AI-Act, license-scanning, compliance analysis."""
+
+    def __init__(self):
+        super().__init__(name=settings.legaltech_agent_name, role="legaltech-agent")
+
+
+class ECommerceAgent(HeadAgent):
+    """E-Commerce specialist — catalog modeling, checkout flows, order processing."""
+
+    def __init__(self):
+        super().__init__(name=settings.ecommerce_agent_name, role="ecommerce-agent")
+
+
+class IndustryTechAgent(HeadAgent):
+    """IndustryTech specialist — IoT protocols, predictive maintenance, digital twins."""
+
+    def __init__(self):
+        super().__init__(name=settings.industrytech_agent_name, role="industrytech-agent")

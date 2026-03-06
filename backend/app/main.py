@@ -5,7 +5,23 @@ import re
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
-from app.agents.head_agent_adapter import CoderAgentAdapter, HeadAgentAdapter, ReviewAgentAdapter
+from app.agents.head_agent_adapter import (
+    ArchitectAgentAdapter,
+    CoderAgentAdapter,
+    DevOpsAgentAdapter,
+    DocAgentAdapter,
+    ECommerceAgentAdapter,
+    FinTechAgentAdapter,
+    HeadAgentAdapter,
+    HealthTechAgentAdapter,
+    IndustryTechAgentAdapter,
+    LegalTechAgentAdapter,
+    RefactorAgentAdapter,
+    ResearcherAgentAdapter,
+    ReviewAgentAdapter,
+    SecurityAgentAdapter,
+    TestAgentAdapter,
+)
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import resolved_prompt_settings, settings, validate_environment_config
@@ -95,6 +111,18 @@ app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 PRIMARY_AGENT_ID = "head-agent"
 CODER_AGENT_ID = "coder-agent"
 REVIEW_AGENT_ID = "review-agent"
+RESEARCHER_AGENT_ID = "researcher-agent"
+ARCHITECT_AGENT_ID = "architect-agent"
+TEST_AGENT_ID = "test-agent"
+SECURITY_AGENT_ID = "security-agent"
+DOC_AGENT_ID = "doc-agent"
+REFACTOR_AGENT_ID = "refactor-agent"
+DEVOPS_AGENT_ID = "devops-agent"
+FINTECH_AGENT_ID = "fintech-agent"
+HEALTHTECH_AGENT_ID = "healthtech-agent"
+LEGALTECH_AGENT_ID = "legaltech-agent"
+ECOMMERCE_AGENT_ID = "ecommerce-agent"
+INDUSTRYTECH_AGENT_ID = "industrytech-agent"
 control_plane_state = ControlPlaneState()
 idempotency_mgr = IdempotencyManager(
     ttl_seconds=settings.idempotency_registry_ttl_seconds,
@@ -180,6 +208,18 @@ def _build_runtime_components() -> RuntimeComponents:
         PRIMARY_AGENT_ID: HeadAgentAdapter(),
         CODER_AGENT_ID: CoderAgentAdapter(),
         REVIEW_AGENT_ID: ReviewAgentAdapter(),
+        RESEARCHER_AGENT_ID: ResearcherAgentAdapter(),
+        ARCHITECT_AGENT_ID: ArchitectAgentAdapter(),
+        TEST_AGENT_ID: TestAgentAdapter(),
+        SECURITY_AGENT_ID: SecurityAgentAdapter(),
+        DOC_AGENT_ID: DocAgentAdapter(),
+        REFACTOR_AGENT_ID: RefactorAgentAdapter(),
+        DEVOPS_AGENT_ID: DevOpsAgentAdapter(),
+        FINTECH_AGENT_ID: FinTechAgentAdapter(),
+        HEALTHTECH_AGENT_ID: HealthTechAgentAdapter(),
+        LEGALTECH_AGENT_ID: LegalTechAgentAdapter(),
+        ECOMMERCE_AGENT_ID: ECommerceAgentAdapter(),
+        INDUSTRYTECH_AGENT_ID: IndustryTechAgentAdapter(),
     }
     runtime = RuntimeManager()
     if settings.orchestrator_state_backend == "sqlite":
@@ -284,6 +324,13 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         components.agent.memory.add(parent_session_id, "tool:spawn_subrun_announce", announce_text)
 
     components.subrun_lane.set_completion_callback(_on_subrun_complete_announce)
+
+    # Multi-Agency Phase 1: Wire CoordinationBridge for confidence-based routing
+    if settings.multi_agency_enabled:
+        from app.multi_agency.coordination_bridge import CoordinationBridge
+        bridge = CoordinationBridge(session_id="global")
+        components.subrun_lane.set_coordination_bridge(bridge)
+        logger.info("multi_agency_coordination_bridge_wired")
 
     async def _spawn_subrun_from_agent(
         *,
