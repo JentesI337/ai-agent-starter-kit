@@ -117,10 +117,7 @@ def _detect_package_managers() -> tuple[str, ...]:
         "yum",
         "pacman",
     ]
-    found: list[str] = []
-    for cmd in candidates:
-        if shutil.which(cmd):
-            found.append(cmd)
+    found = [cmd for cmd in candidates if shutil.which(cmd)]
     return tuple(found)
 
 
@@ -156,9 +153,9 @@ def _detect_wsl() -> bool:
     if platform.system() != "Linux":
         return False
     try:
-        with open("/proc/version", "r") as f:
+        with open("/proc/version") as f:
             return "microsoft" in f.read().lower()
-    except (OSError, IOError):
+    except OSError:
         return False
 
 
@@ -169,16 +166,14 @@ def _detect_container() -> bool:
         return True
     # cgroup check
     try:
-        with open("/proc/1/cgroup", "r") as f:
+        with open("/proc/1/cgroup") as f:
             content = f.read()
             if "docker" in content or "containerd" in content or "kubepods" in content:
                 return True
-    except (OSError, IOError):
+    except OSError:
         pass
     # Kubernetes
-    if os.environ.get("KUBERNETES_SERVICE_HOST"):
-        return True
-    return False
+    return bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
 
 
 @lru_cache(maxsize=1)

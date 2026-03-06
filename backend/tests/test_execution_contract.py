@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.services.execution_contract import (
     ContractResult,
     ContractViolation,
@@ -25,7 +23,8 @@ class TestRequiredArg:
     def test_missing(self):
         c = RequiredArg("path")
         err = c.check(args={})
-        assert err is not None and "missing" in err
+        assert err is not None
+        assert "missing" in err
 
     def test_empty_string(self):
         c = RequiredArg("path")

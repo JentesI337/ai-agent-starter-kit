@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import uuid
+from pathlib import Path
 
 os.environ.setdefault("OLLAMA_BIN", "python")
 
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.main import app, agent, agent_registry, runtime_manager, state_store
+from app.main import agent, agent_registry, app, runtime_manager, state_store
 from app.runtime_manager import RuntimeState
 
 

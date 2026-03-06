@@ -1,6 +1,7 @@
 """Tests for PlatformInfo detection."""
 
 import pytest
+
 from app.services.platform_info import PlatformInfo, detect_platform
 
 

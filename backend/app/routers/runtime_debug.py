@@ -3,8 +3,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, Body
-from fastapi import HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 JsonDict = dict
 

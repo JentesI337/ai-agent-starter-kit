@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -135,7 +136,7 @@ async def api_subruns_kill_all_async(request_data: dict, deps: SubrunEndpointsDe
     requester = (request.requester_session_id or "").strip()
     if not requester:
         raise HTTPException(status_code=403, detail="requester_session_id is required for kill_all")
-    if request.parent_session_id and request.parent_session_id != requester and scope not in {"all"}:
+    if request.parent_session_id and request.parent_session_id != requester and scope != "all":
         raise HTTPException(
             status_code=403,
             detail="Not authorized to kill subruns from a different session; use visibility_scope='all' only if permitted",

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-import random
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
@@ -320,15 +321,13 @@ class FallbackStateMachine:
                     # Catch-all for unexpected exceptions (TypeError, asyncio.CancelledError, etc.)
                     _latency_ms_err = max(0, int((time.monotonic() - _attempt_start_mono) * 1000))
                     if self._health_tracker is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             await self._health_tracker.record(
                                 model_id=self._current_candidate_model,
                                 latency_ms=_latency_ms_err,
                                 success=False,
                                 request_id=self._request_id,
                             )
-                        except Exception:
-                            pass
                     if self._circuit_breaker is not None:
                         try:
                             _cb_tx = await self._circuit_breaker.record_failure(self._current_candidate_model)

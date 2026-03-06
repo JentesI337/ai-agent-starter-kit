@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from app.tool_policy import ToolPolicyDict
 
@@ -395,12 +395,11 @@ class ToolArgValidator:
         normalized_args["timeout_seconds"] = timeout_seconds
 
         tool_policy = normalized_args.get("tool_policy")
-        if tool_policy is not None:
-            if not isinstance(tool_policy, dict):
-                # Coerce invalid type to None instead of hard-blocking the tool call.
-                # tool_policy is optional; a wrong type should not abort spawn_subrun.
-                normalized_args["tool_policy"] = None
-                tool_policy = None
+        if tool_policy is not None and not isinstance(tool_policy, dict):
+            # Coerce invalid type to None instead of hard-blocking the tool call.
+            # tool_policy is optional; a wrong type should not abort spawn_subrun.
+            normalized_args["tool_policy"] = None
+            tool_policy = None
         if tool_policy is not None:
             normalized_policy: ToolPolicyDict = {}
             for policy_key in ("allow", "deny"):

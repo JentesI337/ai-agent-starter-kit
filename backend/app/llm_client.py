@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 import httpx
-import json
 
 from app.config import settings
 from app.errors import LlmClientError
+from app.url_validator import UrlValidationError, validate_llm_base_url
 
 logger = logging.getLogger("app.llm_client")
 
@@ -29,7 +31,15 @@ def _retry_delay(attempt: int) -> float:
 
 class LlmClient:
     def __init__(self, base_url: str, model: str):
-        self.base_url = base_url.rstrip("/")
+        # SEC (SSRF-01): Validate the base URL against SSRF attacks.
+        # Blocks cloud-metadata endpoints, validates IP ranges, and
+        # allows localhost for local dev (Ollama, LM Studio).
+        try:
+            self.base_url = validate_llm_base_url(base_url)
+        except UrlValidationError as exc:
+            raise LlmClientError(
+                f"LLM base URL validation failed: {exc}"
+            ) from exc
         self.model = model
 
     def _build_headers(self) -> dict[str, str]:
@@ -49,9 +59,7 @@ class LlmClient:
 
     @property
     def supports_function_calling(self) -> bool:
-        if self._is_native_ollama_api():
-            return False
-        return True
+        return not self._is_native_ollama_api()
 
     def _require_non_empty_completion(self, *, content: str, model: str, endpoint: str) -> str:
         text = (content or "").strip()
@@ -113,8 +121,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
-                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                async with httpx.AsyncClient(timeout=120) as client, client.stream("POST", url, headers=headers, json=payload) as response:
                         if response.status_code >= 400:
                             body = await response.aread()
                             body_text = body.decode(errors='ignore')
@@ -186,8 +193,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
-                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                async with httpx.AsyncClient(timeout=120) as client, client.stream("POST", url, headers=headers, json=payload) as response:
                         if response.status_code >= 400:
                             body = await response.aread()
                             body_text = body.decode(errors='ignore')

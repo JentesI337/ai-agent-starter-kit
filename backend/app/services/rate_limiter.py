@@ -5,9 +5,9 @@ Uses an in-memory token-bucket algorithm with configurable burst and refill rate
 """
 from __future__ import annotations
 
-import time
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 
 
 @dataclass
@@ -120,9 +120,7 @@ def _is_test_environment() -> bool:
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return True
     # Check if pytest is in sys.modules (imported)
-    if "pytest" in sys.modules or "_pytest" in sys.modules:
-        return True
-    return False
+    return bool("pytest" in sys.modules or "_pytest" in sys.modules)
 
 
 def get_rest_rate_limiter() -> RateLimiter:

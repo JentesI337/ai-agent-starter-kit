@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
+import { SecureStorageService } from '../services/secure-storage.service';
 import {
   AgentDescriptor,
   AgentsService,
@@ -157,19 +158,23 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   constructor(
     private readonly socketService: AgentSocketService,
     private readonly agentsService: AgentsService,
-    private readonly cdr: ChangeDetectorRef
+    private readonly cdr: ChangeDetectorRef,
+    private readonly secureStorage: SecureStorageService
   ) {}
 
   ngOnInit(): void {
     this.socketService.connect(this.wsUrl);
 
-    const persistedRuntime = localStorage.getItem('preferredRuntime');
-    if (persistedRuntime === 'local' || persistedRuntime === 'api') {
-      this.runtimeTarget = persistedRuntime;
-      this.firstRunChoicePending = false;
-    } else {
-      this.firstRunChoicePending = true;
-    }
+    // SEC (FE-05): Use encrypted storage for persisted preferences
+    this.secureStorage.getItem('preferredRuntime').then(persistedRuntime => {
+      if (persistedRuntime === 'local' || persistedRuntime === 'api') {
+        this.runtimeTarget = persistedRuntime;
+        this.firstRunChoicePending = false;
+      } else {
+        this.firstRunChoicePending = true;
+      }
+      this.cdr.markForCheck();
+    });
 
     this.agentsService.getRuntimeStatus().subscribe({
       next: (status) => {
@@ -188,7 +193,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           this.apiModelsHint = '';
         }
         if (!this.firstRunChoicePending) {
-          localStorage.setItem('preferredRuntime', status.runtime);
+          this.secureStorage.setItem('preferredRuntime', status.runtime);
         }
         if (status.featureFlags) {
           this.runtimeFeatures = {
@@ -646,13 +651,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   chooseInitialRuntime(target: 'local' | 'api'): void {
     this.runtimeTarget = target;
-    localStorage.setItem('preferredRuntime', target);
+    this.secureStorage.setItem('preferredRuntime', target);
     this.firstRunChoicePending = false;
     this.switchRuntime();
   }
 
   resetRuntimePreference(): void {
-    localStorage.removeItem('preferredRuntime');
+    this.secureStorage.removeItem('preferredRuntime');
     this.firstRunChoicePending = true;
     this.runtimeSwitching = false;
     this.lines.push({ role: 'system', text: 'Runtime preference reset. Please choose local or api.' });
@@ -736,7 +741,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
       if (event.runtime === 'local' || event.runtime === 'api') {
         this.runtimeTarget = event.runtime;
-        localStorage.setItem('preferredRuntime', event.runtime);
+        this.secureStorage.setItem('preferredRuntime', event.runtime);
         this.firstRunChoicePending = false;
       }
       if (event.model) {
@@ -753,7 +758,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     if (event.type === 'runtime_switch_done') {
       if (event.runtime === 'local' || event.runtime === 'api') {
         this.runtimeTarget = event.runtime;
-        localStorage.setItem('preferredRuntime', event.runtime);
+        this.secureStorage.setItem('preferredRuntime', event.runtime);
       }
       if (event.model) {
         this.model = event.model;

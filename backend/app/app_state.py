@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass, field
-import asyncio
 from threading import Lock
 from typing import Any
 

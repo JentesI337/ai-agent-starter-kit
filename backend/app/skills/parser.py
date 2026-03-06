@@ -18,8 +18,8 @@ def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
     body = text[end + 4 :].lstrip("\n")
 
     data: dict[str, str] = {}
-    for line in block.splitlines():
-        line = line.strip()
+    for raw_line in block.splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#") or ":" not in line:
             continue
         key, value = line.split(":", 1)

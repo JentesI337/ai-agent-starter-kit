@@ -5,9 +5,9 @@ import socket
 
 import pytest
 
+import app.tools as tools_module
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
-import app.tools as tools_module
 
 
 class _FakeResponse:
@@ -84,7 +84,7 @@ def test_web_fetch_blocks_private_dns_resolution(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _private_getaddrinfo)
 
-    with pytest.raises(ToolExecutionError, match="blocked non-public"):
+    with pytest.raises(ToolExecutionError, match=r"(?i)blocked non-public"):
         asyncio.run(tooling.web_fetch("https://example.com"))
 
 
@@ -94,12 +94,12 @@ def test_web_fetch_enforces_redirect_limit(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
 
-    # HTTPS: no DNS pinning — TLS cert validation prevents DNS-rebinding
+    # SEC FIX-01: DNS pinning now applies to HTTPS too — URLs are rewritten to pinned IP
     responses = {
-        "https://a.example/start": _FakeResponse(status_code=302, headers={"location": "https://b.example/1"}),
-        "https://b.example/1": _FakeResponse(status_code=302, headers={"location": "https://c.example/2"}),
-        "https://c.example/2": _FakeResponse(status_code=302, headers={"location": "https://d.example/3"}),
-        "https://d.example/3": _FakeResponse(status_code=302, headers={"location": "https://e.example/4"}),
+        "https://93.184.216.34/start": _FakeResponse(status_code=302, headers={"location": "https://b.example/1"}),
+        "https://93.184.216.34/1": _FakeResponse(status_code=302, headers={"location": "https://c.example/2"}),
+        "https://93.184.216.34/2": _FakeResponse(status_code=302, headers={"location": "https://d.example/3"}),
+        "https://93.184.216.34/3": _FakeResponse(status_code=302, headers={"location": "https://e.example/4"}),
     }
     _patch_client(monkeypatch, responses, called_urls)
 
@@ -115,13 +115,13 @@ def test_web_fetch_allows_public_target_and_follows_safe_redirect(monkeypatch, t
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
 
-    # HTTPS: no DNS pinning — TLS cert validation prevents DNS-rebinding
+    # SEC FIX-01: DNS pinning now applies to HTTPS too — URLs are rewritten to pinned IP
     responses = {
-        "https://example.com/start": _FakeResponse(
+        "https://93.184.216.34/start": _FakeResponse(
             status_code=302,
             headers={"location": "https://example.org/final"},
         ),
-        "https://example.org/final": _FakeResponse(
+        "https://93.184.216.34/final": _FakeResponse(
             status_code=200,
             headers={"Content-Type": "text/plain"},
             body=b"hello from public web",
@@ -142,9 +142,9 @@ def test_web_fetch_blocks_large_content_length_header(monkeypatch, tmp_path) -> 
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
 
-    # HTTPS: no DNS pinning — TLS cert validation prevents DNS-rebinding
+    # SEC FIX-01: DNS pinning now applies to HTTPS too — URLs are rewritten to pinned IP
     responses = {
-        "https://example.com/huge": _FakeResponse(
+        "https://93.184.216.34/huge": _FakeResponse(
             status_code=200,
             headers={
                 "Content-Type": "text/plain",
@@ -165,9 +165,9 @@ def test_web_fetch_blocks_binary_content_type(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(tools_module.socket, "getaddrinfo", _public_getaddrinfo)
 
-    # HTTPS: no DNS pinning — TLS cert validation prevents DNS-rebinding
+    # SEC FIX-01: DNS pinning now applies to HTTPS too — URLs are rewritten to pinned IP
     responses = {
-        "https://example.com/archive": _FakeResponse(
+        "https://93.184.216.34/archive": _FakeResponse(
             status_code=200,
             headers={"Content-Type": "application/zip"},
             body=b"PK\x03\x04",

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.services.web_search import WebSearchService
 
 
@@ -60,9 +62,5 @@ def test_searxng_parses_standard_results() -> None:
 def test_unknown_provider_raises_value_error() -> None:
     service = WebSearchService(provider="unknown", api_key=None, base_url=None)
 
-    try:
+    with pytest.raises(ValueError, match="Unknown search provider"):
         asyncio.run(service.search("test"))
-    except ValueError as exc:
-        assert "Unknown search provider" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for unknown provider")

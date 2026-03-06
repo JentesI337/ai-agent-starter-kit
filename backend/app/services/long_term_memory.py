@@ -5,7 +5,7 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -18,7 +18,7 @@ class FailureEntry:
     solution: str
     prevention: str
     tags: list[str] = field(default_factory=list)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class SemanticEntry:
     value: str
     confidence: float
     source_sessions: list[str] = field(default_factory=list)
-    last_updated: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_updated: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class EpisodicEntry:
     outcome: str = "success"
     tags: list[str] = field(default_factory=list)
     entry_id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class LongTermMemoryStore:
@@ -108,7 +108,7 @@ class LongTermMemoryStore:
         )
         tags_text = json.dumps([tag.strip() for tag in (tags or []) if str(tag).strip()])
         row_id = (entry_id or "").strip() or uuid.uuid4().hex
-        row_timestamp = (timestamp or "").strip() or datetime.now(timezone.utc).isoformat()
+        row_timestamp = (timestamp or "").strip() or datetime.now(UTC).isoformat()
 
         with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.execute(
@@ -154,7 +154,7 @@ class LongTermMemoryStore:
                 value=value,
                 confidence=float(confidence or 0.0),
                 source_sessions=list(source_sessions or []),
-                last_updated=(last_updated or "").strip() or datetime.now(timezone.utc).isoformat(),
+                last_updated=(last_updated or "").strip() or datetime.now(UTC).isoformat(),
             )
         source_sessions_text = ",".join(
             session.strip() for session in entry.source_sessions if str(session).strip()
@@ -351,6 +351,9 @@ class LongTermMemoryStore:
 
     def _ensure_schema(self) -> None:
         with self._lock, sqlite3.connect(str(self._db_path)) as connection:
+            # SEC (LTM-01): Enable WAL mode for better concurrency and reduced locking
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA busy_timeout=5000")
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS episodic (

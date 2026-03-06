@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from itertools import count
@@ -47,8 +48,7 @@ def _validate_mcp_command(command: str, *, server_name: str) -> str:
     base_name = Path(clean).stem.lower()
     # Remove common extensions
     for ext in (".exe", ".cmd", ".bat", ".ps1", ".sh"):
-        if base_name.endswith(ext):
-            base_name = base_name[: -len(ext)]
+        base_name = base_name.removesuffix(ext)
 
     allowlist = _load_mcp_command_allowlist()
 
@@ -60,8 +60,7 @@ def _validate_mcp_command(command: str, *, server_name: str) -> str:
     if resolved:
         resolved_name = Path(resolved).stem.lower()
         for ext in (".exe", ".cmd", ".bat"):
-            if resolved_name.endswith(ext):
-                resolved_name = resolved_name[: -len(ext)]
+            resolved_name = resolved_name.removesuffix(ext)
         if resolved_name in allowlist:
             return clean
 
@@ -119,7 +118,7 @@ class McpBridge:
                     timeout=30.0,
                 )
                 return self._format_result(result)
-            except (ConnectionError, OSError, asyncio.TimeoutError, RuntimeError) as exc:
+            except (TimeoutError, ConnectionError, OSError, RuntimeError) as exc:
                 last_error = exc
                 if attempt >= max_retries:
                     break
@@ -127,10 +126,8 @@ class McpBridge:
                 server_name = tool_def.server_name
                 config = self._servers.get(server_name)
                 if config is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await connection.close()
-                    except Exception:
-                        pass
                     try:
                         new_conn = await self._connect(config)
                         self._connections[server_name] = new_conn
@@ -201,7 +198,7 @@ class McpBridge:
         required_set = set(required)
         return [
             str(key)
-            for key in properties.keys()
+            for key in properties
             if isinstance(key, str) and key.strip() and str(key) not in required_set
         ]
 
@@ -292,14 +289,13 @@ class _JsonRpcMcpConnection:
         return result
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        payload = await self._rpc_call(
+        return await self._rpc_call(
             "tools/call",
             {
                 "name": tool_name,
                 "arguments": dict(arguments or {}),
             },
         )
-        return payload
 
     async def _rpc_call(self, method: str, params: dict[str, Any]) -> dict[str, Any] | list[Any] | str:
         request_id = next(self._id_counter)
@@ -377,7 +373,7 @@ class StdioMcpConnection(_JsonRpcMcpConnection):
         process.terminate()
         try:
             await asyncio.wait_for(process.wait(), timeout=3.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
 

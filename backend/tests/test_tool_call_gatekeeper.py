@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from app.services.tool_call_gatekeeper import ToolCallGatekeeper
-from app.services.tool_call_gatekeeper import collect_policy_override_candidates
-from app.services.tool_call_gatekeeper import prepare_action_for_execution
+from app.services.tool_call_gatekeeper import (
+    ToolCallGatekeeper,
+    collect_policy_override_candidates,
+    prepare_action_for_execution,
+)
 
 
 def _identity(tool_name: str) -> str:

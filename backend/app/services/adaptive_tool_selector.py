@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ _PLATFORM_AFFINITY: dict[str, set[str]] = {
 def _platform_fit(tool: str, platform: str) -> float:
     """Return 1.0 if tool is known-good on platform, 0.5 otherwise."""
     affinity = _PLATFORM_AFFINITY.get(platform.lower(), set())
-    tool_base = tool.split()[0].lower().split("/")[-1]
+    tool_base = tool.split(maxsplit=1)[0].lower().split("/")[-1]
     return 1.0 if tool_base in affinity else 0.5
 
 

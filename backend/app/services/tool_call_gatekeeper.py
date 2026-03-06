@@ -90,10 +90,7 @@ def prepare_action_for_execution(
         return ActionPreparationResult(tool="", normalized_args={}, error="invalid action payload")
 
     raw_tool = action.get("tool")
-    if isinstance(raw_tool, str):
-        tool = normalize_tool_name(raw_tool)
-    else:
-        tool = ""
+    tool = normalize_tool_name(raw_tool) if isinstance(raw_tool, str) else ""
 
     raw_args = action.get("args", {})
     args = raw_args if isinstance(raw_args, dict) else {}

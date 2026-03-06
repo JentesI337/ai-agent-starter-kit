@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app.contracts.agent_contract import AgentConstraints, AgentContract
+from pydantic import BaseModel
+
 from app.config import settings
+from app.contracts.agent_contract import AgentConstraints, AgentContract
 from app.errors import LlmClientError
 from app.model_routing.router import ModelRouter
 from app.orchestrator.pipeline_runner import PipelineRunner
 from app.state import StateStore
-from pydantic import BaseModel
 
 
 class _FakeInput(BaseModel):
@@ -90,7 +91,7 @@ class _FakeRouteDecision:
             expected_latency_ms=expected_latency_ms,
             cost_score=cost_score,
         )
-        self.scores = {primary_model: 1.0, **{model: 0.8 for model in fallback_models}}
+        self.scores = {primary_model: 1.0, **dict.fromkeys(fallback_models, 0.8)}
 
 
 def test_model_router_prefers_requested_then_runtime_defaults() -> None:
@@ -273,7 +274,7 @@ def test_pipeline_runner_does_not_retry_on_unknown_reason(tmp_path) -> None:
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 
@@ -319,7 +320,7 @@ def test_pipeline_runner_enforces_retry_attempt_limit(tmp_path, monkeypatch) -> 
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 
@@ -363,7 +364,7 @@ def test_pipeline_runner_classifies_context_overflow_as_non_retryable(tmp_path) 
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 
@@ -414,7 +415,7 @@ def test_pipeline_runner_classifies_compaction_failure_as_non_retryable(tmp_path
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 
@@ -569,7 +570,7 @@ def test_pipeline_runner_classifies_truncation_required_as_non_retryable(tmp_pat
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 
@@ -1803,7 +1804,7 @@ def test_pipeline_runner_emits_recovery_summary_on_fail_fast(tmp_path, monkeypat
                 model="custom-model",
             )
         )
-        assert False, "expected LlmClientError"
+        raise AssertionError("expected LlmClientError")
     except LlmClientError:
         pass
 

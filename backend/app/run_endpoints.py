@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import HTTPException
 
+from app.config import settings
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.interfaces import RequestContext
-from app.config import settings
 from app.services.directive_parser import (
     normalize_reasoning_level,
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
-from app.tool_policy import ToolPolicyDict
-from app.tool_policy import tool_policy_to_dict
+from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 
 @dataclass(frozen=True)
@@ -143,7 +143,8 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
             request_id,
             session_id,
         )
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # SEC (API-01): Only expose generic message; full details stay in server logs
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     final_event = next((item for item in reversed(events) if item.get("type") == "final"), None)
     return {

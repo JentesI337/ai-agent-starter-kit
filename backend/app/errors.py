@@ -66,7 +66,6 @@ class ClientDisconnectedError(Exception):
     Must NOT be caught by retry/fallback logic — the client has gone away and
     no further events can be delivered.
     """
-    pass
 
 
 class LlmTimeoutError(LlmClientError):

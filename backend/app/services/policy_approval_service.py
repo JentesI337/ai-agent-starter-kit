@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
+import logging
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 from app.config import settings
-
+from app.services.state_encryption import sign_policy_file, verify_policy_file
 
 APPROVAL_DECISIONS = {"allow_once", "allow_always", "allow_session", "deny", "cancel"}
 ALLOW_ALWAYS_SCOPES = {
@@ -66,7 +67,7 @@ class PolicyApprovalService:
                     return reused
 
             approval_id = str(uuid.uuid4())
-            created_at = datetime.now(timezone.utc).isoformat()
+            created_at = datetime.now(UTC).isoformat()
             record = {
                 "approval_id": approval_id,
                 "run_id": run_id,
@@ -89,7 +90,7 @@ class PolicyApprovalService:
             return created
 
     def _evict_stale_records_locked(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_ids: list[str] = []
         for aid, rec in self._records.items():
             created_str = rec.get("created_at") or ""
@@ -173,20 +174,21 @@ class PolicyApprovalService:
             return False
         if rule_scope in {"tool_resource", "session_tool_resource"} and rule.get("resource") != normalized_resource:
             return False
-        if rule_scope in {"session_tool", "session_tool_resource"} and rule.get("session_id") != normalized_session:
-            return False
-        return True
+        return not (rule_scope in {"session_tool", "session_tool_resource"} and rule.get("session_id") != normalized_session)
 
     def _persist_allow_always_rules(self) -> None:
         payload = {
             "version": 1,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "rules": self._allow_always_rules,
         }
         try:
             self._allow_always_store_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._allow_always_store_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            raw_content = json.dumps(payload, ensure_ascii=False, indent=2)
+            # SEC (POL-01): Sign policy file with HMAC for integrity verification
+            signed_content = sign_policy_file(raw_content)
+            tmp.write_text(signed_content, encoding="utf-8")
             tmp.replace(self._allow_always_store_file)
         except Exception:
             return
@@ -195,7 +197,22 @@ class PolicyApprovalService:
         try:
             if not self._allow_always_store_file.exists():
                 return
-            payload = json.loads(self._allow_always_store_file.read_text(encoding="utf-8"))
+            raw = self._allow_always_store_file.read_text(encoding="utf-8")
+            # SEC (POL-01): Verify HMAC integrity of policy file
+            content, sig_valid = verify_policy_file(raw)
+            if not sig_valid:
+                if settings.policy_require_signature:
+                    logging.getLogger(__name__).error(
+                        "SEC: Policy file signature invalid or missing — refusing to load: %s",
+                        self._allow_always_store_file,
+                    )
+                    return
+                logging.getLogger(__name__).warning(
+                    "SEC: Policy file loaded without valid HMAC signature: %s",
+                    self._allow_always_store_file,
+                )
+                content = raw  # Use raw content if no signature present
+            payload = json.loads(content)
             items = payload.get("rules") if isinstance(payload, dict) else None
             if not isinstance(items, list):
                 return
@@ -272,10 +289,10 @@ class PolicyApprovalService:
                 existing_decision = str(record.get("decision") or "").strip().lower()
                 record["duplicate_decision"] = True
                 record["duplicate_matches_existing"] = existing_decision == normalized_decision
-                record["updated_at"] = datetime.now(timezone.utc).isoformat()
+                record["updated_at"] = datetime.now(UTC).isoformat()
                 return dict(record)
 
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
 
             if normalized_decision in {"allow_once", "allow_always", "allow_session"}:
                 record["status"] = "approved"
@@ -332,13 +349,13 @@ class PolicyApprovalService:
 
         try:
             await asyncio.wait_for(event.wait(), timeout=max(0.1, float(timeout_seconds)))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             async with self._lock:
                 record = self._records.get(approval_id)
                 if record is not None and record.get("status") == "pending":
                     record["status"] = "expired"
                     record["decision"] = "timeout"
-                    record["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    record["updated_at"] = datetime.now(UTC).isoformat()
             return "timeout"
 
         async with self._lock:

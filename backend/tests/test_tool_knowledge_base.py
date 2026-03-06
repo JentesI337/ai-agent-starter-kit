@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from app.services.tool_knowledge_base import ToolKnowledgeBase, ToolKnowledge
+from app.services.tool_knowledge_base import ToolKnowledgeBase
 
 
 @pytest.fixture

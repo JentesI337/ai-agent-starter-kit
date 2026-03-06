@@ -13,10 +13,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Callable, Awaitable
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,7 @@ class AgentMailbox:
         try:
             await asyncio.wait_for(self._event.wait(), timeout=timeout)
             return self.dequeue()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     @property
@@ -120,7 +121,7 @@ class AgentMailbox:
 
 class AgentMessageBus:
     """Central message bus enabling direct agent-to-agent communication.
-    
+
     Architecture:
     - Each agent gets a mailbox (AgentMailbox) when registered
     - Messages are routed based on recipient_agent_id
@@ -197,7 +198,7 @@ class AgentMessageBus:
             recipient_agent_id=(recipient or "").strip().lower(),
             message_type=message_type,
             payload=payload,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             priority=priority,
             correlation_id=correlation_id or str(uuid4()),
             reply_to=reply_to,
@@ -245,9 +246,8 @@ class AgentMessageBus:
         )
 
         try:
-            reply = await asyncio.wait_for(future, timeout=timeout)
-            return reply
-        except asyncio.TimeoutError:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except TimeoutError:
             logger.warning(
                 "Request timeout: sender=%s recipient=%s correlation=%s",
                 sender, recipient, correlation_id,
@@ -364,7 +364,7 @@ class AgentMessageBus:
                         sender=recipient,
                         payload=reply.payload if isinstance(reply, AgentMessage) else {"result": str(reply)},
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Handler timeout for agent '%s'", recipient)
             except asyncio.CancelledError:
                 raise

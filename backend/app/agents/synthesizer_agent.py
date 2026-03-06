@@ -290,22 +290,25 @@ class SynthesizerAgent(AgentContract):
 
     def _validate_hard_research_contract(self, final_text: str) -> list[str]:
         text = (final_text or "")
-        failures: list[str] = []
-        for header in (
-            "Architektur-Risiken",
-            "Performance-Hotspots",
-            "Guardrail-Lücken",
-            "Priorisierte Maßnahmen (Top 10)",
-            "Messbare KPIs",
-            "Rollout-Plan",
-        ):
-            if header.lower() not in text.lower():
-                failures.append(f"missing_section:{header}")
+        failures: list[str] = [
+            f"missing_section:{header}"
+            for header in (
+                "Architektur-Risiken",
+                "Performance-Hotspots",
+                "Guardrail-Lücken",
+                "Priorisierte Maßnahmen (Top 10)",
+                "Messbare KPIs",
+                "Rollout-Plan",
+            )
+            if header.lower() not in text.lower()
+        ]
         if not all(f"{idx}." in text for idx in range(1, 11)):
             failures.append("missing_top10_numbering")
-        for phase in ("Phase 1", "Phase 2", "Phase 3"):
-            if phase.lower() not in text.lower():
-                failures.append(f"missing_phase:{phase}")
+        failures.extend(
+            f"missing_phase:{phase}"
+            for phase in ("Phase 1", "Phase 2", "Phase 3")
+            if phase.lower() not in text.lower()
+        )
         phase_line_matches = len(re.findall(r"(?im)^\s*phase\s*[1-3]\b", text))
         if phase_line_matches < 3:
             failures.append("phase_line_format_invalid")
@@ -514,7 +517,7 @@ class SynthesizerAgent(AgentContract):
 
         try:
             await asyncio.wait_for(_consume_stream(), timeout=effective_stream_timeout)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             partial_text = "".join(output_parts).strip()
             await self._emit_lifecycle_fn(
                 send_event,

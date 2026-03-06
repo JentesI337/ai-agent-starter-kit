@@ -9,7 +9,6 @@ import anyio
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-
 T = TypeVar("T")
 
 

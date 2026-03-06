@@ -4,8 +4,8 @@ import asyncio
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.tool_registry import build_default_tool_registry
 from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
+from app.services.tool_registry import build_default_tool_registry
 
 
 def test_build_tool_selector_prompt_contains_allowed_tools_and_context() -> None:
@@ -134,7 +134,8 @@ def test_select_actions_with_repair_recovers_and_emits_status() -> None:
         )
     )
 
-    assert actions and actions[0]["tool"] == "read_file"
+    assert actions
+    assert actions[0]["tool"] == "read_file"
     assert any(stage == "tool_selection_repair_started" for stage, _ in lifecycle_events)
     assert any(stage == "tool_selection_repair_completed" for stage, _ in lifecycle_events)
     assert any(event.get("type") == "status" for event in sent_events)
@@ -235,7 +236,8 @@ def test_apply_action_pipeline_returns_missing_command_blocked_result() -> None:
 
     assert rejected_count == 0
     assert actions == []
-    assert blocked_result is not None and blocked_result.startswith("missing_command:")
+    assert blocked_result is not None
+    assert blocked_result.startswith("missing_command:")
     assert any(reason == "missing_slots" for reason, _ in empty_events)
     assert any(stage == "tool_selection_completed" for stage, _ in lifecycle_events)
 
@@ -323,7 +325,8 @@ def test_run_tool_loop_executes_action_and_emits_audit_summary() -> None:
     )
     after_hook_payload = next(payload for name, payload in hook_calls if name == "after_tool_call")
 
-    assert isinstance(started_details.get("call_id"), str) and started_details["call_id"]
+    assert isinstance(started_details.get("call_id"), str)
+    assert started_details["call_id"]
     assert started_details.get("status") == "started"
     assert started_details.get("duration_ms") == 0
     assert before_hook_payload.get("call_id") == started_details.get("call_id")
@@ -624,9 +627,11 @@ def test_run_tool_loop_applies_persist_transform_redaction_and_events() -> None:
     )
 
     assert "[REDACTED]" in result
-    assert memory_entries and "[REDACTED]" in memory_entries[0][1]
+    assert memory_entries
+    assert "[REDACTED]" in memory_entries[0][1]
     transformed = [details for stage, details in lifecycle_events if stage == "tool_result_transformed"]
-    assert transformed and isinstance(transformed[0], dict)
+    assert transformed
+    assert isinstance(transformed[0], dict)
     assert transformed[0].get("redacted") is True
     assert any(stage == "tool_result_persisted" for stage, _ in lifecycle_events)
 

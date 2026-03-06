@@ -1,7 +1,8 @@
 """Tests for ToolOutcomeVerifier."""
 
 import pytest
-from app.services.tool_outcome_verifier import ToolOutcomeVerifier, OutcomeVerdict
+
+from app.services.tool_outcome_verifier import OutcomeVerdict, ToolOutcomeVerifier
 
 
 @pytest.fixture

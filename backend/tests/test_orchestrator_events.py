@@ -21,7 +21,8 @@ def test_build_lifecycle_event_has_expected_shape() -> None:
     assert payload["stage"] == "request_received"
     assert payload["phase"] == "start"
     assert payload["details"]["x"] == 1
-    assert isinstance(payload["event_id"], str) and payload["event_id"]
+    assert isinstance(payload["event_id"], str)
+    assert payload["event_id"]
     assert "ts" in payload
 
 

@@ -72,12 +72,8 @@ class _ReadOnlyAgentAdapterMixin:
         requested_allow: list[str] = []
         requested_deny: list[str] = []
         if isinstance(incoming, dict):
-            for item in incoming.get("allow") or []:
-                if isinstance(item, str) and item.strip():
-                    requested_allow.append(item.strip())
-            for item in incoming.get("deny") or []:
-                if isinstance(item, str) and item.strip():
-                    requested_deny.append(item.strip())
+            requested_allow = [item.strip() for item in (incoming.get("allow") or []) if isinstance(item, str) and item.strip()]
+            requested_deny = [item.strip() for item in (incoming.get("deny") or []) if isinstance(item, str) and item.strip()]
         deny = set(requested_deny) | self._MANDATORY_DENY
         payload: ToolPolicyDict = {"deny": sorted(deny)}
         if requested_allow:
@@ -321,9 +317,7 @@ class TestAgentAdapter(_BaseSpecialistAdapter):
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []
         if isinstance(tool_policy, dict):
-            for item in tool_policy.get("deny") or []:
-                if isinstance(item, str) and item.strip():
-                    requested_deny.append(item.strip())
+            requested_deny = [item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()]
         deny = set(requested_deny) | self._MANDATORY_DENY
         return {"deny": sorted(deny)}
 
@@ -545,8 +539,6 @@ class IndustryTechAgentAdapter(_BaseSpecialistAdapter):
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []
         if isinstance(tool_policy, dict):
-            for item in tool_policy.get("deny") or []:
-                if isinstance(item, str) and item.strip():
-                    requested_deny.append(item.strip())
+            requested_deny = [item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()]
         deny = set(requested_deny) | self._MANDATORY_DENY
         return {"deny": sorted(deny)}

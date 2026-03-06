@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.multi_agency.agent_identity import AgentIdentityCard, AgentRegistry
@@ -46,7 +46,7 @@ class ConfidenceHistoryEntry:
 
 class ConfidenceRouter:
     """Routes tasks based on confidence scores — not just capability matching.
-    
+
     Key improvements over current agent_resolution.py:
     1. Evaluates handover contract confidence (currently ignored)
     2. Tracks per-agent confidence history (learning)
@@ -84,13 +84,13 @@ class ConfidenceRouter:
         task_description: str = "",
     ) -> ConfidenceRouteDecision:
         """Evaluate a handover contract and decide what to do with the result.
-        
+
         This is the KEY function that the current system is missing.
         The handover contract has a confidence field that is serialized but never evaluated.
         """
         confidence = self._extract_confidence(handover_contract)
         terminal_reason = str(handover_contract.get("terminal_reason", "")).strip()
-        result = handover_contract.get("result")
+        handover_contract.get("result")
         synthesis_valid = handover_contract.get("synthesis_valid")
 
         # Factor 1: Raw confidence from the handover
@@ -175,7 +175,7 @@ class ConfidenceRouter:
         preferred_quality: str = "standard",  # "draft", "standard", "high"
     ) -> ConfidenceRouteDecision:
         """Select the best agent based on capability match AND historical confidence.
-        
+
         This replaces the current capability_route_agent() which only considers
         raw capability matching without any confidence history.
         """
@@ -245,7 +245,7 @@ class ConfidenceRouter:
         capabilities_used: tuple[str, ...] = (),
     ) -> None:
         """Record the outcome of a task for confidence learning.
-        
+
         This builds the historical knowledge that improves routing over time.
         """
         normalized = (agent_id or "").strip().lower()
@@ -254,7 +254,7 @@ class ConfidenceRouter:
             task_description=task_description[:200],
             confidence=max(0.0, min(1.0, float(confidence))),
             outcome=outcome,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             capabilities_used=capabilities_used,
         )
 

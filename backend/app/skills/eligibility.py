@@ -6,7 +6,6 @@ import shutil
 
 from app.skills.models import SkillDefinition
 
-
 _OS_ALIASES = {
     "windows": {"windows", "win32", "win"},
     "linux": {"linux"},

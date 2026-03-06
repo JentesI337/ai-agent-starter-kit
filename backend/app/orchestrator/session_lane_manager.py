@@ -97,14 +97,13 @@ class SessionLaneManager:
         entered = False
 
         try:
-            async with session_lock:
-                async with self._global_semaphore:
-                    entered = True
-                    queue_wait_ms = int((monotonic() - queue_started) * 1000)
-                    try:
-                        yield {"queue_wait_ms": queue_wait_ms, "session_id": key}
-                    finally:
-                        await self._mark_session_released(key)
+            async with session_lock, self._global_semaphore:
+                entered = True
+                queue_wait_ms = int((monotonic() - queue_started) * 1000)
+                try:
+                    yield {"queue_wait_ms": queue_wait_ms, "session_id": key}
+                finally:
+                    await self._mark_session_released(key)
         except BaseException:
             if not entered:
                 await self._mark_session_released(key)
@@ -121,11 +120,9 @@ class SessionLaneManager:
         async with self.acquire(session_id) as details:
             if on_acquired is not None:
                 await on_acquired(details)
-            result: str = ""
             run_error: Exception | None = None
             try:
-                result = await run()
-                return result
+                return await run()
             except Exception as exc:
                 run_error = exc
                 raise

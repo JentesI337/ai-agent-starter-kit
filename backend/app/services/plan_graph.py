@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 VALID_STEP_STATUSES: set[str] = {"pending", "running", "completed", "failed", "skipped"}
 VALID_COMPLEXITIES: set[str] = {"trivial", "moderate", "complex"}
 

@@ -11,7 +11,6 @@ from app.services.graceful_degradation import (
     _generate_suggestions,
 )
 
-
 # ── FailedAttempt ────────────────────────────────────────────────────
 
 

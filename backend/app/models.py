@@ -2,20 +2,21 @@ import json
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
+
 from app.tool_policy import ToolPolicyPayload
 
 
 class WsInboundEnvelope(BaseModel):
-    type: str
-    content: str = ""
-    agent_id: str | None = None
-    mode: str | None = None
-    preset: str | None = None
-    model: str | None = None
-    session_id: str | None = None
-    runtime_target: str | None = None
-    queue_mode: str | None = None
-    prompt_mode: str | None = None
+    type: str = Field(..., max_length=100)
+    content: str = Field(default="", max_length=200_000)
+    agent_id: str | None = Field(default=None, max_length=200)
+    mode: str | None = Field(default=None, max_length=100)
+    preset: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    session_id: str | None = Field(default=None, max_length=256)
+    runtime_target: str | None = Field(default=None, max_length=200)
+    queue_mode: str | None = Field(default=None, max_length=50)
+    prompt_mode: str | None = Field(default=None, max_length=50)
     tool_policy: ToolPolicyPayload | None = None
 
 

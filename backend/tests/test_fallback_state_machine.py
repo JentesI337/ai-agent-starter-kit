@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from tests.async_test_guards import run_async_with_timeout
 
 from app.errors import GuardrailViolation, LlmClientError
 from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
-from tests.async_test_guards import run_async_with_timeout
 
 
 @dataclass

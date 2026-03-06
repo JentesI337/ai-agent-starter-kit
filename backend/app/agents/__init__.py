@@ -1,7 +1,7 @@
 __all__ = [
-	"HeadAgentAdapter",
-	"CoderAgentAdapter",
-	"PlannerAgent",
-	"ToolSelectorAgent",
-	"SynthesizerAgent",
+    "CoderAgentAdapter",
+    "HeadAgentAdapter",
+    "PlannerAgent",
+    "SynthesizerAgent",
+    "ToolSelectorAgent",
 ]

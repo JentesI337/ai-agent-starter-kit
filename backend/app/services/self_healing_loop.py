@@ -23,15 +23,24 @@ Usage::
 from __future__ import annotations
 
 import logging
-import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from app.services.tool_retry_strategy import ToolRetryStrategy
 
 logger = logging.getLogger(__name__)
 
 RunCommandFn = Callable[[str], Awaitable[str]]
+
+# SEC (SHL-01): Only allow recovery commands whose leader is in this set.
+# This prevents self-healing from executing arbitrary commands.
+_RECOVERY_COMMAND_ALLOWLIST: frozenset[str] = frozenset({
+    "pip", "pip3", "npm", "npx", "yarn", "pnpm",
+    "git", "python", "python3", "py", "node",
+    "mkdir", "touch", "chmod", "cp",
+    "docker", "docker-compose",
+})
 
 
 # ── Result types ──────────────────────────────────────────────────────
@@ -188,6 +197,13 @@ class SelfHealingLoop:
         # ── 2. Execute recovery commands ──────────────────────────────
         recovery_outputs: list[str] = []
         for rcmd in plan.recovery_commands:
+            # SEC (SHL-01): Validate recovery command against allowlist
+            rcmd_leader = rcmd.split()[0].strip().lower() if rcmd and rcmd.strip() else ""
+            if rcmd_leader not in _RECOVERY_COMMAND_ALLOWLIST:
+                msg = f"Recovery command blocked by allowlist: {rcmd}"
+                logger.warning("healing: %s", msg)
+                recovery_outputs.append(f"[blocked] {msg}")
+                continue
             try:
                 out = await run_command(rcmd)
                 recovery_outputs.append(out or "")

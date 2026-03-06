@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 TaskStatus = Literal["pending", "active", "completed", "failed"]
@@ -16,7 +16,7 @@ class TaskNode:
     updated_at: str = ""
 
     def __post_init__(self) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         if not self.created_at:
             self.created_at = now
         if not self.updated_at:
@@ -44,7 +44,7 @@ class TaskGraph:
             node = TaskNode(task_id=task_id, label=task_id)
             self._nodes[task_id] = node
         node.status = status
-        node.updated_at = datetime.now(timezone.utc).isoformat()
+        node.updated_at = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict:
         return {

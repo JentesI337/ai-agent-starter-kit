@@ -9,7 +9,7 @@ the caller (usually ``ToolDiscoveryEngine``).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -238,7 +238,7 @@ def get_platform_adapters() -> list[PackageManagerAdapter]:
 
     if sys.platform == "win32":
         return [NpmAdapter(), PipAdapter(), ChocoAdapter()]
-    elif sys.platform == "darwin":
+    if sys.platform == "darwin":
         return [NpmAdapter(), PipAdapter(), BrewAdapter()]
-    else:  # linux / other
-        return [NpmAdapter(), PipAdapter(), BrewAdapter()]
+    # linux / other
+    return [NpmAdapter(), PipAdapter(), BrewAdapter()]

@@ -1,10 +1,12 @@
 ﻿from __future__ import annotations
-import asyncio
+
+import contextlib
 import logging
 import re
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
+
 from app.agents.head_agent_adapter import (
     ArchitectAgentAdapter,
     CoderAgentAdapter,
@@ -25,8 +27,9 @@ from app.agents.head_agent_adapter import (
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import resolved_prompt_settings, settings, validate_environment_config
-from app.control_router_wiring import include_control_routers
 from app.contracts.agent_contract import AgentContract
+from app.control_models import AgentTestRequest, RunStartRequest
+from app.control_router_wiring import include_control_routers
 from app.custom_agents import CustomAgentStore
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.handlers import (
@@ -39,9 +42,8 @@ from app.handlers import (
     workflow_handlers,
 )
 from app.interfaces import OrchestratorApi
-from app.control_models import AgentTestRequest, RunStartRequest
-from app.orchestrator.subrun_lane import SubrunLane
 from app.orchestrator.events import build_lifecycle_event
+from app.orchestrator.subrun_lane import SubrunLane
 from app.routers import (
     build_agents_router,
     build_run_api_router,
@@ -60,11 +62,11 @@ from app.run_endpoints import (
 from app.runtime_debug_endpoints import (
     RuntimeDebugDependencies,
     api_calibration_recommendations,
-    api_runtime_features,
     api_resolved_prompt_settings,
+    api_runtime_features,
     api_runtime_status,
-    api_test_ping,
     api_runtime_update_features,
+    api_test_ping,
     api_tool_telemetry_stats,
 )
 from app.runtime_manager import RuntimeManager
@@ -78,6 +80,7 @@ from app.services import (
     build_workflow_delete_fingerprint as _build_workflow_delete_fingerprint,
     build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
 )
+from app.services.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
 from app.services.agent_resolution import (
     capability_route_agent,
     effective_orchestrator_agent_ids as _effective_orchestrator_agent_ids_impl,
@@ -86,9 +89,9 @@ from app.services.agent_resolution import (
     resolve_agent as _resolve_agent_impl,
     sync_custom_agents as _sync_custom_agents_impl,
 )
-from app.services.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
 from app.services.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
 from app.services.idempotency_manager import IdempotencyManager
+from app.services.log_secret_filter import install_secret_filter
 from app.services.model_health_tracker import ModelHealthTracker
 from app.services.request_normalization import normalize_preset
 from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
@@ -102,10 +105,13 @@ from app.subrun_endpoints import (
     api_subruns_log,
 )
 from app.ws_handler import WsHandlerDependencies
+
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+# SEC (CFG-07): Install secret filter to redact sensitive data from logs
+install_secret_filter()
 logger = logging.getLogger("app.main")
 app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 PRIMARY_AGENT_ID = "head-agent"
@@ -419,10 +425,8 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         # weil der asyncio.Task noch nicht gestartet / abgeschlossen hat.
         if mode == "wait":
             wait_timeout = max(5.0, float(effective_timeout) + 5.0)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await components.subrun_lane.wait_for_completion(run_id, timeout=wait_timeout)
-            except asyncio.TimeoutError:
-                pass  # Handover enthält dann "subrun-timeout"-Status
         handover = _sanitize_handover_contract(components.subrun_lane.get_handover_contract(run_id))
         # Fix 5: surface synthesis_valid at the top level of the result dict so agent.py
         # can read it from spawn_result without digging into the handover sub-dict.
@@ -669,16 +673,13 @@ def _looks_like_review_request(message: str) -> bool:
         "execute",
         "generate",
     )
-    if any(marker in text for marker in execution_or_research_markers):
-        return False
-
-    return True
+    return not any(marker in text for marker in execution_or_research_markers)
 tools_handlers.configure(
     tools_handlers.ToolsHandlerDependencies(
         sync_custom_agents=_sync_custom_agents,
         normalize_agent_id=_normalize_agent_id,
         resolve_agent=_resolve_agent,
-        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
         agent_registry=agent_registry,
         state_store=state_store,
     )
@@ -693,7 +694,7 @@ run_handlers.configure(
         active_run_tasks=control_plane_state.active_run_tasks,
         idempotency_mgr=idempotency_mgr,
         resolve_agent=_resolve_agent,
-        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
         build_run_start_fingerprint=_build_run_start_fingerprint,
         extract_also_allow=tools_handlers.extract_also_allow,
     )
@@ -723,7 +724,7 @@ workflow_handlers.configure(
         normalize_agent_id=_normalize_agent_id,
         resolve_agent=_resolve_agent,
         sync_custom_agents=_sync_custom_agents,
-        effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+        effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
         start_run_background=run_handlers.start_run_background,
         build_workflow_create_fingerprint=_build_workflow_create_fingerprint,
         build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
@@ -763,7 +764,7 @@ _agent_test_dependencies = AgentTestDependencies(
     orchestrator_api=orchestrator_api,
     normalize_preset=normalize_preset,
     extract_also_allow=tools_handlers.extract_also_allow,
-    effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+    effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
     mark_completed=run_handlers.state_mark_completed_safe,
     mark_failed=run_handlers.state_mark_failed_safe,
     primary_agent_id=PRIMARY_AGENT_ID,
@@ -898,7 +899,7 @@ ws_handler_dependencies = WsHandlerDependencies(
     subrun_lane=subrun_lane,
     sync_custom_agents=_sync_custom_agents,
     normalize_agent_id=_normalize_agent_id,
-    effective_orchestrator_agent_ids=lambda: _effective_orchestrator_agent_ids(),
+    effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
     looks_like_review_request=_looks_like_review_request,
     looks_like_coding_request=looks_like_coding_request,
     route_agent_for_message=_route_agent_for_message,

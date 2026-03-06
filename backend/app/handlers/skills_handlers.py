@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
@@ -45,25 +45,24 @@ def _build_skills_list(*, skills_dir: str | None = None, max_discovered: int | N
     eligible, rejected = filter_eligible_skills(discovered)
     eligible_names = {item.name for item in eligible}
 
-    items: list[dict] = []
-    for skill in discovered:
-        items.append(
-            {
-                "name": skill.name,
-                "description": skill.description,
-                "file_path": skill.file_path,
-                "base_dir": skill.base_dir,
-                "user_invocable": bool(skill.user_invocable),
-                "disable_model_invocation": bool(skill.disable_model_invocation),
-                "metadata": {
-                    "requires_bins": list(skill.metadata.requires_bins),
-                    "requires_env": list(skill.metadata.requires_env),
-                    "os": list(skill.metadata.os),
-                },
-                "eligible": skill.name in eligible_names,
-                "rejected_reason": rejected.get(skill.name),
-            }
-        )
+    items: list[dict] = [
+        {
+            "name": skill.name,
+            "description": skill.description,
+            "file_path": skill.file_path,
+            "base_dir": skill.base_dir,
+            "user_invocable": bool(skill.user_invocable),
+            "disable_model_invocation": bool(skill.disable_model_invocation),
+            "metadata": {
+                "requires_bins": list(skill.metadata.requires_bins),
+                "requires_env": list(skill.metadata.requires_env),
+                "os": list(skill.metadata.os),
+            },
+            "eligible": skill.name in eligible_names,
+            "rejected_reason": rejected.get(skill.name),
+        }
+        for skill in discovered
+    ]
 
     return {
         "schema": "skills.list.v1",
@@ -166,23 +165,17 @@ def _build_skills_sync(
     clean_target: bool = False,
     confirm_clean_target: bool = False,
 ) -> dict:
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     started_monotonic = monotonic()
     workspace_root = Path(settings.workspace_root).resolve()
 
     source_raw = (source_skills_dir or "").strip() or settings.skills_dir
     source_path = Path(source_raw)
-    if not source_path.is_absolute():
-        source_path = (workspace_root / source_path).resolve()
-    else:
-        source_path = source_path.resolve()
+    source_path = (workspace_root / source_path).resolve() if not source_path.is_absolute() else source_path.resolve()
 
     target_raw = (target_skills_dir or "").strip() or "skills_synced"
     target_path = Path(target_raw)
-    if not target_path.is_absolute():
-        target_path = (workspace_root / target_path).resolve()
-    else:
-        target_path = target_path.resolve()
+    target_path = (workspace_root / target_path).resolve() if not target_path.is_absolute() else target_path.resolve()
 
     try:
         target_path.relative_to(workspace_root)

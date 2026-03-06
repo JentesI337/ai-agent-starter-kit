@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCENARIO_FILE = Path(__file__).resolve().parents[1] / "benchmarks" / "scenarios" / "default.json"
 
 
@@ -20,16 +19,19 @@ def _hard_case_contract(case_id: str) -> dict:
 
 
 def _validate_contract(text: str, contract: dict) -> list[str]:
-    failures: list[str] = []
     final_text = text or ""
 
-    for expected in contract.get("required_substrings", []):
-        if str(expected).lower() not in final_text.lower():
-            failures.append(f"missing_substring:{expected}")
+    failures = [
+        f"missing_substring:{expected}"
+        for expected in contract.get("required_substrings", [])
+        if str(expected).lower() not in final_text.lower()
+    ]
 
-    for pattern in contract.get("required_regex_patterns", []):
-        if re.search(str(pattern), final_text) is None:
-            failures.append(f"missing_regex:{pattern}")
+    failures.extend(
+        f"missing_regex:{pattern}"
+        for pattern in contract.get("required_regex_patterns", [])
+        if re.search(str(pattern), final_text) is None
+    )
 
     for pattern, min_count in dict(contract.get("regex_min_match_counts", {})).items():
         found = len(re.findall(str(pattern), final_text))
@@ -90,7 +92,7 @@ Wir sollten einige Verbesserungen machen.
 
 
 @pytest.mark.parametrize(
-    "case_id,min_chars,min_regex,min_regex_counts",
+    ("case_id", "min_chars", "min_regex", "min_regex_counts"),
     [
         ("hard_reasoning_format", 1000, 6, 1),
         ("hard_reasoning_depth", 1200, 0, 2),
@@ -128,6 +130,6 @@ def test_invalid_hard_output_sample_fails_contract(case_id: str) -> None:
 
     assert failures
     assert any(
-        reason.startswith("missing_regex:") or reason.startswith("regex_count_below:")
+        reason.startswith(("missing_regex:", "regex_count_below:"))
         for reason in failures
     )

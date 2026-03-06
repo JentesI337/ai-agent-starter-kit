@@ -15,22 +15,21 @@ from app.services.model_health_tracker import (
     ModelHealthTracker,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_profile(model_id: str = "test-model", **overrides) -> ModelCapabilityProfile:
-    defaults = dict(
-        model_id=model_id,
-        max_context=128_000,
-        reasoning_depth=1,
-        reflection_passes=0,
-        temperature=0.3,
-        health_score=0.95,
-        expected_latency_ms=500,
-        cost_score=0.5,
-    )
+    defaults = {
+        "model_id": model_id,
+        "max_context": 128_000,
+        "reasoning_depth": 1,
+        "reflection_passes": 0,
+        "temperature": 0.3,
+        "health_score": 0.95,
+        "expected_latency_ms": 500,
+        "cost_score": 0.5,
+    }
     defaults.update(overrides)
     return ModelCapabilityProfile(**defaults)
 

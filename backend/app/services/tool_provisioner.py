@@ -24,8 +24,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from app.services.environment_snapshot import EnvironmentSnapshot
 from app.services.provisioning_policy import ProvisioningPolicy
@@ -222,7 +223,7 @@ class ToolProvisioner:
             install_command, manager, allow_sudo=self._policy.allow_sudo,
         )
         try:
-            output = await run_command(safe_cmd)
+            await run_command(safe_cmd)
         except Exception as exc:
             return self._finish(
                 package=package, manager=manager, install_command=safe_cmd,

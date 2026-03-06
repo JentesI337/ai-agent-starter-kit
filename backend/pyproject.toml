@@ -1,0 +1,127 @@
+[project]
+name = "ai-agent-starter-kit-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+# =============================================================================
+# Ruff — State-of-the-art Python linter & formatter
+# Docs: https://docs.astral.sh/ruff/
+# =============================================================================
+[tool.ruff]
+# Target Python version
+target-version = "py311"
+
+# Max line length (Black-compatible default)
+line-length = 120
+
+# Files / directories to lint
+src = ["app", "tests"]
+
+# Exclude generated / vendored paths
+exclude = [
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".git",
+    "*.egg-info",
+    "node_modules",
+    "build",
+    "dist",
+]
+
+# ---------------------------------------------------------------------------
+# Linter rules
+# ---------------------------------------------------------------------------
+[tool.ruff.lint]
+# Rule sets enabled (broad coverage, close to flake8-all + modern extras)
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort (import sorting)
+    "N",      # pep8-naming
+    "UP",     # pyupgrade — modernize syntax
+    "B",      # flake8-bugbear — common bugs
+    "A",      # flake8-builtins — shadowing builtins
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking — move imports behind TYPE_CHECKING
+    "RUF",    # Ruff-specific rules
+    "S",      # flake8-bandit — security
+    "T20",    # flake8-print — no stray prints
+    "PT",     # flake8-pytest-style
+    "RET",    # flake8-return
+    "PIE",    # flake8-pie — misc lints
+    "PLC",    # Pylint convention
+    "PLE",    # Pylint error
+    "PLW",    # Pylint warning
+    "PERF",   # Perflint — performance anti-patterns
+    "FURB",   # refurb — modernize
+    "LOG",    # flake8-logging
+    "ASYNC",  # flake8-async
+]
+
+ignore = [
+    # ── Pragmatic ignores ────────────────────────────────────────────────
+    "E501",     # line too long — handled by formatter
+    "S101",     # assert usage — fine in tests
+    "T201",     # print() — allowed in CLI / startup logging for now
+    "B008",     # function-call-in-default-argument — needed for FastAPI Depends()
+    "UP007",    # Use X | Y for union types — keep Optional[] for readability
+    "RUF012",   # mutable-class-default — many Pydantic models use this intentionally
+
+    # ── Deferred: too disruptive to fix in one pass ──────────────────────
+    "TC001",    # typing-only-first-party-import — large refactor
+    "TC002",    # typing-only-third-party-import — large refactor
+    "TC003",    # typing-only-standard-library-import — large refactor
+    "PLC0415",  # import-outside-top-level — intentional lazy imports
+    "PLW0603",  # global-statement — legacy patterns, refactor later
+    "N806",     # non-lowercase-variable-in-function — many domain vars
+    "RUF002",   # ambiguous-unicode-character-docstring — German text in docs
+    "RUF003",   # ambiguous-unicode-character-comment — German text in comments
+    "ASYNC109", # async-function-with-timeout — needs architectural review
+    "S110",     # try-except-pass — intentional in many resilience patterns
+    "S112",     # try-except-continue — intentional in many resilience patterns
+    "N818",     # error-suffix-on-exception-name — GuardrailViolation widely used
+    "S104",     # hardcoded-bind-all-interfaces — intentional for dev server
+    "S108",     # hardcoded-temp-file — docker sandbox paths are safe
+    "S311",     # pseudo-random — not used for crypto, only jitter/backoff
+]
+
+# Auto-fixable categories
+fixable = ["ALL"]
+unfixable = []
+
+# Allow __all__ and __init__ unused imports
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"tests/**/*.py" = ["S101", "S106", "S108", "PLR2004", "T201"]
+# Subprocess wrappers have their own security controls
+"app/tools.py" = ["S603", "S607", "PLW1510"]
+"app/runtime_manager.py" = ["S603", "ASYNC220"]
+# SQL uses parameterized queries despite dynamic WHERE clauses
+"app/services/long_term_memory.py" = ["S608"]
+
+# isort config
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+force-single-line = false
+combine-as-imports = true
+
+# flake8-bugbear
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
+# pep8-naming
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = ["pydantic.validator", "pydantic.field_validator"]
+
+# ---------------------------------------------------------------------------
+# Formatter (replaces Black)
+# ---------------------------------------------------------------------------
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true

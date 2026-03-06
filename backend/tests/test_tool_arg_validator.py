@@ -144,7 +144,7 @@ def test_validate_code_execute_rejects_invalid_language() -> None:
 
 
 @pytest.mark.parametrize(
-    "args,expected",
+    ("args", "expected"),
     [
         ({"code": "print('x')", "timeout": "10"}, "argument 'timeout' must be an integer"),
         ({"code": "print('x')", "timeout": 0}, "argument 'timeout' out of range"),
@@ -287,7 +287,7 @@ def test_validate_noop_tool_always_passes() -> None:
 
 
 @pytest.mark.parametrize(
-    "tool,args,expected",
+    ("tool", "args", "expected"),
     [
         ("write_file", {"path": 1, "content": "x"}, "argument 'path' must be a string"),
         ("run_command", {"command": 1}, "argument 'command' must be a string"),

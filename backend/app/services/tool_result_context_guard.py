@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
-
+from dataclasses import dataclass
 
 _TOOL_BLOCK_PATTERN = re.compile(r"(?ms)^\[[^\]\n]+\]\n?")
 
@@ -207,10 +206,7 @@ def enforce_tool_result_context_budget(
     if len(reduced) > max_input_chars:
         suffix = f"\n\n[truncated: tool output exceeded context budget ({len(source)} chars)]"
         safe_limit = max(0, max_input_chars - len(suffix))
-        if safe_limit > 0:
-            reduced = f"{reduced[:safe_limit]}{suffix}"
-        else:
-            reduced = suffix[:max_input_chars]
+        reduced = f"{reduced[:safe_limit]}{suffix}" if safe_limit > 0 else suffix[:max_input_chars]
         reason = "context_budget"
 
     modified = reduced != source

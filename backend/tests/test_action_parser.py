@@ -21,7 +21,8 @@ def test_parse_accepts_actions_object() -> None:
     actions, error = parser.parse('{"actions":[{"tool":"read_file","args":{"path":"README.md"}}]}')
 
     assert error is None
-    assert actions and actions[0]["tool"] == "read_file"
+    assert actions
+    assert actions[0]["tool"] == "read_file"
 
 
 def test_parse_rejects_non_object_root() -> None:

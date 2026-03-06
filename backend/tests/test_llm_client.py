@@ -6,9 +6,9 @@ import json
 import httpx
 import pytest
 
+import app.llm_client as llm_module
 from app.errors import LlmClientError
 from app.llm_client import LlmClient
-import app.llm_client as llm_module
 
 
 class _FakeResponse:
@@ -127,7 +127,7 @@ def test_complete_chat_retries_and_returns_content(monkeypatch) -> None:
     ]
     _patch_async_client(monkeypatch, queue)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
 
     result = asyncio.run(client.complete_chat("sys", "user"))
 
@@ -140,7 +140,7 @@ def test_complete_chat_raises_on_empty_content(monkeypatch) -> None:
     ]
     _patch_async_client(monkeypatch, queue)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
 
     with pytest.raises(LlmClientError, match="empty completion content"):
         asyncio.run(client.complete_chat("sys", "user"))
@@ -152,7 +152,7 @@ def test_complete_chat_maps_timeout_exception(monkeypatch) -> None:
     ]
     _patch_async_client(monkeypatch, queue)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
 
     with pytest.raises(LlmClientError, match="LLM timeout"):
         asyncio.run(client.complete_chat("sys", "user"))
@@ -169,13 +169,10 @@ def test_stream_chat_completion_retries_and_yields_tokens(monkeypatch) -> None:
     queue: list[object] = [retry_response, success_response]
     _patch_async_client(monkeypatch, queue)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
 
     async def _collect() -> list[str]:
-        out: list[str] = []
-        async for token in client.stream_chat_completion("sys", "user"):
-            out.append(token)
-        return out
+        return [token async for token in client.stream_chat_completion("sys", "user")]
 
     tokens = asyncio.run(_collect())
 
@@ -188,7 +185,7 @@ def test_complete_chat_ollama_raises_on_empty_content(monkeypatch) -> None:
     ]
     _patch_async_client(monkeypatch, queue)
 
-    client = LlmClient(base_url="http://example.local/api", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/api", model="test-model")
 
     with pytest.raises(LlmClientError, match="empty completion content"):
         asyncio.run(client.complete_chat("sys", "user"))
@@ -204,7 +201,7 @@ def test_complete_chat_includes_temperature_in_openai_payload(monkeypatch) -> No
     captured_payloads: list[dict] = []
     _patch_async_client_with_capture(monkeypatch, queue, captured_payloads)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
     result = asyncio.run(client.complete_chat("sys", "user", temperature=0.42))
 
     assert result == "ok"
@@ -222,7 +219,7 @@ def test_complete_chat_includes_temperature_in_ollama_options(monkeypatch) -> No
     captured_payloads: list[dict] = []
     _patch_async_client_with_capture(monkeypatch, queue, captured_payloads)
 
-    client = LlmClient(base_url="http://example.local/api", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/api", model="test-model")
     result = asyncio.run(client.complete_chat("sys", "user", temperature=0.33))
 
     assert result == "ok"
@@ -257,7 +254,7 @@ def test_complete_chat_with_tools_uses_typed_tool_definitions_in_payload(monkeyp
     captured_payloads: list[dict] = []
     _patch_async_client_with_capture(monkeypatch, queue, captured_payloads)
 
-    client = LlmClient(base_url="http://example.local/v1", model="test-model")
+    client = LlmClient(base_url="http://localhost:11434/v1", model="test-model")
     tool_definitions = [
         {
             "type": "function",

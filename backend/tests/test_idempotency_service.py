@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 
+from app.services.idempotency_manager import IdempotencyManager
 from app.services.idempotency_service import (
     idempotency_lookup_or_raise,
     idempotency_register,
     prune_idempotency_registry,
 )
-from app.services.idempotency_manager import IdempotencyManager
 
 
 def _iso_ago(seconds: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+    return (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
 
 
 def test_prune_idempotency_registry_removes_expired_entries() -> None:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import StrEnum
 import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 
@@ -68,19 +68,14 @@ def build_lifecycle_event(
     details: dict | None = None,
     agent: str | None = None,
 ) -> dict:
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
     phase = "progress"
-    if stage.endswith("_started") or stage.endswith("_received") or stage.endswith("_requested"):
+    if stage.endswith(("_started", "_received", "_requested")):
         phase = "start"
-    elif stage.endswith("_completed") or stage.endswith("_done") or stage.endswith("_passed"):
+    elif stage.endswith(("_completed", "_done", "_passed")):
         phase = "end"
     elif (
-        stage.endswith("_failed")
-        or stage.endswith("_rejected")
-        or stage.endswith("_exhausted")
-        or stage.endswith("_exceeded")
-        or stage.endswith("_blocked")
-        or stage.endswith("_missing")
+        stage.endswith(("_failed", "_rejected", "_exhausted", "_exceeded", "_blocked", "_missing"))
     ):
         phase = "error"
 

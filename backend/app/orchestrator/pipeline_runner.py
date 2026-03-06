@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.contracts.agent_contract import AgentContract, SendEvent
 from app.config import settings
-from app.errors import GuardrailViolation, LlmClientError
-from app.model_routing.context_window_guard import evaluate_context_window_guard
+from app.contracts.agent_contract import AgentContract, SendEvent
+from app.errors import GuardrailViolation
 from app.model_routing import ModelRouter
+from app.model_routing.context_window_guard import evaluate_context_window_guard
 from app.model_routing.router import ModelRouteDecision
-from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.events import LifecycleStage, build_lifecycle_event
+from app.orchestrator.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestrator.recovery_strategy import (
     PriorityRecoveryMetadata,
     RecoveryContext,
@@ -25,7 +26,6 @@ from app.services.circuit_breaker import CircuitBreakerRegistry
 from app.services.model_health_tracker import ModelHealthTracker
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
-
 
 RecoveryPriorityResolution = tuple[tuple[str, ...], bool, bool, str, bool, bool]
 
@@ -241,15 +241,13 @@ class PipelineRunner:
             )
         except Exception:
             for step in (PipelineStep.PLAN, PipelineStep.TOOL_SELECT, PipelineStep.TOOL_EXECUTE, PipelineStep.SYNTHESIZE):
-                try:
+                with contextlib.suppress(Exception):
                     self.state_store.set_task_status(
                         run_id=request_id,
                         task_id=str(step),
                         label=str(step),
                         status="failed",
                     )
-                except Exception:
-                    pass
             raise
 
         await send_event(
@@ -747,7 +745,7 @@ class PipelineRunner:
         is_api = normalized_runtime == "api"
         priority_config = self._resolve_reason_priority_config(reason=reason, is_api=is_api)
         if priority_config is None:
-            return tuple(), False, False, "not_applicable", False, False
+            return (), False, False, "not_applicable", False, False
 
         raw_priority, allowed_steps, fallback_steps = priority_config
         base = self._normalize_recovery_priority(
@@ -925,16 +923,12 @@ class PipelineRunner:
         if reason == "context_overflow":
             if health_score < low_health_threshold:
                 preferred_step = "overflow_fallback_retry"
-            elif expected_latency_ms >= high_latency_ms:
-                preferred_step = "prompt_compaction"
-            elif cost_score >= high_cost_threshold:
+            elif expected_latency_ms >= high_latency_ms or cost_score >= high_cost_threshold:
                 preferred_step = "prompt_compaction"
         elif reason == "truncation_required":
             if health_score < low_health_threshold:
                 preferred_step = "truncation_fallback_retry"
-            elif expected_latency_ms >= high_latency_ms:
-                preferred_step = "payload_truncation"
-            elif cost_score >= high_cost_threshold:
+            elif expected_latency_ms >= high_latency_ms or cost_score >= high_cost_threshold:
                 preferred_step = "payload_truncation"
 
         if not preferred_step or preferred_step not in steps:

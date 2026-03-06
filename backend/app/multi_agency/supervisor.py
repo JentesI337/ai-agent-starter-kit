@@ -15,15 +15,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Callable, Awaitable
+from typing import Any
 from uuid import uuid4
 
 from app.multi_agency.agent_identity import AgentIdentityCard, AgentRegistry
-from app.multi_agency.agent_message_bus import AgentMessageBus, MessageType, MessagePriority
+from app.multi_agency.agent_message_bus import AgentMessageBus, MessagePriority, MessageType
 from app.multi_agency.blackboard import Blackboard
 
 logger = logging.getLogger(__name__)
@@ -72,7 +71,7 @@ class SupervisorTask:
 
     def __post_init__(self):
         if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+            self.created_at = datetime.now(UTC).isoformat()
 
 
 @dataclass(frozen=True)
@@ -101,12 +100,12 @@ class CoordinationSession:
 
     def __post_init__(self):
         if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+            self.created_at = datetime.now(UTC).isoformat()
 
 
 class SupervisorCoordinator:
     """The brain of multi-agent coordination.
-    
+
     Architecture:
     1. Receives a high-level task
     2. Decomposes into sub-tasks with capability requirements
@@ -158,7 +157,7 @@ class SupervisorCoordinator:
         task_descriptions: list[dict[str, Any]],
     ) -> list[SupervisorDecision]:
         """Decompose tasks and assign to optimal agents.
-        
+
         Each task_description should have:
         - "description": str
         - "required_capabilities": list[str]
@@ -331,7 +330,7 @@ class SupervisorCoordinator:
             task.status = TaskStatus.NEEDS_REVIEW
             task.result = result
             task.confidence = confidence
-            task.completed_at = datetime.now(timezone.utc).isoformat()
+            task.completed_at = datetime.now(UTC).isoformat()
 
             decision = SupervisorDecision(
                 decision_type="escalate",
@@ -348,7 +347,7 @@ class SupervisorCoordinator:
         task.status = TaskStatus.COMPLETED
         task.result = result
         task.confidence = confidence
-        task.completed_at = datetime.now(timezone.utc).isoformat()
+        task.completed_at = datetime.now(UTC).isoformat()
 
         decision = SupervisorDecision(
             decision_type="complete",
@@ -509,16 +508,17 @@ class SupervisorCoordinator:
             if session is None:
                 return {"error": f"No session: {session_id}"}
 
-        tasks_summary = []
-        for task in session.tasks.values():
-            tasks_summary.append({
+        tasks_summary = [
+            {
                 "task_id": task.task_id,
                 "description": task.description[:100],
                 "status": task.status,
                 "assigned_to": task.assigned_agent_id,
                 "confidence": task.confidence,
                 "retry_count": task.retry_count,
-            })
+            }
+            for task in session.tasks.values()
+        ]
 
         return {
             "session_id": session.session_id,

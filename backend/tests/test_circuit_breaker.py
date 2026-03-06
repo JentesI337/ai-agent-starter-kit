@@ -14,7 +14,6 @@ from app.services.circuit_breaker import (
     CircuitStateTransition,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -63,7 +62,7 @@ def test_allow_request_for_new_model() -> None:
 def test_trips_after_threshold_failures() -> None:
     async def _run() -> None:
         reg = _registry(failure_threshold=3)
-        for i in range(2):
+        for _i in range(2):
             await reg.record_failure("m1")
             assert reg.get_state("m1") == CircuitState.CLOSED
         await reg.record_failure("m1")

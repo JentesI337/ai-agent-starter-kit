@@ -26,9 +26,9 @@ from app.services.directive_parser import (
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
+from app.services.rate_limiter import get_ws_rate_limiter
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.services.session_inbox_service import SessionInboxService
-from app.services.rate_limiter import get_ws_rate_limiter
 from app.services.session_security import validate_session_id_format
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
@@ -152,6 +152,15 @@ class WsHandlerDependencies:
 
 
 async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> None:
+    # SEC (WS-01): Origin check before accepting the connection
+    _ws_allowed_origins: list[str] = list(getattr(deps.settings, "ws_allowed_origins", []) or [])
+    if _ws_allowed_origins:
+        _origin = (websocket.headers.get("origin") or "").strip()
+        if _origin not in _ws_allowed_origins:
+            await websocket.close(code=4003, reason="Origin not allowed")
+            deps.logger.warning("ws_origin_rejected origin=%s allowed=%s", _origin, _ws_allowed_origins)
+            return
+
     await websocket.accept()
     connection_session_id = str(uuid.uuid4())
     runtime_state = deps.runtime_manager.get_state()
@@ -1314,15 +1323,21 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 # BUG-13/BUG-14: track clarification_needed in non-queue direct-execution path
                 _direct_clarification_requested = False
 
-                async def _send_event_direct_wrapped(payload: EventPayload) -> None:
+                async def _send_event_direct_wrapped(
+                    payload: EventPayload,
+                    _session_id: str = session_id,
+                    _content: str = content,
+                    _request_id: str = request_id,
+                    _resolved_agent_id: str = resolved_agent_id,
+                ) -> None:
                     nonlocal _direct_clarification_requested
                     if payload.get("type") == "clarification_needed":
                         _direct_clarification_requested = True
-                        pending_clarifications[session_id] = {
-                            "original_message": content,
+                        pending_clarifications[_session_id] = {
+                            "original_message": _content,
                             "question": str(payload.get("message") or "").strip(),
-                            "request_id": request_id,
-                            "agent_id": resolved_agent_id,
+                            "request_id": _request_id,
+                            "agent_id": _resolved_agent_id,
                         }
                     await send_event(payload)
 
@@ -1458,11 +1473,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     request_id,
                     session_id,
                 )
+                # SEC (WS-03): Only expose generic message to client; full details stay in server logs
+                _client_err_msg = str(exc) if getattr(deps.settings, "app_env", "production") == "development" else "Internal error occurred"
                 await send_event(
                     {
                         "type": "error",
                         "agent": deps.agent.name,
-                        "message": f"Request error: {exc}",
+                        "message": f"Request error: {_client_err_msg}",
                         "error_category": classify_error(exc),
                     }
                 )
@@ -1481,11 +1498,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     except Exception as exc:
         deps.logger.exception("ws_server_error session_id=%s", connection_session_id)
         try:
+            # SEC (WS-03): Only expose generic message to client
+            _srv_err_msg = str(exc) if getattr(deps.settings, "app_env", "production") == "development" else "Internal server error"
             await send_event(
                 {
                     "type": "error",
                     "agent": deps.agent.name,
-                    "message": f"Server error: {exc}",
+                    "message": f"Server error: {_srv_err_msg}",
                 }
             )
         except ClientDisconnectedError:

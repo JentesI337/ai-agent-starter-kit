@@ -2,7 +2,7 @@
 
 This replaces the current "same code, different prompt" model with:
 - Distinct capability profiles per agent
-- Distinct tool sets per agent  
+- Distinct tool sets per agent
 - Distinct reasoning strategies per agent
 - Distinct model preferences per agent
 - Runtime-discoverable agent registry
@@ -55,7 +55,7 @@ class AgentCapabilityProfile:
 @dataclass(frozen=True)
 class AgentIdentityCard:
     """Complete identity and capability description for an agent.
-    
+
     This is what makes each agent truly different — not just a prompt.
     """
     agent_id: str

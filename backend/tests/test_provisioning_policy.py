@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.provisioning_policy import ProvisioningPolicy, _DEFAULT_BLOCKED
+from app.services.provisioning_policy import ProvisioningPolicy
 
 
 @pytest.fixture

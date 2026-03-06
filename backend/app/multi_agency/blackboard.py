@@ -12,9 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class ConflictRecord:
 
 class Blackboard:
     """Thread-safe shared state for multi-agent coordination.
-    
+
     Architecture:
     - Each entry has a key within a section (e.g. section="analysis", key="security_review")
     - Agents write with provenance (author_agent_id)
@@ -96,7 +97,7 @@ class Blackboard:
         # Normalize author_agent_id so read_by_agent() lookups match consistently
         author_agent_id = (author_agent_id or "").strip().lower()
         async with self._lock:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             now_ts = now.timestamp()
             existing = self._current.get(section, {}).get(key)
             version = (existing.version + 1) if existing else 1
@@ -164,13 +165,13 @@ class Blackboard:
     async def read_by_agent(self, agent_id: str) -> list[BlackboardEntry]:
         """Read all entries written by a specific agent."""
         normalized = (agent_id or "").strip().lower()
-        result: list[BlackboardEntry] = []
         async with self._lock:
-            for section_entries in self._current.values():
-                for entry in section_entries.values():
-                    if entry.author_agent_id == normalized:
-                        result.append(entry)
-        return result
+            return [
+                entry
+                for section_entries in self._current.values()
+                for entry in section_entries.values()
+                if entry.author_agent_id == normalized
+            ]
 
     async def read_history(self, *, section: str, key: str) -> list[BlackboardEntry]:
         """Read version history for a section+key."""
@@ -204,7 +205,7 @@ class Blackboard:
         for cb in callbacks:
             try:
                 await asyncio.wait_for(cb(entry), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Blackboard watcher timed out for section=%s key=%s", section, key)
             except asyncio.CancelledError:
                 raise

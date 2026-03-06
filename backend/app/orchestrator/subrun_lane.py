@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random
 import uuid
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from typing import Callable, Awaitable
 
 from app.contracts.agent_contract import SendEvent
 from app.errors import GuardrailViolation
@@ -398,9 +399,7 @@ class SubrunLane:
                 continue
             visible.add(current)
             children = self._children_by_session.get(current, set())
-            for child in children:
-                if child not in visible:
-                    queue.append(child)
+            queue.extend(child for child in children if child not in visible)
         return visible
 
     def _normalize_visibility_scope(self, visibility_scope: str | None) -> str:
@@ -546,15 +545,13 @@ class SubrunLane:
             return False
 
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
-        except (asyncio.CancelledError, Exception):
-            pass
         return True
 
     async def _run(self, *, spec: SubrunSpec, send_event: SendEvent) -> None:
         started_at = monotonic()
-        started_at_ts = datetime.now(timezone.utc).isoformat()
+        started_at_ts = datetime.now(UTC).isoformat()
         final_text = ""
         status = "failed"
         notes: str | None = None
@@ -592,7 +589,7 @@ class SubrunLane:
                     final_text = await self._run_subrun(spec=spec, send_event=send_event)
                 status = "completed"
                 self._state_store.mark_completed(run_id=spec.run_id)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             status = "timed_out"
             notes = f"Subrun timed out after {spec.timeout_seconds}s."
             self._state_store.mark_failed(run_id=spec.run_id, error=notes)
@@ -606,7 +603,7 @@ class SubrunLane:
             self._state_store.mark_failed(run_id=spec.run_id, error=notes)
 
         elapsed = round(max(0.0, monotonic() - started_at), 3)
-        ended_at_ts = datetime.now(timezone.utc).isoformat()
+        ended_at_ts = datetime.now(UTC).isoformat()
         handover = self._build_handover_contract(status=status, result_text=final_text, notes=notes)
 
         try:
@@ -666,7 +663,7 @@ class SubrunLane:
 
             completion_callback = self._completion_callback
             if completion_callback is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await completion_callback(
                         parent_session_id=spec.parent_session_id,
                         run_id=spec.run_id,
@@ -674,8 +671,6 @@ class SubrunLane:
                         terminal_reason=str(handover.get("terminal_reason") or "subrun-unknown"),
                         child_output=(final_text or None),
                     )
-                except Exception:
-                    pass
 
             # Multi-agency: evaluate confidence via CoordinationBridge
             bridge = self._coordination_bridge
@@ -756,7 +751,7 @@ class SubrunLane:
             "run_id": run_id,
             "status": status,
             "details": details or {},
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         self._run_status[run_id] = snapshot
         self._prune_retained_statuses()
@@ -929,7 +924,7 @@ class SubrunLane:
             "legacy_status": self._to_legacy_announce_status(status),
             "attempt": attempt,
             "error": error,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         self._prune_retained_statuses()
         self._persist_registry_safe()
@@ -1053,7 +1048,7 @@ class SubrunLane:
     def _persist_registry_safe(self) -> None:
         payload = {
             "version": 1,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "run_specs": {run_id: self._serialize_spec(spec) for run_id, spec in self._run_specs.items()},
             "run_status": self._run_status,
             "announce_status": self._announce_status,
@@ -1113,8 +1108,8 @@ class SubrunLane:
         if not self._restore_orphan_reconcile_enabled:
             return
 
-        reconciled_at = datetime.now(timezone.utc).isoformat()
-        now_ts = datetime.now(timezone.utc).timestamp()
+        reconciled_at = datetime.now(UTC).isoformat()
+        now_ts = datetime.now(UTC).timestamp()
         for run_id, snapshot in list(self._run_status.items()):
             if not isinstance(snapshot, dict):
                 continue
@@ -1149,11 +1144,9 @@ class SubrunLane:
             }
             self._run_status[run_id] = reconciled_snapshot
 
-            try:
+            with contextlib.suppress(Exception):
                 self._state_store.mark_failed(run_id=run_id, error="Subrun orphaned after restore.")
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 self._state_store.append_event(
                     run_id=run_id,
                     event={
@@ -1164,7 +1157,5 @@ class SubrunLane:
                         "reconciled_at": reconciled_at,
                     },
                 )
-            except Exception:
-                pass
 
         self._persist_registry_safe()

@@ -105,9 +105,7 @@ class ModelRouter:
         if self._health_tracker is not None:
             profile = self._health_tracker.apply_to_profile(profile)
         runtime_bonus = 0.0
-        if runtime_key == "local" and model_id == settings.local_model:
-            runtime_bonus = settings.model_score_runtime_bonus
-        elif runtime_key == "api" and model_id == settings.api_model:
+        if (runtime_key == "local" and model_id == settings.local_model) or (runtime_key == "api" and model_id == settings.api_model):
             runtime_bonus = settings.model_score_runtime_bonus
 
         normalized_reasoning_level = self._normalize_reasoning_level(reasoning_level)

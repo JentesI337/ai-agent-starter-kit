@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 
 from fastapi import HTTPException
@@ -17,13 +17,13 @@ def _parse_created_at(value: object) -> datetime:
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError:
-            parsed = datetime.fromtimestamp(0, tz=timezone.utc)
+            parsed = datetime.fromtimestamp(0, tz=UTC)
     else:
-        parsed = datetime.fromtimestamp(0, tz=timezone.utc)
+        parsed = datetime.fromtimestamp(0, tz=UTC)
 
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def prune_idempotency_registry(
@@ -36,7 +36,7 @@ def prune_idempotency_registry(
     cap = max(0, int(max_entries or 0))
 
     if ttl > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl)
+        cutoff = datetime.now(UTC) - timedelta(seconds=ttl)
         expired_keys = [
             key
             for key, payload in registry.items()
@@ -105,6 +105,6 @@ def idempotency_register(
         registry[idempotency_key] = {
             "fingerprint": fingerprint,
             **value,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         prune_idempotency_registry(registry=registry, ttl_seconds=ttl_seconds, max_entries=max_entries)

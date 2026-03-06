@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def build_summary_snapshot(run_state: dict) -> dict:
@@ -14,7 +14,7 @@ def build_summary_snapshot(run_state: dict) -> dict:
 
     return {
         "snapshot_version": 1,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
         "run_id": run_state.get("run_id") if isinstance(run_state, dict) else None,
         "session_id": run_state.get("session_id") if isinstance(run_state, dict) else None,
         "request_id": run_state.get("request_id") if isinstance(run_state, dict) else None,

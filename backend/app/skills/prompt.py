@@ -24,7 +24,7 @@ def build_skills_prompt(skills: list[SkillDefinition], max_prompt_chars: int) ->
 
     for skill in skills:
         entry = _format_skill_entry(skill)
-        candidate = "\n\n".join(chunks + [entry])
+        candidate = "\n\n".join([*chunks, entry])
         if len(candidate) > max_prompt_chars:
             truncated = True
             break

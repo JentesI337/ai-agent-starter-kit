@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import sys
-
 from app.tools import AgentTooling
 
 
 class TestProbeCommand:
     def test_known_command_found(self):
-        available, detail = AgentTooling.probe_command("python")
+        available, _detail = AgentTooling.probe_command("python")
         assert available or AgentTooling.probe_command("python3")[0]
 
     def test_unknown_command_not_found(self):
@@ -23,9 +21,9 @@ class TestProbeCommand:
         assert "empty" in detail
 
     def test_command_with_args_uses_first_token(self):
-        available, detail = AgentTooling.probe_command("python --version")
+        available, _detail = AgentTooling.probe_command("python --version")
         assert available or AgentTooling.probe_command("python3 --version")[0]
 
     def test_whitespace_only(self):
-        available, detail = AgentTooling.probe_command("   ")
+        available, _detail = AgentTooling.probe_command("   ")
         assert not available

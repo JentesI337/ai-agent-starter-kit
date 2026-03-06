@@ -10,12 +10,12 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     CLOSED = "closed"           # normal operation
     OPEN = "open"               # all requests blocked
     HALF_OPEN = "half_open"     # single probe request allowed
@@ -228,7 +228,7 @@ class CircuitBreakerRegistry:
 
     def _evict_stale_circuits(self) -> None:
         """Remove CLOSED circuits with no recent failures to bound dict size."""
-        now = time.monotonic()
+        time.monotonic()
         evictable = [
             mid for mid, c in self._circuits.items()
             if c.state == CircuitState.CLOSED and not c.failure_timestamps

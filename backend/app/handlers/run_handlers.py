@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
 
-from app.interfaces import RequestContext
 from app.config import settings
 from app.control_models import (
     ControlRunsAuditRequest,
@@ -19,6 +18,7 @@ from app.control_models import (
     ControlRunStartRequest,
     ControlRunWaitRequest,
 )
+from app.interfaces import RequestContext
 from app.orchestrator.events import build_lifecycle_event
 from app.orchestrator.run_state_machine import (
     build_run_state_event,
@@ -32,7 +32,12 @@ from app.services.directive_parser import (
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
-from app.services.request_normalization import normalize_idempotency_key, normalize_preset, normalize_prompt_mode, normalize_queue_mode
+from app.services.request_normalization import (
+    normalize_idempotency_key,
+    normalize_preset,
+    normalize_prompt_mode,
+    normalize_queue_mode,
+)
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 

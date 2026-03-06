@@ -5,12 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 from app.services.environment_snapshot import (
     EnvironmentSnapshot,
-    _parse_pip_freeze,
     _parse_npm_list,
+    _parse_pip_freeze,
 )
 
 

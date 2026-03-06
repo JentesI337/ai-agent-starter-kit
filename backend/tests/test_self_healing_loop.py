@@ -12,7 +12,6 @@ from app.services.self_healing_loop import (
     SelfHealingLoop,
 )
 
-
 # ── RecoveryPlan ──────────────────────────────────────────────────────
 
 
@@ -210,7 +209,7 @@ class TestHealAndRetry:
             name="fix",
             description="Fix",
             error_pattern="broken",
-            recovery_commands=["fix-it"],
+            recovery_commands=["pip install fix-pkg"],
             category="environment",
         )
         healer = SelfHealingLoop(plans=[plan])
@@ -238,13 +237,13 @@ class TestHealAndRetry:
             name="multi_fix",
             description="Multiple steps",
             error_pattern="broken",
-            recovery_commands=["step1", "step2"],
+            recovery_commands=["pip install step1", "npm install step2"],
             category="environment",
         )
         healer = SelfHealingLoop(plans=[plan])
 
         async def fake_run(cmd: str) -> str:
-            if cmd == "step1":
+            if cmd == "pip install step1":
                 raise RuntimeError("step1 failed")
             return "all good"
 

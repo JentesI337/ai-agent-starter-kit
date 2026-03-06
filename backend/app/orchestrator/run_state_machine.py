@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 RUN_STATE_CONTRACT_VERSION = "run-state.v1"
 
@@ -18,7 +18,7 @@ TERMINAL_RUN_STATES: set[str] = {"completed", "failed", "cancelled"}
 
 
 def _iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def resolve_run_state_from_stage(stage: str) -> str | None:
@@ -28,12 +28,12 @@ def resolve_run_state_from_stage(stage: str) -> str | None:
 
     if normalized.endswith("_cancelled"):
         return "cancelled"
-    if normalized.endswith("_failed") or normalized.endswith("_rejected"):
+    if normalized.endswith(("_failed", "_rejected")):
         return "failed"
     if normalized in {"request_completed", "run_completed"}:
         return "completed"
 
-    if normalized in {"request_received"}:
+    if normalized == "request_received":
         return "received"
     if normalized in {
         "accepted",
@@ -44,21 +44,16 @@ def resolve_run_state_from_stage(stage: str) -> str | None:
         "request_dispatched",
     }:
         return "queued"
-    if normalized.startswith("planning") or normalized.startswith("replanning") or normalized == "run_started":
+    if normalized.startswith(("planning", "replanning")) or normalized == "run_started":
         return "planning"
     if normalized in {"tool_result_persisted", "run_accounted", "memory_write_applied", "memory_write_skipped"}:
         return "persisted"
     if (
-        normalized.startswith("tool_")
-        or normalized.startswith("skills_")
-        or normalized == "terminal_wait_started"
-        or normalized == "terminal_wait_completed"
+        normalized.startswith(("tool_", "skills_")) or normalized == "terminal_wait_started" or normalized == "terminal_wait_completed"
     ):
         return "tool_loop"
     if (
-        normalized.startswith("streaming")
-        or normalized.startswith("synthesis")
-        or normalized.startswith("reply_shaping")
+        normalized.startswith(("streaming", "synthesis", "reply_shaping"))
     ):
         return "synthesis"
     if normalized in {"reply_suppressed", "response_emitted", "response_stream_completed"}:

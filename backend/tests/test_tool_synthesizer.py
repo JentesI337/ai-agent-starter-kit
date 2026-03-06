@@ -9,10 +9,9 @@ import pytest
 from app.services.tool_synthesizer import (
     SynthesisResult,
     ToolSynthesizer,
-    check_script_safety,
     _build_execution_command,
+    check_script_safety,
 )
-
 
 # ── check_script_safety ──────────────────────────────────────────────
 

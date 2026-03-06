@@ -8,43 +8,36 @@ Uses asyncio.run() pattern consistent with the rest of the test suite.
 from __future__ import annotations
 
 import asyncio
-import pytest
 
-from app.multi_agency.blackboard import Blackboard, BlackboardEntry
-from app.multi_agency.agent_message_bus import (
-    AgentMessageBus,
-    AgentMessage,
-    MessageType,
-    MessagePriority,
-)
-from app.multi_agency.supervisor import (
-    SupervisorCoordinator,
-    SupervisorDecision,
-    SupervisorTask,
-    TaskStatus,
-)
-from app.multi_agency.confidence_router import ConfidenceRouter, ConfidenceRouteDecision
-from app.multi_agency.parallel_executor import (
-    ParallelFanOutExecutor,
-    FanOutResult,
-    DAGStep,
-    FanOutMode,
-)
-from app.multi_agency.consensus import (
-    ConsensusEngine,
-    ConsensusResult,
-    VotingStrategy,
-)
 from app.multi_agency.agent_identity import (
-    AgentIdentityCard,
+    DEFAULT_AGENT_IDENTITIES,
     AgentCapabilityProfile,
+    AgentIdentityCard,
     AgentRegistry,
     AgentRole,
     ReasoningStrategy,
-    DEFAULT_AGENT_IDENTITIES,
+)
+from app.multi_agency.agent_message_bus import (
+    AgentMessage,
+    AgentMessageBus,
+    MessagePriority,
+    MessageType,
+)
+from app.multi_agency.blackboard import Blackboard
+from app.multi_agency.confidence_router import ConfidenceRouter
+from app.multi_agency.consensus import (
+    ConsensusEngine,
+    VotingStrategy,
 )
 from app.multi_agency.coordination_bridge import CoordinationBridge
-
+from app.multi_agency.parallel_executor import (
+    DAGStep,
+    FanOutMode,
+    ParallelFanOutExecutor,
+)
+from app.multi_agency.supervisor import (
+    SupervisorCoordinator,
+)
 
 # ─── helpers ───────────────────────────────────────────────
 

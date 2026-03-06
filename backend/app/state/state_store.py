@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import heapq
 import json
 import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 
 from app.config import settings
-from app.services.state_encryption import encrypt_state, decrypt_state
+from app.services.state_encryption import decrypt_state, encrypt_state
 from app.state.snapshots import build_summary_snapshot
 from app.state.task_graph import TaskGraph
 
@@ -38,7 +39,7 @@ class StateStore:
         model: str,
         meta: dict | None = None,
     ) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         transformed_message = self._transform_value(user_message)
         transformed_meta = self._transform_value(meta or {})
         state = {
@@ -99,7 +100,7 @@ class StateStore:
         with self._lock:
             state = self._read_run(run_id)
             state["events"].append(self._transform_value(event))
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             return state
 
@@ -125,7 +126,7 @@ class StateStore:
             if status in {"pending", "active", "completed", "failed"}:
                 graph.set_status(task_id, status)
             state["task_graph"] = graph.to_dict()
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             return state
 
@@ -133,7 +134,7 @@ class StateStore:
         with self._lock:
             state = self._read_run(run_id)
             state["status"] = "completed"
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             self._write_snapshot(run_id, state)
             return state
@@ -143,7 +144,7 @@ class StateStore:
             state = self._read_run(run_id)
             state["status"] = "failed"
             state["error"] = self._transform_value(error, key="error")
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             self._write_snapshot(run_id, state)
             return state
@@ -160,7 +161,7 @@ class StateStore:
                     current_meta[str(key)] = self._transform_value(value, key=str(key))
 
             state["meta"] = current_meta
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             return state
 
@@ -169,7 +170,7 @@ class StateStore:
             state = self._read_run(run_id)
             transformed_meta = self._transform_value(meta or {})
             state["meta"] = transformed_meta
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._write_run(run_id, state)
             return state
 
@@ -204,10 +205,7 @@ class StateStore:
     def _transform_string(self, value: str, key: str | None = None) -> str:
         text = value
         if settings.persist_transform_redact_secrets:
-            if self._is_sensitive_key(key):
-                text = "[REDACTED]"
-            else:
-                text = self._redact_secret_like_values(text)
+            text = "[REDACTED]" if self._is_sensitive_key(key) else self._redact_secret_like_values(text)
 
         max_chars = max(64, int(settings.persist_transform_max_string_chars))
         if len(text) > max_chars:
@@ -232,13 +230,21 @@ class StateStore:
             lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
             text,
         )
-        text = re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
-        return text
+        return re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
+
+    # SEC (STATE-01): Validate run_id format to prevent path traversal
+    _SAFE_RUN_ID = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")
+
+    def _validate_run_id(self, run_id: str) -> None:
+        if not self._SAFE_RUN_ID.match(run_id):
+            raise ValueError(f"Invalid run_id format: {run_id!r}")
 
     def _run_file(self, run_id: str) -> Path:
+        self._validate_run_id(run_id)
         return self.runs_dir / f"{run_id}.json"
 
     def _snapshot_file(self, run_id: str) -> Path:
+        self._validate_run_id(run_id)
         return self.snapshots_dir / f"{run_id}.summary.json"
 
     def _read_run(self, run_id: str) -> dict:
@@ -258,6 +264,8 @@ class StateStore:
         encrypted = encrypt_state(payload)
         tmp.write_text(encrypted, encoding="utf-8")
         self._replace_with_retry(tmp, file_path)
+        # SEC (STATE-02): Restrict file permissions to owner-only on non-Windows
+        self._restrict_file_permissions(file_path)
         self._run_index_dirty = True
 
     def _rebuild_run_index(self) -> None:
@@ -276,6 +284,8 @@ class StateStore:
         tmp = file_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
         self._replace_with_retry(tmp, file_path)
+        # SEC (STATE-02): Restrict file permissions to owner-only on non-Windows
+        self._restrict_file_permissions(file_path)
 
     def _replace_with_retry(self, tmp: Path, target: Path) -> None:
         delays = (0.005, 0.02, 0.05)
@@ -290,6 +300,15 @@ class StateStore:
 
         if last_error is not None:
             raise last_error
+
+    @staticmethod
+    def _restrict_file_permissions(file_path: Path) -> None:
+        """SEC (STATE-02): Set file permissions to owner-only (0o600) on non-Windows systems."""
+        import os as _os
+        if _os.name != "nt":
+            import stat as _stat
+            with contextlib.suppress(OSError):
+                file_path.chmod(_stat.S_IRUSR | _stat.S_IWUSR)
 
 
 class SqliteStateStore(StateStore):
@@ -329,7 +348,7 @@ class SqliteStateStore(StateStore):
         model: str,
         meta: dict | None = None,
     ) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         transformed_message = self._transform_value(user_message)
         transformed_meta = self._transform_value(meta or {})
         state = {
@@ -383,7 +402,7 @@ class SqliteStateStore(StateStore):
         with self._lock:
             state = self._require_run(run_id)
             state["events"].append(self._transform_value(event))
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             return state
 
@@ -409,7 +428,7 @@ class SqliteStateStore(StateStore):
             if status in {"pending", "active", "completed", "failed"}:
                 graph.set_status(task_id, status)
             state["task_graph"] = graph.to_dict()
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             return state
 
@@ -417,7 +436,7 @@ class SqliteStateStore(StateStore):
         with self._lock:
             state = self._require_run(run_id)
             state["status"] = "completed"
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             self._write_snapshot(run_id, state)
             return state
@@ -427,7 +446,7 @@ class SqliteStateStore(StateStore):
             state = self._require_run(run_id)
             state["status"] = "failed"
             state["error"] = self._transform_value(error, key="error")
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             self._write_snapshot(run_id, state)
             return state
@@ -444,7 +463,7 @@ class SqliteStateStore(StateStore):
                     current_meta[str(key)] = self._transform_value(value, key=str(key))
 
             state["meta"] = current_meta
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             return state
 
@@ -452,7 +471,7 @@ class SqliteStateStore(StateStore):
         with self._lock:
             state = self._require_run(run_id)
             state["meta"] = self._transform_value(meta or {})
-            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            state["updated_at"] = datetime.now(UTC).isoformat()
             self._upsert_run(run_id=run_id, state=state)
             return state
 
@@ -475,7 +494,7 @@ class SqliteStateStore(StateStore):
         return json.loads(decrypted)
 
     def _upsert_run(self, *, run_id: str, state: dict) -> None:
-        updated_at_ts = datetime.now(timezone.utc).timestamp()
+        updated_at_ts = datetime.now(UTC).timestamp()
         payload = json.dumps(state, ensure_ascii=False)
         # SEC (OE-08): Encrypt state at rest
         encrypted = encrypt_state(payload)

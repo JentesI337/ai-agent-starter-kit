@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -214,7 +215,7 @@ class CodeSandbox:
             "--no-new-privileges",
             "--security-opt", "no-new-privileges",
             "--user", "nobody",
-            "-v", f"{str(temp_dir)}:/sandbox:ro",
+            "-v", f"{temp_dir!s}:/sandbox:ro",
             "-w", "/sandbox",
             image,
             *cmd_in_container,
@@ -235,7 +236,7 @@ class CodeSandbox:
                     process.communicate(), timeout=timeout + 10  # extra grace for Docker overhead
                 )
                 timed_out = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 timed_out = True
                 await self._terminate_process_tree(process)
                 stdout_bytes, stderr_bytes = await process.communicate()
@@ -313,7 +314,7 @@ class CodeSandbox:
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
                 timed_out = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 timed_out = True
                 await self._terminate_process_tree(process)
                 stdout_bytes, stderr_bytes = await process.communicate()
@@ -365,6 +366,7 @@ class CodeSandbox:
         return None
 
     def _build_sandbox_env(self) -> dict[str, str]:
+        # SEC (CMD-13): USERNAME / LOGNAME / USER removed to avoid identity leak.
         safe_keys = {
             "PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE",
             "HOMEDRIVE", "HOMEPATH", "COMSPEC", "SHELL", "LANG", "LC_ALL",
@@ -372,12 +374,10 @@ class CodeSandbox:
             "NODE_PATH", "GOPATH", "GOROOT", "JAVA_HOME",
             "TERM", "COLORTERM", "PROGRAMFILES", "PROGRAMFILES(X86)",
             "COMMONPROGRAMFILES", "APPDATA", "LOCALAPPDATA",
-            "WINDIR", "SYSTEMDRIVE", "USERNAME", "LOGNAME", "USER",
+            "WINDIR", "SYSTEMDRIVE",
         }
-        env: dict[str, str] = {}
-        for key, value in os.environ.items():
-            if key.upper() in {k.upper() for k in safe_keys}:
-                env[key] = value
+        safe_upper = {k.upper() for k in safe_keys}
+        env: dict[str, str] = {key: value for key, value in os.environ.items() if key.upper() in safe_upper}
         env["NO_PROXY"] = "*"
         env["no_proxy"] = "*"
         env["HTTP_PROXY"] = ""
@@ -426,10 +426,8 @@ class CodeSandbox:
                 os.killpg(pid, signal.SIGKILL)
             except Exception:
                 process.kill()
-            try:
+            with contextlib.suppress(Exception):
                 await process.wait()
-            except Exception:
-                pass
 
     @staticmethod
     def _creationflags_for_platform() -> int:

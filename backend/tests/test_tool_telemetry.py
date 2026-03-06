@@ -8,7 +8,6 @@ import pytest
 
 from app.services.tool_telemetry import ToolSpan, ToolTelemetry
 
-
 # ── ToolSpan unit tests ──────────────────────────────────────────────
 
 class TestToolSpan:

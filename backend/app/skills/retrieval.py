@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from time import monotonic
-import re
 
 from app.skills.models import SkillSnapshot
 
@@ -156,8 +156,8 @@ def format_retrieval_sources_for_prompt(result: RetrievalResult) -> str:
     lines = [
         "Reliable retrieval sources (use these first, then read exact SKILL.md files when needed):",
     ]
-    for source in result.sources:
-        lines.append(
-            f"- {source.title} | location={source.location or '(n/a)'} | trust={source.trust:.2f} | score={source.score:.3f} | reason={source.reason}"
-        )
+    lines.extend(
+        f"- {source.title} | location={source.location or '(n/a)'} | trust={source.trust:.2f} | score={source.score:.3f} | reason={source.reason}"
+        for source in result.sources
+    )
     return "\n".join(lines).strip()

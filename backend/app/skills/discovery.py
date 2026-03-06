@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from app.skills.models import SkillDefinition
 from app.skills.parser import parse_skill_markdown
-
 
 SKILL_FILE_NAME = "SKILL.md"
 
@@ -18,10 +18,8 @@ def discover_skills(skills_root: str, max_discovered: int) -> list[SkillDefiniti
 
     root_skill = root / SKILL_FILE_NAME
     if root_skill.exists() and root_skill.is_file():
-        try:
+        with contextlib.suppress(Exception):  # M-25: skip broken root skill, continue with child discovery
             results.append(parse_skill_markdown(root_skill))
-        except Exception:
-            pass  # M-25: skip broken root skill, continue with child discovery
 
     for child in sorted(root.iterdir()):
         if len(results) >= max_discovered:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -40,8 +40,7 @@ class ReplyShaper:
             sanitized,
             flags=re.IGNORECASE | re.MULTILINE,
         )
-        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized).strip()
-        return sanitized
+        return re.sub(r"\n{3,}", "\n\n", sanitized).strip()
 
     def shape(
         self,
@@ -198,5 +197,4 @@ class ReplyShaper:
 
     def _normalize_confirmation_line(self, line: str) -> str:
         compact = re.sub(r"[^a-z0-9\s]", "", line.lower())
-        compact = re.sub(r"\s+", " ", compact).strip()
-        return compact
+        return re.sub(r"\s+", " ", compact).strip()

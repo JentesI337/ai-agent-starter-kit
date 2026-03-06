@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
+import os
 from collections.abc import Callable
+from pathlib import Path
 
 
 def resolve_persist_dir(path_value: str, *, workspace_root: str) -> Path:
@@ -9,6 +10,49 @@ def resolve_persist_dir(path_value: str, *, workspace_root: str) -> Path:
     if not candidate.is_absolute():
         candidate = (Path(workspace_root) / candidate).resolve()
     return candidate
+
+
+def run_security_checks(*, settings, logger) -> None:
+    """SEC: Startup security hardening checks."""
+    # CRYPTO-03: Warn if 'cryptography' package is missing (XOR fallback is weak)
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+    except ImportError:
+        logger.error(
+            "SEC: 'cryptography' package not installed — encryption uses WEAK XOR fallback. "
+            "Install with: pip install cryptography"
+        )
+
+    # CFG-06: Validate configuration at startup
+    try:
+        from app.config import validate_environment_config
+        validation = validate_environment_config(settings)
+        status = str(validation.get("validation_status", "ok"))
+        if status != "ok":
+            unknown_keys = list(validation.get("unknown_keys") or [])
+            logger.warning(
+                "SEC: Config validation status=%s unknown_keys=%s",
+                status,
+                unknown_keys,
+            )
+    except Exception:
+        logger.debug("startup_config_validation_error", exc_info=True)
+
+    # CFG-04: Warn about deprecated OLLAMA_API_KEY
+    if os.getenv("OLLAMA_API_KEY") and not os.getenv("LLM_API_KEY"):
+        logger.warning(
+            "SEC: OLLAMA_API_KEY is deprecated. Use LLM_API_KEY instead."
+        )
+
+    # CFG-02: Check .env file permissions on Linux
+    env_file = Path(".env")
+    if env_file.exists() and os.name != "nt":
+        import stat
+        mode = env_file.stat().st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            logger.warning(
+                "SEC: .env file is readable by group/others. Run: chmod 600 .env"
+            )
 
 
 def clear_startup_persistence(*, settings, logger) -> None:
@@ -67,6 +111,7 @@ def log_startup_paths(*, settings, logger) -> None:
 
 
 def run_startup_sequence(*, settings, logger, ensure_runtime_components_initialized: Callable[[], object]) -> None:
+    run_security_checks(settings=settings, logger=logger)
     log_startup_paths(settings=settings, logger=logger)
     clear_startup_persistence(settings=settings, logger=logger)
     ensure_runtime_components_initialized()

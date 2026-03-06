@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-import sys
 import socket
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
+import app.tools as tools_module
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
-import app.tools as tools_module
 
 
 def test_apply_patch_replaces_single_match(tmp_path: Path) -> None:
@@ -163,9 +163,11 @@ def test_web_fetch_rejects_non_http_scheme(tmp_path: Path) -> None:
 
     try:
         asyncio.run(tooling.web_fetch("file:///etc/passwd"))
-        assert False, "Expected ToolExecutionError"
+        raise AssertionError("Expected ToolExecutionError")
     except Exception as exc:
-        assert "http/https" in str(exc)
+        msg = str(exc).lower()
+        assert "http" in msg
+        assert "https" in msg
 
 
 def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> None:
@@ -209,7 +211,7 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
 
     try:
         asyncio.run(tooling.web_fetch("https://example.com/missing"))
-        assert False, "Expected ToolExecutionError"
+        raise AssertionError("Expected ToolExecutionError")
     except Exception as exc:
         text = str(exc)
         assert "HTTP 404" in text

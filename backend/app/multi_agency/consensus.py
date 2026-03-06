@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -57,7 +57,7 @@ class ConsensusResult:
 
 class ConsensusEngine:
     """Engine for multi-agent voting and conflict resolution.
-    
+
     Supports multiple voting strategies:
     - Majority: Simple majority wins
     - Weighted by confidence: Higher confidence votes count more
@@ -87,7 +87,7 @@ class ConsensusEngine:
         required_capabilities: set[str] | None = None,
     ) -> ConsensusResult:
         """Run a consensus vote on a set of agent results.
-        
+
         Each vote dict should have:
         - "agent_id": str
         - "result": Any
@@ -96,7 +96,7 @@ class ConsensusEngine:
         - "capabilities_used": list[str] (optional)
         """
         active_strategy = strategy or self._default_strategy
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Build Vote objects with weights
         processed_votes: list[Vote] = []
@@ -138,16 +138,15 @@ class ConsensusEngine:
         # Apply voting strategy
         if active_strategy == VotingStrategy.MAJORITY:
             return self._majority_vote(processed_votes, conflicts, active_strategy)
-        elif active_strategy == VotingStrategy.WEIGHTED_CONFIDENCE:
+        if active_strategy == VotingStrategy.WEIGHTED_CONFIDENCE:
             return self._weighted_confidence_vote(processed_votes, conflicts, active_strategy)
-        elif active_strategy == VotingStrategy.WEIGHTED_EXPERTISE:
+        if active_strategy == VotingStrategy.WEIGHTED_EXPERTISE:
             return self._weighted_expertise_vote(processed_votes, conflicts, active_strategy, required_capabilities)
-        elif active_strategy == VotingStrategy.UNANIMOUS:
+        if active_strategy == VotingStrategy.UNANIMOUS:
             return self._unanimous_vote(processed_votes, conflicts, active_strategy)
-        elif active_strategy == VotingStrategy.BEST_OF_N:
+        if active_strategy == VotingStrategy.BEST_OF_N:
             return self._best_of_n_vote(processed_votes, conflicts, active_strategy)
-        else:
-            return self._weighted_confidence_vote(processed_votes, conflicts, active_strategy)
+        return self._weighted_confidence_vote(processed_votes, conflicts, active_strategy)
 
     def merge_results(
         self,
@@ -156,7 +155,7 @@ class ConsensusEngine:
         merge_strategy: str = "concatenate",
     ) -> dict[str, Any]:
         """Merge complementary results from multiple agents.
-        
+
         Strategies:
         - "concatenate": Combine all results
         - "deduplicate": Remove duplicate content
@@ -167,10 +166,9 @@ class ConsensusEngine:
 
         if merge_strategy == "best_sections":
             return self._merge_best_sections(results)
-        elif merge_strategy == "deduplicate":
+        if merge_strategy == "deduplicate":
             return self._merge_deduplicate(results)
-        else:
-            return self._merge_concatenate(results)
+        return self._merge_concatenate(results)
 
     def _compute_weight(
         self,
@@ -183,16 +181,16 @@ class ConsensusEngine:
         """Compute vote weight based on strategy."""
         if strategy == VotingStrategy.MAJORITY:
             return 1.0
-        elif strategy == VotingStrategy.WEIGHTED_CONFIDENCE:
+        if strategy == VotingStrategy.WEIGHTED_CONFIDENCE:
             return confidence
-        elif strategy == VotingStrategy.WEIGHTED_EXPERTISE:
+        if strategy == VotingStrategy.WEIGHTED_EXPERTISE:
             identity = self._registry.get(agent_id)
             if identity and required_capabilities:
                 return identity.capability_score(required_capabilities)
             return confidence
-        elif strategy == VotingStrategy.UNANIMOUS:
+        if strategy == VotingStrategy.UNANIMOUS:
             return 1.0
-        elif strategy == VotingStrategy.BEST_OF_N:
+        if strategy == VotingStrategy.BEST_OF_N:
             return confidence
         return 1.0
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -178,7 +178,7 @@ class ContextReducer:
             user_message or "",
             *(memory_lines or []),
             *(tool_outputs or []),
-            *((snapshot_lines or [])),
+            *(snapshot_lines or []),
         ])
         if not joined.strip():
             return False

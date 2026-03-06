@@ -6,10 +6,10 @@ import json
 import pytest
 
 from app.agents.synthesizer_agent import SynthesizerAgent
-from app.services.dynamic_temperature import DynamicTemperatureResolver
-from app.services.prompt_ab_registry import PromptAbRegistry
 from app.contracts.schemas import SynthesizerInput
 from app.errors import LlmClientError
+from app.services.dynamic_temperature import DynamicTemperatureResolver
+from app.services.prompt_ab_registry import PromptAbRegistry
 
 
 class _FakeClient:

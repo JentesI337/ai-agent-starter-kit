@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
+from app.config import BACKEND_DIR
 from app.services.benchmark_calibration import BenchmarkCalibrationService
 from app.services.reflection_feedback_store import ReflectionFeedbackStore
-from app.config import BACKEND_DIR
 
 
 @dataclass(frozen=True)
@@ -87,10 +88,7 @@ def _persist_feature_flags_to_backend_env(
     long_term_memory_db_path_env: str | None = None,
 ) -> None:
     BACKEND_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if BACKEND_ENV_FILE.exists():
-        existing_lines = BACKEND_ENV_FILE.read_text(encoding="utf-8-sig").splitlines()
-    else:
-        existing_lines = []
+    existing_lines = BACKEND_ENV_FILE.read_text(encoding="utf-8-sig").splitlines() if BACKEND_ENV_FILE.exists() else []
 
     updated_lines = list(existing_lines)
     for env_name, feature_key in RUNTIME_FEATURE_ENV_MAP.items():
@@ -158,12 +156,12 @@ def api_runtime_update_features(deps: RuntimeDebugDependencies, payload: dict[st
         raise
 
     if deps.settings is not None:
-        setattr(deps.settings, "long_term_memory_enabled", bool(updated.get("long_term_memory_enabled", False)))
-        setattr(deps.settings, "session_distillation_enabled", bool(updated.get("session_distillation_enabled", False)))
-        setattr(deps.settings, "failure_journal_enabled", bool(updated.get("failure_journal_enabled", False)))
-        setattr(deps.settings, "vision_enabled", bool(updated.get("vision_enabled", False)))
+        deps.settings.long_term_memory_enabled = bool(updated.get("long_term_memory_enabled", False))
+        deps.settings.session_distillation_enabled = bool(updated.get("session_distillation_enabled", False))
+        deps.settings.failure_journal_enabled = bool(updated.get("failure_journal_enabled", False))
+        deps.settings.vision_enabled = bool(updated.get("vision_enabled", False))
         if raw_db_path is not None:
-            setattr(deps.settings, "long_term_memory_db_path", effective_db_path)
+            deps.settings.long_term_memory_db_path = effective_db_path
 
     return {
         "ok": True,
@@ -186,7 +184,7 @@ def api_test_ping(deps: RuntimeDebugDependencies) -> dict:
         "service": "backend",
         "runtime": state.runtime,
         "model": state.model,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
     }
 
 

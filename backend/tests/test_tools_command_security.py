@@ -4,9 +4,9 @@ import subprocess
 
 import pytest
 
+from app.config import settings
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
-from app.config import settings
 
 
 def _make_tooling(tmp_path, monkeypatch) -> AgentTooling:
@@ -28,7 +28,7 @@ def test_run_command_blocks_shell_chaining(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    "command,reason_fragment",
+    ("command", "reason_fragment"),
     [
         ("rm -rf .", "recursive rm"),
         (r"del /s c:\\", "destructive del"),
@@ -62,7 +62,7 @@ def test_command_safety_blocklist_patterns(tmp_path, monkeypatch, command: str, 
 
 
 @pytest.mark.parametrize(
-    "command,error_fragment",
+    ("command", "error_fragment"),
     [
         ("cmd /c del C:\\temp\\x.txt", "cmd /c del"),
         ("python -c \"import os; os.system('whoami')\"", "python -c"),

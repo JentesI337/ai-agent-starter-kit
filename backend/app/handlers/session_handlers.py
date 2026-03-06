@@ -18,9 +18,9 @@ from app.control_models import (
     ControlSessionsSpawnRequest,
     ControlSessionsStatusRequest,
 )
-from app.services.request_normalization import normalize_idempotency_key
 from app.handlers.run_handlers import extract_final_message, normalize_contract_run_status
 from app.handlers.tools_handlers import normalize_tool_policy_payload
+from app.services.request_normalization import normalize_idempotency_key
 
 
 @dataclass

@@ -14,15 +14,16 @@ Phases are tried in order; early exit on high-confidence results.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from app.services.tool_knowledge_base import ToolKnowledgeBase, ToolKnowledge
 from app.services.package_manager_adapter import (
     PackageCandidate,
     PackageManagerAdapter,
     get_platform_adapters,
 )
+from app.services.tool_knowledge_base import ToolKnowledgeBase
 
 logger = logging.getLogger(__name__)
 

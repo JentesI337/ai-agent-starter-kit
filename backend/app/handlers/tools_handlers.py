@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import sqlite3
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
@@ -67,7 +67,7 @@ def get_agent_tools(agent_contract) -> list[str]:
             delegate = nested_delegate
     registry = getattr(delegate, "tool_registry", None)
     if isinstance(registry, dict):
-        return sorted(str(name) for name in registry.keys())
+        return sorted(str(name) for name in registry)
     if registry is not None:
         keys = getattr(registry, "keys", None)
         if callable(keys):
@@ -339,7 +339,7 @@ def api_control_tools_policy_preview(request_data: dict) -> dict:
 def _estimate_tokens_from_chars(chars: int) -> int:
     if chars <= 0:
         return 0
-    return max(1, int(round(chars / 4.0)))
+    return max(1, round(chars / 4.0))
 
 
 def _build_context_segments_payload(run_state: dict) -> dict:
@@ -515,13 +515,20 @@ def api_control_context_detail(request_data: dict) -> dict:
     }
 
 
+_CONFIG_REDACTED_FIELDS = frozenset({
+    "api_auth_token", "llm_api_key", "state_encryption_key",
+    "session_signing_key", "policy_hmac_key", "web_search_api_key",
+    "vision_api_key",
+})
+
+
 def api_control_config_health(request_data: dict) -> dict:
     request = ControlConfigHealthRequest.model_validate(request_data)
     config_dump = settings.model_dump()
     validation = validate_environment_config(settings)
 
     active_overrides: dict[str, str] = {}
-    for key in config_dump.keys():
+    for key in config_dump:
         env_key = str(key).upper()
         if env_key in os.environ:
             active_overrides[key] = env_key
@@ -550,6 +557,10 @@ def api_control_config_health(request_data: dict) -> dict:
         "risk_flags": risk_flags,
     }
     if request.include_effective_values:
+        # SEC (CFG-01): Redact sensitive fields to prevent secret leakage
+        for key in _CONFIG_REDACTED_FIELDS:
+            if config_dump.get(key):
+                config_dump[key] = "[REDACTED]"
         payload["effective_values"] = config_dump
     return payload
 
@@ -761,7 +772,7 @@ def api_control_memory_overview(request_data: dict) -> dict:
     search_query = (request.search_query or "").strip()
     normalized_query = search_query.lower()
     has_query = bool(normalized_query)
-    selected_session = requested_session if requested_session else None
+    selected_session = requested_session or None
     session_limit = max(1, int(request.limit_sessions))
     entry_limit = max(1, int(request.limit_entries_per_session))
 

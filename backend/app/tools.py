@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import base64
-import mimetypes
+import contextlib
 import fnmatch
-from html import unescape
 import ipaddress
 import json
+import mimetypes
 import os
-from pathlib import Path
 import re
 import shlex
-import socket
 import subprocess
 import threading
-from urllib.parse import urljoin, urlparse
 import uuid
+from html import unescape
+from pathlib import Path
+from urllib.parse import urljoin
 
 import httpx
 
@@ -24,7 +24,13 @@ from app.services.code_sandbox import CodeSandbox
 from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
-
+from app.url_validator import (
+    UrlValidationError,
+    apply_dns_pin as _shared_apply_dns_pin,
+    parse_ip_literal as _shared_parse_ip_literal,
+    resolve_hostname_ips as _shared_resolve_hostname_ips,
+    validate_ip_is_public as _shared_validate_ip_is_public,
+)
 
 COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\brm\s+-r[f]?\s", "recursive rm is blocked"),
@@ -36,6 +42,10 @@ COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bchown\b", "chown command is blocked"),
     (r"\bmkfs\b", "filesystem formatting commands are blocked"),
     (r"\bdd\s+if=", "disk write command pattern is blocked"),
+    # SEC (CMD-09): Additional destructive patterns
+    (r"\bdd\s+.*of=/dev/", "dd writing to block device is blocked"),
+    (r">\s*/dev/sd[a-z]", "redirect to block device is blocked"),
+    (r"\bchmod\s+-[Rr]\s+777\s+/", "recursive chmod 777 on root is blocked"),
     (r"\bcurl\b.*\|\s*(?:ba)?sh\b", "curl pipe-to-shell execution is blocked"),
     (r"\bwget\b.*\|\s*(?:ba)?sh\b", "wget pipe-to-shell execution is blocked"),
     (r"\bwget\b.*&&\s*(?:ba)?sh\b", "wget chained shell execution is blocked"),
@@ -284,9 +294,9 @@ class AgentTooling:
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             log_file.close()
-            raise ToolExecutionError(f"Command not found: {argv[0] if argv else command}")
+            raise ToolExecutionError(f"Command not found: {argv[0] if argv else command}") from exc
         except Exception:
             log_file.close()
             raise
@@ -297,6 +307,8 @@ class AgentTooling:
                 "log_file": log_file,
                 "command": command,
                 "cwd": str(run_cwd),
+                # SEC (CMD-12): Track session ownership for kill authorization
+                "session_id": getattr(self, "_current_session_id", None),
             }
         return f"job_id={job_id} pid={proc.pid} log={log_path}"
 
@@ -322,6 +334,12 @@ class AgentTooling:
         if not job:
             raise ToolExecutionError(f"Unknown background job: {job_id}")
 
+        # SEC (CMD-12): Verify session ownership before killing
+        current_session = getattr(self, "_current_session_id", None)
+        job_session = job.get("session_id")
+        if current_session and job_session and current_session != job_session:
+            raise ToolExecutionError("Cannot kill background job from another session.")
+
         proc = job["process"]
         if proc.poll() is None:
             proc.terminate()
@@ -334,10 +352,8 @@ class AgentTooling:
         with self._bg_lock:
             maybe_job = self._background_jobs.pop(job_id, None)
         if maybe_job:
-            try:
+            with contextlib.suppress(Exception):
                 maybe_job["log_file"].close()
-            except Exception:
-                pass
         return f"Killed background job: {job_id}"
 
     async def web_fetch(self, url: str, max_chars: int = 12000) -> str:
@@ -657,131 +673,50 @@ class AgentTooling:
             ) from exc
 
     def _enforce_safe_web_target(self, url: str) -> str | None:
-        """Validate URL.  Returns a validated IP string for DNS-pinning (HTTP
-        scheme only) or ``None`` when the URL already uses an IP literal or is
-        HTTPS (where TLS certificate validation prevents DNS-rebinding
-        exploitation because the cert is bound to the hostname).
+        """Validate URL.  Returns a validated IP string for DNS-pinning or
+        ``None`` when the URL already uses an IP literal.
 
-        Callers should replace the hostname in the URL with the returned IP and
-        set the ``Host`` header to the original hostname to close the TOCTOU
-        gap between this validation and the actual TCP connect.
+        SEC (SSRF-01/05): Delegates to the shared ``url_validator`` module
+        so the same validation logic is reused across the entire backend.
         """
-        parsed = urlparse((url or "").strip())
-        if parsed.scheme not in {"http", "https"}:
-            raise ToolExecutionError("web_fetch only supports http/https URLs.")
-
-        if parsed.username or parsed.password:
-            raise ToolExecutionError("web_fetch blocks URLs containing credentials.")
-
-        host = (parsed.hostname or "").strip()
-        if not host:
-            raise ToolExecutionError("web_fetch requires a valid hostname.")
-
-        lowered_host = host.lower()
-        blocked_hostnames = {
-            "localhost",
-            "metadata.google.internal",
-            "169.254.169.254",
-            "169.254.170.2",
-            "metadata.internal",
-            "[::1]",
-            "0.0.0.0",
-            "[::ffff:127.0.0.1]",
-            "[::ffff:0.0.0.0]",
-            "[::ffff:169.254.169.254]",
-            "[0:0:0:0:0:0:0:1]",
-        }
-        if lowered_host in blocked_hostnames:
-            raise ToolExecutionError(f"web_fetch blocked hostname: {host}")
-
-        literal_ip = self._parse_ip_literal(host)
-        if literal_ip is not None:
-            self._validate_ip_is_public(literal_ip)
-            return None  # already an IP literal – no DNS rebinding risk
-
-        resolved_ips = self._resolve_hostname_ips(host, parsed.port)
-        if not resolved_ips:
-            raise ToolExecutionError(f"web_fetch could not resolve hostname: {host}")
-        for resolved in resolved_ips:
-            self._validate_ip_is_public(resolved)
-
-        # Pin DNS to the validated IP for HTTP to close the TOCTOU gap.
-        # For HTTPS, TLS certificate validation binds the connection to the
-        # legitimate hostname, so DNS-pinning would break SNI/cert matching.
-        if parsed.scheme == "https":
-            return None
-        return str(next(iter(resolved_ips)))
+        try:
+            return __import__("app.url_validator", fromlist=["enforce_safe_url"]).enforce_safe_url(
+                url, label="web_fetch"
+            )
+        except UrlValidationError as exc:
+            raise ToolExecutionError(str(exc)) from exc
 
     def _parse_ip_literal(self, host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-        try:
-            return ipaddress.ip_address(host)
-        except ValueError:
-            return None
+        return _shared_parse_ip_literal(host)
 
     @staticmethod
     def _validate_ip_is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
         """Reject any IP that is not a globally routable public address.
 
-        This blocks private ranges, loopback, link-local, multicast,
-        IPv6-mapped IPv4 private addresses, and other non-public targets.
+        Delegates to the shared ``url_validator`` module.
         """
-        if not ip.is_global:
-            raise ToolExecutionError(f"web_fetch blocked non-public target IP: {ip}")
-        # IPv6-mapped IPv4: e.g. ::ffff:127.0.0.1, ::ffff:10.0.0.1
-        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-            if not ip.ipv4_mapped.is_global:
-                raise ToolExecutionError(
-                    f"web_fetch blocked IPv6-mapped private IPv4 address: {ip}"
-                )
-        # Secondary check: reject 0.0.0.0/8 (current-network)
-        if isinstance(ip, ipaddress.IPv4Address):
-            if ip.packed[0] == 0:
-                raise ToolExecutionError(f"web_fetch blocked zero-network IP: {ip}")
+        try:
+            _shared_validate_ip_is_public(ip)
+        except UrlValidationError as exc:
+            raise ToolExecutionError(str(exc)) from exc
 
     @staticmethod
     def _apply_dns_pin(url: str, pinned_ip: str | None) -> tuple[str, dict[str, str]]:
         """Rewrite *url* to connect via *pinned_ip* (DNS-rebinding mitigation).
 
-        Returns ``(connect_url, extra_headers)`` where *connect_url* has the
-        hostname replaced with the validated IP (for HTTP) and *extra_headers*
-        contains a ``Host`` header preserving the original hostname.
-
-        When *pinned_ip* is ``None`` (IP literal or HTTPS), the URL is returned
-        unchanged and extra_headers is empty.
+        Delegates to the shared ``url_validator`` module.
         """
-        if pinned_ip is None:
-            return url, {}
-        parsed = urlparse(url)
-        original_host = parsed.hostname or ""
-        ip_in_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-        if parsed.port:
-            netloc = f"{ip_in_url}:{parsed.port}"
-        else:
-            netloc = ip_in_url
-        pinned_url = parsed._replace(netloc=netloc).geturl()
-        return pinned_url, {"Host": original_host}
+        return _shared_apply_dns_pin(url, pinned_ip)
 
     def _resolve_hostname_ips(
         self,
         host: str,
         port: int | None,
     ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-        target_port = int(port or 443)
         try:
-            infos = socket.getaddrinfo(host, target_port, type=socket.SOCK_STREAM)
-        except socket.gaierror as exc:
-            raise ToolExecutionError(f"web_fetch hostname resolution failed for {host}: {exc}") from exc
-
-        addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
-        for info in infos:
-            sockaddr = info[4]
-            if not sockaddr:
-                continue
-            ip_text = str(sockaddr[0]).strip()
-            parsed = self._parse_ip_literal(ip_text)
-            if parsed is not None:
-                addresses.add(parsed)
-        return addresses
+            return _shared_resolve_hostname_ips(host, port)
+        except UrlValidationError as exc:
+            raise ToolExecutionError(str(exc)) from exc
 
     def _normalize_web_text(self, text: str, max_chars: int) -> str:
         if not text:
@@ -849,9 +784,8 @@ class AgentTooling:
                 # posix=False preserves surrounding quotes; strip them
                 stripped = []
                 for t in tokens:
-                    if len(t) >= 2 and t[0] == t[-1] and t[0] in ('"', "'"):
-                        t = t[1:-1]
-                    stripped.append(t)
+                    tok = t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in ('"', "'") else t
+                    stripped.append(tok)
                 tokens = stripped
         except ValueError as exc:
             raise ToolExecutionError(f"Cannot tokenize command: {exc}") from exc
@@ -889,6 +823,10 @@ class AgentTooling:
 
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
         output = output.strip() or "(no output)"
+        # SEC (CMD-11): Truncate command output to prevent memory exhaustion
+        _MAX_CMD_OUTPUT = 100_000
+        if len(output) > _MAX_CMD_OUTPUT:
+            output = output[:_MAX_CMD_OUTPUT] + "\n... [output truncated]"
         self._raise_if_env_missing(command=command, leader=leader, returncode=completed.returncode, output=output)
         return f"exit_code={completed.returncode}\n{output[:12000]}"
 
@@ -1047,10 +985,7 @@ class AgentTooling:
         if text[0] in {'"', "'"}:
             quote = text[0]
             closing_index = text.find(quote, 1)
-            if closing_index > 1:
-                token = text[1:closing_index]
-            else:
-                token = text[1:]
+            token = text[1:closing_index] if closing_index > 1 else text[1:]
         else:
             token = re.split(r"\s|[|&;<>]", text, maxsplit=1)[0]
 
@@ -1059,15 +994,10 @@ class AgentTooling:
             return ""
 
         name = Path(token).name.lower()
-        if name.endswith(".exe"):
-            name = name[:-4]
-        if name.endswith(".cmd"):
-            name = name[:-4]
-        if name.endswith(".bat"):
-            name = name[:-4]
-        if name.endswith(".ps1"):
-            name = name[:-4]
-        return name
+        name = name.removesuffix(".exe")
+        name = name.removesuffix(".cmd")
+        name = name.removesuffix(".bat")
+        return name.removesuffix(".ps1")
 
     def _resolve_workspace_path(self, raw_path: str) -> Path:
         # SEC: Use os.path.realpath to resolve all symlinks/junctions,

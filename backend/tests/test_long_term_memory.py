@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.services.long_term_memory import FailureEntry, LongTermMemoryStore, SemanticEntry
 from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
@@ -163,7 +163,7 @@ def test_reflection_feedback_store_integration_with_memory_sqlite() -> None:
             model_id="model-a",
             prompt_variant="v1",
             retry_triggered=True,
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            timestamp_utc=datetime.now(UTC).isoformat(),
         )
     )
 

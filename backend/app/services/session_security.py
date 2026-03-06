@@ -12,12 +12,20 @@ import re
 import secrets
 import time
 
-
 # Signing key — generated once per server process lifetime.
 # In production, this should come from a persistent secret store.
-_SESSION_SIGNING_KEY: bytes = os.getenv(
-    "SESSION_SIGNING_KEY", ""
-).encode("utf-8") or secrets.token_bytes(32)
+_raw_signing_key = os.getenv("SESSION_SIGNING_KEY", "").encode("utf-8")
+if _raw_signing_key:
+    _SESSION_SIGNING_KEY: bytes = _raw_signing_key
+else:
+    # SEC (CRYPTO-02): Warn about ephemeral session signing key
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "SESSION_SIGNING_KEY not set — using ephemeral key. "
+        "Sessions will be invalidated on restart. "
+        "Set SESSION_SIGNING_KEY in .env for persistent sessions."
+    )
+    _SESSION_SIGNING_KEY = secrets.token_bytes(32)
 
 
 def generate_session_id(connection_id: str) -> str:
@@ -57,7 +65,7 @@ def validate_session_id_format(session_id: str) -> bool:
 
     Checks length and character constraints without cryptographic verification.
     """
-    if not session_id or len(session_id) > 200:
+    if not session_id or len(session_id) > 256:
         return False
     # Allow UUID-style, signed-style, and simple alphanumeric IDs
     return bool(re.fullmatch(r"[A-Za-z0-9._\-]+", session_id))
@@ -65,8 +73,10 @@ def validate_session_id_format(session_id: str) -> bool:
 
 def _sign(payload: str) -> str:
     """Create HMAC-SHA256 signature for a payload."""
+    # SEC (CRYPTO-06): Use full 64-char hex digest instead of truncated 16-char
+    # for stronger collision resistance (256-bit vs 64-bit).
     return hmac.new(
         _SESSION_SIGNING_KEY,
         payload.encode("utf-8"),
         hashlib.sha256,
-    ).hexdigest()[:16]
+    ).hexdigest()

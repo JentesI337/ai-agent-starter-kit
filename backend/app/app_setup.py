@@ -31,11 +31,54 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class _SecurityHeaderMiddleware(BaseHTTPMiddleware):
+    """SEC (API-05): Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "0"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # SEC (INFO-06): Strip server version information to prevent disclosure
+        response.headers["Server"] = "app"
+        return response
+
+
+class _RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """SEC (API-03): Reject request bodies exceeding a configurable size limit."""
+
+    MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_BODY_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
+        return await call_next(request)
+
+
 def build_fastapi_app(*, title: str, settings) -> FastAPI:
-    app = FastAPI(title=title)
+    # SEC (INFO-08): Disable OpenAPI/Swagger UI in production unless debug_mode is on
+    is_prod = getattr(settings, "app_env", "development") == "production"
+    show_docs = getattr(settings, "debug_mode", False) or not is_prod
+    app = FastAPI(
+        title=title,
+        docs_url="/docs" if show_docs else None,
+        redoc_url="/redoc" if show_docs else None,
+        openapi_url="/openapi.json" if show_docs else None,
+    )
     configure_cors(app=app, settings=settings)
     # SEC (OE-03): Add rate limiting middleware
     app.add_middleware(_RateLimitMiddleware)
+    # SEC (API-05): Add security headers to all responses
+    app.add_middleware(_SecurityHeaderMiddleware)
+    # SEC (API-03): Enforce request body size limits
+    app.add_middleware(_RequestSizeLimitMiddleware)
     return app
 
 

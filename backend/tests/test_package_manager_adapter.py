@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from app.services.package_manager_adapter import (
@@ -121,7 +122,7 @@ class TestChocoAdapter:
         assert "choco install" in results[0].install_command
 
     def test_install(self, adapter):
-        assert "choco install jq -y" == adapter.install_command("jq")
+        assert adapter.install_command("jq") == "choco install jq -y"
 
 
 class TestGetPlatformAdapters:

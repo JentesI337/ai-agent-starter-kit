@@ -18,7 +18,6 @@ import hashlib
 import hmac
 import os
 import secrets
-from typing import Any
 
 # Try to use real cryptography if available
 _HAS_CRYPTOGRAPHY = False
@@ -39,7 +38,15 @@ def _load_encryption_key() -> bytes:
                 return key
         except ValueError:
             pass
-    # Generate ephemeral key — data won't survive process restart
+    # SEC (CRYPTO-01): Warn about ephemeral key — data won't survive restart
+    import logging
+    logging.getLogger(__name__).warning(
+        "STATE_ENCRYPTION_KEY not set or invalid — using ephemeral key. "
+        "Encrypted state will NOT survive restart. "
+        "Set STATE_ENCRYPTION_KEY to a 64-char hex string in .env"
+    )
+    if os.getenv("REQUIRE_PERSISTENT_ENCRYPTION", "").lower() in ("1", "true", "yes"):
+        raise RuntimeError("STATE_ENCRYPTION_KEY is required but not set")
     return secrets.token_bytes(32)
 
 
@@ -71,13 +78,12 @@ def encrypt_state(plaintext: str) -> str:
         ciphertext = aesgcm.encrypt(nonce, data, None)
         encoded = base64.b64encode(nonce + ciphertext).decode("ascii")
         return f"{_ENCRYPTED_PREFIX}{encoded}"
-    else:
-        # Fallback: XOR obfuscation + HMAC integrity (not cryptographically strong)
-        key_stream = _derive_key_stream(len(data))
-        obfuscated = bytes(a ^ b for a, b in zip(data, key_stream))
-        mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()[:16]
-        encoded = base64.b64encode(obfuscated).decode("ascii")
-        return f"{_OBFUSCATED_PREFIX}{mac}:{encoded}"
+    # Fallback: XOR obfuscation + HMAC integrity (not cryptographically strong)
+    key_stream = _derive_key_stream(len(data))
+    obfuscated = bytes(a ^ b for a, b in zip(data, key_stream, strict=False))
+    mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()[:16]
+    encoded = base64.b64encode(obfuscated).decode("ascii")
+    return f"{_OBFUSCATED_PREFIX}{mac}:{encoded}"
 
 
 def decrypt_state(ciphertext: str) -> str:
@@ -107,7 +113,7 @@ def decrypt_state(ciphertext: str) -> str:
         if not hmac.compare_digest(mac, expected_mac):
             raise ValueError("State integrity check failed — data may have been tampered with")
         key_stream = _derive_key_stream(len(obfuscated))
-        plaintext = bytes(a ^ b for a, b in zip(obfuscated, key_stream))
+        plaintext = bytes(a ^ b for a, b in zip(obfuscated, key_stream, strict=False))
         return plaintext.decode("utf-8")
 
     # Not encrypted — return as-is (backward compatible)
@@ -129,9 +135,11 @@ def _derive_key_stream(length: int) -> bytes:
 # Policy file HMAC integrity
 # ---------------------------------------------------------------------------
 
+# SEC (CRYPTO-04): Derive a separate HMAC key for policy signing
+# instead of reusing the encryption key directly (key-separation principle).
 _POLICY_HMAC_KEY: bytes = os.getenv(
     "POLICY_HMAC_KEY", ""
-).encode("utf-8") or _ENCRYPTION_KEY
+).encode("utf-8") or hashlib.sha256(b"policy-hmac:" + _ENCRYPTION_KEY).digest()
 
 
 def sign_policy_file(content: str) -> str:

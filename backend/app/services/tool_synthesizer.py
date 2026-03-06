@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import logging
 import re
-import textwrap
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +61,16 @@ class SynthesisResult:
 # ── Safety checks ────────────────────────────────────────────────────
 
 _FORBIDDEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\bimport\s+(?:socket|http|urllib|requests|aiohttp)\b", re.I), "network_import"),
-    (re.compile(r"\bopen\s*\(.*/etc/", re.I), "fs_escape_etc"),
-    (re.compile(r"\.\./\.\./", re.I), "path_traversal"),
-    (re.compile(r"\bsubprocess\b", re.I), "subprocess_usage"),
-    (re.compile(r"\beval\s*\(", re.I), "eval_usage"),
-    (re.compile(r"\bexec\s*\(", re.I), "exec_usage"),
-    (re.compile(r"\b__import__\s*\(", re.I), "dynamic_import"),
-    (re.compile(r"\bos\.system\s*\(", re.I), "os_system"),
-    (re.compile(r"\bshutil\.rmtree\s*\(", re.I), "rmtree"),
-    (re.compile(r"\brm\s+-rf\b", re.I), "rm_rf"),
+    (re.compile(r"\bimport\s+(?:socket|http|urllib|requests|aiohttp)\b", re.IGNORECASE), "network_import"),
+    (re.compile(r"\bopen\s*\(.*/etc/", re.IGNORECASE), "fs_escape_etc"),
+    (re.compile(r"\.\./\.\./", re.IGNORECASE), "path_traversal"),
+    (re.compile(r"\bsubprocess\b", re.IGNORECASE), "subprocess_usage"),
+    (re.compile(r"\beval\s*\(", re.IGNORECASE), "eval_usage"),
+    (re.compile(r"\bexec\s*\(", re.IGNORECASE), "exec_usage"),
+    (re.compile(r"\b__import__\s*\(", re.IGNORECASE), "dynamic_import"),
+    (re.compile(r"\bos\.system\s*\(", re.IGNORECASE), "os_system"),
+    (re.compile(r"\bshutil\.rmtree\s*\(", re.IGNORECASE), "rmtree"),
+    (re.compile(r"\brm\s+-rf\b", re.IGNORECASE), "rm_rf"),
 ]
 
 

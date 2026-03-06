@@ -80,20 +80,17 @@ class DegradationResponse:
 
         if self.partial_results:
             parts.append("Partial results:")
-            for pr in self.partial_results:
-                parts.append(f"  - {pr}")
+            parts.extend(f"  - {pr}" for pr in self.partial_results)
             parts.append("")
 
         if self.failed_attempts:
             parts.append(f"Attempted {len(self.failed_attempts)} approach(es):")
-            for fa in self.failed_attempts:
-                parts.append(f"  - {fa.tool}: {fa.error[:120]}")
+            parts.extend(f"  - {fa.tool}: {fa.error[:120]}" for fa in self.failed_attempts)
             parts.append("")
 
         if self.suggestions:
             parts.append("Suggested next steps:")
-            for s in self.suggestions:
-                parts.append(f"  - {s}")
+            parts.extend(f"  - {s}" for s in self.suggestions)
             parts.append("")
 
         if self.explanation:

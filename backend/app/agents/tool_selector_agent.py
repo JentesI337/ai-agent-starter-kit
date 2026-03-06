@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import inspect
 import json
+from collections.abc import Callable
 
 from app.agents.tool_selector_legacy import ExecuteToolsFn, LegacyRunnerBinding
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent

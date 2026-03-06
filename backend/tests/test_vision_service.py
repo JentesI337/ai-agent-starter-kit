@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.services.vision_service import VisionService
 
 
@@ -55,9 +57,5 @@ def test_vision_service_ollama_response_parsing() -> None:
 def test_vision_service_empty_image_rejected() -> None:
     service = VisionService(base_url="http://localhost:11434", model="llava:13b", provider="auto")
 
-    try:
+    with pytest.raises(ValueError, match="image_base64 must not be empty"):
         asyncio.run(service.analyze_image(""))
-    except ValueError as exc:
-        assert "image_base64 must not be empty" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for empty image payload")

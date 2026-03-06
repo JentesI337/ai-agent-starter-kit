@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from urllib.parse import quote_plus
 
 from app.errors import ToolExecutionError
@@ -286,8 +286,7 @@ class IntentDetector:
             "What failed:",
         ]
         if web_errors:
-            for item in web_errors[:3]:
-                lines.append(f"- {item}")
+            lines.extend(f"- {item}" for item in web_errors[:3])
         else:
             lines.append("- No successful web_fetch result was returned.")
 
@@ -309,8 +308,7 @@ class IntentDetector:
             "What failed:",
         ]
         if web_errors:
-            for item in web_errors[:3]:
-                lines.append(f"- {item}")
+            lines.extend(f"- {item}" for item in web_errors[:3])
         else:
             lines.append("- No successful web_search/web_fetch result was returned.")
 

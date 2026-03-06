@@ -1,10 +1,11 @@
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
-from dotenv import load_dotenv
-import os
 import json
+import os
 import pathlib as _pathlib
 from collections.abc import Mapping
 from typing import Any
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.mcp_types import McpServerConfig
 
@@ -103,7 +104,7 @@ def _parse_mcp_servers_config(raw_value: str, *, workspace_root: str) -> list[Mc
         config_data = json.loads(payload)
     else:
         candidate = payload if os.path.isabs(payload) else os.path.join(workspace_root, payload)
-        with open(candidate, "r", encoding="utf-8") as handle:
+        with open(candidate, encoding="utf-8") as handle:
             config_data = json.load(handle)
 
     if not isinstance(config_data, list):
@@ -186,6 +187,8 @@ PROMPT_SETTING_KEYS: tuple[str, ...] = (
 
 class Settings(BaseModel):
     app_env: str = os.getenv("APP_ENV", "development").strip().lower()
+    # SEC (CFG-05): debug_mode defaults to False; must be explicitly enabled
+    debug_mode: bool = _parse_bool_env("DEBUG_MODE", False)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
     llm_model: str = os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M")
@@ -1083,10 +1086,13 @@ class Settings(BaseModel):
         "yes",
         "on",
     }
+    # SEC (CFG-03): Shells (bash, sh, powershell, cmd, pwsh) removed from
+    # default allowlist to prevent allowlist-bypass via sub-shell execution.
+    # Add them to COMMAND_ALLOWLIST_EXTRA if explicitly needed in dev.
     command_allowlist: list[str] = _parse_csv_env(
         os.getenv(
             "COMMAND_ALLOWLIST",
-            "python,py,pip,pytest,uvicorn,git,npm,node,npx,yarn,pnpm,pwsh,powershell,cmd,bash,sh,make,cmake,docker,docker-compose,java,javac,mvn,gradle,go,rustc,cargo,dotnet,ls,dir,cat,type,echo,findstr,rg,grep,sed,awk,head,tail,wc,sort,uniq,cp,mv,mkdir,touch,chmod,chown,tar,zip,unzip",
+            "python,py,pip,pytest,uvicorn,git,npm,node,npx,yarn,pnpm,make,cmake,docker,docker-compose,java,javac,mvn,gradle,go,rustc,cargo,dotnet,ls,dir,cat,type,echo,findstr,rg,grep,sed,awk,head,tail,wc,sort,uniq,cp,mv,mkdir,touch,chmod,chown,tar,zip,unzip",
         ),
         [
             "python",
@@ -1100,11 +1106,7 @@ class Settings(BaseModel):
             "npx",
             "yarn",
             "pnpm",
-            "pwsh",
-            "powershell",
-            "cmd",
-            "bash",
-            "sh",
+            # SEC (CFG-03): bash, sh, powershell, cmd, pwsh removed
             "make",
             "cmake",
             "docker",
@@ -1471,6 +1473,15 @@ class Settings(BaseModel):
         "on",
     }
 
+    # --- SEC: Security configuration ---
+    # SEC (WS-01): Allowed WebSocket origins. Empty = all allowed (POC mode).
+    ws_allowed_origins: list[str] = _parse_csv_env(
+        os.getenv("WS_ALLOWED_ORIGINS", ""),
+        [],
+    )
+    # SEC (POL-01): Require valid HMAC signature on policy files.
+    policy_require_signature: bool = _parse_bool_env("POLICY_REQUIRE_SIGNATURE", False)
+
     @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
     @classmethod
     def _validate_reflection_score_range(cls, value: object, info: ValidationInfo) -> float:
@@ -1573,7 +1584,7 @@ def _is_scoped_config_env_key(env_key: str) -> bool:
 
 
 def _known_config_env_keys() -> set[str]:
-    known = {str(field_name).upper() for field_name in Settings.model_fields.keys()}
+    known = {str(field_name).upper() for field_name in Settings.model_fields}
     known.update(CONFIG_ENV_KEY_ALIASES)
     return known
 
@@ -1600,7 +1611,7 @@ def validate_environment_config(
     allowlisted = {str(item).strip().upper() for item in raw_allowlist if str(item).strip()}
 
     known_keys = _known_config_env_keys() | allowlisted
-    scoped_keys = sorted(key for key in env_map.keys() if _is_scoped_config_env_key(str(key)))
+    scoped_keys = sorted(key for key in env_map if _is_scoped_config_env_key(str(key)))
     unknown_keys = sorted(key for key in scoped_keys if str(key).upper() not in known_keys)
 
     def _require_int_range(field: str, *, minimum: int, maximum: int) -> str | None:
@@ -1620,23 +1631,23 @@ def validate_environment_config(
             return f"{field} out of range [{minimum}, {maximum}]"
         return None
 
-    config_errors: list[str] = []
+    config_errors: list[str] = [
+        maybe_error
+        for maybe_error in (
+            _require_int_range("command_timeout_seconds", minimum=1, maximum=3600),
+            _require_int_range("session_inbox_max_queue_length", minimum=1, maximum=5000),
+            _require_int_range("session_inbox_ttl_seconds", minimum=1, maximum=86400),
+            _require_int_range("session_follow_up_max_deferrals", minimum=1, maximum=100),
+            _require_int_range("run_tool_call_cap", minimum=1, maximum=256),
+            _require_float_range("run_tool_time_cap_seconds", minimum=1.0, maximum=3600.0),
+            _require_int_range("tool_loop_warn_threshold", minimum=1, maximum=200),
+            _require_int_range("tool_loop_critical_threshold", minimum=2, maximum=400),
+            _require_int_range("tool_loop_circuit_breaker_threshold", minimum=3, maximum=800),
+            _require_int_range("max_user_message_length", minimum=1, maximum=200000),
+        )
+        if maybe_error
+    ]
     config_warnings: list[str] = []
-
-    for maybe_error in (
-        _require_int_range("command_timeout_seconds", minimum=1, maximum=3600),
-        _require_int_range("session_inbox_max_queue_length", minimum=1, maximum=5000),
-        _require_int_range("session_inbox_ttl_seconds", minimum=1, maximum=86400),
-        _require_int_range("session_follow_up_max_deferrals", minimum=1, maximum=100),
-        _require_int_range("run_tool_call_cap", minimum=1, maximum=256),
-        _require_float_range("run_tool_time_cap_seconds", minimum=1.0, maximum=3600.0),
-        _require_int_range("tool_loop_warn_threshold", minimum=1, maximum=200),
-        _require_int_range("tool_loop_critical_threshold", minimum=2, maximum=400),
-        _require_int_range("tool_loop_circuit_breaker_threshold", minimum=3, maximum=800),
-        _require_int_range("max_user_message_length", minimum=1, maximum=200000),
-    ):
-        if maybe_error:
-            config_errors.append(maybe_error)
 
     if int(getattr(selected_settings, "tool_loop_critical_threshold", 0)) <= int(
         getattr(selected_settings, "tool_loop_warn_threshold", 0)

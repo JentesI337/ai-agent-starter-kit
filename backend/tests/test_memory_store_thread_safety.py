@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 from app.memory import MemoryStore
@@ -21,7 +22,9 @@ def test_memory_store_add_is_thread_safe(tmp_path) -> None:
     items = store.get_items(session_id)
     assert len(items) == workers * per_worker
 
-    persisted_file = tmp_path / f"{session_id}.jsonl"
+    # SEC (MEM-03): Filename is now a hash of the session_id
+    hashed_name = hashlib.sha256(session_id.encode()).hexdigest()[:16]
+    persisted_file = tmp_path / f"{hashed_name}.jsonl"
     assert persisted_file.exists()
     lines = [line for line in persisted_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(lines) == workers * per_worker

@@ -379,7 +379,7 @@ def capability_route_agent(
         return primary, None, tuple(sorted(required_capabilities)), []
 
     ranked: list[AgentCapabilityMatch] = []
-    for agent_id in agent_registry.keys():
+    for agent_id in agent_registry:
         normalized_agent_id = str(agent_id or "").strip().lower()
         capabilities = set(resolve_agent_capabilities(agent_id=normalized_agent_id, agent_registry=agent_registry))
         matched = tuple(sorted(required_capabilities & capabilities))

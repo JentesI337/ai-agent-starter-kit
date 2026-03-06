@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
-from dataclasses import dataclass
 
 from app.skills.discovery import discover_skills
 from app.skills.eligibility import filter_eligible_skills
@@ -63,8 +63,7 @@ class SkillsService:
                 int(stat.st_size),
             ))
 
-        digest = hashlib.sha256(repr(sorted(material)).encode("utf-8")).hexdigest()
-        return digest
+        return hashlib.sha256(repr(sorted(material)).encode("utf-8")).hexdigest()
 
     def _try_read_snapshot_cache_ttl_only(self) -> SkillSnapshot | None:
         ttl_seconds = max(0.0, float(self._config.snapshot_cache_ttl_seconds))

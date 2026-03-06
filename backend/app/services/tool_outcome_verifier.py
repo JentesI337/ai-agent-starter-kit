@@ -48,18 +48,17 @@ class ToolOutcomeVerifier:
         """Verify a tool result and return a verdict."""
         checks_passed = 0
         checks_failed = 0
-        issues: list[str] = []
         error_category: str | None = None
 
         text = result or ""
 
         # ── Check 1: Explicit error markers ──────────────────────────
-        if text.startswith("[error]") or text.startswith("ERROR:"):
+        if text.startswith(("[error]", "ERROR:")):
             checks_failed += 1
             error_category = self._classify_error_text(text)
             return OutcomeVerdict(
                 status="failed",
-                reason=f"Explicit error marker in result",
+                reason="Explicit error marker in result",
                 error_category=error_category,
                 checks_passed=checks_passed,
                 checks_failed=checks_failed,
@@ -105,18 +104,15 @@ class ToolOutcomeVerifier:
 
         # ── Check 4: Generic error pattern scan ──────────────────────
         error_category = self._classify_error_text(text)
-        if error_category is not None:
-            # Only flag as suspicious, not failed — some tools legitimately
-            # output error-like text (e.g. grep_search finding error messages)
-            if tool not in ("grep_search", "read_file", "file_search", "list_dir"):
-                checks_failed += 1
-                return OutcomeVerdict(
-                    status="suspicious",
-                    reason=f"Error pattern detected: {error_category}",
-                    error_category=error_category,
-                    checks_passed=checks_passed,
-                    checks_failed=checks_failed,
-                )
+        if error_category is not None and tool not in ("grep_search", "read_file", "file_search", "list_dir"):
+            checks_failed += 1
+            return OutcomeVerdict(
+                status="suspicious",
+                reason=f"Error pattern detected: {error_category}",
+                error_category=error_category,
+                checks_passed=checks_passed,
+                checks_failed=checks_failed,
+            )
         checks_passed += 1
 
         return OutcomeVerdict(

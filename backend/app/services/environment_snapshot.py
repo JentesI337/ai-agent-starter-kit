@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +114,8 @@ class EnvironmentSnapshot:
 def _parse_pip_freeze(raw: str) -> dict[str, str]:
     """Parse ``pip freeze`` output into ``{name: version}``."""
     packages: dict[str, str] = {}
-    for line in raw.strip().splitlines():
-        line = line.strip()
+    for raw_line in raw.strip().splitlines():
+        line = raw_line.strip()
         if "==" in line:
             parts = line.split("==", 1)
             packages[parts[0].strip().lower()] = parts[1].strip()

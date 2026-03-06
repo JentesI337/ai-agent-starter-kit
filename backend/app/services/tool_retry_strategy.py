@@ -12,7 +12,6 @@ from typing import Literal
 
 from app.services.error_taxonomy import ErrorCategory, classify_error
 
-
 # ── Typed enums for strategy / retry-class ────────────────────────────
 
 class RetryStrategy(StrEnum):
@@ -112,7 +111,7 @@ class ToolRetryStrategy:
                 error_category=category,
             )
 
-        should_retry, strategy = self._STRATEGY_MAP.get(
+        _should_retry, strategy = self._STRATEGY_MAP.get(
             category, (False, RetryStrategy.SKIP),
         )
 

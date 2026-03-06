@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-import json
-import re
 from time import monotonic
 from uuid import uuid4
 
 from app.config import Settings
 from app.errors import ToolExecutionError
+from app.services.learning_loop import LearningLoop
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
-from app.services.tool_call_gatekeeper import ToolCallGatekeeper
-from app.services.tool_call_gatekeeper import prepare_action_for_execution
+from app.services.tool_call_gatekeeper import ToolCallGatekeeper, prepare_action_for_execution
 from app.services.tool_outcome_verifier import ToolOutcomeVerifier
 from app.services.tool_telemetry import ToolTelemetry
-from app.services.learning_loop import LearningLoop
 from app.skills.retrieval import (
     ReliableRetrievalConfig,
     ReliableRetrievalService,
@@ -146,7 +144,7 @@ class ToolExecutionManager:
                 invoke_hooks(hook_name, payload),
                 timeout=_HOOK_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _hook_logger.warning(
                 "Hook '%s' timed out after %.1fs — skipped",
                 hook_name,
@@ -665,8 +663,7 @@ class ToolExecutionManager:
             lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
             text,
         )
-        text = re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
-        return text
+        return re.sub(r"(?i)bearer\s+[a-z0-9\-_.=]+", "Bearer [REDACTED]", text)
 
     @staticmethod
     def _compact_result_text(value: str) -> str:
@@ -954,9 +951,7 @@ class ToolExecutionManager:
     def _check_loop_conditions(self, *, elapsed_seconds: float, total_calls: int, config: ToolExecutionConfig) -> bool:
         if total_calls >= config.call_cap:
             return True
-        if elapsed_seconds >= config.time_cap_seconds:
-            return True
-        return False
+        return elapsed_seconds >= config.time_cap_seconds
 
     async def _execute_action_batch(self, **kwargs) -> str:
         return await self.run_tool_loop(**kwargs)

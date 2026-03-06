@@ -4,7 +4,7 @@ These are *unit-level* scenario tests that exercise the synthesized
 pipeline components in isolation (no live LLM, no live server).
 
 Each scenario simulates the agent encountering an unknown tool/task
-and verifies the pipeline: Discovery → Provisioning → Execution → 
+and verifies the pipeline: Discovery → Provisioning → Execution →
 Verification → Learning → Degradation.
 """
 
@@ -13,24 +13,19 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 from app.services.adaptive_tool_selector import AdaptiveToolSelector
-from app.services.execution_pattern_detector import ExecutionPatternDetector
 from app.services.graceful_degradation import (
-    DegradationResponse,
     FailedAttempt,
     GracefulDegradation,
 )
 from app.services.learning_loop import LearningLoop
-from app.services.self_healing_loop import HealingResult, RecoveryPlan, SelfHealingLoop
+from app.services.provisioning_policy import ProvisioningPolicy
+from app.services.self_healing_loop import RecoveryPlan, SelfHealingLoop
 from app.services.tool_discovery_engine import ToolDiscoveryEngine
 from app.services.tool_ecosystem_map import ToolEcosystemMap
 from app.services.tool_knowledge_base import ToolKnowledgeBase
 from app.services.tool_provisioner import ToolProvisioner
 from app.services.tool_synthesizer import ToolSynthesizer
-from app.services.provisioning_policy import ProvisioningPolicy
-
 
 # ── Scenario 1: Unknown tool discovery + provision + learn ───────────
 

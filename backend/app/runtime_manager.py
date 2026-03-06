@@ -6,9 +6,9 @@ import os
 import shutil
 import socket
 import subprocess
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
 from urllib.parse import urlparse
 
 import httpx
@@ -82,7 +82,7 @@ class RuntimeManager:
         return dict(self._state.features)
 
     def update_feature_flags(self, updates: dict[str, object]) -> dict[str, bool]:
-        unknown_keys = sorted(key for key in updates.keys() if key not in RUNTIME_FEATURE_DEFAULTS)
+        unknown_keys = sorted(key for key in updates if key not in RUNTIME_FEATURE_DEFAULTS)
         if unknown_keys:
             raise RuntimeSwitchError(
                 f"Unsupported runtime feature flag(s): {', '.join(unknown_keys)}"
@@ -278,7 +278,7 @@ class RuntimeManager:
                     f"Model pull timed out for {candidate}",
                     level="error",
                 )
-                raise RuntimeSwitchError(f"Model pull timed out for {candidate}. Check network or try pulling manually.")
+                raise RuntimeSwitchError(f"Model pull timed out for {candidate}. Check network or try pulling manually.") from None
             if pull.returncode == 0:
                 await self._log(send_event, session_id, "model_downloaded", attempt, candidate)
                 return candidate
@@ -355,9 +355,8 @@ class RuntimeManager:
 
     def _resolve_ollama_command(self) -> str:
         configured = (settings.ollama_bin or "").strip()
-        if configured:
-            if Path(configured).exists() or shutil.which(configured):
-                return configured
+        if configured and (Path(configured).exists() or shutil.which(configured)):
+            return configured
 
         discovered = shutil.which("ollama")
         if discovered:

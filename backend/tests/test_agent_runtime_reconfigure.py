@@ -22,15 +22,15 @@ def test_configure_runtime_updates_subagents_without_rebuild() -> None:
     tool_selector_before = id(agent.tool_selector_agent)
     synthesizer_before = id(agent.synthesizer_agent)
 
-    agent.configure_runtime(base_url="http://example.local/v1", model="runtime-model")
+    agent.configure_runtime(base_url="http://localhost:9999/v1", model="runtime-model")
 
     assert id(agent.planner_agent) == planner_before
     assert id(agent.tool_selector_agent) == tool_selector_before
     assert id(agent.synthesizer_agent) == synthesizer_before
 
-    assert agent.client.base_url == "http://example.local/v1"
+    assert agent.client.base_url == "http://localhost:9999/v1"
     assert agent.client.model == "runtime-model"
-    assert agent.planner_agent.client.base_url == "http://example.local/v1"
+    assert agent.planner_agent.client.base_url == "http://localhost:9999/v1"
     assert agent.planner_agent.client.model == "runtime-model"
-    assert agent.synthesizer_agent.client.base_url == "http://example.local/v1"
+    assert agent.synthesizer_agent.client.base_url == "http://localhost:9999/v1"
     assert agent.synthesizer_agent.client.model == "runtime-model"

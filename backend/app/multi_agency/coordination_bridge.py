@@ -11,16 +11,17 @@ The bridge hooks into existing extension points without modifying the core loop.
 """
 from __future__ import annotations
 
-import asyncio
+import contextlib
 import logging
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from app.multi_agency.agent_identity import AgentIdentityCard, AgentRegistry
-from app.multi_agency.agent_message_bus import AgentMessageBus, MessageType, MessagePriority
+from app.multi_agency.agent_identity import AgentRegistry
+from app.multi_agency.agent_message_bus import AgentMessageBus, MessageType
 from app.multi_agency.blackboard import Blackboard
-from app.multi_agency.confidence_router import ConfidenceRouter, ConfidenceRouteDecision
+from app.multi_agency.confidence_router import ConfidenceRouteDecision, ConfidenceRouter
 from app.multi_agency.consensus import ConsensusEngine, VotingStrategy
-from app.multi_agency.parallel_executor import ParallelFanOutExecutor, FanOutResult, DAGStep
+from app.multi_agency.parallel_executor import DAGStep, FanOutResult, ParallelFanOutExecutor
 from app.multi_agency.supervisor import SupervisorCoordinator, SupervisorDecision
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ SendEvent = Callable[[dict], Awaitable[None]]
 
 class CoordinationBridge:
     """Bridges new multi-agency subsystem into existing subrun/agent architecture.
-    
+
     Integration points:
     1. SubrunLane.set_completion_callback → evaluates confidence on subrun completion
     2. Agent._invoke_spawn_subrun_tool → routes through supervisor for task assignment
@@ -102,7 +103,7 @@ class CoordinationBridge:
         handover_contract: dict[str, Any] | None = None,
     ) -> ConfidenceRouteDecision:
         """Called when a subrun completes. Evaluates confidence and decides next action.
-        
+
         This replaces the current behavior where handover confidence is serialized but ignored.
         Now we use it to drive real routing decisions:
         - Accept: result is good enough, use it
@@ -181,7 +182,7 @@ class CoordinationBridge:
         preferred_quality: str = "standard",
     ) -> ConfidenceRouteDecision:
         """Route to the best agent using confidence history, not just capability matching.
-        
+
         This enhances the existing capability_route_agent() with:
         - Historical confidence weighting
         - Agent performance learning
@@ -199,7 +200,7 @@ class CoordinationBridge:
         tasks: list[dict[str, Any]],
     ) -> list[SupervisorDecision]:
         """Decompose and assign tasks through the supervisor.
-        
+
         Each task should have:
         - "description": str
         - "required_capabilities": list[str]
@@ -218,7 +219,7 @@ class CoordinationBridge:
         timeout: float = 120.0,
     ) -> list[dict[str, Any]]:
         """Execute a PlanGraph using parallel DAG execution.
-        
+
         This replaces the current sequential PlanGraph → text string conversion.
         Steps with satisfied dependencies run in parallel.
         """
@@ -251,7 +252,7 @@ class CoordinationBridge:
         timeout: float = 120.0,
     ) -> FanOutResult:
         """Execute multiple tasks in parallel across multiple agents.
-        
+
         Modes: "all", "race", "quorum", "best"
         """
         if self._parallel_executor is None:
@@ -321,7 +322,7 @@ class CoordinationBridge:
             for tag in entry.tags:
                 if tag.startswith("task:"):
                     task_id = tag[5:]
-                    try:
+                    with contextlib.suppress(ValueError, KeyError):
                         await self.supervisor.report_result(
                             session_id=self._session_id,
                             task_id=task_id,
@@ -329,8 +330,6 @@ class CoordinationBridge:
                             confidence=entry.confidence,
                             agent_id=entry.author_agent_id,
                         )
-                    except (ValueError, KeyError):
-                        pass  # Task not managed by supervisor
 
     async def get_status(self) -> dict[str, Any]:
         """Get the full status of the coordination bridge."""

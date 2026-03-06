@@ -10,8 +10,8 @@ import json
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +86,7 @@ class ModelHealthTracker:
             latency_ms=max(0, int(latency_ms)),
             success=bool(success),
             timestamp_mono=time.monotonic(),
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            timestamp_utc=datetime.now(UTC).isoformat(),
             request_id=request_id,
         )
         async with self._lock:
@@ -221,7 +221,7 @@ class ModelHealthTracker:
                             latency_ms=p50,
                             success=(i < success_count),
                             timestamp_mono=now_mono,
-                            timestamp_utc=last_updated or datetime.now(timezone.utc).isoformat(),
+                            timestamp_utc=last_updated or datetime.now(UTC).isoformat(),
                             request_id="persisted",
                         )
                     )

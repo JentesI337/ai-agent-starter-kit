@@ -14,7 +14,6 @@ import asyncio
 from app.config import settings
 from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
 
-
 # ---------------------------------------------------------------------------
 # Helpers – standard fakes reused across tests
 # ---------------------------------------------------------------------------

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from app.llm_client import LlmClient
 
-
 # T1.4: Task-type-sensitiver Reflection-Threshold
 # hard_research erfordert höhere Qualität als triviale Antworten.
 # Werte überschreiben den globalen settings.reflection_threshold wenn task_type übergeben wird.
@@ -101,12 +100,11 @@ class ReflectionService:
     def _sanitize_for_prompt(text: str, max_chars: int) -> str:
         sanitized = (text or "")[:max_chars]
         sanitized = sanitized.replace("```", "` ` `")
-        sanitized = re.sub(
+        return re.sub(
             r"(?i)(return\s+json|you\s+must|ignore\s+previous|disregard|override|system\s*:)",
             r"[\1]",
             sanitized,
         )
-        return sanitized
 
     def _build_reflection_prompt(
         self,

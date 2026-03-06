@@ -23,7 +23,7 @@ import logging
 import re
 import threading
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -174,17 +174,16 @@ class ExecutionPatternDetector:
                     base_versions[base] = set()
                 base_versions[base].update(versions)
 
-        alerts: list[PatternAlert] = []
-        for base, versions in base_versions.items():
-            if len(versions) >= 3:
-                alerts.append(
-                    PatternAlert(
-                        pattern="version_roulette",
-                        severity="warning",
-                        detail=f"Tried {len(versions)} different versions: {', '.join(sorted(versions))}",
-                        count=len(versions),
-                    )
-                )
+        alerts: list[PatternAlert] = [
+            PatternAlert(
+                pattern="version_roulette",
+                severity="warning",
+                detail=f"Tried {len(versions)} different versions: {', '.join(sorted(versions))}",
+                count=len(versions),
+            )
+            for versions in base_versions.values()
+            if len(versions) >= 3
+        ]
         return alerts
 
     @staticmethod

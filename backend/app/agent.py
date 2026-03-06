@@ -1,25 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import inspect
 import json
 import logging
-import weakref
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import re
+import weakref
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from app.agents.planner_agent import PlannerAgent
 from app.agents.synthesizer_agent import SynthesizerAgent
 from app.agents.tool_selector_agent import ToolSelectorAgent
-from app.contracts.tool_selector_runtime import ToolSelectorRuntime
 from app.config import settings
-from app.contracts.tool_protocol import ToolProvider
 from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
+from app.contracts.tool_protocol import ToolProvider
+from app.contracts.tool_selector_runtime import ToolSelectorRuntime
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
@@ -30,31 +32,31 @@ from app.orchestrator.step_executors import (
     SynthesizeStepExecutor,
     ToolStepExecutor,
 )
+from app.services.action_augmenter import ActionAugmenter
+from app.services.action_parser import ActionParser
+from app.services.ambiguity_detector import AmbiguityDetector
+from app.services.dynamic_temperature import DynamicTemperatureResolver
+from app.services.failure_retriever import FailureRetriever
+from app.services.hook_contract import resolve_hook_execution_contract
+from app.services.intent_detector import IntentDetector
+from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
+from app.services.mcp_bridge import McpBridge
+from app.services.platform_info import detect_platform
+from app.services.prompt_ab_registry import PromptAbRegistry
+from app.services.prompt_kernel_builder import PromptKernelBuilder
+from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
+from app.services.reflection_service import ReflectionService
+from app.services.reply_shaper import ReplyShaper
+from app.services.request_normalization import normalize_prompt_mode
+from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_call_gatekeeper import (
     collect_policy_override_candidates,
 )
-from app.services.action_parser import ActionParser
-from app.services.action_augmenter import ActionAugmenter
-from app.services.ambiguity_detector import AmbiguityDetector
-from app.services.intent_detector import IntentDetector
-from app.services.prompt_kernel_builder import PromptKernelBuilder
-from app.services.reflection_service import ReflectionService
-from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
-from app.services.reply_shaper import ReplyShaper
-from app.services.request_normalization import normalize_prompt_mode
-from app.services.dynamic_temperature import DynamicTemperatureResolver
-from app.services.prompt_ab_registry import PromptAbRegistry
-from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
-from app.services.failure_retriever import FailureRetriever
-from app.services.mcp_bridge import McpBridge
-from app.services.tool_retry_strategy import ToolRetryStrategy
-from app.services.platform_info import detect_platform
-from app.services.verification_service import VerificationService
-from app.services.hook_contract import resolve_hook_execution_contract
-from app.services.tool_arg_validator import ToolArgValidator
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
 from app.services.tool_result_context_guard import enforce_tool_result_context_budget
+from app.services.tool_retry_strategy import ToolRetryStrategy
+from app.services.verification_service import VerificationService
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.state.context_reducer import ContextReducer
@@ -532,15 +534,12 @@ class HeadAgent:
         except Exception:
             similar_failures = []
         if similar_failures:
-            failure_lines: list[str] = []
-            for failure in similar_failures:
-                failure_lines.append(
-                    (
-                        f"- Task: {failure.task_description[:100]} "
-                        f"→ Error: {failure.root_cause[:100]} "
-                        f"→ Fix: {failure.solution[:100]}"
-                    )
-                )
+            failure_lines: list[str] = [
+                f"- Task: {failure.task_description[:100]} "
+                f"→ Error: {failure.root_cause[:100]} "
+                f"→ Fix: {failure.solution[:100]}"
+                for failure in similar_failures
+            ]
             sections.append("[Past failures with similar tasks]\n" + "\n".join(failure_lines))
 
         try:
@@ -1323,7 +1322,7 @@ class HeadAgent:
                                 model_id=(model or settings.llm_model),
                                 prompt_variant=self.synthesizer_agent.last_prompt_variant_id,
                                 retry_triggered=verdict.should_retry,
-                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                timestamp_utc=datetime.now(UTC).isoformat(),
                             )
                         )
                     if not verdict.should_retry:
@@ -1499,7 +1498,7 @@ class HeadAgent:
         except Exception as exc:
             error_text = str(exc)
             if settings.failure_journal_enabled and self._long_term_memory is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._long_term_memory.add_failure(
                         FailureEntry(
                             failure_id=request_id,
@@ -1511,8 +1510,6 @@ class HeadAgent:
                             tags=[type(exc).__name__],
                         )
                     )
-                except Exception:
-                    pass
             raise
         finally:
             if (
@@ -1533,7 +1530,7 @@ class HeadAgent:
                     logging.getLogger(__name__).warning(
                         "Session distillation failed for session %s", session_id, exc_info=True,
                     )
-            try:
+            with contextlib.suppress(Exception):
                 await self._invoke_hooks(
                     hook_name="agent_end",
                     send_event=send_event,
@@ -1546,8 +1543,6 @@ class HeadAgent:
                         "model": model or self.client.model,
                     },
                 )
-            except Exception:
-                pass
             self._active_request_id_context.reset(request_id_token)
             self._active_session_id_context.reset(session_id_token)
             self._active_send_event_context.reset(send_event_token)
@@ -1872,11 +1867,8 @@ class HeadAgent:
             if isinstance(item, str) and item.strip()
         ]
         requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
-        if requested_allow is not None:
-            if requested_allow:
-                base_allowed &= requested_allow
-            elif not requested_allow_values:
-                base_allowed &= requested_allow
+        if requested_allow is not None and (requested_allow or not requested_allow_values):
+            base_allowed &= requested_allow
 
         deny_set = set()
         deny_set |= self._normalize_tool_set(settings.agent_tools_deny) or set()
@@ -2057,9 +2049,7 @@ class HeadAgent:
         if state not in {"blocked", "usable"}:
             return False
         # L-2: check plan_text for explicit completion/done markers
-        if plan_text and any(marker in plan_text.lower() for marker in ("[done]", "[completed]", "[aborted]")):
-            return False
-        return True
+        return not (plan_text and any(marker in plan_text.lower() for marker in ("[done]", "[completed]", "[aborted]")))
 
     def _classify_tool_results_state(self, tool_results: str | None) -> str:
         if self._is_steer_interrupted(tool_results):
@@ -2441,9 +2431,7 @@ class HeadAgent:
         tr = tool_results or ""
         if "spawned_subrun_id=" in tr and "subrun-complete" in tr:
             return True
-        if "subrun_announce" in tr and "subrun-complete" in tr:
-            return True
-        return False
+        return bool("subrun_announce" in tr and "subrun-complete" in tr)
 
     def _has_orchestration_attempted(self, tool_results: str | None) -> bool:
         """Gibt True zurück, wenn spawn_subrun aufgerufen wurde (egal ob erfolgreich)."""
@@ -2664,7 +2652,7 @@ class HeadAgent:
                     remaining = max(0.1, policy.timeout_seconds - elapsed)
                     return await asyncio.wait_for(sync_result, timeout=remaining)
                 return sync_result
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 last_error = exc
                 if attempt >= max_attempts:
                     raise ToolExecutionError(
@@ -2840,7 +2828,7 @@ class HeadAgent:
         confidence_decision = handover_contract.get("confidence_decision")
         if isinstance(confidence_decision, dict):
             action = str(confidence_decision.get("action", "")).strip()
-            conf = float(confidence_decision.get("confidence", 0.0))
+            float(confidence_decision.get("confidence", 0.0))
             reason = str(confidence_decision.get("reason", "")).strip()
             handover_contract["confidence_evaluated"] = True
             handover_contract["confidence_action"] = action
@@ -2876,10 +2864,7 @@ class HeadAgent:
 
         result_value = candidate.get("result")
         result: str | None
-        if result_value is None:
-            result = None
-        else:
-            result = str(result_value)[:2000]
+        result = None if result_value is None else str(result_value)[:2000]
 
         sanitized = {
             "terminal_reason": terminal_reason,
@@ -3005,7 +2990,7 @@ class HeadAgent:
                         **contract.as_event_details(),
                     },
                 )
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 details = {
                     "hook": type(hook).__name__,
                     "name": hook_name,

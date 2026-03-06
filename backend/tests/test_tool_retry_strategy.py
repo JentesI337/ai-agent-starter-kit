@@ -1,7 +1,8 @@
 """Tests for ToolRetryStrategy."""
 
 import pytest
-from app.services.tool_retry_strategy import ToolRetryStrategy, RetryDecision
+
+from app.services.tool_retry_strategy import ToolRetryStrategy
 
 
 @pytest.fixture

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 VALID_FAILURE_POLICIES = {"soft_fail", "hard_fail", "skip"}
 
 

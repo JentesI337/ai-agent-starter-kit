@@ -5,9 +5,9 @@ import socket
 
 import pytest
 
+import app.tools as tools_module
 from app.errors import ToolExecutionError
 from app.tools import AgentTooling
-import app.tools as tools_module
 
 
 class _FakeResponse:

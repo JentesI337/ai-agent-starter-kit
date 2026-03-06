@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic import BaseModel
 
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract
 from app.orchestrator.pipeline_runner import PipelineRunner, RecoveryContext
 from app.state import StateStore
-from pydantic import BaseModel
 
 
 class _FakeInput(BaseModel):
@@ -263,7 +263,7 @@ def test_compaction_failure_recovery_uses_fallback_retry(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    "message,expected_reason",
+    ("message", "expected_reason"),
     [
         ("Request failed: context window exceeded", "context_overflow"),
         ("provider said truncation required due to token limit", "truncation_required"),
@@ -283,7 +283,7 @@ def test_classify_failover_reason_mapping(tmp_path, message: str, expected_reaso
 
 
 @pytest.mark.parametrize(
-    "reason,expected_branch",
+    ("reason", "expected_branch"),
     [
         ("context_overflow", "fail_fast_context_overflow"),
         ("compaction_failure", "fail_fast_compaction_failure"),

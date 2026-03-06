@@ -85,7 +85,7 @@ class PromptKernelBuilder:
     def _ordered_sections(self, *, sections: dict[str, str], prompt_mode: str) -> list[tuple[str, str]]:
         max_chars = _MODE_SECTION_LIMITS.get(prompt_mode)
         ranked_items: list[tuple[int, str, str]] = []
-        for key in sections.keys():
+        for key in sections:
             raw_value = sections.get(key)
             if not isinstance(raw_value, str):
                 continue
@@ -114,8 +114,7 @@ class PromptKernelBuilder:
             "prompt_mode": prompt_mode,
             "sections": [{"name": name, "value": value} for name, value in sections],
         }
-        digest = hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-        return digest
+        return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
     def _build_section_fingerprints(self, *, sections: list[tuple[str, str]]) -> dict[str, str]:
         fingerprints: dict[str, str] = {}

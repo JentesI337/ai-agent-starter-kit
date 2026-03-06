@@ -44,7 +44,7 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Transport: ws_handler · REST Routers · Control API  │   │
 │  ├──────────────────────────────────────────────────────┤   │
-│  │  Agents: 15 Agenten (3 Core + 7 Specialist + 5 Industry) │   │
+│  │  Agents: 15 Agenten (3 Core + 7 Specialist + 5 Industry) │ 
 │  │  + CustomAgentStore (dynamisch aus JSON geladen)     │   │
 │  ├──────────────────────────────────────────────────────┤   │
 │  │  Multi-Agency: CoordinationBridge · Supervisor       │   │
@@ -59,7 +59,7 @@ Das AI Agent Starter Kit ist ein **autonomes Multi-Agent-System** mit determinis
 │  │  · ModelHealthTracker · ContextWindowGuard           │   │
 │  ├──────────────────────────────────────────────────────┤   │
 │  │  Services: 60+ Dienste (Reflection, Verification,    │   │
-│  │  ActionParser, PromptKernel, ToolExecution,           │   │
+│  │  ActionParser, PromptKernel, ToolExecution,          │   │
 │  │  ToolTelemetry, LearningLoop, PlatformInfo, …)       │   │
 │  ├──────────────────────────────────────────────────────┤   │
 │  │  Persistence: MemoryStore · SqliteStateStore         │   │
@@ -509,7 +509,7 @@ Die `run()` Methode implementiert eine **deterministische 11-Phasen-Pipeline**, 
 │     ▼                                                                    │
 │  Phase 7   TOOL LOOP        ToolSelectorAgent → ToolExecutionManager     │
 │     │                       → Replan bei empty/error/partial_error/      │
-│     │                       all_suspicious/invalidated                  │
+│     │                       all_suspicious/invalidated                   │
 │     │                       (max 3 Zyklen: regular + empty + error)      │
 │     ▼                                                                    │
 │  Phase 8   TOOL RESULT      Tool-Result-Verifikation, Blocked-Handling,  │
@@ -1824,7 +1824,7 @@ Das Multi-Agency-Subsystem (`app/multi_agency/`) ersetzt das bisherige Hub-and-S
 │              (Integration Layer → SubrunLane / Agent)            │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────┐   │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐   │
 │  │   Supervisor     │  │  Confidence      │  │  Consensus     │   │
 │  │   Coordinator    │  │  Router          │  │  Engine        │   │
 │  │                  │  │                  │  │                │   │

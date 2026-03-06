@@ -10,11 +10,13 @@ Replaces the current sequential-only execution model with:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Callable, Awaitable
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -78,7 +80,7 @@ class DAGStep:
 
 class ParallelFanOutExecutor:
     """Executes multiple agent tasks in parallel with various aggregation strategies.
-    
+
     Key capabilities:
     - Fan-Out/Fan-In: Send same or different tasks to multiple agents simultaneously
     - DAG Execution: Execute a dependency graph of tasks, parallelizing where possible
@@ -108,7 +110,7 @@ class ParallelFanOutExecutor:
         timeout: float | None = None,
     ) -> FanOutResult:
         """Execute multiple tasks in parallel and aggregate results.
-        
+
         Each task should have:
         - "agent_id": str
         - "description": str
@@ -117,14 +119,15 @@ class ParallelFanOutExecutor:
         effective_timeout = timeout or self._default_timeout
         start_time = asyncio.get_running_loop().time()
 
-        fan_tasks: list[FanOutTask] = []
-        for task_dict in tasks:
-            fan_tasks.append(FanOutTask(
+        fan_tasks = [
+            FanOutTask(
                 task_id=str(uuid4())[:8],
                 agent_id=str(task_dict.get("agent_id", "")),
                 description=str(task_dict.get("description", "")),
                 context=dict(task_dict.get("context", {})),
-            ))
+            )
+            for task_dict in tasks
+        ]
 
         if mode == FanOutMode.RACE:
             result = await self._execute_race(fan_tasks, timeout=effective_timeout)
@@ -165,7 +168,7 @@ class ParallelFanOutExecutor:
         timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a dependency graph of tasks, parallelizing independent steps.
-        
+
         This is the PlanGraph executor that's missing from the current system.
         The PlanGraph has depends_on fields but is currently converted to a string
         and executed sequentially. This executes it as a real DAG.
@@ -215,7 +218,7 @@ class ParallelFanOutExecutor:
 
             step_results = await asyncio.gather(*async_tasks, return_exceptions=True)
 
-            for step, step_result in zip(ready, step_results):
+            for step, step_result in zip(ready, step_results, strict=False):
                 if isinstance(step_result, Exception):
                     step.status = "failed"
                     step.error = str(step_result)
@@ -241,7 +244,7 @@ class ParallelFanOutExecutor:
         """Execute a single fan-out task with semaphore and timeout."""
         async with self._semaphore:
             task.status = "running"
-            task.started_at = datetime.now(timezone.utc).isoformat()
+            task.started_at = datetime.now(UTC).isoformat()
             start = asyncio.get_running_loop().time()
 
             try:
@@ -252,14 +255,14 @@ class ParallelFanOutExecutor:
                 task.status = "completed"
                 task.result = result.get("result")
                 task.confidence = float(result.get("confidence", 0.0))
-                task.completed_at = datetime.now(timezone.utc).isoformat()
+                task.completed_at = datetime.now(UTC).isoformat()
                 task.duration_ms = (asyncio.get_running_loop().time() - start) * 1000
                 return {
                     "agent_id": task.agent_id,
                     "result": task.result,
                     "confidence": task.confidence,
                 }
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 task.status = "failed"
                 task.error = "timeout"
                 task.duration_ms = (asyncio.get_running_loop().time() - start) * 1000
@@ -281,7 +284,7 @@ class ParallelFanOutExecutor:
     ) -> dict[str, Any] | None:
         """Execute a single DAG step."""
         async with self._semaphore:
-            start = asyncio.get_running_loop().time()
+            asyncio.get_running_loop().time()
             try:
                 result = await asyncio.wait_for(
                     self._executor(step.agent_id, step.description, step.context),
@@ -291,7 +294,7 @@ class ParallelFanOutExecutor:
                 step.result = result.get("result")
                 step.confidence = float(result.get("confidence", 0.0))
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 step.status = "failed"
                 step.error = "timeout"
                 return None
@@ -337,10 +340,8 @@ class ParallelFanOutExecutor:
 
         async_tasks = [asyncio.create_task(race_task(t)) for t in tasks]
 
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(done_event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            pass
 
         # Cancel remaining tasks
         for at in async_tasks:
@@ -371,7 +372,7 @@ class ParallelFanOutExecutor:
                 key = str(task.result)[:200]
                 result_groups.setdefault(key, []).append(task)
 
-        for group_key, group_tasks in result_groups.items():
+        for group_tasks in result_groups.values():
             if len(group_tasks) >= self._quorum_threshold:
                 best = max(group_tasks, key=lambda t: t.confidence)
                 return {

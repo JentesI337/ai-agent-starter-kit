@@ -9,7 +9,6 @@ from app.config import settings
 from app.errors import ToolExecutionError
 from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
 
-
 FULL_TOOLS = {
     "list_dir",
     "read_file",
@@ -1603,7 +1602,8 @@ def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> 
     assert "[spawn_subrun]" in result
     assert "spawned_subrun_id=subrun-approved" in result
     assert "handover_contract=" in result
-    assert captured_modes and captured_modes[-1] == "wait"
+    assert captured_modes
+    assert captured_modes[-1] == "wait"
     assert any(
         evt.get("type") == "lifecycle"
         and evt.get("stage") == "policy_override_decision"

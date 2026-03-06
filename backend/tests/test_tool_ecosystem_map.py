@@ -10,7 +10,6 @@ from app.services.tool_ecosystem_map import (
     ToolEcosystemMap,
 )
 
-
 # ── EcoTool ──────────────────────────────────────────────────────────
 
 

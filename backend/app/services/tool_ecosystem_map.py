@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class ToolEcosystemMap:
                 if fmt_out in visited:
                     continue
                 edge = ConversionEdge(tool=tool, format_in=current, format_out=fmt_out, cost=cost)
-                new_path = path + [edge]
+                new_path = [*path, edge]
                 if fmt_out == format_out:
                     return new_path
                 visited.add(fmt_out)
