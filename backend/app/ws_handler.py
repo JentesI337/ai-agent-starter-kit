@@ -923,10 +923,34 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     )
                     continue
 
-                directive_result = parse_directives_from_message(
-                    data.content or "",
-                    queue_mode_default=deps.settings.queue_mode_default,
-                )
+                try:
+                    directive_result = parse_directives_from_message(
+                        data.content or "",
+                        queue_mode_default=deps.settings.queue_mode_default,
+                    )
+                except GuardrailViolation:
+                    # BUG-5: directive parsing can raise GuardrailViolation
+                    # (e.g. /reasoning ultra) BEFORE init_run is called, which
+                    # breaks the lifecycle contract. Initialise run state first
+                    # so the outer handler's state_mark_failed_safe and
+                    # request_failed_guardrail events have a valid run to target.
+                    if data.type in {"user_message", "clarification_response"}:
+                        _rt = deps.runtime_manager.get_state()
+                        deps.state_store.init_run(
+                            run_id=request_id,
+                            session_id=session_id,
+                            request_id=request_id,
+                            user_message=data.content or "",
+                            runtime=_rt.runtime,
+                            model=_rt.model,
+                        )
+                        await send_lifecycle(
+                            stage="request_received",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={"chars": len(data.content or ""), "source_type": data.type},
+                        )
+                    raise
                 content = directive_result.clean_content
                 queue_mode = normalize_queue_mode(
                     data.queue_mode or directive_result.overrides.queue_mode,
@@ -936,6 +960,12 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 requested_model = (data.model or directive_result.overrides.model or "").strip() or None
                 reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
                 reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+                # BUG-6: Envelope-level fields take precedence over in-message text directives
+                # because they are more explicit (structured API vs. embedded prose).
+                if getattr(data, "reasoning_level", None):
+                    reasoning_level = normalize_reasoning_level(data.reasoning_level)
+                if getattr(data, "reasoning_visibility", None):
+                    reasoning_visibility = normalize_reasoning_visibility(data.reasoning_visibility)
                 if data.type in {"user_message", "clarification_response"}:
                     if data.type == "user_message":
                         pending_clarifications.pop(session_id, None)

@@ -88,17 +88,24 @@ Read the file first to get exact whitespace and indentation.
 ## run_command
 
 **When to use:**
-- Execute shell diagnostics: `netstat`, `ps`, `tasklist`, `ss`, `lsof`, `df`, `dir`
+- Execute shell diagnostics: `netstat`, `ps`, `tasklist`, `ss`, `lsof`, `df`
 - Run builds: `pnpm build`, `python setup.py`, `make`
 - Run tests: `pytest`, `vitest`, `jest`
 - Git operations: `git status`, `git log`, `git diff`
 - Any shell operation that produces output to analyze
 
 **When NOT to use:**
-- Reading file content → use `read_file`
-- Browsing the web → use `web_fetch`
+- Listing directory contents → use `list_dir` (works on every OS)
+- Reading file content → use `read_file` (works on every OS)
 - Searching file content → use `grep_search`
+- Browsing the web → use `web_fetch`
 - Long-running or background processes → use `start_background_command`
+
+**Platform caution:** Commands run via `subprocess` without a shell.
+OS-specific shell builtins (`dir`, `type`, `cat`, `echo`, `findstr`) are **not
+available** because they require `cmd.exe` or `bash` as a host process.
+Always prefer the dedicated agent tools (`list_dir`, `read_file`, `grep_search`)
+over shell equivalents — they work identically on Windows and Linux.
 
 **Caution:** Commands that modify system state require policy approval before execution.
 NEVER pass un-sanitized user input directly as shell arguments.

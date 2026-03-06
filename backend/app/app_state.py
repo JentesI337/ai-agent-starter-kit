@@ -23,6 +23,7 @@ class RuntimeComponents:
     subrun_lane: Any | None = None
     model_health_tracker: Any | None = None
     circuit_breaker: Any | None = None
+    policy_approval_handler: Any | None = None
 
 
 @dataclass

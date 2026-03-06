@@ -16,7 +16,10 @@ _REFLECTION_THRESHOLDS_BY_TASK_TYPE: dict[str, float] = {
     "orchestration":         0.60,
     "orchestration_failed":  0.55,
     "orchestration_pending": 0.55,
-    "general":               0.55,
+    # BUG-2: Lowered from 0.55 — prose answers without tool grounding cannot
+    # score higher than ~0.4 on factual_grounding; the old threshold always
+    # triggered a retry, adding ~25 s and a second BUG-1 repair call.
+    "general":               0.35,
     "trivial":               0.40,
 }
 

@@ -426,7 +426,9 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             preset=None,
             send_event=send_event,
             agent_id=normalized_agent_id,
-            mode=mode,
+            # SubrunLane.spawn only accepts "run" / "session"; "wait" is handled
+            # by this function after spawn returns (await wait_for_completion below).
+            mode="run" if mode == "wait" else mode,
             orchestrator_agent_ids=sorted(_effective_orchestrator_agent_ids(components)),
             orchestrator_api=selected_orchestrator,
         )
@@ -436,9 +438,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         if mode != "wait":
             _ph_timeout = float(effective_timeout) + float(settings.policy_approval_wait_seconds) + 5.0
             with contextlib.suppress(TimeoutError):
-                await components.subrun_lane.wait_for_policy_hold_clear_or_complete(
-                    run_id, timeout=_ph_timeout
-                )
+                await components.subrun_lane.wait_for_policy_hold_clear_or_complete(run_id, timeout=_ph_timeout)
         # mode="wait": warte auf Abschluss des Kind-Runs, bevor Handover-Status gelesen wird.
         # Ohne diesen Wait liefert get_handover_contract immer "subrun-accepted" zurück,
         # weil der asyncio.Task noch nicht gestartet / abgeschlossen hat.
@@ -571,6 +571,8 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         if callable(set_policy_handler):
             set_policy_handler(_request_policy_override_from_agent)
 
+    components.policy_approval_handler = _request_policy_override_from_agent
+
 
 _runtime_registry = LazyRuntimeRegistry(builder=_build_runtime_components, initializer=_initialize_runtime_components)
 
@@ -636,6 +638,11 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         review_agent_id=REVIEW_AGENT_ID,
         effective_orchestrator_agent_ids_fn=_effective_orchestrator_agent_ids,
     )
+    if components.policy_approval_handler is not None:
+        for agent_instance in components.agent_registry.values():
+            set_policy_handler = getattr(agent_instance, "set_policy_approval_handler", None)
+            if callable(set_policy_handler):
+                set_policy_handler(components.policy_approval_handler)
 
 
 def _resolve_agent(agent_id: str | None):

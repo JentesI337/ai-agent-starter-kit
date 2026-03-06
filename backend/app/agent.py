@@ -213,6 +213,7 @@ class HeadAgent:
         self._run_lock = asyncio.Lock()  # H-6: protects _active_run_count
         self._reconfiguring = False
         self._active_run_count = 0  # H-6: tracks concurrently executing run() calls
+        self._background_tasks: set[asyncio.Task] = set()  # keeps bg tasks alive (prevents GC)
         if settings.mcp_enabled and settings.mcp_servers:
             self._mcp_bridge = McpBridge(settings.mcp_servers)
         # Registry muss vor ToolExecutionManager gebaut werden, damit
@@ -1409,6 +1410,28 @@ class HeadAgent:
                 )
             final_text = shape_result.text
 
+            # All-Tools-Failed Gate: verhindert halluzinierte Erfolgsantworten wenn
+            # alle Tool-Calls Fehler zurückgegeben haben und kein einziger erfolgreich war.
+            # Das LLM (besonders lokale Modelle) tendiert dazu, Fehler im Kontext zu ignorieren
+            # und trotzdem eine "Ich hab alles abgeschlossen"-Antwort zu generieren.
+            if self._all_tools_failed(tool_results) and not self._response_acknowledges_failures(final_text):
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="all_tools_failed_gate_applied",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "task_type": synthesis_task_type,
+                        "suppressed_chars": len(final_text),
+                    },
+                )
+                final_text = (
+                    "I was unable to complete this task. All tool calls encountered errors and no work "
+                    "was successfully performed in this run.\n\n"
+                    "Please check the tool error details above, resolve any permission or policy issues "
+                    "(for example, approve the requested commands via the policy dialog), and retry."
+                )
+
             # Orchestration Evidence Gate: verhindert, dass fabrizierte Erfolgsmeldungen
             # den Nutzer täuschen, wenn ein Subrun nie erfolgreich abgeschlossen wurde.
             # Analoges Muster zum implementation_evidence_missing Gate.
@@ -1428,8 +1451,14 @@ class HeadAgent:
                 if attempted:
                     final_text = (
                         "The delegated subrun did not complete successfully. "
-                        "No confirmed delegation outcome is available. "
-                        'Check the subrun status and retry with `mode="wait"` for synchronous delegation.'
+                        "Most likely cause: a tool call inside the subrun timed out (e.g. a CLI scaffolding "
+                        "command such as `npm`, `ng`, or `npx` exceeded COMMAND_TIMEOUT_SECONDS) or was "
+                        "blocked by the command allowlist. "
+                        "Check the subrun lifecycle events for `tool_timeout` or `command_policy_unsupported` "
+                        "errors. If commands are blocked, set COMMAND_ALLOWLIST_EXTRA in the environment or "
+                        "approve the command via the policy dialog. "
+                        "If the subrun succeeded but this message still appears, the subrun returned before "
+                        "the parent could read its result — this is now fixed in the current build."
                     )
                 else:
                     final_text = (
@@ -1515,22 +1544,41 @@ class HeadAgent:
                     )
             raise
         finally:
+            # BUG-4: Decrement run counter BEFORE launching distillation so that
+            # a concurrent configure_runtime() call arriving during the (slow)
+            # distillation LLM call no longer raises RuntimeError.
+            async with self._run_lock:
+                self._active_run_count -= 1  # H-6: release run slot
+
             if status == "completed" and settings.session_distillation_enabled and self._long_term_memory is not None:
-                try:
-                    await self._distill_session_knowledge(
-                        session_id=session_id,
-                        user_message=user_message,
-                        plan_text=plan_text,
-                        tool_results=tool_results,
-                        final_text=final_text,
-                        model=model,
-                    )
-                except Exception:
-                    logging.getLogger(__name__).warning(
-                        "Session distillation failed for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
+                _session_id = session_id
+                _user_message = user_message
+                _plan_text = plan_text
+                _tool_results = tool_results
+                _final_text = final_text
+                _model = model
+
+                async def _distill_bg() -> None:
+                    try:
+                        await self._distill_session_knowledge(
+                            session_id=_session_id,
+                            user_message=_user_message,
+                            plan_text=_plan_text,
+                            tool_results=_tool_results,
+                            final_text=_final_text,
+                            model=_model,
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).warning(
+                            "Session distillation failed for session %s",
+                            _session_id,
+                            exc_info=True,
+                        )
+
+                _task = asyncio.create_task(_distill_bg())
+                self._background_tasks.add(_task)
+                _task.add_done_callback(self._background_tasks.discard)
+
             with contextlib.suppress(Exception):
                 await self._invoke_hooks(
                     hook_name="agent_end",
@@ -1547,8 +1595,6 @@ class HeadAgent:
             self._active_request_id_context.reset(request_id_token)
             self._active_session_id_context.reset(session_id_token)
             self._active_send_event_context.reset(send_event_token)
-            async with self._run_lock:
-                self._active_run_count -= 1  # H-6: release run slot
 
     async def _distill_session_knowledge(
         self,
@@ -2446,6 +2492,51 @@ class HeadAgent:
         pattern = re.compile(rf"\[{re.escape(tool_name)}\]\s*\n?(?!\s*ERROR:)", re.IGNORECASE)
         return bool(pattern.search(tool_results))
 
+    def _all_tools_failed(self, tool_results: str | None) -> bool:
+        """Returns True when tool_results is non-empty, contains at least one [ERROR] entry,
+        and contains zero successful [OK] entries.
+
+        Used by the all_tools_failed evidence gate to prevent the synthesizer from emitting
+        fabricated success responses when every tool call was rejected or failed.
+        """
+        if not tool_results or not tool_results.strip():
+            return False
+        lowered = tool_results.lower()
+        has_error = "[error]" in lowered or "] error" in lowered
+        has_ok = "] ok" in lowered or "[ok]" in lowered
+        return has_error and not has_ok
+
+    def _response_acknowledges_failures(self, final_text: str) -> bool:
+        """Returns True when the synthesized text contains at least one phrase that
+        explicitly acknowledges a failure or an inability to complete the task.
+
+        If the text is entirely optimistic despite all tools having failed, this returns
+        False and the all_tools_failed gate replaces it with an honest summary.
+        """
+        lowered = (final_text or "").lower()
+        acknowledgement_phrases = (
+            "error",
+            "fail",
+            "unable",
+            "could not",
+            "cannot",
+            "can't",
+            "couldn't",
+            "not able",
+            "not allowed",
+            "blocked",
+            "policy",
+            "permission",
+            "denied",
+            "unsuccessful",
+            "not complete",
+            "unfortunately",
+            "did not succeed",
+            "did not complete",
+            "was not",
+        )
+        return any(phrase in lowered for phrase in acknowledgement_phrases)
+
     def _has_implementation_evidence(self, tool_results: str | None) -> bool:
         return any(
             self._has_successful_tool_output(tool_results, tool_name)
@@ -2750,7 +2841,7 @@ class HeadAgent:
         if not message:
             raise ToolExecutionError("spawn_subrun requires non-empty 'message'.")
 
-        mode = str(args.get("mode") or "run").strip().lower() or "run"
+        mode = str(args.get("mode") or "wait").strip().lower() or "wait"
         agent_id = str(args.get("agent_id") or "head-agent").strip() or "head-agent"
         child_model = str(args.get("model") or model or "").strip() or None
         timeout_seconds = int(args.get("timeout_seconds") or 0)

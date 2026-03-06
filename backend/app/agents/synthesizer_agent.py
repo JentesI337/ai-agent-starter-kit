@@ -285,11 +285,11 @@ class SynthesizerAgent(AgentContract):
                 "Risks",
                 "Next steps",
             ),
-            "general": (
-                "Answer",
-                "Key points",
-                "Next step",
-            ),
+            # BUG-7: "general" carries no mandatory sections — free-form
+            # conversational replies must not be forced into a rigid scaffold.
+            # Leaving this empty also eliminates the repair LLM call (BUG-1
+            # compound) for the most common task type.
+            "general": (),
         }
         return contracts.get(task_type, contracts["general"])
 

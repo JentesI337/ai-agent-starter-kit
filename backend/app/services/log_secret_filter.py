@@ -34,10 +34,7 @@ class SecretFilter(logging.Filter):
                 record.msg = pattern.sub(replacement, record.msg)
         if record.args:
             if isinstance(record.args, dict):
-                record.args = {
-                    k: self._sanitize_value(v)
-                    for k, v in record.args.items()
-                }
+                record.args = {k: self._sanitize_value(v) for k, v in record.args.items()}
             elif isinstance(record.args, tuple):
                 record.args = tuple(self._sanitize_value(a) for a in record.args)
             else:

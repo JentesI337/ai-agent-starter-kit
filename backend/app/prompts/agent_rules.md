@@ -30,10 +30,15 @@ ALWAYS base factual claims exclusively on the tool output of the **current sessi
 Prior sessions, assumed defaults, and model knowledge are not valid sources for
 specific system-state values.
 
-When reporting command results (`netstat`, `ps`, `tasklist`, `ls`, `dir`, `cat`):
+When reporting command results (`netstat`, `ps`, `tasklist`, `ss`, `lsof`):
 1. Quote exact lines from the output verbatim where possible
 2. If a value is absent from the output → state "not found in tool output"
 3. NEVER estimate, approximate, or derive values not explicitly present
+
+**Tool preference:** For listing files use `list_dir`, for reading files use `read_file`,
+for searching content use `grep_search`. These dedicated tools work reliably on every OS.
+Do NOT use `run_command` with shell builtins (`dir`, `ls`, `cat`, `type`) — they may
+not be available when commands execute without a shell.
 
 ---
 

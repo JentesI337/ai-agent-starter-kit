@@ -113,6 +113,45 @@ Next step
     assert validation.sections_without_bullets == []
 
 
+def test_validate_section_contract_passes_with_inline_header_content() -> None:
+    """BUG-1: LLMs write headers with trailing content on the same line."""
+    shaper = ReplyShaper()
+
+    validation = shaper.validate_section_contract(
+        """
+**Answer**: The root cause is a misconfiguration
+- concise answer
+
+**Key points:**
+- point one
+
+**Next step**: run the tests again
+1. do this next
+""".strip(),
+        ("Answer", "Key points", "Next step"),
+    )
+
+    assert validation.is_valid is True
+    assert validation.missing_sections == []
+    assert validation.sections_without_bullets == []
+
+
+def test_validate_section_contract_no_false_prefix_match() -> None:
+    """BUG-1 fix safety: 'Answering' must not match section 'Answer'."""
+    shaper = ReplyShaper()
+
+    validation = shaper.validate_section_contract(
+        """
+Answering your question about the issue
+- some bullet
+""".strip(),
+        ("Answer",),
+    )
+
+    assert validation.is_valid is False
+    assert validation.missing_sections == ["Answer"]
+
+
 def test_validate_section_contract_detects_missing_and_bullet_failures() -> None:
     shaper = ReplyShaper()
 

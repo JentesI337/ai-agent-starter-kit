@@ -273,10 +273,13 @@ def test_synthesizer_does_not_force_hard_schema_for_normal_request() -> None:
     asyncio.run(_run())
 
     assert client.last_user_prompt is not None
-    assert "Mandatory output schema" in client.last_user_prompt
-    assert "- Answer" in client.last_user_prompt
-    assert "- Key points" in client.last_user_prompt
-    assert "- Next step" in client.last_user_prompt
+    # BUG-7: "general" now has empty required_sections so no section scaffold is
+    # injected. Verify that neither the hard_research contract nor the old
+    # Answer/Key-points scaffold is present in the prompt.
+    assert "Priorisierte Maßnahmen (Top 10)" not in client.last_user_prompt
+    assert "- Answer" not in client.last_user_prompt
+    assert "- Key points" not in client.last_user_prompt
+    assert "- Next step" not in client.last_user_prompt
 
 
 def test_synthesizer_uses_research_section_contract() -> None:

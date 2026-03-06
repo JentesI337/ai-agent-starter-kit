@@ -80,8 +80,7 @@ class ReplyShaper:
                 lowered = line.lower()
                 is_tool_confirmation = (
                     not in_fenced_block
-                    and
-                    bool(sorted_markers)
+                    and bool(sorted_markers)
                     and any(marker in lowered for marker in sorted_markers)
                     and any(keyword in lowered for keyword in ("done", "completed", "finished", "erfolgreich"))
                 )
@@ -138,7 +137,9 @@ class ReplyShaper:
             removed_tokens=removed_tokens,
         )
 
-    def validate_section_contract(self, final_text: str, required_sections: tuple[str, ...]) -> SectionContractValidation:
+    def validate_section_contract(
+        self, final_text: str, required_sections: tuple[str, ...]
+    ) -> SectionContractValidation:
         text = (final_text or "").strip()
         if not required_sections:
             return SectionContractValidation(is_valid=True, missing_sections=[], sections_without_bullets=[])
@@ -172,10 +173,15 @@ class ReplyShaper:
 
     def _find_section_line(self, *, lines: list[str], section: str) -> int:
         escaped = re.escape(section)
+        # BUG-1: Patterns previously required the header to sit alone on its
+        # line (anchored with $).  LLMs routinely write inline content after
+        # the header (e.g. "**Answer**: The root cause is …").  The trailing
+        # anchor is removed; \b prevents false prefix matches (e.g.
+        # "Answering" would not match "Answer").
         patterns = (
-            re.compile(rf"^\s*{escaped}\s*:??\s*$", flags=re.IGNORECASE),
-            re.compile(rf"^\s*\*\*{escaped}\*\*\s*:??\s*$", flags=re.IGNORECASE),
-            re.compile(rf"^\s*#+\s*{escaped}\s*$", flags=re.IGNORECASE),
+            re.compile(rf"^\s*{escaped}\b\s*:?", flags=re.IGNORECASE),
+            re.compile(rf"^\s*\*\*{escaped}\s*:?\*\*\s*:?", flags=re.IGNORECASE),
+            re.compile(rf"^\s*#+\s*{escaped}\b", flags=re.IGNORECASE),
         )
         for idx, line in enumerate(lines):
             candidate = line.strip()

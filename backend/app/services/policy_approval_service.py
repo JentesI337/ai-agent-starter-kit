@@ -59,7 +59,11 @@ class PolicyApprovalService:
         async with self._lock:
             for existing in self._records.values():
                 if (
-                    str(existing.get("run_id") or "").strip() == normalized_run_id
+                    # Bug fix: only reuse actively PENDING records; expired/timed-out
+                    # records must not be reused because their asyncio.Event is unset
+                    # and any allow_session decision on them would not propagate.
+                    existing.get("status") == "pending"
+                    and str(existing.get("run_id") or "").strip() == normalized_run_id
                     and str(existing.get("session_id") or "").strip() == normalized_session_id
                     and str(existing.get("tool") or "").strip().lower() == normalized_tool
                     and str(existing.get("resource") or "").strip() == normalized_resource
@@ -275,6 +279,44 @@ class PolicyApprovalService:
             if len(self._allow_always_rules) != before:
                 self._persist_allow_always_rules()
 
+    def _apply_allow_session_locked(self, source_record: dict) -> None:
+        """Apply a session-level override and cascade approval to every pending approval
+        for the same (session_id, tool) pair.
+
+        This must be called while ``self._lock`` is held.  It is idempotent: adding
+        a key to a set and signalling an already-set Event are both no-ops.
+
+        Fix: when the user decides ``allow_session`` on *any* approval record—even one
+        that has already expired due to a 30-second policy-wait timeout—we still honour
+        the user's intent.  Without this, the session override was silently dropped
+        whenever the frontend sent a decision for a stale approval_id (e.g. the first
+        prompt that timed out while a second prompt for the retried command was pending).
+        """
+        normalized_session_id = str(source_record.get("session_id") or "").strip()
+        normalized_tool = str(source_record.get("tool") or "").strip().lower()
+        if not normalized_session_id or not normalized_tool:
+            return
+
+        session_tool_key = f"{normalized_session_id}::{normalized_tool}"
+        self._session_allow_all.add(session_tool_key)
+
+        # Cascade: resolve every currently-pending approval for the same session+tool
+        # so their waiters can proceed immediately instead of hitting the 30-second
+        # timeout just because the user clicked on a different approval prompt.
+        now = datetime.now(UTC).isoformat()
+        for other_id, other_record in self._records.items():
+            if (
+                other_record.get("status") == "pending"
+                and str(other_record.get("session_id") or "").strip() == normalized_session_id
+                and str(other_record.get("tool") or "").strip().lower() == normalized_tool
+            ):
+                other_record["status"] = "approved"
+                other_record["decision"] = "allow_session"
+                other_record["updated_at"] = now
+                other_event = self._events.get(other_id)
+                if other_event is not None:
+                    other_event.set()
+
     async def decide(self, approval_id: str, decision: str, scope: str | None = None) -> dict | None:
         normalized_decision = (decision or "").strip().lower()
         if normalized_decision not in APPROVAL_DECISIONS:
@@ -292,6 +334,11 @@ class PolicyApprovalService:
                 record["duplicate_decision"] = True
                 record["duplicate_matches_existing"] = existing_decision == normalized_decision
                 record["updated_at"] = datetime.now(UTC).isoformat()
+                # Fix: for allow_session, honour the user's intent even on a stale record.
+                # Update _session_allow_all and cascade to any currently-pending approvals
+                # for the same (session_id, tool) pair so their waiters are unblocked.
+                if normalized_decision == "allow_session":
+                    self._apply_allow_session_locked(record)
                 return dict(record)
 
             now = datetime.now(UTC).isoformat()
@@ -308,11 +355,7 @@ class PolicyApprovalService:
             record["scope"] = normalized_scope
 
             if normalized_decision == "allow_session":
-                normalized_session_id = str(record.get("session_id") or "").strip()
-                normalized_tool = str(record.get("tool") or "").strip().lower()
-                if normalized_session_id and normalized_tool:
-                    session_tool_key = f"{normalized_session_id}::{normalized_tool}"
-                    self._session_allow_all.add(session_tool_key)
+                self._apply_allow_session_locked(record)
 
             if normalized_decision == "allow_always":
                 normalized_rule = self._normalize_rule(

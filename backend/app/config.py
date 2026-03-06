@@ -320,6 +320,9 @@ class Settings(BaseModel):
             "- WHY (how it serves the goal)\n"
             "- TOOL (which tool to use, or 'none')\n"
             "- DEPENDS_ON (which earlier step, or 'none')\n\n"
+            "Fallback rule for scaffolding commands: If a step uses run_command to scaffold or install "
+            "(e.g. npm, ng, npx, pip), always add an explicit fallback step that writes the key files "
+            "directly with write_file in case the command times out or is blocked by policy.\n\n"
             "If the request is ambiguous, add a 'CLARIFICATION_NEEDED' flag with what you'd ask the user."
         ),
         "CODER_AGENT_PLAN_PROMPT",
@@ -1014,7 +1017,7 @@ class Settings(BaseModel):
     session_inbox_max_queue_length: int = int(os.getenv("SESSION_INBOX_MAX_QUEUE_LENGTH", "100"))
     session_inbox_ttl_seconds: int = int(os.getenv("SESSION_INBOX_TTL_SECONDS", "600"))
     session_follow_up_max_deferrals: int = int(os.getenv("SESSION_FOLLOW_UP_MAX_DEFERRALS", "2"))
-    command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "60"))
+    command_timeout_seconds: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "300"))
     web_search_provider: str = os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower()
     web_search_api_key: str = os.getenv("WEB_SEARCH_API_KEY", "")
     web_search_base_url: str = os.getenv("WEB_SEARCH_BASE_URL", "")
@@ -1075,7 +1078,12 @@ class Settings(BaseModel):
     command_allowlist: list[str] = _parse_csv_env(
         os.getenv(
             "COMMAND_ALLOWLIST",
-            "python,py,pip,pytest,uvicorn,git,npm,node,npx,yarn,pnpm,make,cmake,docker,docker-compose,java,javac,mvn,gradle,go,rustc,cargo,dotnet,ls,dir,cat,type,echo,findstr,rg,grep,sed,awk,head,tail,wc,sort,uniq,cp,mv,mkdir,touch,chmod,chown,tar,zip,unzip",
+            # BUG-3: dir, type, echo, findstr removed — these are CMD shell
+            # built-ins, not standalone executables.  subprocess.run(shell=False)
+            # raises FileNotFoundError for them on Windows.  Use PowerShell
+            # equivalents (Get-ChildItem, Get-Content, Write-Output, Select-String)
+            # or add them via COMMAND_ALLOWLIST_EXTRA if cmd /c wrapping is in place.
+            "python,py,pip,pytest,uvicorn,git,npm,node,npx,yarn,pnpm,make,cmake,docker,docker-compose,java,javac,mvn,gradle,go,rustc,cargo,dotnet,ls,cat,rg,grep,sed,awk,head,tail,wc,sort,uniq,cp,mv,mkdir,touch,chmod,chown,tar,zip,unzip",
         ),
         [
             "python",
@@ -1103,11 +1111,9 @@ class Settings(BaseModel):
             "cargo",
             "dotnet",
             "ls",
-            "dir",
+            # BUG-3: dir, type, echo, findstr are CMD shell built-ins and
+            # cannot be invoked via subprocess.run(shell=False) on Windows.
             "cat",
-            "type",
-            "echo",
-            "findstr",
             "rg",
             "grep",
             "sed",

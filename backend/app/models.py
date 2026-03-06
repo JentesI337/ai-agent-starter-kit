@@ -18,6 +18,10 @@ class WsInboundEnvelope(BaseModel):
     queue_mode: str | None = Field(default=None, max_length=50)
     prompt_mode: str | None = Field(default=None, max_length=50)
     tool_policy: ToolPolicyPayload | None = None
+    # BUG-6: Expose reasoning controls as explicit envelope fields so the
+    # frontend can set them structurally instead of embedding text directives.
+    reasoning_level: str | None = Field(default=None, max_length=50)
+    reasoning_visibility: str | None = Field(default=None, max_length=50)
 
 
 class WsUserMessage(WsInboundEnvelope):
