@@ -603,6 +603,7 @@ class HeadAgent:
                 request_id=request_id,
                 session_id=session_id,
             )
+            await self._debug_checkpoint("guardrails", send_event, request_id, session_id)
 
             await self._ensure_mcp_tools_registered(
                 send_event=send_event,
@@ -721,6 +722,7 @@ class HeadAgent:
                     system_prompt=self.prompt_profile.plan_prompt,
                 ),
             )
+            await self._debug_checkpoint("context", send_event, request_id, session_id)
 
             if settings.clarification_protocol_enabled and effective_prompt_mode != "subagent":
                 ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
@@ -798,6 +800,7 @@ class HeadAgent:
                 request_id=request_id,
                 session_id=session_id,
             )
+            await self._debug_checkpoint("planning", send_event, request_id, session_id)
             plan_text = await self.plan_step_executor.execute(
                 PlannerInput(
                     user_message=user_message,
@@ -868,6 +871,7 @@ class HeadAgent:
                     "reason": "await_tool_terminal_state",
                 },
             )
+            await self._debug_checkpoint("tool_selection", send_event, request_id, session_id)
             for iteration in range(total_replan_cycles):
                 tool_context_outputs = [plan_text]
                 if tool_results:
@@ -1248,6 +1252,7 @@ class HeadAgent:
                     "task_type": synthesis_task_type,
                 },
             )
+            await self._debug_checkpoint("synthesis", send_event, request_id, session_id)
 
             final_text = await self.synthesize_step_executor.execute(
                 SynthesizerInput(
@@ -1265,6 +1270,7 @@ class HeadAgent:
             )
             reflection_passes = max(0, int(self.synthesizer_agent.constraints.reflection_passes))
             if reflection_passes > 0 and self._reflection_service is not None and len((final_text or "").strip()) >= 8:
+                await self._debug_checkpoint("reflection", send_event, request_id, session_id)
                 for reflection_pass in range(reflection_passes):
                     try:
                         try:
@@ -1385,6 +1391,7 @@ class HeadAgent:
                     "`run_command`, or `code_execute`) and retry."
                 )
 
+            await self._debug_checkpoint("reply_shaping", send_event, request_id, session_id)
             await self._emit_lifecycle(
                 send_event,
                 stage="reply_shaping_started",
@@ -1682,11 +1689,37 @@ class HeadAgent:
             )
 
     async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:
+        send_event = self._active_send_event_context.get()
+        request_id = self._active_request_id_context.get() or ""
+        session_id = self._active_session_id_context.get() or ""
+        if settings.debug_mode and self._debug_mode_active and send_event is not None:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_prompt_sent",
+                request_id,
+                session_id,
+                {
+                    "phase": "planning",
+                    "system_prompt": self.prompt_profile.plan_prompt,
+                    "user_prompt": payload.user_message,
+                    "model": model or self.client.model,
+                },
+            )
         if settings.structured_planning_enabled:
             plan_graph = await self.planner_agent.execute_structured(payload, model=model)
-            return plan_graph.as_plan_text()
-        planner_output = await self.planner_agent.execute(payload, model=model)
-        return planner_output.plan_text
+            result = plan_graph.as_plan_text()
+        else:
+            planner_output = await self.planner_agent.execute(payload, model=model)
+            result = planner_output.plan_text
+        if settings.debug_mode and self._debug_mode_active and send_event is not None:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_llm_response",
+                request_id,
+                session_id,
+                {"phase": "planning", "raw_response": result, "parsed_output": result},
+            )
+        return result
 
     async def _execute_tool_step(
         self,
@@ -1719,6 +1752,19 @@ class HeadAgent:
         send_event: SendEvent,
         model: str | None,
     ) -> str:
+        if settings.debug_mode and self._debug_mode_active:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_prompt_sent",
+                request_id,
+                session_id,
+                {
+                    "phase": "synthesis",
+                    "system_prompt": self.prompt_profile.final_prompt,
+                    "user_prompt": payload.user_message,
+                    "model": model or self.client.model,
+                },
+            )
         synthesize_output = await self.synthesizer_agent.execute(
             payload,
             send_event=send_event,
@@ -1726,6 +1772,18 @@ class HeadAgent:
             request_id=request_id,
             model=model,
         )
+        if settings.debug_mode and self._debug_mode_active:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_llm_response",
+                request_id,
+                session_id,
+                {
+                    "phase": "synthesis",
+                    "raw_response": synthesize_output.final_text,
+                    "parsed_output": synthesize_output.final_text,
+                },
+            )
         return synthesize_output.final_text
 
     def _step_budgets(self, max_context: int) -> dict[str, int]:
@@ -3061,7 +3119,7 @@ class HeadAgent:
         session_id: str,
     ) -> None:
         """Cooperative pause point. Blocks only when a breakpoint is set or the user requested pause."""
-        if not self._debug_mode_active:
+        if not self._debug_mode_active or not settings.debug_mode:
             return
         if phase not in self._debug_breakpoints and self._debug_continue_event.is_set():
             return

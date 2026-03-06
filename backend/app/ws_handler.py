@@ -700,6 +700,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                             _agent._debug_breakpoints.clear()  # type: ignore[union-attr]
                         if hasattr(_agent, "_debug_continue_event"):
                             _agent._debug_continue_event.set()  # type: ignore[union-attr]
+                        if hasattr(_agent, "_debug_mode_active"):
+                            _agent._debug_mode_active = False  # type: ignore[union-attr]
                     elif inbound_type == "debug_set_breakpoints":
                         envelope = WsInboundEnvelope.model_validate_json(raw)
                         bp_list: list[str] = envelope.breakpoints or []
@@ -714,6 +716,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         }
                         if hasattr(_agent, "_debug_breakpoints"):
                             _agent._debug_breakpoints = set(bp_list) & _valid_phases  # type: ignore[union-attr]
+                        if hasattr(_agent, "_debug_mode_active"):
+                            _agent._debug_mode_active = bool(bp_list)  # type: ignore[union-attr]
                     continue
 
                 if inbound_type not in SUPPORTED_WS_INBOUND_TYPES:
