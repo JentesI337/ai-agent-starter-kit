@@ -10,17 +10,17 @@ from app.llm_client import LlmClient
 # hard_research erfordert höhere Qualität als triviale Antworten.
 # Werte überschreiben den globalen settings.reflection_threshold wenn task_type übergeben wird.
 _REFLECTION_THRESHOLDS_BY_TASK_TYPE: dict[str, float] = {
-    "hard_research":         0.75,
-    "research":              0.70,
-    "implementation":        0.65,
-    "orchestration":         0.60,
-    "orchestration_failed":  0.55,
+    "hard_research": 0.75,
+    "research": 0.70,
+    "implementation": 0.65,
+    "orchestration": 0.60,
+    "orchestration_failed": 0.55,
     "orchestration_pending": 0.55,
     # BUG-2: Lowered from 0.55 — prose answers without tool grounding cannot
     # score higher than ~0.4 on factual_grounding; the old threshold always
     # triggered a retry, adding ~25 s and a second BUG-1 repair call.
-    "general":               0.35,
-    "trivial":               0.40,
+    "general": 0.35,
+    "trivial": 0.40,
 }
 
 _REFLECTION_SYSTEM_PROMPT = (
@@ -82,9 +82,7 @@ class ReflectionService:
         task_type: str | None = None,
     ) -> ReflectionVerdict:
         # T1.4: Task-type-sensitiver Threshold — überschreibt globalen settings-Threshold
-        effective_threshold = _REFLECTION_THRESHOLDS_BY_TASK_TYPE.get(
-            (task_type or "").strip().lower(), self.threshold
-        )
+        effective_threshold = _REFLECTION_THRESHOLDS_BY_TASK_TYPE.get((task_type or "").strip().lower(), self.threshold)
         reflection_prompt = self._build_reflection_prompt(
             user_message=user_message,
             plan_text=plan_text,

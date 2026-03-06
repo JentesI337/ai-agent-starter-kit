@@ -95,9 +95,10 @@ def test_resolve_replan_reason_uses_bounded_error_only_budget() -> None:
 
 def test_classify_partial_error() -> None:
     agent = HeadAgent()
-    assert agent._classify_tool_results_state(
-        "[read_file] OK: data\n[run_command] ERROR: permission denied"
-    ) == "partial_error"
+    assert (
+        agent._classify_tool_results_state("[read_file] OK: data\n[run_command] ERROR: permission denied")
+        == "partial_error"
+    )
 
 
 def test_classify_all_suspicious() -> None:
@@ -188,10 +189,7 @@ def test_all_tools_failed_true_when_only_errors() -> None:
 
 def test_all_tools_failed_false_when_any_ok() -> None:
     agent = HeadAgent()
-    results = (
-        "[read_file] [OK] content here\n"
-        "[run_command] [ERROR] Command blocked.\n"
-    )
+    results = "[read_file] [OK] content here\n[run_command] [ERROR] Command blocked.\n"
     assert agent._all_tools_failed(results) is False
 
 

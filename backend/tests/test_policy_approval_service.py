@@ -297,9 +297,7 @@ def test_allow_session_cascades_to_pending_sibling_approvals() -> None:
 
         # Start waiting on B with a generous timeout so it resolves via cascade,
         # not via its own timeout.
-        wait_b = asyncio.ensure_future(
-            service.wait_for_decision(approval_b["approval_id"], timeout_seconds=5.0)
-        )
+        wait_b = asyncio.ensure_future(service.wait_for_decision(approval_b["approval_id"], timeout_seconds=5.0))
 
         # User clicks "Allow all in this session" on A.
         await service.decide(approval_a["approval_id"], "allow_session", scope="session_tool")

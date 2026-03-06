@@ -548,7 +548,7 @@ def test_synthesizer_semantic_truth_marks_orchestration_invalid_without_complete
     payload = SynthesizerInput(
         user_message="orchestrate architecture review",
         plan_text="plan",
-        tool_results="spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={\"terminal_reason\":\"subrun-accepted\"}",
+        tool_results='spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={"terminal_reason":"subrun-accepted"}',
         reduced_context="ctx",
         task_type="orchestration",
     )
@@ -606,7 +606,7 @@ def test_synthesizer_semantic_truth_rejects_success_claim_for_pending_task() -> 
     payload = SynthesizerInput(
         user_message="orchestrate architecture review",
         plan_text="plan",
-        tool_results="spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={\"terminal_reason\":\"subrun-accepted\"}",
+        tool_results='spawned_subrun_id=subrun-1 mode=run agent_id=head-agent handover_contract={"terminal_reason":"subrun-accepted"}',
         reduced_context="ctx",
         task_type="orchestration_pending",
     )
@@ -660,7 +660,9 @@ def test_synthesizer_dynamic_temperature_changes_by_task_type(monkeypatch: pytes
     )
 
     async def _run_hard() -> None:
-        await agent_hard.execute(hard_payload, send_event=send_event, session_id="temp-1", request_id="req-1", model=None)
+        await agent_hard.execute(
+            hard_payload, send_event=send_event, session_id="temp-1", request_id="req-1", model=None
+        )
 
     asyncio.run(_run_hard())
 
@@ -683,7 +685,9 @@ def test_synthesizer_dynamic_temperature_changes_by_task_type(monkeypatch: pytes
     )
 
     async def _run_general() -> None:
-        await agent_general.execute(general_payload, send_event=send_event, session_id="temp-2", request_id="req-2", model=None)
+        await agent_general.execute(
+            general_payload, send_event=send_event, session_id="temp-2", request_id="req-2", model=None
+        )
 
     asyncio.run(_run_general())
 
