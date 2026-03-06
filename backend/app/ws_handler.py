@@ -684,6 +684,42 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         )
                         continue
                 inbound_type = peek_ws_inbound_type(raw)
+
+                # Debug control messages — handled before the standard type dispatch
+                _debug_types = {"debug_continue", "debug_pause", "debug_set_breakpoints", "debug_play"}
+                if inbound_type in _debug_types:
+                    _agent = deps.agent
+                    if inbound_type == "debug_continue":
+                        if hasattr(_agent, "_debug_continue_event"):
+                            _agent._debug_continue_event.set()  # type: ignore[union-attr]
+                    elif inbound_type == "debug_pause":
+                        if hasattr(_agent, "_debug_continue_event"):
+                            _agent._debug_continue_event.clear()  # type: ignore[union-attr]
+                    elif inbound_type == "debug_play":
+                        if hasattr(_agent, "_debug_breakpoints"):
+                            _agent._debug_breakpoints.clear()  # type: ignore[union-attr]
+                        if hasattr(_agent, "_debug_continue_event"):
+                            _agent._debug_continue_event.set()  # type: ignore[union-attr]
+                        if hasattr(_agent, "_debug_mode_active"):
+                            _agent._debug_mode_active = False  # type: ignore[union-attr]
+                    elif inbound_type == "debug_set_breakpoints":
+                        envelope = WsInboundEnvelope.model_validate_json(raw)
+                        bp_list: list[str] = envelope.breakpoints or []
+                        _valid_phases = {
+                            "guardrails",
+                            "context",
+                            "planning",
+                            "tool_selection",
+                            "synthesis",
+                            "reflection",
+                            "reply_shaping",
+                        }
+                        if hasattr(_agent, "_debug_breakpoints"):
+                            _agent._debug_breakpoints = set(bp_list) & _valid_phases  # type: ignore[union-attr]
+                        if hasattr(_agent, "_debug_mode_active"):
+                            _agent._debug_mode_active = bool(bp_list)  # type: ignore[union-attr]
+                    continue
+
                 if inbound_type not in SUPPORTED_WS_INBOUND_TYPES:
                     envelope = WsInboundEnvelope.model_validate_json(raw)
                     deps.sync_custom_agents()

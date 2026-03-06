@@ -252,6 +252,34 @@ export class AgentSocketService {
     );
   }
 
+  sendDebugContinue(requestId: string): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+    this.socket.send(JSON.stringify({ type: 'debug_continue', request_id: requestId }));
+  }
+
+  sendDebugPause(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+    this.socket.send(JSON.stringify({ type: 'debug_pause' }));
+  }
+
+  sendDebugPlay(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+    this.socket.send(JSON.stringify({ type: 'debug_play' }));
+  }
+
+  sendDebugSetBreakpoints(breakpoints: string[]): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Socket is not connected.');
+    }
+    this.socket.send(JSON.stringify({ type: 'debug_set_breakpoints', breakpoints }));
+  }
+
   disconnect(): void {
     this.manualDisconnect = true;
     if (this.reconnectTimer !== null) {
