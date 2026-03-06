@@ -111,7 +111,7 @@ class IntentDetector:
         if text.startswith(("./", ".\\", "~", "..\\", "../")):
             return True
 
-        token = text.split()[0].strip().strip('"\'').lower()
+        token = text.split()[0].strip().strip("\"'").lower()
         if not token:
             return False
 

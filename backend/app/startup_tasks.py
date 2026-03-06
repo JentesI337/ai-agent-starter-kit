@@ -26,6 +26,7 @@ def run_security_checks(*, settings, logger) -> None:
     # CFG-06: Validate configuration at startup
     try:
         from app.config import validate_environment_config
+
         validation = validate_environment_config(settings)
         status = str(validation.get("validation_status", "ok"))
         if status != "ok":
@@ -40,19 +41,16 @@ def run_security_checks(*, settings, logger) -> None:
 
     # CFG-04: Warn about deprecated OLLAMA_API_KEY
     if os.getenv("OLLAMA_API_KEY") and not os.getenv("LLM_API_KEY"):
-        logger.warning(
-            "SEC: OLLAMA_API_KEY is deprecated. Use LLM_API_KEY instead."
-        )
+        logger.warning("SEC: OLLAMA_API_KEY is deprecated. Use LLM_API_KEY instead.")
 
     # CFG-02: Check .env file permissions on Linux
     env_file = Path(".env")
     if env_file.exists() and os.name != "nt":
         import stat
+
         mode = env_file.stat().st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
-            logger.warning(
-                "SEC: .env file is readable by group/others. Run: chmod 600 .env"
-            )
+            logger.warning("SEC: .env file is readable by group/others. Run: chmod 600 .env")
 
 
 def clear_startup_persistence(*, settings, logger) -> None:

@@ -120,7 +120,9 @@ def _parse_mcp_servers_config(raw_value: str, *, workspace_root: str) -> list[Mc
             continue
 
         args_raw = item.get("args")
-        args = [str(arg) for arg in args_raw if isinstance(arg, (str, int, float))] if isinstance(args_raw, list) else []
+        args = (
+            [str(arg) for arg in args_raw if isinstance(arg, (str, int, float))] if isinstance(args_raw, list) else []
+        )
         env_raw = item.get("env")
         env = (
             {str(key): str(value) for key, value in env_raw.items() if str(key).strip()}
@@ -251,8 +253,7 @@ class Settings(BaseModel):
         "AGENT_SYSTEM_PROMPT",
     )
     head_agent_tool_selector_prompt: str = _resolve_prompt(
-        "You select tools for user tasks. Strictly follow output format requirements."
-        + _TOOL_ROUTING_APPENDIX,
+        "You select tools for user tasks. Strictly follow output format requirements." + _TOOL_ROUTING_APPENDIX,
         "HEAD_AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_TOOL_SELECTOR_PROMPT",
         "HEAD_AGENT_SYSTEM_PROMPT",
@@ -277,8 +278,7 @@ class Settings(BaseModel):
             "- For research: cite your sources (from tool outputs).\n"
             "- For analysis: show your reasoning chain.\n"
             "- End with concrete next steps the user can take.\n"
-            "- If tool outputs contradicted your initial assumption, say so."
-            + _AGENT_RULES_APPENDIX
+            "- If tool outputs contradicted your initial assumption, say so." + _AGENT_RULES_APPENDIX
         ),
         "HEAD_AGENT_FINAL_PROMPT",
         "HEAD_AGENT_SYSTEM_PROMPT",
@@ -395,8 +395,7 @@ class Settings(BaseModel):
         "AGENT_SYSTEM_PROMPT",
     )
     agent_tool_selector_prompt: str = _resolve_prompt(
-        "You are a senior head agent. Think step-by-step and return practical plans."
-        + _TOOL_ROUTING_APPENDIX,
+        "You are a senior head agent. Think step-by-step and return practical plans." + _TOOL_ROUTING_APPENDIX,
         "AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_SYSTEM_PROMPT",
     )
@@ -419,8 +418,7 @@ class Settings(BaseModel):
             "- For research: cite your sources (from tool outputs).\n"
             "- For analysis: show your reasoning chain.\n"
             "- End with concrete next steps the user can take.\n"
-            "- If tool outputs contradicted your initial assumption, say so."
-            + _AGENT_RULES_APPENDIX
+            "- If tool outputs contradicted your initial assumption, say so." + _AGENT_RULES_APPENDIX
         ),
         "AGENT_FINAL_PROMPT",
         "AGENT_SYSTEM_PROMPT",
@@ -462,8 +460,7 @@ class Settings(BaseModel):
             "You select tools for research tasks. Prefer read-only tools: "
             "web_fetch, web_search, grep_search, read_file, file_search, list_dir. "
             "Never select write_file, apply_patch, or run_command. "
-            "Strictly follow output format requirements."
-            + _TOOL_ROUTING_APPENDIX
+            "Strictly follow output format requirements." + _TOOL_ROUTING_APPENDIX
         ),
         "RESEARCHER_AGENT_TOOL_SELECTOR_PROMPT",
         "AGENT_TOOL_SELECTOR_PROMPT",
@@ -479,8 +476,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Every finding must be traceable to a source.\n"
             "- If sources conflict, present both views with assessment.\n"
-            "- Clearly separate facts from inferences."
-            + _AGENT_RULES_APPENDIX
+            "- Clearly separate facts from inferences." + _AGENT_RULES_APPENDIX
         ),
         "RESEARCHER_AGENT_FINAL_PROMPT",
         "RESEARCHER_AGENT_SYSTEM_PROMPT",
@@ -529,8 +525,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Reference concrete files/modules from the codebase.\n"
             "- Quantify trade-offs where possible.\n"
-            "- Be explicit about assumptions."
-            + _AGENT_RULES_APPENDIX
+            "- Be explicit about assumptions." + _AGENT_RULES_APPENDIX
         ),
         "ARCHITECT_AGENT_FINAL_PROMPT",
         "ARCHITECT_AGENT_SYSTEM_PROMPT",
@@ -579,8 +574,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Always include runnable test code.\n"
             "- Show test execution evidence.\n"
-            "- Suggest missing test scenarios."
-            + _AGENT_RULES_APPENDIX
+            "- Suggest missing test scenarios." + _AGENT_RULES_APPENDIX
         ),
         "TEST_AGENT_FINAL_PROMPT",
         "TEST_AGENT_SYSTEM_PROMPT",
@@ -617,8 +611,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Never report false positives — verify each finding.\n"
             "- Classify severity accurately (CRITICAL > HIGH > MEDIUM > LOW > INFO).\n"
-            "- Include file paths and line references for each finding."
-            + _AGENT_RULES_APPENDIX
+            "- Include file paths and line references for each finding." + _AGENT_RULES_APPENDIX
         ),
         "SECURITY_AGENT_FINAL_PROMPT",
         "SECURITY_AGENT_SYSTEM_PROMPT",
@@ -650,8 +643,7 @@ class Settings(BaseModel):
             "- Include practical usage examples.\n"
             "- Add cross-references to related documentation.\n"
             "- For API docs: show request/response examples.\n"
-            "- For architecture docs: include Mermaid diagrams."
-            + _AGENT_RULES_APPENDIX
+            "- For architecture docs: include Mermaid diagrams." + _AGENT_RULES_APPENDIX
         ),
         "DOC_AGENT_FINAL_PROMPT",
         "DOC_AGENT_SYSTEM_PROMPT",
@@ -686,8 +678,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Show before/after for each change.\n"
             "- Reference the refactoring pattern used.\n"
-            "- Confirm test results after changes."
-            + _AGENT_RULES_APPENDIX
+            "- Confirm test results after changes." + _AGENT_RULES_APPENDIX
         ),
         "REFACTOR_AGENT_FINAL_PROMPT",
         "REFACTOR_AGENT_SYSTEM_PROMPT",
@@ -721,8 +712,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Include runnable configuration files.\n"
             "- Document all environment variables needed.\n"
-            "- Provide rollback strategy."
-            + _AGENT_RULES_APPENDIX
+            "- Provide rollback strategy." + _AGENT_RULES_APPENDIX
         ),
         "DEVOPS_AGENT_FINAL_PROMPT",
         "DEVOPS_AGENT_SYSTEM_PROMPT",
@@ -768,8 +758,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Cite specific regulation sections (e.g., PCI-DSS Req 3.4).\n"
             "- Severity: Critical / High / Medium / Low / Info.\n"
-            "- Never suggest storing raw credentials."
-            + _AGENT_RULES_APPENDIX
+            "- Never suggest storing raw credentials." + _AGENT_RULES_APPENDIX
         ),
         "FINTECH_AGENT_FINAL_PROMPT",
         "FINTECH_AGENT_SYSTEM_PROMPT",
@@ -815,8 +804,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Cite specific regulation sections.\n"
             "- Always assess patient-safety impact.\n"
-            "- Risk: Critical / High / Medium / Low."
-            + _AGENT_RULES_APPENDIX
+            "- Risk: Critical / High / Medium / Low." + _AGENT_RULES_APPENDIX
         ),
         "HEALTHTECH_AGENT_FINAL_PROMPT",
         "HEALTHTECH_AGENT_SYSTEM_PROMPT",
@@ -862,8 +850,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Cite specific legal articles.\n"
             "- Severity: Blocking / High / Medium / Low / Advisory.\n"
-            "- Flag copyleft license conflicts explicitly."
-            + _AGENT_RULES_APPENDIX
+            "- Flag copyleft license conflicts explicitly." + _AGENT_RULES_APPENDIX
         ),
         "LEGALTECH_AGENT_FINAL_PROMPT",
         "LEGALTECH_AGENT_SYSTEM_PROMPT",
@@ -909,8 +896,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Include Schema.org markup examples where relevant.\n"
             "- Quantify conversion impact where possible.\n"
-            "- Consider mobile-first design."
-            + _AGENT_RULES_APPENDIX
+            "- Consider mobile-first design." + _AGENT_RULES_APPENDIX
         ),
         "ECOMMERCE_AGENT_FINAL_PROMPT",
         "ECOMMERCE_AGENT_SYSTEM_PROMPT",
@@ -956,8 +942,7 @@ class Settings(BaseModel):
             "Rules:\n"
             "- Always assess safety implications.\n"
             "- Severity: Safety-Critical / High / Medium / Low.\n"
-            "- Include protocol-specific recommendations."
-            + _AGENT_RULES_APPENDIX
+            "- Include protocol-specific recommendations." + _AGENT_RULES_APPENDIX
         ),
         "INDUSTRYTECH_AGENT_FINAL_PROMPT",
         "INDUSTRYTECH_AGENT_SYSTEM_PROMPT",
@@ -1010,9 +995,7 @@ class Settings(BaseModel):
     reliable_retrieval_max_sources: int = int(os.getenv("RELIABLE_RETRIEVAL_MAX_SOURCES", "4"))
     reliable_retrieval_min_score: float = float(os.getenv("RELIABLE_RETRIEVAL_MIN_SCORE", "0.02"))
     reliable_retrieval_cache_ttl_seconds: float = float(os.getenv("RELIABLE_RETRIEVAL_CACHE_TTL_SECONDS", "30"))
-    reliable_retrieval_default_source_trust: float = float(
-        os.getenv("RELIABLE_RETRIEVAL_DEFAULT_SOURCE_TRUST", "0.8")
-    )
+    reliable_retrieval_default_source_trust: float = float(os.getenv("RELIABLE_RETRIEVAL_DEFAULT_SOURCE_TRUST", "0.8"))
     orchestrator_state_reset_on_startup: bool = _parse_bool_env(
         "ORCHESTRATOR_STATE_RESET_ON_STARTUP",
         _default_reset_on_startup(app_env),
@@ -1351,9 +1334,7 @@ class Settings(BaseModel):
     pipeline_runner_prompt_compaction_max_attempts: int = int(
         os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MAX_ATTEMPTS", "3")
     )
-    pipeline_runner_prompt_compaction_ratio: float = float(
-        os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_RATIO", "0.7")
-    )
+    pipeline_runner_prompt_compaction_ratio: float = float(os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_RATIO", "0.7"))
     pipeline_runner_prompt_compaction_min_chars: int = int(
         os.getenv("PIPELINE_RUNNER_PROMPT_COMPACTION_MIN_CHARS", "200")
     )
@@ -1412,9 +1393,7 @@ class Settings(BaseModel):
     pipeline_runner_signal_low_health_threshold: float = float(
         os.getenv("PIPELINE_RUNNER_SIGNAL_LOW_HEALTH_THRESHOLD", "0.55")
     )
-    pipeline_runner_signal_high_latency_ms: int = int(
-        os.getenv("PIPELINE_RUNNER_SIGNAL_HIGH_LATENCY_MS", "2500")
-    )
+    pipeline_runner_signal_high_latency_ms: int = int(os.getenv("PIPELINE_RUNNER_SIGNAL_HIGH_LATENCY_MS", "2500"))
     pipeline_runner_signal_high_cost_threshold: float = float(
         os.getenv("PIPELINE_RUNNER_SIGNAL_HIGH_COST_THRESHOLD", "0.75")
     )
@@ -1433,12 +1412,8 @@ class Settings(BaseModel):
         "PIPELINE_RUNNER_RECOVERY_BACKOFF_ENABLED",
         True,
     )
-    pipeline_runner_recovery_backoff_base_ms: int = int(
-        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_BASE_MS", "500")
-    )
-    pipeline_runner_recovery_backoff_max_ms: int = int(
-        os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MAX_MS", "5000")
-    )
+    pipeline_runner_recovery_backoff_base_ms: int = int(os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_BASE_MS", "500"))
+    pipeline_runner_recovery_backoff_max_ms: int = int(os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MAX_MS", "5000"))
     pipeline_runner_recovery_backoff_multiplier: float = float(
         os.getenv("PIPELINE_RUNNER_RECOVERY_BACKOFF_MULTIPLIER", "2.0")
     )
@@ -1666,9 +1641,9 @@ def validate_environment_config(
     if prompt_mode_default not in {"full", "minimal", "subagent"}:
         config_errors.append("prompt_mode_default must be one of: full, minimal, subagent")
 
-    hook_failure_policy_default = str(
-        getattr(selected_settings, "hook_failure_policy_default", "soft_fail") or "soft_fail"
-    ).strip().lower()
+    hook_failure_policy_default = (
+        str(getattr(selected_settings, "hook_failure_policy_default", "soft_fail") or "soft_fail").strip().lower()
+    )
     if hook_failure_policy_default not in {"soft_fail", "hard_fail", "skip"}:
         config_errors.append("hook_failure_policy_default must be one of: soft_fail, hard_fail, skip")
 

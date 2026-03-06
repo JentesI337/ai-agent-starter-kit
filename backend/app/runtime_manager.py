@@ -84,9 +84,7 @@ class RuntimeManager:
     def update_feature_flags(self, updates: dict[str, object]) -> dict[str, bool]:
         unknown_keys = sorted(key for key in updates if key not in RUNTIME_FEATURE_DEFAULTS)
         if unknown_keys:
-            raise RuntimeSwitchError(
-                f"Unsupported runtime feature flag(s): {', '.join(unknown_keys)}"
-            )
+            raise RuntimeSwitchError(f"Unsupported runtime feature flag(s): {', '.join(unknown_keys)}")
 
         normalized_current = _normalize_feature_flags(self._state.features)
         normalized_updates = _normalize_feature_flags({**normalized_current, **updates})
@@ -136,16 +134,26 @@ class RuntimeManager:
                     if target == "api":
                         await self.ensure_api_runtime_authenticated(runtime=target)
                         await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                        await self._log(send_event, session_id, "api_model_selected", attempt, f"Using API model {settings.api_model}")
+                        await self._log(
+                            send_event,
+                            session_id,
+                            "api_model_selected",
+                            attempt,
+                            f"Using API model {settings.api_model}",
+                        )
                         next_state.model = settings.api_model
                     else:
                         await self._start_gateway(send_event, session_id, attempt, next_state.base_url)
-                        next_state.model = await self._ensure_model_available(send_event, session_id, attempt, settings.local_model)
+                        next_state.model = await self._ensure_model_available(
+                            send_event, session_id, attempt, settings.local_model
+                        )
 
                     self._state = next_state
                     self._state.features = _normalize_feature_flags(previous.features)
                     self._persist_state()
-                    await self._log(send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}")
+                    await self._log(
+                        send_event, session_id, "switch_committed", attempt, f"Runtime active: {self._state.runtime}"
+                    )
                     return self._state
                 except Exception as exc:
                     last_error = exc
@@ -153,7 +161,9 @@ class RuntimeManager:
 
             self._state = previous
             self._persist_state()
-            await self._log(send_event, session_id, "switch_rollback", 2, f"Rollback to {previous.runtime}", level="error")
+            await self._log(
+                send_event, session_id, "switch_rollback", 2, f"Rollback to {previous.runtime}", level="error"
+            )
             raise RuntimeSwitchError(str(last_error) if last_error else "Runtime switch failed")
 
     async def ensure_model_ready(self, send_event: SendEvent, session_id: str, model_name: str) -> str:
@@ -242,7 +252,9 @@ class RuntimeManager:
         finally:
             self._gateway_process = None
 
-    async def _ensure_model_available(self, send_event: SendEvent, session_id: str, attempt: int, model_name: str) -> str:
+    async def _ensure_model_available(
+        self, send_event: SendEvent, session_id: str, attempt: int, model_name: str
+    ) -> str:
         candidates = self._candidate_models(model_name)
         await self._log(send_event, session_id, "ensure_model", attempt, f"Ensuring model {model_name}")
         listed = await asyncio.to_thread(
@@ -278,7 +290,9 @@ class RuntimeManager:
                     f"Model pull timed out for {candidate}",
                     level="error",
                 )
-                raise RuntimeSwitchError(f"Model pull timed out for {candidate}. Check network or try pulling manually.") from None
+                raise RuntimeSwitchError(
+                    f"Model pull timed out for {candidate}. Check network or try pulling manually."
+                ) from None
             if pull.returncode == 0:
                 await self._log(send_event, session_id, "model_downloaded", attempt, candidate)
                 return candidate
@@ -307,7 +321,9 @@ class RuntimeManager:
             model=settings.api_model,
         )
 
-    async def _log(self, send_event: SendEvent, session_id: str, step: str, attempt: int, message: str, level: str = "info") -> None:
+    async def _log(
+        self, send_event: SendEvent, session_id: str, step: str, attempt: int, message: str, level: str = "info"
+    ) -> None:
         await send_event(
             {
                 "type": "runtime_switch_progress",
@@ -406,9 +422,7 @@ class RuntimeManager:
             async with httpx.AsyncClient(timeout=12) as client:
                 response = await client.get(url, headers=headers)
             if response.status_code >= 400:
-                raise RuntimeSwitchError(
-                    f"API model listing failed ({response.status_code}): {response.text[:300]}"
-                )
+                raise RuntimeSwitchError(f"API model listing failed ({response.status_code}): {response.text[:300]}")
             payload = response.json()
             models: list[str] = []
             if native_api:

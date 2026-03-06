@@ -35,8 +35,8 @@ _MAX_WINDOW = 50
 class PatternAlert:
     """One detected anti-pattern."""
 
-    pattern: str        # brute_force_install | version_roulette | infinite_retry | sudo_escalation | destructive_sequence
-    severity: str       # warning | critical
+    pattern: str  # brute_force_install | version_roulette | infinite_retry | sudo_escalation | destructive_sequence
+    severity: str  # warning | critical
     detail: str
     tool: str = ""
     count: int = 0

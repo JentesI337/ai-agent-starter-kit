@@ -100,7 +100,9 @@ class SynthesizerAgent(AgentContract):
         tool_ban_markers = "keine tools" in normalized and "keine shell/systemkommandos" in normalized
         return depth_markers and phase_markers and kpi_markers and tool_ban_markers
 
-    def _build_final_prompt(self, payload: SynthesizerInput, *, task_type: str, session_id: str) -> tuple[str, str | None]:
+    def _build_final_prompt(
+        self, payload: SynthesizerInput, *, task_type: str, session_id: str
+    ) -> tuple[str, str | None]:
         instructions = (
             "User request:\n"
             "Generate a concise, helpful final answer.\n"
@@ -212,7 +214,10 @@ class SynthesizerAgent(AgentContract):
         ):
             return "implementation"
 
-        if any(marker in user_message for marker in ("search the web", "search on the web", "latest", "news", "find online")):
+        if any(
+            marker in user_message
+            for marker in ("search the web", "search on the web", "latest", "news", "find online")
+        ):
             return "research"
         if "source_url" in tool_results or "[web_fetch]" in tool_results:
             return "research"
@@ -289,7 +294,7 @@ class SynthesizerAgent(AgentContract):
         return contracts.get(task_type, contracts["general"])
 
     def _validate_hard_research_contract(self, final_text: str) -> list[str]:
-        text = (final_text or "")
+        text = final_text or ""
         failures: list[str] = [
             f"missing_section:{header}"
             for header in (
@@ -305,9 +310,7 @@ class SynthesizerAgent(AgentContract):
         if not all(f"{idx}." in text for idx in range(1, 11)):
             failures.append("missing_top10_numbering")
         failures.extend(
-            f"missing_phase:{phase}"
-            for phase in ("Phase 1", "Phase 2", "Phase 3")
-            if phase.lower() not in text.lower()
+            f"missing_phase:{phase}" for phase in ("Phase 1", "Phase 2", "Phase 3") if phase.lower() not in text.lower()
         )
         phase_line_matches = len(re.findall(r"(?im)^\s*phase\s*[1-3]\b", text))
         if phase_line_matches < 3:
@@ -529,9 +532,7 @@ class SynthesizerAgent(AgentContract):
                     "partial_output_chars": len(partial_text),
                 },
             )
-            raise LlmClientError(
-                f"Synthesizer streaming timeout after {effective_stream_timeout:.2f}s"
-            ) from exc
+            raise LlmClientError(f"Synthesizer streaming timeout after {effective_stream_timeout:.2f}s") from exc
 
         final_text = "".join(output_parts).strip()
         final_text = await self._run_synthesis_self_check(

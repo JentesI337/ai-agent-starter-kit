@@ -55,7 +55,10 @@ COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\b(?:curl|wget)\b[^\n]*\b(?:metadata\.google\.internal|169\.254\.169\.254)\b", "metadata endpoints are blocked"),
     (r"\bcmd(?:\.exe)?\b[^\n]*\s/c\s+del\b", "destructive cmd /c del is blocked"),
     (r"\bcmd(?:\.exe)?\b[^\n]*\s/(?:c|k)\b[^\n]*\b(?:rd|rmdir)\b", "destructive cmd rd/rmdir is blocked"),
-    (r"\b(?:powershell|pwsh)(?:\.exe)?\b[^\n]*\b(?:iex|invoke-expression)\b", "PowerShell expression execution is blocked"),
+    (
+        r"\b(?:powershell|pwsh)(?:\.exe)?\b[^\n]*\b(?:iex|invoke-expression)\b",
+        "PowerShell expression execution is blocked",
+    ),
     (r"\b(?:bash|sh|zsh)\b[^\n]*\s-c\b", "shell -c execution is blocked"),
     (r"\becho\b[^\n]*\|\s*(?:bash|sh|pwsh|powershell|cmd)\b", "pipe-to-shell execution is blocked"),
     (r"\|\|?|&&|;|`|\$\(", "shell chaining and command substitution are blocked"),
@@ -268,10 +271,7 @@ class AgentTooling:
         # SEC: Consume temporary override so allow-once can't be reused
         self._consume_temporary_override(leader)
         with self._bg_lock:
-            active_count = sum(
-                1 for job in self._background_jobs.values()
-                if job["process"].poll() is None
-            )
+            active_count = sum(1 for job in self._background_jobs.values() if job["process"].poll() is None)
             if active_count >= self._bg_max_concurrent_jobs:
                 raise ToolExecutionError(
                     f"Maximum concurrent background jobs ({self._bg_max_concurrent_jobs}) reached. "
@@ -383,9 +383,7 @@ class AgentTooling:
                         if 300 <= status < 400:
                             location = str(response.headers.get("location", "")).strip()
                             if not location:
-                                raise ToolExecutionError(
-                                    f"web_fetch redirect without location (status={status})"
-                                )
+                                raise ToolExecutionError(f"web_fetch redirect without location (status={status})")
                             redirects += 1
                             if redirects > self._web_fetch_max_redirects:
                                 raise ToolExecutionError(
@@ -400,9 +398,7 @@ class AgentTooling:
                         content_type = str(response.headers.get("Content-Type", "")).strip() or "unknown"
                         lowered_content_type = content_type.lower()
                         if any(blocked in lowered_content_type for blocked in self._web_fetch_blocked_content_types):
-                            raise ToolExecutionError(
-                                f"web_fetch blocked content-type: {content_type}"
-                            )
+                            raise ToolExecutionError(f"web_fetch blocked content-type: {content_type}")
 
                         content_length_header = str(response.headers.get("Content-Length", "")).strip()
                         if content_length_header:
@@ -447,11 +443,7 @@ class AgentTooling:
         if not normalized_text:
             normalized_text = "(empty response)"
 
-        return (
-            f"source_url: {current_url}\n"
-            f"content_type: {content_type}\n"
-            f"content:\n{normalized_text}"
-        )
+        return f"source_url: {current_url}\ncontent_type: {content_type}\ncontent:\n{normalized_text}"
 
     async def web_search(self, query: str, max_results: int = 5) -> str:
         normalized_query = (query or "").strip()
@@ -559,9 +551,7 @@ class AgentTooling:
         normalized_method = (method or "GET").strip().upper()
         allowed_methods = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
         if normalized_method not in allowed_methods:
-            raise ToolExecutionError(
-                "http_request method must be one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
-            )
+            raise ToolExecutionError("http_request method must be one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS")
 
         pinned_ip = self._enforce_safe_web_target(requested_url)
         _, pin_headers = self._apply_dns_pin(requested_url, pinned_ip)
@@ -583,9 +573,7 @@ class AgentTooling:
                 if not isinstance(value, str):
                     raise ToolExecutionError("http_request headers values must be strings.")
                 if key.strip().lower() in _FORBIDDEN_HEADER_KEYS:
-                    raise ToolExecutionError(
-                        f"http_request header '{key}' is forbidden for security reasons."
-                    )
+                    raise ToolExecutionError(f"http_request header '{key}' is forbidden for security reasons.")
                 request_headers[key.strip()] = value
         # Apply DNS-pin Host header AFTER user headers to prevent SSRF bypass
         request_headers.update(pin_headers)
@@ -775,6 +763,7 @@ class AgentTooling:
         paths with backslashes correctly.
         """
         import sys
+
         try:
             # On Windows use posix=False to preserve backslashes in paths;
             # on POSIX use posix=True for correct quoting semantics.
@@ -813,13 +802,9 @@ class AgentTooling:
                 timeout=self.command_timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
-            raise ToolExecutionError(
-                f"Command timeout after {self.command_timeout_seconds}s: {exc.cmd}"
-            ) from exc
+            raise ToolExecutionError(f"Command timeout after {self.command_timeout_seconds}s: {exc.cmd}") from exc
         except FileNotFoundError as exc:
-            raise ToolExecutionError(
-                f"Command not found: {argv[0] if argv else command}"
-            ) from exc
+            raise ToolExecutionError(f"Command not found: {argv[0] if argv else command}") from exc
 
         output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
         output = output.strip() or "(no output)"

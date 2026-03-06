@@ -52,11 +52,7 @@ class ReliableRetrievalService:
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:
-        return {
-            token
-            for token in re.findall(r"[a-zA-Z0-9_\-]{2,}", (text or "").lower())
-            if token
-        }
+        return {token for token in re.findall(r"[a-zA-Z0-9_\-]{2,}", (text or "").lower()) if token}
 
     @staticmethod
     def _jaccard(a: set[str], b: set[str]) -> float:

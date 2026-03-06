@@ -33,6 +33,7 @@ from app.url_validator import (
 
 # ── parse_ip_literal ────────────────────────────────────────────────────
 
+
 class TestParseIpLiteral:
     def test_ipv4(self):
         result = parse_ip_literal("8.8.8.8")
@@ -50,6 +51,7 @@ class TestParseIpLiteral:
 
 
 # ── validate_ip_is_public ───────────────────────────────────────────────
+
 
 class TestValidateIpIsPublic:
     def test_public_ipv4_ok(self):
@@ -89,11 +91,14 @@ class TestValidateIpIsPublic:
 
 # ── resolve_hostname_ips ─────────────────────────────────────────────────
 
+
 class TestResolveHostnameIps:
     def test_resolution_failure_raises(self):
-        with patch("app.url_validator.socket.getaddrinfo", side_effect=socket.gaierror("fail")), \
-             pytest.raises(UrlValidationError, match="resolution failed"):
-                resolve_hostname_ips("nonexistent.invalid")
+        with (
+            patch("app.url_validator.socket.getaddrinfo", side_effect=socket.gaierror("fail")),
+            pytest.raises(UrlValidationError, match="resolution failed"),
+        ):
+            resolve_hostname_ips("nonexistent.invalid")
 
     def test_returns_parsed_ips(self):
         fake_results = [
@@ -105,6 +110,7 @@ class TestResolveHostnameIps:
 
 
 # ── apply_dns_pin ────────────────────────────────────────────────────────
+
 
 class TestApplyDnsPin:
     def test_none_ip_returns_unchanged(self):
@@ -131,6 +137,7 @@ class TestApplyDnsPin:
 
 # ── enforce_safe_url ─────────────────────────────────────────────────────
 
+
 class TestEnforceSafeUrl:
     def test_http_scheme_ok(self):
         with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
@@ -152,19 +159,27 @@ class TestEnforceSafeUrl:
         with pytest.raises(UrlValidationError, match="hostname"):
             enforce_safe_url("https://")
 
-    @pytest.mark.parametrize("hostname", [
-        h for h in BLOCKED_HOSTNAMES
-        if not h.startswith("[")  # IPv6 brackets are parsed as IP literals
-    ])
+    @pytest.mark.parametrize(
+        "hostname",
+        [
+            h
+            for h in BLOCKED_HOSTNAMES
+            if not h.startswith("[")  # IPv6 brackets are parsed as IP literals
+        ],
+    )
     def test_blocked_hostnames(self, hostname):
         url = f"http://{hostname}/test"
         with pytest.raises(UrlValidationError, match="blocked hostname"):
             enforce_safe_url(url)
 
-    @pytest.mark.parametrize("hostname", [
-        h for h in BLOCKED_HOSTNAMES
-        if h.startswith("[")  # IPv6 bracket forms — caught as IP literals
-    ])
+    @pytest.mark.parametrize(
+        "hostname",
+        [
+            h
+            for h in BLOCKED_HOSTNAMES
+            if h.startswith("[")  # IPv6 bracket forms — caught as IP literals
+        ],
+    )
     def test_blocked_ipv6_hostnames(self, hostname):
         url = f"http://{hostname}/test"
         with pytest.raises(UrlValidationError, match=r"blocked hostname|non-public"):
@@ -188,6 +203,7 @@ class TestEnforceSafeUrl:
 
 
 # ── validate_llm_base_url ───────────────────────────────────────────────
+
 
 class TestValidateLlmBaseUrl:
     def test_empty_url_rejected(self):
@@ -244,6 +260,7 @@ class TestValidateLlmBaseUrl:
 
 
 # ── LlmClient integration (SSRF-01) ────────────────────────────────────
+
 
 class TestLlmClientSsrf:
     """Verify that LlmClient rejects unsafe base URLs at construction time."""

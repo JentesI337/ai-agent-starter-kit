@@ -87,7 +87,12 @@ def configure_cors(*, app: FastAPI, settings) -> None:
     if settings.app_env != "production" and not cors_origins:
         # SEC: Even in development, default to localhost origins rather than
         # wildcard to prevent cross-origin attacks from malicious websites.
-        cors_origins = ["http://localhost:4200", "http://localhost:3000", "http://127.0.0.1:4200", "http://127.0.0.1:3000"]
+        cors_origins = [
+            "http://localhost:4200",
+            "http://localhost:3000",
+            "http://127.0.0.1:4200",
+            "http://127.0.0.1:3000",
+        ]
 
     cors_allow_credentials = settings.cors_allow_credentials
     if "*" in cors_origins:

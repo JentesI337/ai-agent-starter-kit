@@ -60,9 +60,7 @@ class TestDEP01UnusedDeps:
         dev_deps = set(data.get("devDependencies", {}).keys())
         all_deps = deps | dev_deps
         found = all_deps & self.FORBIDDEN_DEPS
-        assert found == set(), (
-            f"Backend package.json still contains unused frontend deps: {found}"
-        )
+        assert found == set(), f"Backend package.json still contains unused frontend deps: {found}"
 
 
 # ── INFO-06: Server header does not disclose version ─────────────────
@@ -89,9 +87,7 @@ class TestINFO06ServerHeader:
         client = self._make_client()
         resp = client.get("/test-info06")
         server = resp.headers.get("Server", "")
-        assert "uvicorn" not in server.lower(), (
-            f"Server header should not contain 'uvicorn', got: {server}"
-        )
+        assert "uvicorn" not in server.lower(), f"Server header should not contain 'uvicorn', got: {server}"
         assert server == "app", f"Expected Server header 'app', got: {server}"
 
 
@@ -114,17 +110,13 @@ class TestINFO08SwaggerInProd:
         client = TestClient(app, raise_server_exceptions=False)
         for path in ["/docs", "/redoc", "/openapi.json"]:
             resp = client.get(path)
-            assert resp.status_code == 404, (
-                f"{path} should return 404 in production, got {resp.status_code}"
-            )
+            assert resp.status_code == 404, f"{path} should return 404 in production, got {resp.status_code}"
 
     def test_docs_enabled_in_development(self) -> None:
         app = self._make_app(app_env="development")
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/openapi.json")
-        assert resp.status_code == 200, (
-            f"/openapi.json should be available in development, got {resp.status_code}"
-        )
+        assert resp.status_code == 200, f"/openapi.json should be available in development, got {resp.status_code}"
 
     def test_docs_enabled_in_production_with_debug_mode(self) -> None:
         app = self._make_app(app_env="production", debug_mode=True)

@@ -21,10 +21,13 @@ from app.tool_policy import ToolPolicyDict
 
 # Multi-agency integration (lazy import to avoid circular)
 _coordination_bridge_type = None
+
+
 def _get_bridge_type():
     global _coordination_bridge_type
     if _coordination_bridge_type is None:
         from app.multi_agency.coordination_bridge import CoordinationBridge
+
         _coordination_bridge_type = CoordinationBridge
     return _coordination_bridge_type
 
@@ -805,11 +808,7 @@ class SubrunLane:
         if not self._run_status:
             return
 
-        active_run_ids = {
-            run_id
-            for run_id, task in self._run_tasks.items()
-            if task is not None and not task.done()
-        }
+        active_run_ids = {run_id for run_id, task in self._run_tasks.items() if task is not None and not task.done()}
         terminal_candidates: list[tuple[str, str]] = []
         terminal_count = 0
         for run_id, snapshot in self._run_status.items():
@@ -972,9 +971,7 @@ class SubrunLane:
                 await self._record_announce_delivery_event(
                     run_id=spec.run_id,
                     idempotency_key=idempotency_key,
-                    status=(
-                        "announce_retrying" if attempt < self._announce_retry_max_attempts else "announce_failed"
-                    ),
+                    status=("announce_retrying" if attempt < self._announce_retry_max_attempts else "announce_failed"),
                     attempt=attempt,
                     error=str(exc),
                 )

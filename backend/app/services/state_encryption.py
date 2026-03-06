@@ -11,6 +11,7 @@ Configuration:
 
 Also provides HMAC-based integrity protection for policy files.
 """
+
 from __future__ import annotations
 
 import base64
@@ -23,6 +24,7 @@ import secrets
 _HAS_CRYPTOGRAPHY = False
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     _HAS_CRYPTOGRAPHY = True
 except ImportError:
     pass
@@ -40,6 +42,7 @@ def _load_encryption_key() -> bytes:
             pass
     # SEC (CRYPTO-01): Warn about ephemeral key — data won't survive restart
     import logging
+
     logging.getLogger(__name__).warning(
         "STATE_ENCRYPTION_KEY not set or invalid — using ephemeral key. "
         "Encrypted state will NOT survive restart. "
@@ -97,7 +100,7 @@ def decrypt_state(ciphertext: str) -> str:
     if ciphertext.startswith(_ENCRYPTED_PREFIX):
         if not _HAS_CRYPTOGRAPHY:
             raise ValueError("Cannot decrypt AES-GCM data without 'cryptography' package installed")
-        raw = base64.b64decode(ciphertext[len(_ENCRYPTED_PREFIX):])
+        raw = base64.b64decode(ciphertext[len(_ENCRYPTED_PREFIX) :])
         nonce = raw[:12]
         ct = raw[12:]
         aesgcm = AESGCM(_ENCRYPTION_KEY)
@@ -105,7 +108,7 @@ def decrypt_state(ciphertext: str) -> str:
         return plaintext.decode("utf-8")
 
     if ciphertext.startswith(_OBFUSCATED_PREFIX):
-        remainder = ciphertext[len(_OBFUSCATED_PREFIX):]
+        remainder = ciphertext[len(_OBFUSCATED_PREFIX) :]
         mac, encoded = remainder.split(":", 1)
         obfuscated = base64.b64decode(encoded)
         # Verify HMAC integrity
@@ -137,9 +140,9 @@ def _derive_key_stream(length: int) -> bytes:
 
 # SEC (CRYPTO-04): Derive a separate HMAC key for policy signing
 # instead of reusing the encryption key directly (key-separation principle).
-_POLICY_HMAC_KEY: bytes = os.getenv(
-    "POLICY_HMAC_KEY", ""
-).encode("utf-8") or hashlib.sha256(b"policy-hmac:" + _ENCRYPTION_KEY).digest()
+_POLICY_HMAC_KEY: bytes = (
+    os.getenv("POLICY_HMAC_KEY", "").encode("utf-8") or hashlib.sha256(b"policy-hmac:" + _ENCRYPTION_KEY).digest()
+)
 
 
 def sign_policy_file(content: str) -> str:
@@ -169,7 +172,7 @@ def verify_policy_file(content: str) -> tuple[str, bool]:
     if not last_line.startswith("# HMAC: "):
         return content, False
 
-    claimed_sig = last_line[len("# HMAC: "):].strip()
+    claimed_sig = last_line[len("# HMAC: ") :].strip()
     original = "\n".join(lines[:-1])
     expected_sig = hmac.new(
         _POLICY_HMAC_KEY,

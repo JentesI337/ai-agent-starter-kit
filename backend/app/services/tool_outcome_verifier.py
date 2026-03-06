@@ -23,6 +23,7 @@ class OutcomeVerdict:
     checks_passed: int = 0
     checks_failed: int = 0
 
+
 # Results that indicate emptiness (suspicious but not failed)
 _EMPTY_RESULT_PATTERNS = re.compile(
     r"^\s*$|^None$|^null$|^\[\]$|^\{\}$|^undefined$",
@@ -123,7 +124,9 @@ class ToolOutcomeVerifier:
         )
 
     def _verify_run_command(
-        self, text: str, args: dict | None,
+        self,
+        text: str,
+        args: dict | None,
     ) -> OutcomeVerdict | None:
         """Check run_command specific patterns."""
         lower = text.lower()
@@ -143,9 +146,7 @@ class ToolOutcomeVerifier:
                 )
 
         # stderr indicators combined with error keywords
-        if "stderr:" in lower and any(
-            kw in lower for kw in ("error", "fatal", "failed", "exception", "panic")
-        ):
+        if "stderr:" in lower and any(kw in lower for kw in ("error", "fatal", "failed", "exception", "panic")):
             error_cat = self._classify_error_text(text)
             return OutcomeVerdict(
                 status="suspicious",

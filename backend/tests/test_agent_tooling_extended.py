@@ -70,7 +70,7 @@ def test_file_and_grep_search_find_expected_entries(tmp_path: Path) -> None:
 def test_background_process_start_read_and_kill(tmp_path: Path) -> None:
     tooling = AgentTooling(workspace_root=str(tmp_path))
 
-    command = f'"{sys.executable}" -c "print(\"started\")"'
+    command = f'"{sys.executable}" -c "print("started")"'
     started = tooling.start_background_command(command=command)
     job_id = started.split("job_id=")[1].split()[0]
 

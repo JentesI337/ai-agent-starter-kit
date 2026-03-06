@@ -235,11 +235,7 @@ class MemoryStore:
         if isinstance(payload, dict):
             tool_calls = payload.get("tool_calls")
             if isinstance(tool_calls, list):
-                ids = {
-                    str(item.get("id", "")).strip()
-                    for item in tool_calls
-                    if isinstance(item, dict)
-                }
+                ids = {str(item.get("id", "")).strip() for item in tool_calls if isinstance(item, dict)}
                 return {item for item in ids if item}
 
         tool_calls_match = re.search(r'"tool_calls"\s*:\s*\[(.*?)\]', source, flags=re.DOTALL)

@@ -129,7 +129,4 @@ def test_invalid_hard_output_sample_fails_contract(case_id: str) -> None:
     failures = _validate_contract(_invalid_hard_output_sample(), contract)
 
     assert failures
-    assert any(
-        reason.startswith(("missing_regex:", "regex_count_below:"))
-        for reason in failures
-    )
+    assert any(reason.startswith(("missing_regex:", "regex_count_below:")) for reason in failures)

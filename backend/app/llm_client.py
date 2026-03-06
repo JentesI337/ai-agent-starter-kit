@@ -37,9 +37,7 @@ class LlmClient:
         try:
             self.base_url = validate_llm_base_url(base_url)
         except UrlValidationError as exc:
-            raise LlmClientError(
-                f"LLM base URL validation failed: {exc}"
-            ) from exc
+            raise LlmClientError(f"LLM base URL validation failed: {exc}") from exc
         self.model = model
 
     def _build_headers(self) -> dict[str, str]:
@@ -65,9 +63,7 @@ class LlmClient:
         text = (content or "").strip()
         if text:
             return text
-        raise LlmClientError(
-            f"LLM returned empty completion content (model={model}, endpoint={endpoint})."
-        )
+        raise LlmClientError(f"LLM returned empty completion content (model={model}, endpoint={endpoint}).")
 
     def _normalize_temperature(self, temperature: float | None) -> float | None:
         if temperature is None:
@@ -121,41 +117,40 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client, client.stream("POST", url, headers=headers, json=payload) as response:
-                        if response.status_code >= 400:
-                            body = await response.aread()
-                            body_text = body.decode(errors='ignore')
-                            logger.warning(
-                                "llm_stream_http_error url=%s model=%s status=%s attempt=%s body=%s",
-                                url,
-                                active_model,
-                                response.status_code,
-                                attempt,
-                                body_text[:300],
-                            )
-                            if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                                await asyncio.sleep(_retry_delay(attempt))
-                                continue
-                            raise LlmClientError(f"LLM stream request failed ({response.status_code}): {body_text[:600]}")
+                async with (
+                    httpx.AsyncClient(timeout=120) as client,
+                    client.stream("POST", url, headers=headers, json=payload) as response,
+                ):
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        body_text = body.decode(errors="ignore")
+                        logger.warning(
+                            "llm_stream_http_error url=%s model=%s status=%s attempt=%s body=%s",
+                            url,
+                            active_model,
+                            response.status_code,
+                            attempt,
+                            body_text[:300],
+                        )
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            await asyncio.sleep(_retry_delay(attempt))
+                            continue
+                        raise LlmClientError(f"LLM stream request failed ({response.status_code}): {body_text[:600]}")
 
-                        async for line in response.aiter_lines():
-                            if not line or not line.startswith("data:"):
-                                continue
-                            data = line.removeprefix("data:").strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                delta = (
-                                    chunk.get("choices", [{}])[0]
-                                    .get("delta", {})
-                                    .get("content", "")
-                                )
-                                if delta:
-                                    yield delta
-                            except Exception:
-                                continue
-                        return
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data = line.removeprefix("data:").strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception:
+                            continue
+                    return
         except GeneratorExit:
             # The consumer (e.g. asyncio.wait_for timeout) closed the generator.
             # Return cleanly so the surrounding async-with blocks can run their
@@ -193,38 +188,39 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client, client.stream("POST", url, headers=headers, json=payload) as response:
-                        if response.status_code >= 400:
-                            body = await response.aread()
-                            body_text = body.decode(errors='ignore')
-                            logger.warning(
-                                "llm_native_stream_http_error url=%s model=%s status=%s attempt=%s body=%s",
-                                url,
-                                active_model,
-                                response.status_code,
-                                attempt,
-                                body_text[:300],
-                            )
-                            if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
-                                await asyncio.sleep(_retry_delay(attempt))
-                                continue
-                            raise LlmClientError(
-                                f"LLM stream request failed ({response.status_code}): {body_text[:600]}"
-                            )
+                async with (
+                    httpx.AsyncClient(timeout=120) as client,
+                    client.stream("POST", url, headers=headers, json=payload) as response,
+                ):
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        body_text = body.decode(errors="ignore")
+                        logger.warning(
+                            "llm_native_stream_http_error url=%s model=%s status=%s attempt=%s body=%s",
+                            url,
+                            active_model,
+                            response.status_code,
+                            attempt,
+                            body_text[:300],
+                        )
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            await asyncio.sleep(_retry_delay(attempt))
+                            continue
+                        raise LlmClientError(f"LLM stream request failed ({response.status_code}): {body_text[:600]}")
 
-                        async for line in response.aiter_lines():
-                            if not line:
-                                continue
-                            try:
-                                chunk = json.loads(line)
-                            except Exception:
-                                continue
-                            delta = (chunk.get("message") or {}).get("content", "")
-                            if delta:
-                                yield delta
-                            if chunk.get("done"):
-                                break
-                        return
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except Exception:
+                            continue
+                        delta = (chunk.get("message") or {}).get("content", "")
+                        if delta:
+                            yield delta
+                        if chunk.get("done"):
+                            break
+                    return
         except GeneratorExit:
             # Same as above: clean up on consumer cancellation without
             # leaking GeneratorExit into the httpcore connection machinery.
@@ -233,7 +229,9 @@ class LlmClient:
             logger.warning("llm_native_stream_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
-            logger.warning("llm_native_stream_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
+            logger.warning(
+                "llm_native_stream_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc
+            )
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
 
     async def complete_chat(
@@ -284,15 +282,9 @@ class LlmClient:
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
-                        raise LlmClientError(
-                            f"LLM request failed ({response.status_code}): {response.text[:600]}"
-                        )
+                        raise LlmClientError(f"LLM request failed ({response.status_code}): {response.text[:600]}")
                     data = response.json()
-                    content = (
-                        data.get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                    )
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                     return self._require_non_empty_completion(
                         content=content,
                         model=active_model,
@@ -320,11 +312,7 @@ class LlmClient:
 
         active_model = model or self.model
         normalized_temperature = self._normalize_temperature(temperature)
-        resolved_tool_definitions = [
-            item
-            for item in (tool_definitions or [])
-            if isinstance(item, dict)
-        ]
+        resolved_tool_definitions = [item for item in (tool_definitions or []) if isinstance(item, dict)]
         if not resolved_tool_definitions:
             resolved_tool_definitions = [
                 {
@@ -378,9 +366,7 @@ class LlmClient:
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
-                        raise LlmClientError(
-                            f"LLM request failed ({response.status_code}): {response.text[:600]}"
-                        )
+                        raise LlmClientError(f"LLM request failed ({response.status_code}): {response.text[:600]}")
 
                     data = response.json()
                     choices = data.get("choices") if isinstance(data, dict) else None
@@ -461,19 +447,21 @@ class LlmClient:
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
-                        raise LlmClientError(
-                            f"LLM request failed ({response.status_code}): {response.text[:600]}"
-                        )
+                        raise LlmClientError(f"LLM request failed ({response.status_code}): {response.text[:600]}")
                     data = response.json()
-                    content = ((data.get("message") or {}).get("content") or "")
+                    content = (data.get("message") or {}).get("content") or ""
                     return self._require_non_empty_completion(
                         content=content,
                         model=active_model,
                         endpoint="chat",
                     )
         except httpx.TimeoutException as exc:
-            logger.warning("llm_native_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
+            logger.warning(
+                "llm_native_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc
+            )
             raise LlmClientError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
-            logger.warning("llm_native_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
+            logger.warning(
+                "llm_native_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc
+            )
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc

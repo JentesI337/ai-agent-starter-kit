@@ -34,7 +34,9 @@ class PolicyApprovalService:
         self._records: dict[str, dict] = {}
         self._events: dict[str, asyncio.Event] = {}
         default_file = Path(settings.orchestrator_state_dir) / "policy_allow_always_rules.json"
-        self._allow_always_store_file = Path(allow_always_store_file).resolve() if allow_always_store_file else default_file
+        self._allow_always_store_file = (
+            Path(allow_always_store_file).resolve() if allow_always_store_file else default_file
+        )
         self._allow_always_rules: list[dict[str, str]] = []
         self._session_allow_all: set[str] = set()
         self._restore_allow_always_rules()
@@ -128,10 +130,7 @@ class PolicyApprovalService:
             return "tool_resource"
         candidate = scope.strip().lower()
         if candidate not in ALLOW_ALWAYS_SCOPES:
-            raise ValueError(
-                f"Invalid approval scope '{scope}'. "
-                f"Allowed values: {sorted(ALLOW_ALWAYS_SCOPES)}"
-            )
+            raise ValueError(f"Invalid approval scope '{scope}'. Allowed values: {sorted(ALLOW_ALWAYS_SCOPES)}")
         return candidate
 
     def _normalize_rule(
@@ -174,7 +173,9 @@ class PolicyApprovalService:
             return False
         if rule_scope in {"tool_resource", "session_tool_resource"} and rule.get("resource") != normalized_resource:
             return False
-        return not (rule_scope in {"session_tool", "session_tool_resource"} and rule.get("session_id") != normalized_session)
+        return not (
+            rule_scope in {"session_tool", "session_tool_resource"} and rule.get("session_id") != normalized_session
+        )
 
     def _persist_allow_always_rules(self) -> None:
         payload = {
@@ -264,7 +265,8 @@ class PolicyApprovalService:
             # Server-Restarts und bleiben aktiv, obwohl die Session längst beendet ist.
             before = len(self._allow_always_rules)
             self._allow_always_rules = [
-                rule for rule in self._allow_always_rules
+                rule
+                for rule in self._allow_always_rules
                 if not (
                     rule.get("scope") in {"session_tool", "session_tool_resource"}
                     and rule.get("session_id") == normalized_session_id
@@ -369,7 +371,9 @@ class PolicyApprovalService:
         decision = await self.wait_for_decision(approval_id, timeout_seconds)
         return decision in {"allow_once", "allow_always", "allow_session"}
 
-    async def list_pending(self, *, run_id: str | None = None, session_id: str | None = None, limit: int = 100) -> list[dict]:
+    async def list_pending(
+        self, *, run_id: str | None = None, session_id: str | None = None, limit: int = 100
+    ) -> list[dict]:
         normalized_run_id = (run_id or "").strip() or None
         normalized_session_id = (session_id or "").strip() or None
         effective_limit = max(1, min(500, int(limit)))

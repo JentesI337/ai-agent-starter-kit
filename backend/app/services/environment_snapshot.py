@@ -76,7 +76,8 @@ class EnvironmentSnapshot:
         """
         if current_packages is None:
             current_snap = await EnvironmentSnapshot.capture(
-                scope=self.scope, run_command=run_command,
+                scope=self.scope,
+                run_command=run_command,
             )
             current_packages = current_snap.packages
 

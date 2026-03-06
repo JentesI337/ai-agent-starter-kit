@@ -139,7 +139,9 @@ class WsHandlerDependencies:
     effective_orchestrator_agent_ids: Callable[[], set[str]]
     looks_like_review_request: Callable[[str], bool]
     looks_like_coding_request: Callable[[str], bool]
-    route_agent_for_message: Callable[[str | None, str, str | None], tuple[str, str | None, tuple[str, ...], list[dict[str, object]]]]
+    route_agent_for_message: Callable[
+        [str | None, str, str | None], tuple[str, str | None, tuple[str, ...], list[dict[str, object]]]
+    ]
     resolve_agent: Callable[[str | None], tuple[str, AgentLike, OrchestratorLike]]
     state_append_event_safe: Callable[[str, EventPayload], None]
     state_mark_failed_safe: Callable[[str, str], None]
@@ -179,7 +181,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         runtime_state.runtime,
         runtime_state.model,
     )
-    active_agent_name_cv: ContextVar[str] = ContextVar('active_agent_name', default=deps.agent.name)
+    active_agent_name_cv: ContextVar[str] = ContextVar("active_agent_name", default=deps.agent.name)
     active_agent_name_cv.set(deps.agent.name)
 
     # ClientDisconnectedError is imported from app.errors — no longer a local class.
@@ -236,7 +238,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         }
     )
 
-    async def send_lifecycle(stage: str, request_id: str, session_id: str, details: dict | None = None, agent_name: str | None = None):
+    async def send_lifecycle(
+        stage: str, request_id: str, session_id: str, details: dict | None = None, agent_name: str | None = None
+    ):
         lifecycle_event = build_lifecycle_event(
             request_id=request_id,
             session_id=session_id,
@@ -252,9 +256,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             lifecycle_event["started_at"] = lifecycle_event.get("ts")
         if lifecycle_status in {"completed", "failed", "timed_out", "cancelled"}:
             lifecycle_event["ended_at"] = lifecycle_event.get("ts")
-        await send_event(
-            lifecycle_event
-        )
+        await send_event(lifecycle_event)
 
     async def handle_request_failure(*, request_id: str, session_id: str, exc: Exception) -> None:
         if isinstance(exc, PolicyApprovalCancelledError):
@@ -380,7 +382,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         prompt_mode = str(job.get("prompt_mode") or deps.settings.prompt_mode_default)
         reasoning_level = normalize_reasoning_level(str(job.get("reasoning_level") or ""))
         reasoning_visibility = normalize_reasoning_visibility(str(job.get("reasoning_visibility") or ""))
-        applied_preset = (str(job.get("preset") or "").strip().lower() or None)
+        applied_preset = str(job.get("preset") or "").strip().lower() or None
         incoming_also_allow = None
         if isinstance(tool_policy, dict):
             raw_also_allow = tool_policy.get("also_allow")
@@ -388,25 +390,31 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 # SEC: Restrict client-supplied also_allow to prevent enabling
                 # dangerous tools like run_command or code_execute via policy
                 # manipulation. Only allow safe tools to be added.
-                _ALSO_ALLOW_BLOCKLIST = frozenset({
-                    "run_command", "code_execute",
-                    "start_background_command", "kill_background_process",
-                    "write_file", "apply_patch",
-                })
+                _ALSO_ALLOW_BLOCKLIST = frozenset(
+                    {
+                        "run_command",
+                        "code_execute",
+                        "start_background_command",
+                        "kill_background_process",
+                        "write_file",
+                        "apply_patch",
+                    }
+                )
                 incoming_also_allow = [
                     str(item).strip()
                     for item in raw_also_allow
-                    if isinstance(item, str) and str(item).strip()
-                    and str(item).strip() not in _ALSO_ALLOW_BLOCKLIST
+                    if isinstance(item, str) and str(item).strip() and str(item).strip() not in _ALSO_ALLOW_BLOCKLIST
                 ]
 
         def should_steer_interrupt() -> bool:
             return queue_mode == "steer" and session_inbox.has_newer_than(session_id, request_id)
 
-        effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = deps.route_agent_for_message(
-            requested_agent_id=requested_agent_id,
-            message=content,
-            preset=applied_preset,
+        effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = (
+            deps.route_agent_for_message(
+                requested_agent_id=requested_agent_id,
+                message=content,
+                preset=applied_preset,
+            )
         )
 
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
@@ -625,7 +633,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         await handle_request_failure(request_id=request_id, session_id=session_id, exc=exc)
                     except ClientDisconnectedError:
                         # BUG-3: handle_request_failure itself disconnected — ensure state is terminated
-                        deps.state_mark_failed_safe(run_id=request_id, error="client_disconnected_during_error_handling")
+                        deps.state_mark_failed_safe(
+                            run_id=request_id, error="client_disconnected_during_error_handling"
+                        )
                         while session_inbox.dequeue(session_id) is not None:
                             pass
                         return
@@ -980,7 +990,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         runtime=current_runtime_state.runtime,
                         model=requested_model or current_runtime_state.model,
                     )
-                    deps.state_store.set_task_status(run_id=request_id, task_id="request", label="request", status="active")
+                    deps.state_store.set_task_status(
+                        run_id=request_id, task_id="request", label="request", status="active"
+                    )
                     await send_lifecycle(
                         stage="request_received",
                         request_id=request_id,
@@ -1069,23 +1081,31 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     raw_also_allow = incoming_tool_policy.get("also_allow")
                     if isinstance(raw_also_allow, list):
                         # SEC: Same blocklist as above to prevent policy manipulation
-                        _ALSO_ALLOW_BLOCKLIST = frozenset({
-                            "run_command", "code_execute",
-                            "start_background_command", "kill_background_process",
-                            "write_file", "apply_patch",
-                        })
+                        _ALSO_ALLOW_BLOCKLIST = frozenset(
+                            {
+                                "run_command",
+                                "code_execute",
+                                "start_background_command",
+                                "kill_background_process",
+                                "write_file",
+                                "apply_patch",
+                            }
+                        )
                         incoming_also_allow = [
                             str(item).strip()
                             for item in raw_also_allow
-                            if isinstance(item, str) and str(item).strip()
+                            if isinstance(item, str)
+                            and str(item).strip()
                             and str(item).strip() not in _ALSO_ALLOW_BLOCKLIST
                         ]
                 applied_preset = (data.preset or "").strip().lower() or None
 
-                effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = deps.route_agent_for_message(
-                    requested_agent_id=requested_agent_id,
-                    message=content,
-                    preset=applied_preset,
+                effective_agent_id, routing_reason, required_capabilities, ranked_capability_matches = (
+                    deps.route_agent_for_message(
+                        requested_agent_id=requested_agent_id,
+                        message=content,
+                        preset=applied_preset,
+                    )
                 )
 
                 resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(effective_agent_id)
@@ -1166,7 +1186,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     runtime_state = deps.runtime_manager.get_state()
                     selected_model = (requested_model or "").strip() or runtime_state.model
                     if runtime_state.runtime == "local":
-                        selected_model = await deps.runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
+                        selected_model = await deps.runtime_manager.ensure_model_ready(
+                            send_event, session_id, selected_model
+                        )
                     else:
                         selected_model = await deps.runtime_manager.resolve_api_request_model(selected_model)
 
@@ -1288,7 +1310,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
                 selected_model = (requested_model or "").strip() or runtime_state.model
                 if runtime_state.runtime == "local":
-                    resolved_model = await deps.runtime_manager.ensure_model_ready(send_event, session_id, selected_model)
+                    resolved_model = await deps.runtime_manager.ensure_model_ready(
+                        send_event, session_id, selected_model
+                    )
                     if resolved_model != selected_model:
                         await send_event(
                             {
@@ -1474,7 +1498,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     session_id,
                 )
                 # SEC (WS-03): Only expose generic message to client; full details stay in server logs
-                _client_err_msg = str(exc) if getattr(deps.settings, "app_env", "production") == "development" else "Internal error occurred"
+                _client_err_msg = (
+                    str(exc)
+                    if getattr(deps.settings, "app_env", "production") == "development"
+                    else "Internal error occurred"
+                )
                 await send_event(
                     {
                         "type": "error",
@@ -1499,7 +1527,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         deps.logger.exception("ws_server_error session_id=%s", connection_session_id)
         try:
             # SEC (WS-03): Only expose generic message to client
-            _srv_err_msg = str(exc) if getattr(deps.settings, "app_env", "production") == "development" else "Internal server error"
+            _srv_err_msg = (
+                str(exc)
+                if getattr(deps.settings, "app_env", "production") == "development"
+                else "Internal server error"
+            )
             await send_event(
                 {
                     "type": "error",
@@ -1515,7 +1547,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 try:
                     await deps.policy_approval_service.clear_session_overrides(_cleanup_sid)
                 except Exception:
-                    deps.logger.debug("policy_session_override_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True)
+                    deps.logger.debug(
+                        "policy_session_override_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True
+                    )
         workers = [task for task in session_workers.values() if task is not None and not task.done()]
         for task in workers:
             task.cancel()

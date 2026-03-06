@@ -9,6 +9,7 @@ This is the integration layer that bridges:
 
 The bridge hooks into existing extension points without modifying the core loop.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -153,22 +154,27 @@ class CoordinationBridge:
 
         # Emit lifecycle event if send_event available
         if self._send_event:
-            await self._send_event({
-                "type": "lifecycle",
-                "stage": "confidence_evaluation",
-                "session_id": self._session_id,
-                "details": {
-                    "run_id": run_id,
-                    "agent_id": child_agent_id,
-                    "confidence": decision.confidence,
-                    "action": decision.action,
-                    "reason": decision.reason,
-                },
-            })
+            await self._send_event(
+                {
+                    "type": "lifecycle",
+                    "stage": "confidence_evaluation",
+                    "session_id": self._session_id,
+                    "details": {
+                        "run_id": run_id,
+                        "agent_id": child_agent_id,
+                        "confidence": decision.confidence,
+                        "action": decision.action,
+                        "reason": decision.reason,
+                    },
+                }
+            )
 
         logger.info(
             "Subrun %s confidence evaluation: action=%s confidence=%.2f agent=%s",
-            run_id, decision.action, decision.confidence, child_agent_id,
+            run_id,
+            decision.action,
+            decision.confidence,
+            child_agent_id,
         )
 
         return decision

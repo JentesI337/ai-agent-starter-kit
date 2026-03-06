@@ -205,18 +205,29 @@ class CodeSandbox:
             )
 
         docker_args = [
-            docker_path, "run", "--rm",
-            "--network", "none",
+            docker_path,
+            "run",
+            "--rm",
+            "--network",
+            "none",
             "--read-only",
-            "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
-            "--memory", "128m",
-            "--cpus", "0.5",
-            "--pids-limit", "64",
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,size=64m",
+            "--memory",
+            "128m",
+            "--cpus",
+            "0.5",
+            "--pids-limit",
+            "64",
             "--no-new-privileges",
-            "--security-opt", "no-new-privileges",
-            "--user", "nobody",
-            "-v", f"{temp_dir!s}:/sandbox:ro",
-            "-w", "/sandbox",
+            "--security-opt",
+            "no-new-privileges",
+            "--user",
+            "nobody",
+            "-v",
+            f"{temp_dir!s}:/sandbox:ro",
+            "-w",
+            "/sandbox",
             image,
             *cmd_in_container,
         ]
@@ -233,7 +244,8 @@ class CodeSandbox:
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout + 10  # extra grace for Docker overhead
+                    process.communicate(),
+                    timeout=timeout + 10,  # extra grace for Docker overhead
                 )
                 timed_out = False
             except TimeoutError:
@@ -368,13 +380,36 @@ class CodeSandbox:
     def _build_sandbox_env(self) -> dict[str, str]:
         # SEC (CMD-13): USERNAME / LOGNAME / USER removed to avoid identity leak.
         safe_keys = {
-            "PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE",
-            "HOMEDRIVE", "HOMEPATH", "COMSPEC", "SHELL", "LANG", "LC_ALL",
-            "VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH", "PYTHONHOME",
-            "NODE_PATH", "GOPATH", "GOROOT", "JAVA_HOME",
-            "TERM", "COLORTERM", "PROGRAMFILES", "PROGRAMFILES(X86)",
-            "COMMONPROGRAMFILES", "APPDATA", "LOCALAPPDATA",
-            "WINDIR", "SYSTEMDRIVE",
+            "PATH",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "HOME",
+            "USERPROFILE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "COMSPEC",
+            "SHELL",
+            "LANG",
+            "LC_ALL",
+            "VIRTUAL_ENV",
+            "CONDA_PREFIX",
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "NODE_PATH",
+            "GOPATH",
+            "GOROOT",
+            "JAVA_HOME",
+            "TERM",
+            "COLORTERM",
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "COMMONPROGRAMFILES",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "WINDIR",
+            "SYSTEMDRIVE",
         }
         safe_upper = {k.upper() for k in safe_keys}
         env: dict[str, str] = {key: value for key, value in os.environ.items() if key.upper() in safe_upper}
@@ -448,7 +483,7 @@ class CodeSandbox:
                 "http.client",
                 "__import__('socket",
                 '__import__("socket',
-                "__import__(\"socket",
+                '__import__("socket',
                 "importlib.import_module",
                 "import aiohttp",
                 "from aiohttp",

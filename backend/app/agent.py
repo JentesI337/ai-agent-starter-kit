@@ -519,7 +519,8 @@ class HeadAgent:
                 self.planner_agent._failure_retriever = self._failure_retriever
         except Exception:
             logging.getLogger(__name__).warning(
-                "Failed to initialise long-term memory store", exc_info=True,
+                "Failed to initialise long-term memory store",
+                exc_info=True,
             )
             _clear_all()
 
@@ -566,9 +567,7 @@ class HeadAgent:
         self._refresh_long_term_memory_store()
         # H-6: guard — refuse to start if configure_runtime() is mid-flight
         if self._reconfiguring:
-            raise RuntimeError(
-                "run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen."
-            )
+            raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
         self._active_run_count += 1
         status = "failed"
         error_text: str | None = None
@@ -848,7 +847,9 @@ class HeadAgent:
             empty_tool_replan_attempts_used = 0
             error_tool_replan_attempts_used = 0
             regular_replan_attempts_used = 0
-            total_replan_cycles = max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
+            total_replan_cycles = (
+                max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
+            )
             await self._emit_lifecycle(
                 send_event,
                 stage="terminal_wait_started",
@@ -1426,7 +1427,7 @@ class HeadAgent:
                     final_text = (
                         "The delegated subrun did not complete successfully. "
                         "No confirmed delegation outcome is available. "
-                        "Check the subrun status and retry with `mode=\"wait\"` for synchronous delegation."
+                        'Check the subrun status and retry with `mode="wait"` for synchronous delegation.'
                     )
                 else:
                     final_text = (
@@ -1512,11 +1513,7 @@ class HeadAgent:
                     )
             raise
         finally:
-            if (
-                status == "completed"
-                and settings.session_distillation_enabled
-                and self._long_term_memory is not None
-            ):
+            if status == "completed" and settings.session_distillation_enabled and self._long_term_memory is not None:
                 try:
                     await self._distill_session_knowledge(
                         session_id=session_id,
@@ -1528,7 +1525,9 @@ class HeadAgent:
                     )
                 except Exception:
                     logging.getLogger(__name__).warning(
-                        "Session distillation failed for session %s", session_id, exc_info=True,
+                        "Session distillation failed for session %s",
+                        session_id,
+                        exc_info=True,
                     )
             with contextlib.suppress(Exception):
                 await self._invoke_hooks(
@@ -1568,7 +1567,7 @@ class HeadAgent:
         distillation_prompt = (
             "Summarize this interaction in 2-3 sentences.\n"
             "Extract key facts about the user's preferences/project.\n"
-            "Return JSON: {\"summary\": \"...\", \"key_facts\": [{\"key\": \"...\", \"value\": \"...\"}], \"tags\": [\"...\"]}\n\n"
+            'Return JSON: {"summary": "...", "key_facts": [{"key": "...", "value": "..."}], "tags": ["..."]}\n\n'
             f"User: {user_message[:500]}\n"
             f"Plan: {plan_text[:300]}\n"
             f"Tools: {(tool_results or '')[:300]}\n"
@@ -1758,9 +1757,7 @@ class HeadAgent:
         if not user_message.strip():
             raise GuardrailViolation("Message must not be empty.")
         if len(user_message) > settings.max_user_message_length:
-            raise GuardrailViolation(
-                f"Message exceeds max length ({settings.max_user_message_length})."
-            )
+            raise GuardrailViolation(f"Message exceeds max length ({settings.max_user_message_length}).")
         if len(session_id) > 120:
             raise GuardrailViolation("session_id too long.")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
@@ -1819,9 +1816,7 @@ class HeadAgent:
         effective_allowed_tools: set[str],
     ) -> dict[str, object]:
         requested_allow_values = [
-            item
-            for item in ((tool_policy or {}).get("allow") or [])
-            if isinstance(item, str) and item.strip()
+            item for item in ((tool_policy or {}).get("allow") or []) if isinstance(item, str) and item.strip()
         ]
         requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
         unknown_requested_allow = self._unknown_tool_names((tool_policy or {}).get("allow"))
@@ -1862,9 +1857,7 @@ class HeadAgent:
             base_allowed &= config_allow
 
         requested_allow_values = [
-            item
-            for item in ((tool_policy or {}).get("allow") or [])
-            if isinstance(item, str) and item.strip()
+            item for item in ((tool_policy or {}).get("allow") or []) if isinstance(item, str) and item.strip()
         ]
         requested_allow = self._normalize_tool_set((tool_policy or {}).get("allow"))
         if requested_allow is not None and (requested_allow or not requested_allow_values):
@@ -1877,7 +1870,7 @@ class HeadAgent:
         base_allowed -= deny_set
 
         also_allow_set = self._normalize_tool_set((tool_policy or {}).get("also_allow")) or set()
-        base_allowed |= (also_allow_set - deny_set)
+        base_allowed |= also_allow_set - deny_set
 
         # M-27: apply per-agent tool policy overrides
         agents_policy = (tool_policy or {}).get("agents")
@@ -1893,7 +1886,7 @@ class HeadAgent:
                     base_allowed -= agent_deny
                 agent_also_allow = self._normalize_tool_set(agent_override.get("also_allow"))
                 if agent_also_allow:
-                    base_allowed |= (agent_also_allow - deny_set)
+                    base_allowed |= agent_also_allow - deny_set
 
         return base_allowed
 
@@ -1946,7 +1939,9 @@ class HeadAgent:
                 resource=resource,
             )
 
-        async def _approve_blocked_process_tools_if_needed_proxy(*, actions: list[dict], allowed_tools: set[str]) -> set[str]:
+        async def _approve_blocked_process_tools_if_needed_proxy(
+            *, actions: list[dict], allowed_tools: set[str]
+        ) -> set[str]:
             return await self._approve_blocked_process_tools_if_needed(
                 actions=actions,
                 allowed_tools=allowed_tools,
@@ -2067,8 +2062,14 @@ class HeadAgent:
         has_error = "[error]" in lowered or "] error" in lowered
         # D-11: detect suspicious patterns (empty body, placeholder output)
         suspicious_patterns = (
-            "no output", "n/a", "not available", "null", "undefined",
-            "placeholder", "{}", "[]",
+            "no output",
+            "n/a",
+            "not available",
+            "null",
+            "undefined",
+            "placeholder",
+            "{}",
+            "[]",
         )
         has_suspicious = any(p in lowered for p in suspicious_patterns)
 
@@ -2124,10 +2125,7 @@ class HeadAgent:
                 return "tool_selection_suspicious_replan"
             return None
 
-        if (
-            tool_results_state == "empty"
-            and empty_tool_replan_attempts_used < max_empty_tool_replan_attempts
-        ):
+        if tool_results_state == "empty" and empty_tool_replan_attempts_used < max_empty_tool_replan_attempts:
             return "tool_selection_empty_replan"
 
         regular_replan_budget_remaining = iteration < max_replan_iterations
@@ -2156,7 +2154,9 @@ class HeadAgent:
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         decision = self._intent.detect(user_message)
-        confidence_label = "high" if decision.confidence >= 0.8 else ("medium" if decision.confidence >= 0.45 else "low")
+        confidence_label = (
+            "high" if decision.confidence >= 0.8 else ("medium" if decision.confidence >= 0.45 else "low")
+        )
         return IntentGateDecision(
             intent=decision.intent,
             confidence=confidence_label,
@@ -2526,9 +2526,7 @@ class HeadAgent:
         missing_tooling_methods = [
             tool_name
             for tool_name in self.tool_registry
-            if tool_name != "spawn_subrun"
-            and not tool_name.startswith("mcp_")
-            and not hasattr(self.tools, tool_name)
+            if tool_name != "spawn_subrun" and not tool_name.startswith("mcp_") and not hasattr(self.tools, tool_name)
         ]
         missing_arg_validators = [
             tool_name
@@ -2542,8 +2540,7 @@ class HeadAgent:
             )
         if missing_arg_validators:
             raise RuntimeError(
-                "Tool registry contains tools without argument validator: "
-                + ", ".join(sorted(missing_arg_validators))
+                "Tool registry contains tools without argument validator: " + ", ".join(sorted(missing_arg_validators))
             )
 
     async def _ensure_mcp_tools_registered(
@@ -2655,9 +2652,7 @@ class HeadAgent:
             except TimeoutError as exc:
                 last_error = exc
                 if attempt >= max_attempts:
-                    raise ToolExecutionError(
-                        f"Tool timeout ({tool}) after {policy.timeout_seconds:.1f}s"
-                    ) from exc
+                    raise ToolExecutionError(f"Tool timeout ({tool}) after {policy.timeout_seconds:.1f}s") from exc
                 if policy.retry_class not in {"timeout", "transient"}:
                     raise ToolExecutionError(f"Tool timeout ({tool})") from exc
             except ToolExecutionError as exc:
@@ -2803,7 +2798,9 @@ class HeadAgent:
         if isinstance(spawn_result, dict):
             run_id = str(spawn_result.get("run_id") or "").strip()
             normalized_mode = str(spawn_result.get("mode") or normalized_mode).strip().lower() or normalized_mode
-            normalized_agent_id = str(spawn_result.get("agent_id") or normalized_agent_id).strip() or normalized_agent_id
+            normalized_agent_id = (
+                str(spawn_result.get("agent_id") or normalized_agent_id).strip() or normalized_agent_id
+            )
             candidate_handover = spawn_result.get("handover")
             if isinstance(candidate_handover, dict):
                 handover_contract = self._sanitize_subrun_handover_contract(candidate_handover)
@@ -2887,8 +2884,10 @@ class HeadAgent:
         target_agent_id: str,
     ) -> dict[str, Any]:
         return {
-            "source_agent_id": str(candidate.get("source_agent_id") or source_agent_id).strip().lower() or source_agent_id,
-            "target_agent_id": str(candidate.get("target_agent_id") or target_agent_id).strip().lower() or target_agent_id,
+            "source_agent_id": str(candidate.get("source_agent_id") or source_agent_id).strip().lower()
+            or source_agent_id,
+            "target_agent_id": str(candidate.get("target_agent_id") or target_agent_id).strip().lower()
+            or target_agent_id,
             "allowed": bool(candidate.get("allowed", False)),
             "reason": str(candidate.get("reason") or "scope_match").strip().lower() or "scope_match",
         }
@@ -3006,9 +3005,7 @@ class HeadAgent:
                     details=details,
                 )
                 if contract.failure_policy == "hard_fail":
-                    raise RuntimeError(
-                        f"Hook '{hook_name}' timed out for {type(hook).__name__}"
-                    ) from exc
+                    raise RuntimeError(f"Hook '{hook_name}' timed out for {type(hook).__name__}") from exc
                 if contract.failure_policy == "skip":
                     await self._emit_lifecycle(
                         send_event,
@@ -3033,9 +3030,7 @@ class HeadAgent:
                     details=details,
                 )
                 if contract.failure_policy == "hard_fail":
-                    raise RuntimeError(
-                        f"Hook '{hook_name}' failed for {type(hook).__name__}: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"Hook '{hook_name}' failed for {type(hook).__name__}: {exc}") from exc
                 if contract.failure_policy == "skip":
                     await self._emit_lifecycle(
                         send_event,

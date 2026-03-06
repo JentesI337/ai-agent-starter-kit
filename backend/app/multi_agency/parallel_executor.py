@@ -7,6 +7,7 @@ Replaces the current sequential-only execution model with:
 - Race Mode: First agent to complete wins (for competitive strategies)
 - Quorum: Accept result when N out of M agents agree
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,20 +27,21 @@ AgentExecutor = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class FanOutMode(StrEnum):
-    ALL = "all"           # Wait for all agents to complete
-    RACE = "race"         # First agent to complete wins
-    QUORUM = "quorum"     # Accept when N agree
-    BEST = "best"         # Wait for all, pick highest confidence
+    ALL = "all"  # Wait for all agents to complete
+    RACE = "race"  # First agent to complete wins
+    QUORUM = "quorum"  # Accept when N agree
+    BEST = "best"  # Wait for all, pick highest confidence
 
 
 @dataclass
 class FanOutTask:
     """A single task in a fan-out execution."""
+
     task_id: str
     agent_id: str
     description: str
     context: dict[str, Any]
-    status: str = "pending"       # pending, running, completed, failed, cancelled
+    status: str = "pending"  # pending, running, completed, failed, cancelled
     result: Any = None
     confidence: float = 0.0
     error: str | None = None
@@ -51,11 +53,12 @@ class FanOutTask:
 @dataclass(frozen=True)
 class FanOutResult:
     """The aggregated result of a fan-out execution."""
+
     mode: str
     total_tasks: int
     completed_tasks: int
     failed_tasks: int
-    results: list[dict[str, Any]]     # [{agent_id, result, confidence}, ...]
+    results: list[dict[str, Any]]  # [{agent_id, result, confidence}, ...]
     best_result: dict[str, Any] | None  # highest confidence result
     aggregate_confidence: float
     duration_ms: float
@@ -66,6 +69,7 @@ class FanOutResult:
 @dataclass
 class DAGStep:
     """A step in a dependency graph with agent assignment."""
+
     step_id: str
     agent_id: str
     description: str
@@ -75,7 +79,7 @@ class DAGStep:
     result: Any = None
     confidence: float = 0.0
     error: str | None = None
-    can_parallel: bool = False     # True if this step can run in parallel with peers
+    can_parallel: bool = False  # True if this step can run in parallel with peers
 
 
 class ParallelFanOutExecutor:
@@ -95,7 +99,7 @@ class ParallelFanOutExecutor:
         executor: AgentExecutor,
         max_concurrent: int = 5,
         default_timeout: float = 120.0,
-        quorum_threshold: int = 2,    # number of agreeing agents for quorum
+        quorum_threshold: int = 2,  # number of agreeing agents for quorum
     ):
         self._executor = executor
         self._semaphore = asyncio.Semaphore(max(1, max_concurrent))
@@ -180,11 +184,7 @@ class ParallelFanOutExecutor:
 
         while True:
             # Find steps whose dependencies are all satisfied
-            ready = [
-                s for s in steps
-                if s.status == "pending"
-                and all(dep in completed_ids for dep in s.depends_on)
-            ]
+            ready = [s for s in steps if s.status == "pending" and all(dep in completed_ids for dep in s.depends_on)]
 
             if not ready:
                 # Check if we're done or stuck
@@ -225,14 +225,16 @@ class ParallelFanOutExecutor:
                 else:
                     completed_ids.add(step.step_id)
 
-                all_results.append({
-                    "step_id": step.step_id,
-                    "agent_id": step.agent_id,
-                    "status": step.status,
-                    "result": step.result,
-                    "confidence": step.confidence,
-                    "error": step.error,
-                })
+                all_results.append(
+                    {
+                        "step_id": step.step_id,
+                        "agent_id": step.agent_id,
+                        "status": step.status,
+                        "result": step.result,
+                        "confidence": step.confidence,
+                        "error": step.error,
+                    }
+                )
 
         return all_results
 

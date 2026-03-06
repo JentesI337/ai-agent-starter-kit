@@ -7,6 +7,7 @@ Unlike parent-memory-only state, the Blackboard provides:
 - History tracking (full audit trail of all writes)
 - Subscription: agents can watch for changes to specific keys
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,13 +27,14 @@ ChangeCallback = Callable[["BlackboardEntry"], Awaitable[None]]
 @dataclass(frozen=True)
 class BlackboardEntry:
     """A single entry on the shared blackboard."""
+
     key: str
     value: Any
-    section: str             # e.g. "plan", "tool_results", "analysis", "synthesis"
-    author_agent_id: str     # who wrote this
+    section: str  # e.g. "plan", "tool_results", "analysis", "synthesis"
+    author_agent_id: str  # who wrote this
     timestamp: str
     entry_id: str
-    version: int             # auto-incremented per key
+    version: int  # auto-incremented per key
     confidence: float = 0.0  # how confident the author is in this value
     supersedes: str | None = None  # entry_id this replaces
     tags: tuple[str, ...] = ()
@@ -41,6 +43,7 @@ class BlackboardEntry:
 @dataclass
 class ConflictRecord:
     """Records when two agents tried to write the same key concurrently."""
+
     key: str
     section: str
     agent_a: str
@@ -133,14 +136,17 @@ class Blackboard:
                     self._conflicts.append(conflict)
                     logger.warning(
                         "Blackboard conflict: section=%s key=%s agents=%s/%s",
-                        section, key, last_agent, author_agent_id,
+                        section,
+                        key,
+                        last_agent,
+                        author_agent_id,
                     )
 
             self._current[section][key] = entry
             history = self._history[section][key]
             history.append(entry)
             if len(history) > self._max_history:
-                self._history[section][key] = history[-self._max_history:]
+                self._history[section][key] = history[-self._max_history :]
             self._write_timestamps.setdefault(section, {})[key] = (author_agent_id, now_ts)
 
         # Notify watchers outside the lock
@@ -232,7 +238,5 @@ class Blackboard:
                 "session_id": self._session_id,
                 "sections": sections,
                 "conflict_count": len(self._conflicts),
-                "unresolved_conflicts": sum(
-                    1 for c in self._conflicts if c.resolution == "unresolved"
-                ),
+                "unresolved_conflicts": sum(1 for c in self._conflicts if c.resolution == "unresolved"),
             }

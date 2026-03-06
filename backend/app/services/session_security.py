@@ -3,6 +3,7 @@
 Prevents session hijacking by ensuring clients cannot specify arbitrary session IDs.
 Uses HMAC signature to bind session IDs to their originating connection.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,6 +21,7 @@ if _raw_signing_key:
 else:
     # SEC (CRYPTO-02): Warn about ephemeral session signing key
     import logging as _logging
+
     _logging.getLogger(__name__).warning(
         "SESSION_SIGNING_KEY not set — using ephemeral key. "
         "Sessions will be invalidated on restart. "

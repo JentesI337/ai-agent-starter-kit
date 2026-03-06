@@ -18,7 +18,8 @@ from app.services.self_healing_loop import (
 class TestRecoveryPlan:
     def test_to_dict(self):
         p = RecoveryPlan(
-            name="fix_pip", description="Install via pip",
+            name="fix_pip",
+            description="Install via pip",
             error_pattern="ModuleNotFoundError",
             recovery_commands=["pip install foo"],
             category="missing_dependency",
@@ -134,12 +135,14 @@ class TestHealAndRetry:
                 return "installed"
             return "mytool 1.0"
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="run_command",
-            args={"command": "mytool --version"},
-            error_text="mytool: command not found",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="run_command",
+                args={"command": "mytool --version"},
+                error_text="mytool: command not found",
+                run_command=fake_run,
+            )
+        )
         assert result.healed
         assert result.plan_used == "install_tool"
         assert result.attempts == 1
@@ -150,11 +153,14 @@ class TestHealAndRetry:
         async def fake_run(cmd: str) -> str:
             return ""
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="x", args={"command": "x"},
-            error_text="weird unknown error",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="x",
+                args={"command": "x"},
+                error_text="weird unknown error",
+                run_command=fake_run,
+            )
+        )
         assert not result.healed
         assert "No recovery plan" in result.error
 
@@ -174,12 +180,14 @@ class TestHealAndRetry:
             # Retry still has "error" in output
             return "error: still denied"
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="run_command",
-            args={"command": "cat /tmp/x"},
-            error_text="Permission denied: /tmp/x",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="run_command",
+                args={"command": "cat /tmp/x"},
+                error_text="Permission denied: /tmp/x",
+                run_command=fake_run,
+            )
+        )
         assert not result.healed
         assert result.plan_used == "fix_perm"
 
@@ -196,11 +204,14 @@ class TestHealAndRetry:
         async def fake_run(cmd: str) -> str:
             return "ok"
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="x", args={},
-            error_text="broken state",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="x",
+                args={},
+                error_text="broken state",
+                run_command=fake_run,
+            )
+        )
         assert not result.healed
         assert "No command to retry" in result.error
 
@@ -223,11 +234,14 @@ class TestHealAndRetry:
                 return "recovery ok"
             raise RuntimeError("still broken")
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="x", args={"command": "do-thing"},
-            error_text="broken state",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="x",
+                args={"command": "do-thing"},
+                error_text="broken state",
+                run_command=fake_run,
+            )
+        )
         assert not result.healed
         assert "still broken" in result.error
 
@@ -247,11 +261,14 @@ class TestHealAndRetry:
                 raise RuntimeError("step1 failed")
             return "all good"
 
-        result = asyncio.run(healer.heal_and_retry(
-            tool="x", args={"command": "check"},
-            error_text="broken state",
-            run_command=fake_run,
-        ))
+        result = asyncio.run(
+            healer.heal_and_retry(
+                tool="x",
+                args={"command": "check"},
+                error_text="broken state",
+                run_command=fake_run,
+            )
+        )
         # step1 fails but step2 + retry succeed
         assert result.healed
         assert "[error]" in result.recovery_output
@@ -265,10 +282,13 @@ class TestPlanManagement:
         healer = SelfHealingLoop(plans=[])
         assert len(healer.list_plans()) == 0
 
-        healer.add_plan(RecoveryPlan(
-            name="new", description="New plan",
-            error_pattern="NEW_ERR",
-        ))
+        healer.add_plan(
+            RecoveryPlan(
+                name="new",
+                description="New plan",
+                error_pattern="NEW_ERR",
+            )
+        )
         plans = healer.list_plans()
         assert len(plans) == 1
         assert plans[0]["name"] == "new"

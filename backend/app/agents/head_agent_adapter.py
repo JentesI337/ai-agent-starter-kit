@@ -29,14 +29,16 @@ from app.tool_policy import ToolPolicyDict
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_BASE_WRITE_DENY: frozenset[str] = frozenset({
-    "write_file",
-    "apply_patch",
-    "run_command",
-    "code_execute",
-    "start_background_command",
-    "kill_background_process",
-})
+_BASE_WRITE_DENY: frozenset[str] = frozenset(
+    {
+        "write_file",
+        "apply_patch",
+        "run_command",
+        "code_execute",
+        "start_background_command",
+        "kill_background_process",
+    }
+)
 
 
 def _build_constraints(
@@ -59,6 +61,7 @@ def _build_constraints(
 # Shared base classes
 # ---------------------------------------------------------------------------
 
+
 class _ReadOnlyAgentAdapterMixin:
     """Mixin that provides _build_read_only_policy for read-only agents.
 
@@ -72,8 +75,12 @@ class _ReadOnlyAgentAdapterMixin:
         requested_allow: list[str] = []
         requested_deny: list[str] = []
         if isinstance(incoming, dict):
-            requested_allow = [item.strip() for item in (incoming.get("allow") or []) if isinstance(item, str) and item.strip()]
-            requested_deny = [item.strip() for item in (incoming.get("deny") or []) if isinstance(item, str) and item.strip()]
+            requested_allow = [
+                item.strip() for item in (incoming.get("allow") or []) if isinstance(item, str) and item.strip()
+            ]
+            requested_deny = [
+                item.strip() for item in (incoming.get("deny") or []) if isinstance(item, str) and item.strip()
+            ]
         deny = set(requested_deny) | self._MANDATORY_DENY
         payload: ToolPolicyDict = {"deny": sorted(deny)}
         if requested_allow:
@@ -317,7 +324,9 @@ class TestAgentAdapter(_BaseSpecialistAdapter):
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []
         if isinstance(tool_policy, dict):
-            requested_deny = [item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()]
+            requested_deny = [
+                item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()
+            ]
         deny = set(requested_deny) | self._MANDATORY_DENY
         return {"deny": sorted(deny)}
 
@@ -539,6 +548,8 @@ class IndustryTechAgentAdapter(_BaseSpecialistAdapter):
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []
         if isinstance(tool_policy, dict):
-            requested_deny = [item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()]
+            requested_deny = [
+                item.strip() for item in (tool_policy.get("deny") or []) if isinstance(item, str) and item.strip()
+            ]
         deny = set(requested_deny) | self._MANDATORY_DENY
         return {"deny": sorted(deny)}

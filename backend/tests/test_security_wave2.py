@@ -40,9 +40,7 @@ class TestCFG03ShellsRemovedFromAllowlist:
     def test_default_allowlist_has_no_shells(self) -> None:
         default = set(settings.command_allowlist)
         present_shells = default & self.SHELLS
-        assert present_shells == set(), (
-            f"Shells should not be in default allowlist: {present_shells}"
-        )
+        assert present_shells == set(), f"Shells should not be in default allowlist: {present_shells}"
 
     def test_shell_command_rejected_by_allowlist(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(settings, "command_allowlist_enabled", True)
@@ -151,10 +149,7 @@ class TestSHL01RecoveryAllowlist:
 
         # Recovery commands should have been blocked — run_fn should NOT have been
         # called for them (only possibly for the retry).
-        recovery_calls = [
-            call for call in run_fn.call_args_list
-            if call.args[0] != "some_tool"
-        ]
+        recovery_calls = [call for call in run_fn.call_args_list if call.args[0] != "some_tool"]
         assert len(recovery_calls) == 0, "Blocked recovery commands should not execute"
         assert "[blocked]" in result.recovery_output
 
@@ -178,10 +173,7 @@ class TestSHL01RecoveryAllowlist:
         )
 
         # pip is in the allowlist, so recovery should have been called
-        recovery_calls = [
-            call for call in run_fn.call_args_list
-            if call.args[0] == "pip install some-package"
-        ]
+        recovery_calls = [call for call in run_fn.call_args_list if call.args[0] == "pip install some-package"]
         assert len(recovery_calls) == 1
 
     def test_recovery_allowlist_contains_expected_tools(self) -> None:

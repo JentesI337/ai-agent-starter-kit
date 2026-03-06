@@ -35,12 +35,27 @@ RunCommandFn = Callable[[str], Awaitable[str]]
 
 # SEC (SHL-01): Only allow recovery commands whose leader is in this set.
 # This prevents self-healing from executing arbitrary commands.
-_RECOVERY_COMMAND_ALLOWLIST: frozenset[str] = frozenset({
-    "pip", "pip3", "npm", "npx", "yarn", "pnpm",
-    "git", "python", "python3", "py", "node",
-    "mkdir", "touch", "chmod", "cp",
-    "docker", "docker-compose",
-})
+_RECOVERY_COMMAND_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "pip",
+        "pip3",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "git",
+        "python",
+        "python3",
+        "py",
+        "node",
+        "mkdir",
+        "touch",
+        "chmod",
+        "cp",
+        "docker",
+        "docker-compose",
+    }
+)
 
 
 # ── Result types ──────────────────────────────────────────────────────
@@ -52,9 +67,9 @@ class RecoveryPlan:
 
     name: str
     description: str
-    error_pattern: str          # regex or keyword to match
+    error_pattern: str  # regex or keyword to match
     recovery_commands: list[str] = field(default_factory=list)
-    category: str = ""          # missing_dependency | permission | environment | configuration
+    category: str = ""  # missing_dependency | permission | environment | configuration
 
     def to_dict(self) -> dict[str, Any]:
         return {

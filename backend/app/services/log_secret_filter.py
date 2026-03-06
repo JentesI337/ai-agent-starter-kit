@@ -2,6 +2,7 @@
 
 Prevents accidental leakage of API keys, tokens, and other secrets in log output.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,7 @@ class SecretFilter(logging.Filter):
                 record.msg = pattern.sub(replacement, record.msg)
         if record.args:
             sanitized_args: list[object] = []
-            for arg in (record.args if isinstance(record.args, tuple) else (record.args,)):
+            for arg in record.args if isinstance(record.args, tuple) else (record.args,):
                 sanitized_arg = arg
                 if isinstance(sanitized_arg, str):
                     for pattern, replacement in _SECRET_PATTERNS:

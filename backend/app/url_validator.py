@@ -38,6 +38,7 @@ class UrlValidationError(ValueError):
 
 # ── IP validation ────────────────────────────────────────────────────────
 
+
 def parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Try to parse *host* as an IP literal.  Returns ``None`` for hostnames."""
     try:
@@ -52,15 +53,14 @@ def validate_ip_is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> 
         raise UrlValidationError(f"Blocked non-public target IP: {ip}")
     # IPv6-mapped IPv4: e.g. ::ffff:127.0.0.1, ::ffff:10.0.0.1
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None and not ip.ipv4_mapped.is_global:
-        raise UrlValidationError(
-            f"Blocked IPv6-mapped private IPv4 address: {ip}"
-        )
+        raise UrlValidationError(f"Blocked IPv6-mapped private IPv4 address: {ip}")
     # 0.0.0.0/8 (current-network)
     if isinstance(ip, ipaddress.IPv4Address) and ip.packed[0] == 0:
         raise UrlValidationError(f"Blocked zero-network IP: {ip}")
 
 
 # ── DNS resolution ───────────────────────────────────────────────────────
+
 
 def resolve_hostname_ips(
     host: str,
@@ -71,9 +71,7 @@ def resolve_hostname_ips(
     try:
         infos = socket.getaddrinfo(host, target_port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
-        raise UrlValidationError(
-            f"Hostname resolution failed for {host}: {exc}"
-        ) from exc
+        raise UrlValidationError(f"Hostname resolution failed for {host}: {exc}") from exc
 
     addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for info in infos:
@@ -88,6 +86,7 @@ def resolve_hostname_ips(
 
 
 # ── DNS-pin helpers ──────────────────────────────────────────────────────
+
 
 def apply_dns_pin(url: str, pinned_ip: str | None) -> tuple[str, dict[str, str]]:
     """Rewrite *url* to connect via *pinned_ip* (DNS-rebinding mitigation).
@@ -111,6 +110,7 @@ def apply_dns_pin(url: str, pinned_ip: str | None) -> tuple[str, dict[str, str]]
 
 # ── Full validation entry-point ──────────────────────────────────────────
 
+
 def enforce_safe_url(
     url: str,
     *,
@@ -128,10 +128,7 @@ def enforce_safe_url(
     parsed = urlparse((url or "").strip())
 
     if parsed.scheme not in allowed_schemes:
-        raise UrlValidationError(
-            f"{label} only supports schemes {sorted(allowed_schemes)}, "
-            f"got '{parsed.scheme}'"
-        )
+        raise UrlValidationError(f"{label} only supports schemes {sorted(allowed_schemes)}, got '{parsed.scheme}'")
 
     if not allow_credentials and (parsed.username or parsed.password):
         raise UrlValidationError(f"{label} blocks URLs containing credentials.")
@@ -175,9 +172,7 @@ def validate_llm_base_url(url: str) -> str:
 
     parsed = urlparse(stripped)
     if parsed.scheme not in {"http", "https"}:
-        raise UrlValidationError(
-            f"Invalid LLM_BASE_URL scheme: '{parsed.scheme}' — only http/https allowed."
-        )
+        raise UrlValidationError(f"Invalid LLM_BASE_URL scheme: '{parsed.scheme}' — only http/https allowed.")
 
     host = (parsed.hostname or "").strip()
     if not host:
@@ -192,9 +187,7 @@ def validate_llm_base_url(url: str) -> str:
         "[::ffff:169.254.169.254]",
     }
     if host.lower() in cloud_metadata:
-        raise UrlValidationError(
-            f"LLM_BASE_URL blocked — cloud metadata endpoint: {host}"
-        )
+        raise UrlValidationError(f"LLM_BASE_URL blocked — cloud metadata endpoint: {host}")
 
     # For local dev, allow localhost/127.0.0.1 (Ollama, LM Studio, etc.)
     local_hosts = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -219,8 +212,7 @@ def validate_llm_base_url(url: str) -> str:
         raise
     except Exception as exc:
         logger.warning(
-            "llm_base_url_dns_check_skipped host=%s error=%s "
-            "(will be validated at connection time)",
+            "llm_base_url_dns_check_skipped host=%s error=%s (will be validated at connection time)",
             host,
             exc,
         )

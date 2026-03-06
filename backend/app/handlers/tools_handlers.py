@@ -284,7 +284,7 @@ def _build_tools_policy_preview(
     effective -= deny
 
     also_allow_set = normalize_policy_values(also_allow, base_tools) or set()
-    effective |= (also_allow_set - deny)
+    effective |= also_allow_set - deny
 
     return {
         "schema": "tools.policy.preview.v1",
@@ -515,11 +515,17 @@ def api_control_context_detail(request_data: dict) -> dict:
     }
 
 
-_CONFIG_REDACTED_FIELDS = frozenset({
-    "api_auth_token", "llm_api_key", "state_encryption_key",
-    "session_signing_key", "policy_hmac_key", "web_search_api_key",
-    "vision_api_key",
-})
+_CONFIG_REDACTED_FIELDS = frozenset(
+    {
+        "api_auth_token",
+        "llm_api_key",
+        "state_encryption_key",
+        "session_signing_key",
+        "policy_hmac_key",
+        "web_search_api_key",
+        "vision_api_key",
+    }
+)
 
 
 def api_control_config_health(request_data: dict) -> dict:
@@ -538,7 +544,9 @@ def api_control_config_health(request_data: dict) -> dict:
     excessive_pair_count = len(isolation_pairs) > 20
 
     risk_flags = {
-        "run_state_violation_hard_fail_enabled": bool(getattr(settings, "run_state_violation_hard_fail_enabled", False)),
+        "run_state_violation_hard_fail_enabled": bool(
+            getattr(settings, "run_state_violation_hard_fail_enabled", False)
+        ),
         "skills_engine_enabled": bool(getattr(settings, "skills_engine_enabled", False)),
         "queue_mode_default": str(getattr(settings, "queue_mode_default", "wait")),
         "isolation_allowlist_wildcard": wildcard_pair_present,
@@ -580,7 +588,9 @@ def _sqlite_table_exists(connection: sqlite3.Connection, table_name: str) -> boo
     return row is not None
 
 
-def _read_long_term_memory_sections(*, db_path: Path, include_content: bool, limit: int, search_query: str | None) -> dict[str, Any]:
+def _read_long_term_memory_sections(
+    *, db_path: Path, include_content: bool, limit: int, search_query: str | None
+) -> dict[str, Any]:
     section_payload: dict[str, Any] = {
         "available": False,
         "tables": {
@@ -839,7 +849,11 @@ def api_control_memory_overview(request_data: dict) -> dict:
             )
 
         if has_query:
-            session_items = [item for item in session_items if item.get("entries") or normalized_query in str(item.get("session_id") or "").lower()]
+            session_items = [
+                item
+                for item in session_items
+                if item.get("entries") or normalized_query in str(item.get("session_id") or "").lower()
+            ]
 
     db_exists = long_term_db_path.exists() and long_term_db_path.is_file()
     db_size_bytes = long_term_db_path.stat().st_size if db_exists else 0

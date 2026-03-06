@@ -173,16 +173,15 @@ def _sanitize_handover_contract(payload: dict[str, Any] | None) -> dict[str, Any
     if raw_synthesis_valid is not None:
         sanitized["synthesis_valid"] = bool(raw_synthesis_valid)
     return sanitized
+
+
 def _startup_sequence() -> None:
     config_validation = validate_environment_config(settings)
     if not bool(config_validation.get("is_valid", True)):
         unknown_keys = list(config_validation.get("unknown_keys") or [])
         preview = ", ".join(unknown_keys[:10])
         suffix = "" if len(unknown_keys) <= 10 else f" (+{len(unknown_keys) - 10} more)"
-        raise RuntimeError(
-            "Strict config validation failed: unknown keys detected "
-            f"({preview}{suffix})."
-        )
+        raise RuntimeError(f"Strict config validation failed: unknown keys detected ({preview}{suffix}).")
     if str(config_validation.get("validation_status") or "") == "warning":
         logger.warning(
             "config_validation_warning unknown_keys=%s strict_mode=%s",
@@ -194,6 +193,8 @@ def _startup_sequence() -> None:
         logger=logger,
         ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
+
+
 def _shutdown_sequence() -> None:
     # Persist model health snapshots before shutdown
     try:
@@ -205,10 +206,14 @@ def _shutdown_sequence() -> None:
     except Exception:
         logger.debug("model_health_tracker_persist_on_shutdown_skipped", exc_info=True)
     run_shutdown_sequence(active_run_tasks=control_plane_state.active_run_tasks, logger=logger)
+
+
 app.router.lifespan_context = build_lifespan_context(
     on_startup=_startup_sequence,
     on_shutdown=_shutdown_sequence,
 )
+
+
 def _build_runtime_components() -> RuntimeComponents:
     base_agent_registry: dict[str, AgentContract] = {
         PRIMARY_AGENT_ID: HeadAgentAdapter(),
@@ -292,6 +297,8 @@ def _build_runtime_components() -> RuntimeComponents:
         model_health_tracker=health_tracker,
         circuit_breaker=circuit_breaker,
     )
+
+
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
     _sync_custom_agents(components)
     components.agent = components.agent_registry[PRIMARY_AGENT_ID]
@@ -312,6 +319,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         restore_orphan_grace_seconds=settings.subrun_restore_orphan_grace_seconds,
         lifecycle_delivery_error_grace_enabled=settings.subrun_lifecycle_delivery_error_grace_enabled,
     )
+
     async def _on_subrun_complete_announce(
         *,
         parent_session_id: str,
@@ -321,8 +329,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         child_output: str | None,
     ) -> None:
         announce_text = (
-            f"[subrun_announce] spawned_subrun_id={run_id} "
-            f"agent_id={child_agent_id} terminal_reason={terminal_reason}"
+            f"[subrun_announce] spawned_subrun_id={run_id} agent_id={child_agent_id} terminal_reason={terminal_reason}"
         )
         if child_output:
             announce_text = f"{announce_text}\n[child_output_summary] {child_output[:500]}"
@@ -334,6 +341,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
     # Multi-Agency Phase 1: Wire CoordinationBridge for confidence-based routing
     if settings.multi_agency_enabled:
         from app.multi_agency.coordination_bridge import CoordinationBridge
+
         bridge = CoordinationBridge(session_id="global")
         components.subrun_lane.set_coordination_bridge(bridge)
         logger.info("multi_agency_coordination_bridge_wired")
@@ -356,7 +364,9 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         runtime_state = components.runtime_manager.get_state()
         selected_model = (model or "").strip() or runtime_state.model
         if runtime_state.runtime == "local":
-            selected_model = await components.runtime_manager.ensure_model_ready(send_event, parent_session_id, selected_model)
+            selected_model = await components.runtime_manager.ensure_model_ready(
+                send_event, parent_session_id, selected_model
+            )
         else:
             selected_model = await components.runtime_manager.resolve_api_request_model(selected_model)
         normalized_agent_id = _normalize_agent_id(agent_id)
@@ -440,6 +450,7 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         if "synthesis_valid" in handover:
             result["synthesis_valid"] = handover["synthesis_valid"]
         return result
+
     async def _request_policy_override_from_agent(
         *,
         send_event,
@@ -530,9 +541,11 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                 },
             )
         return decision in {"allow_once", "allow_always", "allow_session"}
+
     for owner_agent_id, agent_instance in components.agent_registry.items():
         set_handler = getattr(agent_instance, "set_spawn_subrun_handler", None)
         if callable(set_handler):
+
             async def _bound_spawn_subrun_handler(*, _owner_agent_id: str = owner_agent_id, **kwargs):
                 if "source_agent_id" not in kwargs or kwargs.get("source_agent_id") is None:
                     kwargs["source_agent_id"] = _owner_agent_id
@@ -542,17 +555,27 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
         set_policy_handler = getattr(agent_instance, "set_policy_approval_handler", None)
         if callable(set_policy_handler):
             set_policy_handler(_request_policy_override_from_agent)
+
+
 _runtime_registry = LazyRuntimeRegistry(builder=_build_runtime_components, initializer=_initialize_runtime_components)
+
+
 def _get_runtime_components() -> RuntimeComponents:
     return _runtime_registry.get_components()
+
+
 def _ensure_runtime_components_initialized() -> RuntimeComponents:
     return _runtime_registry.ensure_initialized()
+
+
 agent_registry: MutableMapping[str, AgentContract] = LazyMappingProxy(lambda: _get_runtime_components().agent_registry)
 runtime_manager = LazyObjectProxy(lambda: _get_runtime_components().runtime_manager)
 state_store = LazyObjectProxy(lambda: _get_runtime_components().state_store)
 session_query_service = LazyObjectProxy(lambda: _get_runtime_components().session_query_service)
 policy_approval_service = LazyObjectProxy(lambda: _get_runtime_components().policy_approval_service)
-orchestrator_registry: MutableMapping[str, OrchestratorApi] = LazyMappingProxy(lambda: _get_runtime_components().orchestrator_registry)
+orchestrator_registry: MutableMapping[str, OrchestratorApi] = LazyMappingProxy(
+    lambda: _get_runtime_components().orchestrator_registry
+)
 custom_agent_store = LazyObjectProxy(lambda: _get_runtime_components().custom_agent_store)
 agent = LazyObjectProxy(lambda: _get_runtime_components().agent)
 orchestrator_api = LazyObjectProxy(lambda: _get_runtime_components().orchestrator_api)
@@ -575,6 +598,8 @@ def _normalize_agent_id(agent_id: str | None) -> str:
         primary_agent_id=PRIMARY_AGENT_ID,
         legacy_agent_aliases={},
     )
+
+
 def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = None) -> set[str]:
     if components is None:
         components = _get_runtime_components()
@@ -583,6 +608,8 @@ def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = Non
         primary_agent_id=PRIMARY_AGENT_ID,
         custom_orchestrator_agent_ids=components.custom_orchestrator_agent_ids,
     )
+
+
 def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
     if components is None:
         components = _get_runtime_components()
@@ -594,6 +621,8 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         review_agent_id=REVIEW_AGENT_ID,
         effective_orchestrator_agent_ids_fn=_effective_orchestrator_agent_ids,
     )
+
+
 def _resolve_agent(agent_id: str | None):
     return _resolve_agent_impl(
         agent_id=agent_id,
@@ -628,6 +657,8 @@ def _route_agent_for_message(
         for item in ranked_matches[:5]
     ]
     return effective_agent_id, reason, required_capabilities, ranked_payload
+
+
 def _looks_like_review_request(message: str) -> bool:
     text = (message or "").strip().lower()
     if not text:
@@ -674,6 +705,8 @@ def _looks_like_review_request(message: str) -> bool:
         "generate",
     )
     return not any(marker in text for marker in execution_or_research_markers)
+
+
 tools_handlers.configure(
     tools_handlers.ToolsHandlerDependencies(
         sync_custom_agents=_sync_custom_agents,
@@ -849,7 +882,9 @@ app.include_router(
     build_runtime_debug_router(
         runtime_status_handler=lambda: api_runtime_status(_runtime_debug_dependencies),
         runtime_features_handler=lambda: api_runtime_features(_runtime_debug_dependencies),
-        runtime_update_features_handler=lambda payload: api_runtime_update_features(_runtime_debug_dependencies, payload),
+        runtime_update_features_handler=lambda payload: api_runtime_update_features(
+            _runtime_debug_dependencies, payload
+        ),
         resolved_prompts_handler=lambda: api_resolved_prompt_settings(_runtime_debug_dependencies),
         ping_handler=lambda: api_test_ping(_runtime_debug_dependencies),
         calibration_recommendations_handler=lambda: api_calibration_recommendations(_runtime_debug_dependencies),
@@ -858,13 +893,15 @@ app.include_router(
 )
 app.include_router(
     build_subruns_router(
-        subruns_list_handler=lambda parent_session_id, parent_request_id, requester_session_id, visibility_scope, limit: api_subruns_list(
-            parent_session_id=parent_session_id,
-            parent_request_id=parent_request_id,
-            requester_session_id=requester_session_id,
-            visibility_scope=visibility_scope,
-            limit=limit,
-            deps=_subrun_endpoint_dependencies,
+        subruns_list_handler=lambda parent_session_id, parent_request_id, requester_session_id, visibility_scope, limit: (
+            api_subruns_list(
+                parent_session_id=parent_session_id,
+                parent_request_id=parent_request_id,
+                requester_session_id=requester_session_id,
+                visibility_scope=visibility_scope,
+                limit=limit,
+                deps=_subrun_endpoint_dependencies,
+            )
         ),
         subrun_get_handler=lambda run_id, requester_session_id, visibility_scope: api_subruns_get(
             run_id=run_id,
@@ -885,7 +922,9 @@ app.include_router(
             cascade=cascade,
             deps=_subrun_endpoint_dependencies,
         ),
-        subrun_kill_all_handler=lambda request_data: api_subruns_kill_all_async(request_data, _subrun_endpoint_dependencies),
+        subrun_kill_all_handler=lambda request_data: api_subruns_kill_all_async(
+            request_data, _subrun_endpoint_dependencies
+        ),
     )
 )
 ws_handler_dependencies = WsHandlerDependencies(

@@ -77,8 +77,7 @@ class StateStore:
 
             cap = max(1, limit)
             ordered_ids = [
-                run_id
-                for run_id, _ in heapq.nlargest(cap, self._run_index.items(), key=lambda item: item[1])
+                run_id for run_id, _ in heapq.nlargest(cap, self._run_index.items(), key=lambda item: item[1])
             ]
 
             items: list[dict] = []
@@ -305,8 +304,10 @@ class StateStore:
     def _restrict_file_permissions(file_path: Path) -> None:
         """SEC (STATE-02): Set file permissions to owner-only (0o600) on non-Windows systems."""
         import os as _os
+
         if _os.name != "nt":
             import stat as _stat
+
             with contextlib.suppress(OSError):
                 file_path.chmod(_stat.S_IRUSR | _stat.S_IWUSR)
 
@@ -333,9 +334,7 @@ class SqliteStateStore(StateStore):
                 )
                 """
             )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runs_updated_at_ts ON runs(updated_at_ts DESC)"
-            )
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_updated_at_ts ON runs(updated_at_ts DESC)")
 
     def init_run(
         self,

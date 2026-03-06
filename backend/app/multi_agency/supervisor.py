@@ -11,6 +11,7 @@ replaces that with structured, deterministic coordination logic:
 - Conflict resolution between agents
 - Re-delegation when confidence is too low
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,16 +42,18 @@ class TaskStatus(StrEnum):
 
 class SupervisorStrategy(StrEnum):
     """How the supervisor distributes work."""
-    SEQUENTIAL = "sequential"       # One agent at a time, in order
-    PARALLEL = "parallel"           # All independent tasks simultaneously
-    PIPELINE = "pipeline"           # Output of one feeds into next
-    COMPETITIVE = "competitive"     # Multiple agents solve same task, best wins
-    HIERARCHICAL = "hierarchical"   # Supervisor delegates to sub-supervisors
+
+    SEQUENTIAL = "sequential"  # One agent at a time, in order
+    PARALLEL = "parallel"  # All independent tasks simultaneously
+    PIPELINE = "pipeline"  # Output of one feeds into next
+    COMPETITIVE = "competitive"  # Multiple agents solve same task, best wins
+    HIERARCHICAL = "hierarchical"  # Supervisor delegates to sub-supervisors
 
 
 @dataclass
 class SupervisorTask:
     """A unit of work managed by the supervisor."""
+
     task_id: str
     description: str
     required_capabilities: set[str]
@@ -66,7 +69,7 @@ class SupervisorTask:
     created_at: str = ""
     started_at: str | None = None
     completed_at: str | None = None
-    quality_score: float | None = None   # post-review score
+    quality_score: float | None = None  # post-review score
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -77,7 +80,8 @@ class SupervisorTask:
 @dataclass(frozen=True)
 class SupervisorDecision:
     """A decision made by the supervisor."""
-    decision_type: str    # "assign", "retry", "redelegate", "escalate", "complete", "reject", "parallel_fanout"
+
+    decision_type: str  # "assign", "retry", "redelegate", "escalate", "complete", "reject", "parallel_fanout"
     task_id: str
     agent_id: str | None
     reason: str
@@ -89,13 +93,14 @@ class SupervisorDecision:
 @dataclass
 class CoordinationSession:
     """Tracks all tasks and agents in a coordination session."""
+
     session_id: str
     tasks: dict[str, SupervisorTask] = field(default_factory=dict)
     decisions: list[SupervisorDecision] = field(default_factory=list)
     active_agents: set[str] = field(default_factory=set)
     strategy: str = SupervisorStrategy.PARALLEL
     overall_confidence: float = 0.0
-    status: str = "active"    # "active", "completed", "failed"
+    status: str = "active"  # "active", "completed", "failed"
     created_at: str = ""
 
     def __post_init__(self):
@@ -229,15 +234,16 @@ class SupervisorCoordinator:
 
         # Check if agent is already overloaded
         active_tasks_for_agent = sum(
-            1 for t in session.tasks.values()
-            if t.assigned_agent_id == best_agent.agent_id
-            and t.status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS}
+            1
+            for t in session.tasks.values()
+            if t.assigned_agent_id == best_agent.agent_id and t.status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS}
         )
         if active_tasks_for_agent >= best_agent.capability_profile.max_concurrent_tasks:
             # Try next best agent
             for alt_agent, alt_score in candidates[1:]:
                 alt_active = sum(
-                    1 for t in session.tasks.values()
+                    1
+                    for t in session.tasks.values()
                     if t.assigned_agent_id == alt_agent.agent_id
                     and t.status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS}
                 )
@@ -498,7 +504,10 @@ class SupervisorCoordinator:
             # All tasks cancelled, none completed — treat as failed
             session.status = "failed"
 
-        elif failed and not any(t.status in {TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.RETRYING} for t in all_tasks):
+        elif failed and not any(
+            t.status in {TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.RETRYING}
+            for t in all_tasks
+        ):
             session.status = "failed"
 
     async def get_session_status(self, session_id: str) -> dict[str, Any]:

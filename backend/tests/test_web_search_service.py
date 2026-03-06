@@ -24,9 +24,7 @@ def test_duckduckgo_parses_related_topics() -> None:
             "AbstractURL": "https://en.wikipedia.org/wiki/France",
             "AbstractText": "France is a country in Europe.",
             "Heading": "France",
-            "RelatedTopics": [
-                {"Text": "Paris - Capital city of France", "FirstURL": "https://duckduckgo.com/Paris"}
-            ],
+            "RelatedTopics": [{"Text": "Paris - Capital city of France", "FirstURL": "https://duckduckgo.com/Paris"}],
         },
     )
 

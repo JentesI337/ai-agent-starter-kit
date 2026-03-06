@@ -54,7 +54,7 @@ class DegradationResponse:
     failed_attempts: list[FailedAttempt] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
     explanation: str = ""
-    confidence: float = 0.0     # 0.0 = nothing useful, 1.0 = fully done
+    confidence: float = 0.0  # 0.0 = nothing useful, 1.0 = fully done
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -178,16 +178,17 @@ class GracefulDegradation:
                     f"but {len(attempts)} approach(es) failed."
                 )
             else:
-                explanation = (
-                    f"All {len(attempts)} approach(es) failed. "
-                    f"See suggestions below for manual resolution."
-                )
+                explanation = f"All {len(attempts)} approach(es) failed. See suggestions below for manual resolution."
 
         fully_resolved = len(attempts) == 0 and len(partial_results) > 0
 
         logger.info(
             "degradation: task='%s' resolved=%s confidence=%.2f partials=%d failures=%d",
-            task, fully_resolved, confidence, len(partial_results), len(attempts),
+            task,
+            fully_resolved,
+            confidence,
+            len(partial_results),
+            len(attempts),
         )
 
         return DegradationResponse(

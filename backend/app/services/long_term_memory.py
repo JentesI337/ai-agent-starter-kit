@@ -103,9 +103,7 @@ class LongTermMemoryStore:
         entry_id: str | None = None,
         timestamp: str | None = None,
     ) -> None:
-        key_actions_text = json.dumps(
-            [action.strip() for action in (key_actions or []) if str(action).strip()]
-        )
+        key_actions_text = json.dumps([action.strip() for action in (key_actions or []) if str(action).strip()])
         tags_text = json.dumps([tag.strip() for tag in (tags or []) if str(tag).strip()])
         row_id = (entry_id or "").strip() or uuid.uuid4().hex
         row_timestamp = (timestamp or "").strip() or datetime.now(UTC).isoformat()
@@ -156,9 +154,7 @@ class LongTermMemoryStore:
                 source_sessions=list(source_sessions or []),
                 last_updated=(last_updated or "").strip() or datetime.now(UTC).isoformat(),
             )
-        source_sessions_text = ",".join(
-            session.strip() for session in entry.source_sessions if str(session).strip()
-        )
+        source_sessions_text = ",".join(session.strip() for session in entry.source_sessions if str(session).strip())
         with self._lock, sqlite3.connect(str(self._db_path)) as connection:
             connection.execute(
                 """
@@ -204,7 +200,7 @@ class LongTermMemoryStore:
                     f"""
                     SELECT id, timestamp, task_description, error_type, root_cause, solution, prevention, tags
                     FROM failure_journal
-                    WHERE {' OR '.join(where_clauses)}
+                    WHERE {" OR ".join(where_clauses)}
                     ORDER BY timestamp DESC
                     LIMIT ?
                     """,
@@ -261,7 +257,7 @@ class LongTermMemoryStore:
                     f"""
                     SELECT id, session_id, timestamp, summary, key_actions, outcome, tags
                     FROM episodic
-                    WHERE {' OR '.join(where_clauses)}
+                    WHERE {" OR ".join(where_clauses)}
                     ORDER BY timestamp DESC
                     LIMIT ?
                     """,
