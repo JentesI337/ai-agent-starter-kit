@@ -452,6 +452,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 "prompt_mode": prompt_mode,
                 "reasoning_level": reasoning_level,
                 "reasoning_visibility": reasoning_visibility,
+                "content_length": len(content),
             },
         )
 
@@ -1357,6 +1358,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         "preset": applied_preset,
                         "reasoning_level": reasoning_level,
                         "reasoning_visibility": reasoning_visibility,
+                        "content_length": len(content),
                     },
                 )
 

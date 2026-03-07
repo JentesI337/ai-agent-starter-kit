@@ -1,0 +1,90 @@
+@if (routingDecision) {
+  <section class="routing-inspector">
+
+    <!-- ── Summary Pill ──────────────────────────────────── -->
+    <div class="summary-pill">
+      <span class="summary-dot"></span>
+      <span class="summary-text">{{ summary }}</span>
+    </div>
+
+    <!-- ── Agent Routing ─────────────────────────────────── -->
+    <details class="section" [open]="routingOpen">
+      <summary class="section-header" (click)="$event.preventDefault(); routingOpen = !routingOpen">
+        <svg class="section-chevron" [class.section-chevron--open]="routingOpen" width="12" height="12" viewBox="0 0 12 12">
+          <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="section-label">Agent Routing</span>
+      </summary>
+
+      <div class="section-body">
+        <div class="routing-result">
+          <div class="routing-target">
+            <span class="routing-check">✓</span>
+            <span class="routing-agent-name">{{ routingDecision.effectiveAgentId }}</span>
+            <span class="method-badge" [attr.data-method]="routingDecision.routingMethod">
+              {{ routingDecision.routingMethod }}
+            </span>
+          </div>
+          @if (routingDecision.requestedAgentId && routingDecision.requestedAgentId !== routingDecision.effectiveAgentId) {
+            <div class="routing-override">
+              Requested: <span class="mono">{{ routingDecision.requestedAgentId }}</span>
+            </div>
+          }
+        </div>
+
+        @if (routingDecision.routingCapabilities.length) {
+          <div class="caps-row">
+            <span class="caps-label">Required</span>
+            @for (cap of routingDecision.routingCapabilities; track cap) {
+              <span class="cap-chip">{{ cap }}</span>
+            }
+          </div>
+        }
+
+        @if (sortedMatches.length) {
+          <div class="score-chart" role="list" aria-label="Agent Capability Scores">
+            @for (match of sortedMatches; track match.agentId) {
+              <div class="score-row" role="listitem"
+                   [class.score-row--winner]="match.agentId === routingDecision.effectiveAgentId">
+                <span class="score-name">{{ match.agentId }}</span>
+                <div class="score-track">
+                  <div class="score-fill"
+                       [style.width.%]="getBarWidth(match.score)"
+                       role="progressbar"
+                       [attr.aria-valuenow]="match.score"
+                       aria-valuemin="0"
+                       [attr.aria-valuemax]="maxScore"
+                       [attr.aria-label]="match.agentId + ': Score ' + match.score">
+                  </div>
+                </div>
+                <span class="score-num">{{ match.score }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </details>
+
+    <!-- ── Request Envelope ──────────────────────────────── -->
+    <details class="section" [open]="envelopeOpen">
+      <summary class="section-header" (click)="$event.preventDefault(); envelopeOpen = !envelopeOpen">
+        <svg class="section-chevron" [class.section-chevron--open]="envelopeOpen" width="12" height="12" viewBox="0 0 12 12">
+          <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="section-label">Request Envelope</span>
+      </summary>
+
+      <div class="section-body">
+        <dl class="kv-grid">
+          @for (entry of envelopeEntries; track entry.label) {
+            <dt class="kv-key">{{ entry.label }}</dt>
+            <dd class="kv-val" [class.kv-val--null]="!entry.value">
+              {{ entry.value ?? '—' }}
+            </dd>
+          }
+        </dl>
+      </div>
+    </details>
+
+  </section>
+}

@@ -89,6 +89,35 @@ export interface DebugEvent {
   details?: Record<string, unknown>;
 }
 
+export interface RequestEnvelope {
+  type: string;
+  contentLength: number;
+  agentOverride: string | null;
+  modelOverride: string | null;
+  preset: string | null;
+  promptMode: string | null;
+  queueMode: string | null;
+  reasoningLevel: string | null;
+  reasoningVisibility: string | null;
+  sessionId: string | null;
+  requestId: string | null;
+}
+
+export interface RoutingMatch {
+  agentId: string;
+  score: number;
+  matchedCapabilities: string[];
+}
+
+export interface RoutingDecision {
+  requestedAgentId: string;
+  effectiveAgentId: string;
+  routingReason: string | null;
+  routingMethod: 'explicit' | 'preset' | 'capability_matching' | 'default';
+  routingCapabilities: string[];
+  routingMatches: RoutingMatch[];
+}
+
 export interface DebugSnapshot {
   debugState: DebugState;
   currentPhase: PipelinePhase | null;
@@ -102,6 +131,8 @@ export interface DebugSnapshot {
   requestId: string | null;
   runStartTime: number | null;
   totalDurationMs: number;
+  requestEnvelope: RequestEnvelope | null;
+  routingDecision: RoutingDecision | null;
 }
 
 // ── Chat types (kept here so they persist across route changes) ──
@@ -156,6 +187,8 @@ export class AgentStateService implements OnDestroy {
     requestId: null,
     runStartTime: null,
     totalDurationMs: 0,
+    requestEnvelope: null,
+    routingDecision: null,
   });
   readonly debug$ = this._debug.asObservable();
 
@@ -562,6 +595,8 @@ export class AgentStateService implements OnDestroy {
       requestId: null,
       runStartTime: null,
       totalDurationMs: 0,
+      requestEnvelope: null,
+      routingDecision: null,
     });
   }
 
@@ -630,6 +665,59 @@ export class AgentStateService implements OnDestroy {
           ...this.activatePhasePartial(d, 'routing'),
         };
         break;
+
+      case 'request_dispatched': {
+        const routingReason = (details['routing_reason'] as string) ?? null;
+        const requestedId = (details['requested_agent_id'] as string) ?? '';
+        const effectiveId = (details['effective_agent_id'] as string) ?? '';
+
+        let routingMethod: RoutingDecision['routingMethod'] = 'default';
+        if (routingReason?.endsWith('_intent') || routingReason === 'capability_match') {
+          routingMethod = 'capability_matching';
+        } else if (routingReason?.startsWith('preset_')) {
+          routingMethod = 'preset';
+        } else if (requestedId && requestedId !== effectiveId && !routingReason) {
+          routingMethod = 'explicit';
+        }
+
+        const rawMatches = Array.isArray(details['routing_matches'])
+          ? details['routing_matches'] as Array<Record<string, unknown>>
+          : [];
+
+        next = {
+          ...next,
+          requestEnvelope: {
+            type: 'user_message',
+            contentLength: Number(details['content_length'] ?? 0),
+            agentOverride: requestedId || null,
+            modelOverride: (details['model'] as string) || null,
+            preset: (details['preset'] as string) || null,
+            promptMode: (details['prompt_mode'] as string) || null,
+            queueMode: (details['queue_mode'] as string) || null,
+            reasoningLevel: (details['reasoning_level'] as string) || null,
+            reasoningVisibility: (details['reasoning_visibility'] as string) || null,
+            sessionId: event.session_id ?? d.requestId,
+            requestId: requestId,
+          },
+          routingDecision: {
+            requestedAgentId: requestedId,
+            effectiveAgentId: effectiveId,
+            routingReason,
+            routingMethod,
+            routingCapabilities: Array.isArray(details['routing_capabilities'])
+              ? (details['routing_capabilities'] as string[])
+              : [],
+            routingMatches: rawMatches.map(m => ({
+              agentId: String(m['agent_id'] ?? ''),
+              score: Number(m['score'] ?? 0),
+              matchedCapabilities: Array.isArray(m['matched_capabilities'])
+                ? (m['matched_capabilities'] as string[]).map(String)
+                : [],
+            })),
+          },
+        };
+        break;
+      }
 
       case 'guardrails_passed':
         next = {

@@ -8,6 +8,9 @@ export type {
   ReflectionVerdict,
   DebugEvent,
   DebugSnapshot,
+  RequestEnvelope,
+  RoutingDecision,
+  RoutingMatch,
 } from '../../services/agent-state.service';
 
 // UI-only types (not shared via state service)

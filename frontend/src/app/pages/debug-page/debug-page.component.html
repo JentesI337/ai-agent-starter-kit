@@ -33,6 +33,12 @@
 
   </div>
 
+  <!-- Request & Routing Inspector -->
+  <app-request-routing-inspector
+    [requestEnvelope]="requestEnvelope"
+    [routingDecision]="routingDecision">
+  </app-request-routing-inspector>
+
   <!-- Pause Banner -->
   @if (debugState === 'paused') {
     <div class="pause-banner" role="alert">

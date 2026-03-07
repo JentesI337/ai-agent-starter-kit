@@ -6,7 +6,7 @@
 
 .debug-page {
   display: grid;
-  grid-template-rows: auto 1fr auto auto auto;
+  grid-template-rows: auto 1fr auto auto auto auto;
   height: 100%;
   background:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 204, 122, 0.03), transparent 70%),
