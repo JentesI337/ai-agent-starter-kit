@@ -8,14 +8,14 @@ import {
 import { Subscription } from 'rxjs';
 
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { AgentSocketService } from '../../services/agent-socket.service';
-import { AgentStateService, PolicyApprovalItem, RequestEnvelope, RoutingDecision } from '../../services/agent-state.service';
+import { AgentStateService, PolicyApprovalItem } from '../../services/agent-state.service';
 import { DebugToolbarComponent } from './debug-toolbar/debug-toolbar.component';
 import { PipelineCanvasComponent } from './pipeline-canvas/pipeline-canvas.component';
 import { PromptInspectorComponent } from './prompt-inspector/prompt-inspector.component';
 import { EventLogComponent } from './event-log/event-log.component';
-import { RequestRoutingInspectorComponent } from './request-routing-inspector/request-routing-inspector.component';
 import {
   DebugEvent,
   DebugState,
@@ -31,11 +31,11 @@ import {
   standalone: true,
   imports: [
     FormsModule,
+    RouterLink,
     DebugToolbarComponent,
     PipelineCanvasComponent,
     PromptInspectorComponent,
     EventLogComponent,
-    RequestRoutingInspectorComponent,
   ],
   templateUrl: './debug-page.component.html',
   styleUrl: './debug-page.component.scss',
@@ -53,8 +53,6 @@ export class DebugPageComponent implements OnInit, OnDestroy {
   eventLog: DebugEvent[] = [];
   requestId: string | null = null;
   totalDurationMs = 0;
-  requestEnvelope: RequestEnvelope | null = null;
-  routingDecision: RoutingDecision | null = null;
 
   // ── Local UI state ───────────────────────────────────────
   activeBreakpoints = new Set<PipelinePhase>();
@@ -89,8 +87,6 @@ export class DebugPageComponent implements OnInit, OnDestroy {
         this.eventLog = snap.eventLog;
         this.requestId = snap.requestId;
         this.totalDurationMs = snap.totalDurationMs;
-        this.requestEnvelope = snap.requestEnvelope;
-        this.routingDecision = snap.routingDecision;
         this.cdr.detectChanges();
       })
     );

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>AI Agent Starter Kit — Architekturdiagramm</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; height: 100vh; }
+  #toolbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10;
+    background: #313244; border-radius: 8px; padding: 6px 12px; display: flex; gap: 8px; align-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  #toolbar button { background: #45475a; border: none; color: #cdd6f4; padding: 6px 14px; border-radius: 6px;
+    cursor: pointer; font-size: 14px; transition: background .15s; }
+  #toolbar button:hover { background: #585b70; }
+  #toolbar span { font-size: 13px; opacity: .7; }
+  #container { width: 100vw; height: 100vh; overflow: hidden; cursor: grab; }
+  #container.grabbing { cursor: grabbing; }
+  #diagram { transform-origin: 0 0; }
+  #hint { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .45; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button onclick="zoomIn()">➕ Zoom In</button>
+  <button onclick="zoomOut()">➖ Zoom Out</button>
+  <button onclick="resetView()">🔄 Reset</button>
+  <button onclick="fitToScreen()">📐 Fit</button>
+  <span id="zoomLevel">100%</span>
+</div>
+<div id="container">
+  <div id="diagram"></div>
+</div>
+<div id="hint">Scroll to zoom · Drag to pan · Double-click to reset</div>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    fontSize: '14px',
+    primaryColor: '#FFB74D',
+    primaryTextColor: '#000',
+    primaryBorderColor: '#F57C00',
+    lineColor: '#7f849c',
+    secondaryColor: '#45475a',
+    tertiaryColor: '#313244',
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', padding: 16, nodeSpacing: 30, rankSpacing: 50 },
+  securityLevel: 'loose',
+});
+
+const graphDef = `graph TB
+    subgraph Frontend["Frontend · Angular"]
+        UI["Angular UI"]
+        WSC["WebSocket Client"]
+        RESTC["REST Client"]
+    end
+
+    subgraph S1["Schicht 1 · Transport"]
+        WS["ws_handler.py\\nWebSocket Handler"]
+        SInbox["SessionInboxService\\nMsg Queue / Session"]
+        REST["10 REST Routers\\n/api/v1/*"]
+        HDL["handlers/\\n7 Business-Logic Handler"]
+    end
+
+    subgraph S2["Schicht 2 · Agent & Orchestration"]
+        direction TB
+
+        subgraph AG["15 Agenten"]
+            HA["HeadAgent\\n11-Phasen Pipeline"]
+            CA["Core: Coder · Review · Researcher"]
+            SA["Specialist: Architect · Test\\nSecurity · Doc · Refactor · DevOps"]
+            IA["Industry: FinTech · HealthTech\\nLegalTech · ECommerce · IndustryTech"]
+        end
+
+        subgraph SUB["Sub-Agents"]
+            PL["PlannerAgent"]
+            TS["ToolSelectorAgent"]
+            SY["SynthesizerAgent"]
+        end
+
+        subgraph PIPE["11 Phasen · Reasoning Pipeline"]
+            P1["1 INIT"] --> P2["2 GUARDRAILS"] --> P3["3 TOOL RES"] --> P4["4 MEMORY"]
+            P4 --> P5["5 AMBIGUITY"] --> P6["6 PLANNING"] --> P7["7 TOOL LOOP"]
+            P7 --> P8["8 VALIDATION"] --> P9["9 SYNTHESIS"] --> P10["10 REFLECT"] --> P11["11 FINAL"]
+        end
+
+        subgraph ORC["Orchestration"]
+            OA["OrchestratorApi"]
+            PR["PipelineRunner"]
+            FSM["FallbackStateMachine\\nINIT→SELECT→EXECUTE→\\nSUCCESS/FAIL→FINALIZE"]
+            RSM["RunStateMachine\\nreceived→…→persisted"]
+            SLM["SessionLaneManager"]
+            SRL["SubrunLane"]
+        end
+
+        subgraph MA["Multi-Agency · optional"]
+            CB["CoordinationBridge\nWatcher + Orchestrator"]
+            CR["ConfidenceRouter\nevaluate_handover()"]
+            BB["Blackboard\nPub/Sub Event Store"]
+            SUP["Supervisor\nQuality Gate"]
+            AR["AgentRegistry"]
+            MB["MessageBus\nBroadcasts"]
+            PE["ParallelExecutor"]
+            CON["Consensus"]
+        end
+    end
+
+    subgraph S3["Schicht 3 · Model Routing"]
+        MR["ModelRouter\\nScoring"]
+        MREG["ModelRegistry"]
+        LLC["LlmClient\\nOpenAI / Ollama"]
+        MHT["ModelHealthTracker"]
+        CWG["ContextWindowGuard"]
+    end
+
+    subgraph S4["Schicht 4 · Persistence"]
+        MS["MemoryStore · JSONL"]
+        SS["SqliteStateStore"]
+        LTM["LongTermMemory · SQLite"]
+        RFS["ReflectionFeedbackStore"]
+    end
+
+    subgraph S5["Schicht 5 · Policy & Guardrails"]
+        TP["ToolPolicy\\n6-Layer Resolution"]
+        PA["PolicyApprovalService\\nHuman-in-the-Loop"]
+        CBR["CircuitBreakerRegistry"]
+        AIS["AgentIsolationPolicy"]
+        RL["RateLimiter"]
+        SEC["SessionSecurity · HMAC\\nStateEncryption · AES-256"]
+    end
+
+    subgraph S6["Schicht 6 · Skills & Extensions"]
+        SKS["SkillsService"]
+        DIS["Discovery · SKILL.md"]
+        MCP["McpBridge"]
+        HK["Hooks"]
+    end
+
+    subgraph SVC["60+ Services"]
+        REF["ReflectionService"]
+        VER["VerificationService"]
+        AP["ActionParser"]
+        PKB["PromptKernelBuilder"]
+        TEM["ToolExecutionManager"]
+        LL["LearningLoop"]
+        SHL["SelfHealingLoop"]
+        TT["ToolTelemetry"]
+    end
+
+    subgraph LLM["LLM Backend"]
+        OLL["Ollama · lokal"]
+        OAI["OpenAI-kompatible API"]
+    end
+
+    UI --> WSC & RESTC
+    WSC -->|WebSocket| WS
+    RESTC -->|HTTP| REST
+    REST --> HDL
+    WS --> SInbox --> OA
+    HDL --> OA
+
+    OA --> PR
+    PR --> FSM & RSM & SLM
+    FSM --> HA
+
+    HA --> PL & TS & SY
+    HA --> CA & SA & IA
+    HA -->|spawnt Subrun| SRL
+    SRL -->|on_subrun_completed| CB
+    CB --> CR
+    CR -->|confidence_decision| HA
+    CB -->|write| BB
+    BB -->|watcher notify| CB
+    CB -->|report_result| SUP
+    SUP -->|confidence OK| MB
+    SUP -->|confidence low| SRL
+    SUP -->|write audit| BB
+    CB --> AR
+    MB --> PE & CON
+
+    HA --> MR
+    MR --> MREG & MHT & CWG & LLC
+    LLC --> OLL & OAI
+
+    HA --> MS & LTM
+    PR --> SS
+
+    HA --> TP
+    TP --> PA --> CBR
+    AIS --> TP
+
+    HA --> SKS --> DIS
+    MCP --> TEM
+
+    HA --> REF & VER & AP & PKB & TEM & LL
+    TEM --> TT & SHL
+
+    classDef c1 fill:#4FC3F7,stroke:#0288D1,color:#000
+    classDef c2 fill:#81C784,stroke:#388E3C,color:#000
+    classDef c3 fill:#FFB74D,stroke:#F57C00,color:#000
+    classDef c4 fill:#CE93D8,stroke:#7B1FA2,color:#000
+    classDef c5 fill:#A1887F,stroke:#5D4037,color:#fff
+    classDef c6 fill:#EF5350,stroke:#C62828,color:#fff
+    classDef c7 fill:#4DB6AC,stroke:#00796B,color:#000
+    classDef c8 fill:#90A4AE,stroke:#455A64,color:#000
+
+    class UI,WSC,RESTC c1
+    class WS,SInbox,REST,HDL c2
+    class HA,CA,SA,IA,PL,TS,SY,OA,PR,FSM,RSM,SLM,SRL,CB,SUP,AR,BB,MB,CR,PE,CON c3
+    class MR,MREG,LLC,MHT,CWG c4
+    class MS,SS,LTM,RFS c5
+    class TP,PA,CBR,AIS,RL,SEC c6
+    class SKS,DIS,MCP,HK c7
+    class OLL,OAI c8
+    class P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11 c3
+    class REF,VER,AP,PKB,TEM,LL,SHL,TT c3
+`;
+
+const { svg } = await mermaid.render('mermaidGraph', graphDef);
+document.getElementById('diagram').innerHTML = svg;
+
+// Make SVG fill nicely
+const svgEl = document.querySelector('#diagram svg');
+if (svgEl) {
+  svgEl.style.maxWidth = 'none';
+  svgEl.style.height = 'auto';
+}
+
+// Expose fitToScreen for after render
+window.fitToScreen();
+</script>
+
+<script>
+// --- Pan & Zoom ---
+const container = document.getElementById('container');
+const diagram = document.getElementById('diagram');
+let scale = 1, panX = 0, panY = 0;
+let isDragging = false, startX, startY;
+
+function applyTransform() {
+  diagram.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
+}
+
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const rect = container.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const newScale = Math.min(Math.max(scale * delta, 0.1), 5);
+  panX = mx - (mx - panX) * (newScale / scale);
+  panY = my - (my - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}, { passive: false });
+
+container.addEventListener('mousedown', e => { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; container.classList.add('grabbing'); });
+window.addEventListener('mousemove', e => { if (!isDragging) return; panX = e.clientX - startX; panY = e.clientY - startY; applyTransform(); });
+window.addEventListener('mouseup', () => { isDragging = false; container.classList.remove('grabbing'); });
+container.addEventListener('dblclick', () => resetView());
+
+window.zoomIn = () => { scale = Math.min(scale * 1.25, 5); applyTransform(); };
+window.zoomOut = () => { scale = Math.max(scale * 0.8, 0.1); applyTransform(); };
+window.resetView = () => { scale = 1; panX = 0; panY = 0; applyTransform(); };
+window.fitToScreen = () => {
+  const svg = document.querySelector('#diagram svg');
+  if (!svg) return;
+  const sw = svg.getBoundingClientRect().width / scale;
+  const sh = svg.getBoundingClientRect().height / scale;
+  const cw = container.clientWidth, ch = container.clientHeight;
+  scale = Math.min(cw / sw, ch / sh, 1) * 0.92;
+  panX = (cw - sw * scale) / 2;
+  panY = (ch - sh * scale) / 2 + 30;
+  applyTransform();
+};
+</script>
+</body>
+</html>

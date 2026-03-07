@@ -1,0 +1,41 @@
+:host {
+  display: block;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+.dashboard {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--c-text);
+}
+
+.back-link {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-accent);
+  text-decoration: none;
+  transition: color var(--t-fast);
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

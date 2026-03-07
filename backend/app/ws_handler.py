@@ -280,6 +280,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             return
         if isinstance(exc, GuardrailViolation):
             deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+            if exc.details.get("checks"):
+                await send_lifecycle(
+                    stage="guardrail_check_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"checks": exc.details["checks"]},
+                )
             await send_event(
                 {
                     "type": "error",
@@ -1496,6 +1503,13 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 deps.state_mark_failed_safe(run_id=request_id, error="policy_approval_cancelled")
             except GuardrailViolation as exc:
                 deps.state_mark_failed_safe(run_id=request_id, error=str(exc))
+                if exc.details.get("checks"):
+                    await send_lifecycle(
+                        stage="guardrail_check_completed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"checks": exc.details["checks"]},
+                    )
                 await send_event(
                     {
                         "type": "error",

@@ -595,8 +595,15 @@ class HeadAgent:
         )
 
         try:
-            self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
+            guardrail_checks = self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
             self._validate_tool_policy(tool_policy)
+            await self._emit_lifecycle(
+                send_event,
+                stage="guardrail_check_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={"checks": guardrail_checks},
+            )
             await self._emit_lifecycle(
                 send_event,
                 stage="guardrails_passed",
@@ -1921,17 +1928,63 @@ class HeadAgent:
             "segments": segments,
         }
 
-    def _validate_guardrails(self, user_message: str, session_id: str, model: str | None) -> None:
-        if not user_message.strip():
-            raise GuardrailViolation("Message must not be empty.")
-        if len(user_message) > settings.max_user_message_length:
-            raise GuardrailViolation(f"Message exceeds max length ({settings.max_user_message_length}).")
-        if len(session_id) > 120:
-            raise GuardrailViolation("session_id too long.")
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
-            raise GuardrailViolation("session_id contains unsupported characters.")
-        if model and len(model) > 120:
-            raise GuardrailViolation("model name too long.")
+    def _validate_guardrails(self, user_message: str, session_id: str, model: str | None) -> list[dict]:
+        """Run all 5 guardrail checks and return a list of check results.
+
+        Each result is a dict with keys: name, passed, actual_value, limit, reason (optional).
+        Raises GuardrailViolation on the first failing check after collecting all results.
+        """
+        max_msg = settings.max_user_message_length
+        msg_len = len(user_message)
+        stripped_len = len(user_message.strip())
+        sid_len = len(session_id)
+        sid_valid = bool(re.fullmatch(r"[A-Za-z0-9_-]+", session_id))
+        model_len = len(model) if model else 0
+
+        checks: list[dict] = [
+            {
+                "name": "message_not_empty",
+                "passed": stripped_len > 0,
+                "actual_value": stripped_len,
+                "limit": "> 0",
+                **({"reason": "Message must not be empty."} if stripped_len == 0 else {}),
+            },
+            {
+                "name": "message_length",
+                "passed": msg_len <= max_msg,
+                "actual_value": msg_len,
+                "limit": max_msg,
+                **({"reason": f"Message exceeds max length ({max_msg})."} if msg_len > max_msg else {}),
+            },
+            {
+                "name": "session_id_length",
+                "passed": sid_len <= 120,
+                "actual_value": sid_len,
+                "limit": 120,
+                **({"reason": "session_id too long."} if sid_len > 120 else {}),
+            },
+            {
+                "name": "session_id_charset",
+                "passed": sid_valid,
+                "actual_value": "valid" if sid_valid else "invalid",
+                "limit": "[A-Za-z0-9_-]",
+                **({"reason": "session_id contains unsupported characters."} if not sid_valid else {}),
+            },
+            {
+                "name": "model_name_length",
+                "passed": model_len <= 120,
+                "actual_value": model_len,
+                "limit": 120,
+                **({"reason": "model name too long."} if model_len > 120 else {}),
+            },
+        ]
+
+        # Raise on the first failure (preserves original behavior)
+        for check in checks:
+            if not check["passed"]:
+                raise GuardrailViolation(check["reason"], details={"checks": checks})
+
+        return checks
 
     def _validate_tool_policy(self, tool_policy: ToolPolicyDict | None) -> None:
         if tool_policy is None:

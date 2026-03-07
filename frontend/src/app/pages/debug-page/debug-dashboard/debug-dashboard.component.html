@@ -1,0 +1,22 @@
+<div class="dashboard">
+
+  <header class="dashboard-header">
+    <h1 class="dashboard-title">Debug Dashboard</h1>
+    <a class="back-link" routerLink="/debug">← Debug View</a>
+  </header>
+
+  <!-- Request & Routing Inspector -->
+  <app-request-routing-inspector
+    [requestEnvelope]="requestEnvelope"
+    [routingDecision]="routingDecision">
+  </app-request-routing-inspector>
+
+  <!-- Guardrail Monitor -->
+  <app-guardrail-monitor
+    [guardrailChecks]="guardrailChecks"
+    [toolPolicy]="toolPolicy"
+    [toolchainInfo]="toolchainInfo"
+    [mcpToolsInfo]="mcpToolsInfo">
+  </app-guardrail-monitor>
+
+</div>

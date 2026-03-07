@@ -118,6 +118,30 @@ export interface RoutingDecision {
   routingMatches: RoutingMatch[];
 }
 
+export interface GuardrailCheck {
+  name: string;
+  passed: boolean;
+  actualValue: string | number;
+  limit?: string | number;
+  reason?: string;
+}
+
+export interface ToolPolicyInfo {
+  policyType: string;
+  allowedTools: string[];
+  deniedTools: string[];
+}
+
+export interface ToolchainInfo {
+  toolCount: number;
+  issues: number;
+}
+
+export interface McpToolsInfo {
+  toolCount: number;
+  error?: string;
+}
+
 export interface DebugSnapshot {
   debugState: DebugState;
   currentPhase: PipelinePhase | null;
@@ -133,6 +157,10 @@ export interface DebugSnapshot {
   totalDurationMs: number;
   requestEnvelope: RequestEnvelope | null;
   routingDecision: RoutingDecision | null;
+  guardrailChecks: GuardrailCheck[];
+  toolPolicy: ToolPolicyInfo | null;
+  toolchainInfo: ToolchainInfo | null;
+  mcpToolsInfo: McpToolsInfo | null;
 }
 
 // ── Chat types (kept here so they persist across route changes) ──
@@ -189,6 +217,10 @@ export class AgentStateService implements OnDestroy {
     totalDurationMs: 0,
     requestEnvelope: null,
     routingDecision: null,
+    guardrailChecks: [],
+    toolPolicy: null,
+    toolchainInfo: null,
+    mcpToolsInfo: null,
   });
   readonly debug$ = this._debug.asObservable();
 
@@ -597,6 +629,10 @@ export class AgentStateService implements OnDestroy {
       totalDurationMs: 0,
       requestEnvelope: null,
       routingDecision: null,
+      guardrailChecks: [],
+      toolPolicy: null,
+      toolchainInfo: null,
+      mcpToolsInfo: null,
     });
   }
 
@@ -719,12 +755,62 @@ export class AgentStateService implements OnDestroy {
         break;
       }
 
+      case 'guardrail_check_completed': {
+        const rawChecks = Array.isArray(details['checks']) ? details['checks'] as Record<string, unknown>[] : [];
+        next = {
+          ...next,
+          guardrailChecks: rawChecks.map(c => ({
+            name: String(c['name'] ?? ''),
+            passed: Boolean(c['passed']),
+            actualValue: c['actual_value'] as string | number ?? '',
+            limit: c['limit'] as string | number | undefined,
+            reason: c['reason'] as string | undefined,
+          })),
+        };
+        break;
+      }
+
       case 'guardrails_passed':
         next = {
           ...next,
           phaseStates: new Map(d.phaseStates)
             .set('routing', 'completed')
             .set('guardrails', 'completed'),
+        };
+        break;
+
+      case 'tool_policy_resolved': {
+        const allowed = Array.isArray(details['allowed']) ? (details['allowed'] as string[]) : [];
+        const denied = Array.isArray(details['requested_deny']) ? (details['requested_deny'] as string[]) : [];
+        const policyType = String(details['policy_type'] ?? details['resolution_method'] ?? 'default');
+        next = {
+          ...next,
+          toolPolicy: { policyType, allowedTools: allowed, deniedTools: denied },
+        };
+        break;
+      }
+
+      case 'toolchain_checked': {
+        const toolCount = Number(details['tool_count'] ?? details['total'] ?? 0);
+        const issues = Number(details['issues'] ?? details['issue_count'] ?? 0);
+        next = {
+          ...next,
+          toolchainInfo: { toolCount, issues },
+        };
+        break;
+      }
+
+      case 'mcp_tools_initialized':
+        next = {
+          ...next,
+          mcpToolsInfo: { toolCount: Number(details['tool_count'] ?? 0) },
+        };
+        break;
+
+      case 'mcp_tools_failed':
+        next = {
+          ...next,
+          mcpToolsInfo: { toolCount: 0, error: String(details['error'] ?? 'unknown') },
         };
         break;
 

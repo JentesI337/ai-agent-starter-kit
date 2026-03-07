@@ -1,0 +1,154 @@
+@if (guardrailChecks.length || toolPolicy || toolchainInfo || mcpToolsInfo) {
+  <section class="guardrail-monitor">
+
+    <!-- ── Summary Badge ─────────────────────────────────── -->
+    @if (guardrailChecks.length) {
+      <div class="summary-pill">
+        <span class="summary-dot" [class.summary-dot--pass]="allPassed" [class.summary-dot--fail]="!allPassed"></span>
+        <span class="summary-text">
+          Guardrails {{ summaryBadge }}
+          @if (allPassed) { <span class="summary-status summary-status--pass">✓</span> }
+          @else { <span class="summary-status summary-status--fail">✕</span> }
+        </span>
+      </div>
+    }
+
+    <!-- ── Guardrail Checks ──────────────────────────────── -->
+    @if (guardrailChecks.length) {
+      <details class="section" [open]="guardrailsOpen">
+        <summary class="section-header" (click)="$event.preventDefault(); guardrailsOpen = !guardrailsOpen">
+          <svg class="section-chevron" [class.section-chevron--open]="guardrailsOpen" width="12" height="12" viewBox="0 0 12 12">
+            <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="section-label">Guardrails</span>
+        </summary>
+
+        <div class="section-body">
+          <div class="check-list" role="list" aria-label="Guardrail Checks">
+            @for (check of guardrailChecks; track check.name; let i = $index) {
+              <div class="check-row"
+                   role="listitem"
+                   [class.check-row--pass]="check.passed"
+                   [class.check-row--fail]="!check.passed"
+                   [style.animation-delay]="(i * 60) + 'ms'"
+                   [attr.aria-label]="getCheckLabel(check) + (check.passed ? ': bestanden' : ': fehlgeschlagen')">
+                <span class="check-icon">{{ check.passed ? '✓' : '✕' }}</span>
+                <span class="check-name">{{ getCheckLabel(check) }}</span>
+                <span class="check-value">{{ getDisplayValue(check) }}</span>
+
+                @if (getProgressPercent(check) !== null) {
+                  <div class="check-progress"
+                       role="progressbar"
+                       [attr.aria-valuenow]="check.actualValue"
+                       aria-valuemin="0"
+                       [attr.aria-valuemax]="check.limit"
+                       [attr.aria-label]="getCheckLabel(check) + ' Auslastung'">
+                    <div class="check-progress-fill"
+                         [class.check-progress-fill--warn]="getProgressPercent(check)! > 75"
+                         [class.check-progress-fill--danger]="getProgressPercent(check)! > 95"
+                         [style.width.%]="getProgressPercent(check)">
+                    </div>
+                  </div>
+                  <span class="check-percent">{{ getProgressPercent(check)! | number:'1.1-1' }}%</span>
+                }
+
+                @if (!check.passed && check.reason) {
+                  <div class="check-reason">{{ check.reason }}</div>
+                }
+              </div>
+            }
+          </div>
+
+          <div class="check-result" [class.check-result--pass]="allPassed" [class.check-result--fail]="!allPassed">
+            @if (allPassed) {
+              ✓ All {{ totalCount }} checks passed
+            } @else {
+              ✕ {{ totalCount - passedCount }} of {{ totalCount }} checks failed
+            }
+          </div>
+        </div>
+      </details>
+    }
+
+    <!-- ── Initialization ────────────────────────────────── -->
+    @if (toolPolicy || mcpToolsInfo || toolchainInfo) {
+      <details class="section" [open]="initOpen">
+        <summary class="section-header" (click)="$event.preventDefault(); initOpen = !initOpen">
+          <svg class="section-chevron" [class.section-chevron--open]="initOpen" width="12" height="12" viewBox="0 0 12 12">
+            <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="section-label">Initialization</span>
+        </summary>
+
+        <div class="section-body init-body">
+
+          <!-- Tool Policy -->
+          @if (toolPolicy) {
+            <div class="init-block">
+              <div class="init-title">Tool Policy</div>
+              <div class="init-tree">
+                <div class="tree-row">
+                  <span class="tree-branch">├─</span>
+                  <span class="tree-label">Type:</span>
+                  <span class="tree-value">{{ toolPolicy.policyType }}</span>
+                </div>
+                @if (toolPolicy.allowedTools.length) {
+                  <div class="tree-row">
+                    <span class="tree-branch">├─</span>
+                    <span class="tree-label">Allowed:</span>
+                    <span class="tree-value tree-value--tools">{{ toolPolicy.allowedTools.join(', ') }}</span>
+                  </div>
+                }
+                <div class="tree-row">
+                  <span class="tree-branch">└─</span>
+                  <span class="tree-label">Denied:</span>
+                  @if (toolPolicy.deniedTools.length) {
+                    <span class="tree-value tree-value--denied">{{ toolPolicy.deniedTools.join(', ') }}</span>
+                  } @else {
+                    <span class="tree-value tree-value--none">none</span>
+                  }
+                </div>
+              </div>
+            </div>
+          }
+
+          <!-- MCP Tools -->
+          @if (mcpToolsInfo) {
+            <div class="init-block">
+              <div class="init-title">MCP Tools</div>
+              <div class="init-tree">
+                <div class="tree-row">
+                  <span class="tree-branch">└─</span>
+                  @if (mcpToolsInfo.error) {
+                    <span class="tree-value tree-value--error">Failed: {{ mcpToolsInfo.error }}</span>
+                  } @else {
+                    <span class="tree-value">{{ mcpToolsInfo.toolCount }} tools registered ✓</span>
+                  }
+                </div>
+              </div>
+            </div>
+          }
+
+          <!-- Toolchain -->
+          @if (toolchainInfo) {
+            <div class="init-block">
+              <div class="init-title">Toolchain</div>
+              <div class="init-tree">
+                <div class="tree-row">
+                  <span class="tree-branch">└─</span>
+                  <span class="tree-value"
+                        [class.tree-value--error]="toolchainInfo.issues > 0">
+                    {{ toolchainInfo.toolCount }} tools verified, {{ toolchainInfo.issues }} issues
+                    {{ toolchainInfo.issues === 0 ? '✓' : '✕' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          }
+
+        </div>
+      </details>
+    }
+
+  </section>
+}

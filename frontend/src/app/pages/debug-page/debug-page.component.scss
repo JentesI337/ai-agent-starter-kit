@@ -39,6 +39,34 @@
   min-height: 0;
 }
 
+/* ── Dashboard Link ────────────────────────────────────────── */
+.dashboard-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-accent);
+  background: var(--c-bg-tab);
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+
+  &:hover {
+    background: var(--c-accent-dim);
+    color: var(--c-accent-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--c-border-focus);
+    outline-offset: -2px;
+  }
+}
+
 /* ── Pause Banner ──────────────────────────────────────────── */
 .pause-banner {
   display: flex;

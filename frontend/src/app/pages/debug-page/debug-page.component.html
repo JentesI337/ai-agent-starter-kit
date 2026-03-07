@@ -33,11 +33,10 @@
 
   </div>
 
-  <!-- Request & Routing Inspector -->
-  <app-request-routing-inspector
-    [requestEnvelope]="requestEnvelope"
-    [routingDecision]="routingDecision">
-  </app-request-routing-inspector>
+  <!-- Dashboard Link -->
+  <a class="dashboard-link" routerLink="/debug/dashboard">
+    📊 Dashboard — Routing &amp; Guardrails
+  </a>
 
   <!-- Pause Banner -->
   @if (debugState === 'paused') {

@@ -6,5 +6,6 @@ export const routes: Routes = [
 	{ path: '', component: ChatPageComponent },
 	{ path: 'memory', component: MemoryPageComponent },
 	{ path: 'debug', loadComponent: () => import('./pages/debug-page/debug-page.component').then(m => m.DebugPageComponent) },
+	{ path: 'debug/dashboard', loadComponent: () => import('./pages/debug-page/debug-dashboard/debug-dashboard.component').then(m => m.DebugDashboardComponent) },
 	{ path: '**', redirectTo: '' },
 ];

@@ -1,0 +1,188 @@
+graph TB
+    subgraph Frontend["🖥️ Frontend (Angular)"]
+        UI["Angular UI"]
+        WSClient["WebSocket Client"]
+        RESTClient["REST Client"]
+    end
+
+    subgraph Transport["Schicht 1 — Transport"]
+        WSHandler["ws_handler.py<br/>WebSocket Handler"]
+        SessionInbox["SessionInboxService<br/>Message Queue pro Session"]
+        REST["10 REST Routers<br/>/api/v1/*"]
+        Handlers["handlers/<br/>7 Business-Logic Handler"]
+        CORS["CORS Middleware"]
+    end
+
+    subgraph AgentLayer["Schicht 2 — Agent & Orchestration"]
+        direction TB
+        subgraph Agents["15-Agenten-Ökosystem"]
+            HeadAgent["HeadAgent<br/>(~2900 Zeilen)<br/>11-Phasen Reasoning Pipeline"]
+            CoreAgents["Core Agents<br/>• CoderAgent<br/>• ReviewAgent (RO)<br/>• ResearcherAgent (RO)"]
+            SpecialistAgents["Specialist Agents<br/>• ArchitectAgent (RO)<br/>• TestAgent • SecurityAgent (RO)<br/>• DocAgent • RefactorAgent<br/>• DevOpsAgent"]
+            IndustryAgents["Industry Agents<br/>• FinTechAgent (RO)<br/>• HealthTechAgent (RO)<br/>• LegalTechAgent (RO)<br/>• ECommerceAgent<br/>• IndustryTechAgent"]
+        end
+
+        subgraph SubAgents["Sub-Agents (intern)"]
+            Planner["PlannerAgent"]
+            ToolSelector["ToolSelectorAgent"]
+            Synthesizer["SynthesizerAgent"]
+        end
+
+        subgraph Pipeline["11-Phasen Reasoning Pipeline"]
+            P1["1. INIT"]
+            P2["2. GUARDRAILS"]
+            P3["3. TOOL RESOLUTION"]
+            P4["4. MEMORY & CONTEXT"]
+            P5["5. AMBIGUITY GATE"]
+            P6["6. PLANNING"]
+            P7["7. TOOL LOOP"]
+            P8["8. TOOL RESULT VALIDATION"]
+            P9["9. SYNTHESIS"]
+            P10["10. REFLECTION + EVIDENCE"]
+            P11["11. FINALIZATION"]
+            P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9 --> P10 --> P11
+        end
+
+        subgraph Orchestration["Orchestration"]
+            OrcApi["OrchestratorApi"]
+            PipelineRunner["PipelineRunner<br/>(~1160 Zeilen)"]
+            FSM["FallbackStateMachine<br/>INIT→SELECT→EXECUTE→<br/>SUCCESS/FAILURE→FINALIZE"]
+            RunSM["RunStateMachine<br/>received→queued→planning→<br/>tool_loop→synthesis→persisted"]
+            SessionLane["SessionLaneManager<br/>Semaphore + Per-Session Locks"]
+            SubrunLane["SubrunLane<br/>Recursive Delegation"]
+        end
+
+        subgraph MultiAgency["Multi-Agency · optional"]
+            CoordBridge["CoordinationBridge<br/>Watcher + Orchestrator"]
+            ConfRouter["ConfidenceRouter<br/>evaluate_handover()"]
+            Blackboard["Blackboard<br/>Pub/Sub Event Store"]
+            Supervisor["Supervisor<br/>Quality Gate"]
+            AgentReg["AgentRegistry"]
+            MsgBus["MessageBus<br/>Broadcasts"]
+            ParExec["ParallelExecutor"]
+            Consensus["Consensus"]
+        end
+    end
+
+    subgraph ModelLayer["Schicht 3 — Model Routing"]
+        ModelRouter["ModelRouter<br/>Scoring-Algorithmus"]
+        ModelRegistry["ModelRegistry<br/>Statische + Gemessene Profile"]
+        LlmClient["LlmClient<br/>OpenAI/Ollama Dual-Mode"]
+        HealthTracker["ModelHealthTracker<br/>Ring-Buffer"]
+        CtxGuard["ContextWindowGuard"]
+    end
+
+    subgraph Persistence["Schicht 4 — Persistence"]
+        MemStore["MemoryStore<br/>(JSONL)"]
+        SQLiteState["SqliteStateStore<br/>(SQLite)"]
+        LTM["LongTermMemoryStore<br/>(SQLite)"]
+        ReflStore["ReflectionFeedbackStore"]
+        CustomAgentStore["CustomAgentStore<br/>(JSON)"]
+        RuntimeState["RuntimeState<br/>(JSON)"]
+    end
+
+    subgraph Policy["Schicht 5 — Policy & Guardrails"]
+        ToolPolicy["ToolPolicy<br/>6-Layer Resolution"]
+        PolicyApproval["PolicyApprovalService<br/>Human-in-the-Loop"]
+        CircuitBreaker["CircuitBreakerRegistry"]
+        AgentIso["AgentIsolationPolicy"]
+        RateLimiter["RateLimiter<br/>Token-Bucket"]
+        SessionSec["SessionSecurity<br/>HMAC-signiert"]
+        StateEnc["StateEncryption<br/>AES-256-GCM"]
+    end
+
+    subgraph Skills["Schicht 6 — Skills & Extensions"]
+        SkillsSvc["SkillsService"]
+        Discovery["skill Discovery<br/>SKILL.md Scanner"]
+        McpBridge["McpBridge"]
+        Hooks["Hooks"]
+    end
+
+    subgraph Services["60+ Services"]
+        Reflection["ReflectionService"]
+        Verification["VerificationService"]
+        ActionParser["ActionParser"]
+        PromptKernel["PromptKernelBuilder"]
+        ToolExecMgr["ToolExecutionManager"]
+        LearningLoop["LearningLoop"]
+        SelfHealing["SelfHealingLoop"]
+        ToolTelemetry["ToolTelemetry"]
+        IntentDetect["IntentDetector"]
+        WebSearch["WebSearch"]
+        VisionSvc["VisionService"]
+        CodeSandbox["CodeSandbox"]
+    end
+
+    subgraph LLMBackend["LLM Backend"]
+        Ollama["Ollama (lokal)"]
+        OpenAI["OpenAI-kompatible API"]
+    end
+
+    %% Connections
+    UI --> WSClient & RESTClient
+    WSClient -->|"WebSocket /ws/agent"| WSHandler
+    RESTClient -->|"HTTP"| REST
+    REST --> Handlers
+    WSHandler --> SessionInbox
+    SessionInbox --> OrcApi
+    Handlers --> OrcApi
+
+    OrcApi --> PipelineRunner
+    PipelineRunner --> FSM & RunSM
+    PipelineRunner --> SessionLane
+    FSM --> HeadAgent
+    HeadAgent --> Planner & ToolSelector & Synthesizer
+    HeadAgent --> CoreAgents & SpecialistAgents & IndustryAgents
+    HeadAgent -->|spawnt Subrun| SubrunLane
+    SubrunLane -->|on_subrun_completed| CoordBridge
+    CoordBridge --> ConfRouter
+    ConfRouter -->|confidence_decision| HeadAgent
+    CoordBridge -->|write| Blackboard
+    Blackboard -->|watcher notify| CoordBridge
+    CoordBridge -->|report_result| Supervisor
+    Supervisor -->|confidence OK| MsgBus
+    Supervisor -->|confidence low: redelegate| SubrunLane
+    Supervisor -->|write audit| Blackboard
+    CoordBridge --> AgentReg
+    MsgBus --> ParExec & Consensus
+
+    HeadAgent --> ModelRouter
+    ModelRouter --> ModelRegistry & HealthTracker & CtxGuard
+    ModelRouter --> LlmClient
+    LlmClient --> Ollama & OpenAI
+
+    HeadAgent --> MemStore & LTM
+    SQLiteState --> LTM
+    PipelineRunner --> SQLiteState
+
+    HeadAgent --> ToolPolicy
+    ToolPolicy --> PolicyApproval
+    PolicyApproval --> CircuitBreaker
+    AgentIso --> ToolPolicy
+
+    HeadAgent --> SkillsSvc
+    SkillsSvc --> Discovery
+    McpBridge --> ToolExecMgr
+
+    HeadAgent --> Reflection & Verification & ActionParser
+    HeadAgent --> PromptKernel & ToolExecMgr & LearningLoop
+    ToolExecMgr --> ToolTelemetry & SelfHealing
+
+    %% Styling
+    classDef frontend fill:#4FC3F7,stroke:#0288D1,color:#000
+    classDef transport fill:#81C784,stroke:#388E3C,color:#000
+    classDef agent fill:#FFB74D,stroke:#F57C00,color:#000
+    classDef model fill:#CE93D8,stroke:#7B1FA2,color:#000
+    classDef persist fill:#A1887F,stroke:#5D4037,color:#fff
+    classDef policy fill:#EF5350,stroke:#C62828,color:#fff
+    classDef skills fill:#4DB6AC,stroke:#00796B,color:#000
+    classDef llm fill:#90A4AE,stroke:#455A64,color:#000
+
+    class UI,WSClient,RESTClient frontend
+    class WSHandler,SessionInbox,REST,Handlers,CORS transport
+    class HeadAgent,CoreAgents,SpecialistAgents,IndustryAgents,Planner,ToolSelector,Synthesizer,OrcApi,PipelineRunner,FSM,RunSM,SessionLane,SubrunLane,CoordBridge,Supervisor,AgentReg,Blackboard,MsgBus,ConfRouter,ParExec,Consensus agent
+    class ModelRouter,ModelRegistry,LlmClient,HealthTracker,CtxGuard model
+    class MemStore,SQLiteState,LTM,ReflStore,CustomAgentStore,RuntimeState persist
+    class ToolPolicy,PolicyApproval,CircuitBreaker,AgentIso,RateLimiter,SessionSec,StateEnc policy
+    class SkillsSvc,Discovery,McpBridge,Hooks skills
+    class Ollama,OpenAI llm

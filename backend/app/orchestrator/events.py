@@ -9,6 +9,7 @@ from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, T
 
 class LifecycleStage(StrEnum):
     RUN_STARTED = "run_started"
+    GUARDRAIL_CHECK_COMPLETED = "guardrail_check_completed"
     GUARDRAILS_PASSED = "guardrails_passed"
     TOOLCHAIN_CHECKED = "toolchain_checked"
     MEMORY_UPDATED = "memory_updated"

@@ -11,6 +11,10 @@ export type {
   RequestEnvelope,
   RoutingDecision,
   RoutingMatch,
+  GuardrailCheck,
+  ToolPolicyInfo,
+  ToolchainInfo,
+  McpToolsInfo,
 } from '../../services/agent-state.service';
 
 // UI-only types (not shared via state service)
