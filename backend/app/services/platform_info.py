@@ -71,7 +71,18 @@ class PlatformInfo:
             parts.append(f"runtimes=[{','.join(self.installed_runtimes)}]")
         if self.package_managers:
             parts.append(f"pkg=[{','.join(self.package_managers)}]")
-        return " | ".join(parts)
+        line = " | ".join(parts)
+        if self.is_windows:
+            line += (
+                "\nIMPORTANT: Commands run via subprocess without a shell. "
+                "Only standalone executables work — PowerShell cmdlets "
+                "(Get-Content, Select-String, Get-ChildItem, etc.) and CMD "
+                "built-ins (type, dir, echo) CANNOT be used with run_command. "
+                "Use Unix utilities available via Git-for-Windows instead: "
+                "cat, head, tail, wc, grep, ls, sort, uniq, cp, mv, mkdir. "
+                "For complex operations use code_execute with Python."
+            )
+        return line
 
 
 def _detect_shell() -> str:

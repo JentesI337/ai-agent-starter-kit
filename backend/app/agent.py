@@ -223,6 +223,9 @@ class HeadAgent:
         self._tool_execution_manager = ToolExecutionManager(registry=self.tool_registry)
         self._retry_strategy = ToolRetryStrategy()
         self._platform = detect_platform()
+        platform_summary = self._platform.summary()
+        platform_summary += f"\nworkspace_root={self.tools.workspace_root}"
+        self._tool_execution_manager._platform_summary = platform_summary
         self._arg_validator = ToolArgValidator(violates_command_policy=self._violates_command_policy)
         self._validate_tool_registry_dispatch()
         self._hooks: list[object] = []
@@ -859,6 +862,27 @@ class HeadAgent:
                 }
             )
 
+            # ── Direct-answer shortcut ──────────────────────────────
+            # If the plan already IS the answer (no tools needed),
+            # skip the entire tool loop and go straight to synthesis.
+            skip_tool_phase = False
+            if settings.run_direct_answer_skip_enabled and self._is_direct_answer_plan(
+                plan_text,
+                allowed_tools=effective_allowed_tools,
+                max_chars=settings.run_direct_answer_max_chars,
+            ):
+                skip_tool_phase = True
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="tool_phase_skipped",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "reason": "direct_answer_plan",
+                        "plan_chars": len(plan_text),
+                    },
+                )
+
             max_replan_iterations = max(1, int(settings.run_max_replan_iterations))
             max_empty_tool_replan_attempts = max(0, int(settings.run_empty_tool_replan_max_attempts))
             max_error_tool_replan_attempts = max(0, int(settings.run_error_tool_replan_max_attempts))
@@ -868,17 +892,20 @@ class HeadAgent:
             total_replan_cycles = (
                 max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
             )
-            await self._emit_lifecycle(
-                send_event,
-                stage="terminal_wait_started",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "scope": "tool_phase",
-                    "reason": "await_tool_terminal_state",
-                },
-            )
-            await self._debug_checkpoint("tool_selection", send_event, request_id, session_id)
+            if skip_tool_phase:
+                total_replan_cycles = 0
+            if not skip_tool_phase:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="terminal_wait_started",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "scope": "tool_phase",
+                        "reason": "await_tool_terminal_state",
+                    },
+                )
+                await self._debug_checkpoint("tool_selection", send_event, request_id, session_id)
             for iteration in range(total_replan_cycles):
                 tool_context_outputs = [plan_text]
                 if tool_results:
@@ -955,6 +982,8 @@ class HeadAgent:
                     break
                 if replan_reason == "tool_selection_empty_replan":
                     empty_tool_replan_attempts_used += 1
+                if replan_reason == "tool_selection_suspicious_replan":
+                    empty_tool_replan_attempts_used += 1
                 if replan_reason == "tool_selection_error_replan":
                     error_tool_replan_attempts_used += 1
                 if replan_reason == "tool_results_invalidated_plan":
@@ -1010,36 +1039,37 @@ class HeadAgent:
                     },
                 )
 
-            await self._emit_lifecycle(
-                send_event,
-                stage="terminal_wait_completed",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "scope": "tool_phase",
-                    "terminal_stage": "tool_audit_summary",
-                    "replan_cycles": total_replan_cycles,
-                    "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
-                    "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
-                    "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
-                    "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
-                },
-            )
-            tool_result_verification = self._verification.verify_tool_result(
-                plan_text=plan_text,
-                tool_results=tool_results,
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="verification_tool_result",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "status": tool_result_verification.status,
-                    "reason": tool_result_verification.reason,
-                    **tool_result_verification.details,
-                },
-            )
+            if not skip_tool_phase:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="terminal_wait_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "scope": "tool_phase",
+                        "terminal_stage": "tool_audit_summary",
+                        "replan_cycles": total_replan_cycles,
+                        "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
+                        "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
+                        "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
+                        "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
+                    },
+                )
+                tool_result_verification = self._verification.verify_tool_result(
+                    plan_text=plan_text,
+                    tool_results=tool_results,
+                )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="verification_tool_result",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "status": tool_result_verification.status,
+                        "reason": tool_result_verification.reason,
+                        **tool_result_verification.details,
+                    },
+                )
 
             blocked_payload = self._parse_blocked_tool_result(tool_results)
             if blocked_payload is not None:
@@ -1909,7 +1939,7 @@ class HeadAgent:
             prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
             sections={
                 "system": system_prompt or "",
-                "platform": self._platform.summary(),
+                "platform": self._platform.summary() + f"\nworkspace_root={self.tools.workspace_root}",
                 "context": rendered_text or "",
                 "task": user_message or "",
                 "tool_results": tool_text,
@@ -2281,7 +2311,29 @@ class HeadAgent:
         lowered = normalized_results.lower()
         has_ok = "] ok" in lowered or "[ok]" in lowered
         has_error = "[error]" in lowered or "] error" in lowered
-        # D-11: detect suspicious patterns (empty body, placeholder output)
+        has_rejected = "] rejected:" in lowered
+
+        # Detect substantive content: a [tool] block followed by a real
+        # body (>20 chars) counts as success even without an OK marker.
+        # The tool_execution_manager produces "[tool]\ncontent" on success.
+        _has_substantive = bool(
+            re.search(r'\[\w+\]\s*\n.{20,}', normalized_results, re.DOTALL)
+        )
+
+        if has_error and (has_ok or _has_substantive):
+            # Mixed OK + ERROR → partial_error to enable
+            # targeted replanning of only the failed tools.
+            return "partial_error"
+        if has_error and not has_ok and not _has_substantive:
+            if "tool timeout" in lowered or "timed out" in lowered:
+                return "timeout_error"
+            return "error_only"
+        if has_ok or _has_substantive:
+            return "usable"
+
+        # D-11: suspicious patterns — only for short results where the
+        # entire body is placeholder-like.  Large results (code files etc.)
+        # naturally contain "null", "[]" etc. and must not trigger this.
         suspicious_patterns = (
             "no output",
             "n/a",
@@ -2293,20 +2345,60 @@ class HeadAgent:
             "[]",
         )
         has_suspicious = any(p in lowered for p in suspicious_patterns)
-
-        if has_error and has_ok:
-            # D-11   BREAKING: was "usable" before D-11.
-            # Mixed OK + ERROR now triggers partial_error to enable
-            # targeted replanning of only the failed tools.
-            return "partial_error"
-        if has_error and not has_ok:
-            if "tool timeout" in lowered or "timed out" in lowered:
-                return "timeout_error"
-            return "error_only"
-        if has_suspicious and not has_ok:
-            # D-11   BREAKING: was "usable" before D-11.
+        if has_suspicious:
             return "all_suspicious"
         return "usable"
+
+    # ── Direct-answer detection ─────────────────────────────────
+    _TOOL_ACTION_RE = re.compile(
+        r'\b(?:read|write|create|delete|execute|run|fetch|open|list|search|modify|update|install|deploy)'
+        r'(?:\s+\S+){0,3}\s+'
+        r'(?:file|directory|folder|command|script|url|endpoint|api|code|package|server)\b',
+        re.IGNORECASE,
+    )
+    # Language-agnostic: file paths, URLs, or known extensions in the plan
+    # signal that tools are needed regardless of the human language used.
+    _FILE_PATH_RE = re.compile(
+        r'(?:'
+        r'(?:[a-zA-Z]:)?(?:[/\\]\S+){2,}'            # absolute or deep relative path
+        r'|\S+[/\\]\S+\.\w{1,10}'                     # relative path with extension
+        r'|\b\S+\.(?:py|js|ts|json|yaml|yml|toml|md|txt|cfg|ini|sh|ps1|bat|html|css|xml|sql|csv|log|env|lock)\b'  # bare filename with known ext
+        r'|https?://\S+'                               # URL
+        r')',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _is_direct_answer_plan(
+        plan_text: str,
+        allowed_tools: list[str] | None = None,
+        max_chars: int = 500,
+    ) -> bool:
+        """Return True when the plan is already a direct answer needing no tools."""
+        text = (plan_text or "").strip()
+        if not text or len(text) > max_chars:
+            return False
+        # Too short to be a confident direct answer (ambiguous like "run")
+        if len(text) < 8:
+            return False
+        # Multiple numbered steps or bullet points → likely an actionable plan
+        if len(re.findall(r'^\s*(?:\d+[.)\-]|[-*•])\s', text, re.MULTILINE)) > 1:
+            return False
+        # References to allowed tool names → needs tool execution
+        text_lower = text.lower()
+        for tool in (allowed_tools or []):
+            if tool.lower().replace("_", " ") in text_lower or tool.lower() in text_lower:
+                return False
+        # Code blocks → likely needs execution
+        if '```' in text:
+            return False
+        # Action verbs targeting tool-like objects (with up to 3 words between)
+        if HeadAgent._TOOL_ACTION_RE.search(text):
+            return False
+        # File paths, URLs, or known extensions → needs file/web access
+        if HeadAgent._FILE_PATH_RE.search(text):
+            return False
+        return True
 
     def _is_steer_interrupted(self, tool_results: str | None) -> bool:
         return (tool_results or "").startswith(STEER_INTERRUPTED_MARKER)

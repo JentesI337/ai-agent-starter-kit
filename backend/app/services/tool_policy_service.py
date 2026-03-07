@@ -117,16 +117,9 @@ TOOL_PROFILES: dict[str, ToolPolicyDict] = {
 
 TOOL_POLICY_BY_PROVIDER: dict[str, ToolPolicyDict] = {
     "local": {
-        "allow": [
-            "run_command",
-            "start_background_command",
-            "get_background_output",
-            "kill_background_process",
-        ],
         "deny": [],
     },
     "api": {
-        "allow": [],
         "deny": [
             "start_background_command",
             "kill_background_process",
@@ -135,23 +128,14 @@ TOOL_POLICY_BY_PROVIDER: dict[str, ToolPolicyDict] = {
 }
 
 TOOL_POLICY_BY_MODEL: dict[str, ToolPolicyDict] = {
+    # Deny-only: tools not listed here are allowed by default.
+    # Add model-specific deny entries only when a model cannot
+    # handle certain tools reliably.
     "minimax-m2:cloud": {
-        "allow": [],
         "deny": [
             "start_background_command",
             "kill_background_process",
         ],
-    },
-    "qwen3-coder:480b-cloud": {
-        "allow": [
-            "run_command",
-            "start_background_command",
-            "get_background_output",
-            "kill_background_process",
-            "spawn_subrun",
-            "web_fetch",
-        ],
-        "deny": [],
     },
 }
 

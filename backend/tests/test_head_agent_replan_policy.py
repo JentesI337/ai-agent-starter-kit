@@ -115,6 +115,21 @@ def test_classify_suspicious_with_ok_is_usable() -> None:
     assert agent._classify_tool_results_state("[read_file] OK: no output") == "usable"
 
 
+def test_classify_substantive_content_without_ok_is_usable() -> None:
+    agent = HeadAgent()
+    # Actual format produced by tool_execution_manager:
+    #   [tool_name]\n<content>  (no OK marker)
+    result = "[read_file]\nsummary: import json | import os | return {key: str(getattr(current, key, None)) for key in fields}"
+    assert agent._classify_tool_results_state(result) == "usable"
+
+
+def test_classify_substantive_content_with_suspicious_words_is_usable() -> None:
+    agent = HeadAgent()
+    # Code containing 'null', '[]', '{}' must NOT be flagged as suspicious
+    result = "[read_file]\ndef foo():\n    data = json.loads(s)  # may return null\n    items = []\n    config = {}"
+    assert agent._classify_tool_results_state(result) == "usable"
+
+
 def test_resolve_partial_error_replan() -> None:
     agent = HeadAgent()
 

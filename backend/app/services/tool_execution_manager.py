@@ -129,6 +129,7 @@ class ToolExecutionManager:
         self._learning_loop = LearningLoop()
         self._retrieval_service: ReliableRetrievalService | None = None
         self._retrieval_cache_key: tuple[bool, int, float, float, float] | None = None
+        self._platform_summary = ""
 
     @staticmethod
     async def _safe_invoke_hooks(
@@ -549,6 +550,7 @@ class ToolExecutionManager:
             user_message=user_message,
             plan_text=plan_text,
             prompt_mode=prompt_mode,
+            platform_summary=self._platform_summary,
         )
 
         actions = await self.select_actions_with_repair(
@@ -786,6 +788,7 @@ class ToolExecutionManager:
         user_message: str,
         plan_text: str,
         prompt_mode: str = "minimal",
+        platform_summary: str = "",
     ) -> str:
         allowed_text = "|".join(sorted(allowed_tools)) if allowed_tools else "(none)"
         instructions = (
@@ -808,15 +811,18 @@ class ToolExecutionManager:
             "Do not output markdown, explanations, [TOOL_CALL] wrappers, or any text outside the JSON object.\n"
             f"Allowed tool names are exactly: {', '.join(sorted(allowed_tools)) or 'none'}."
         )
+        sections: dict[str, str] = {
+            "instructions": instructions,
+            "memory": memory_context,
+            "task": user_message,
+            "plan": plan_text,
+        }
+        if platform_summary:
+            sections["platform_info"] = platform_summary
         kernel = self._prompt_kernel_builder.build(
             prompt_type="tool_selection",
             prompt_mode=normalize_prompt_mode(prompt_mode, default="minimal"),
-            sections={
-                "instructions": instructions,
-                "memory": memory_context,
-                "task": user_message,
-                "plan": plan_text,
-            },
+            sections=sections,
         )
         return kernel.rendered
 
@@ -828,6 +834,7 @@ class ToolExecutionManager:
         user_message: str,
         plan_text: str,
         prompt_mode: str = "minimal",
+        platform_summary: str = "",
     ) -> str:
         return self.build_tool_selector_prompt(
             allowed_tools=allowed_tools,
@@ -835,6 +842,7 @@ class ToolExecutionManager:
             user_message=user_message,
             plan_text=plan_text,
             prompt_mode=prompt_mode,
+            platform_summary=platform_summary,
         )
 
     def build_loop_gatekeeper(self, config: ToolExecutionConfig) -> ToolCallGatekeeper:

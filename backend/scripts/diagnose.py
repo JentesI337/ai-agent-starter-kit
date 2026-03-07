@@ -211,6 +211,21 @@ async def check_websocket_pipeline(
                 if first_event_ms is None:
                     first_event_ms = now_ms
 
+                # Auto-approve policy approval requests so tool commands
+                # are not blocked during automated diagnosis.
+                if event_type == "policy_approval_required":
+                    approval = event.get("approval") or {}
+                    approval_id = approval.get("approval_id", "")
+                    if approval_id:
+                        decision_msg = json.dumps({
+                            "type": "policy_decision",
+                            "approval_id": approval_id,
+                            "decision": "allow_once",
+                        })
+                        await ws.send(decision_msg)
+                        if verbose:
+                            print(_yellow(f"  → [{now_ms:>6}ms] AUTO-APPROVE: {approval.get('display_text', approval_id)[:100]}"))
+
                 if event_type == "lifecycle":
                     stage = event.get("stage", "")
                     lifecycle_stages.append(stage)

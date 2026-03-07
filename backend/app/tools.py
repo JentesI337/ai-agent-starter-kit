@@ -198,6 +198,14 @@ class AgentTooling:
 
         cap = max(1, min(int(max_results), 500))
         include = (include_pattern or "**/*").strip() or "**/*"
+
+        # Auto-correct duplicated workspace directory prefix in include_pattern.
+        # LLMs often send "backend/app/**" when workspace_root IS backend/.
+        ws_dir_name = self.workspace_root.name
+        inc_parts = Path(include).parts
+        if inc_parts and inc_parts[0].lower() == ws_dir_name.lower():
+            include = str(Path(*inc_parts[1:])) if len(inc_parts) > 1 else "**/*"
+
         matches: list[str] = []
         total_scanned_bytes = 0
 
@@ -991,6 +999,21 @@ class AgentTooling:
         workspace_real = Path(os.path.realpath(self.workspace_root))
         target_raw = self.workspace_root / raw_path
         target = Path(os.path.realpath(target_raw))
+
+        # Auto-correct duplicated workspace directory name: LLMs often prepend
+        # the workspace folder name (e.g. "backend/app/file.py") even though
+        # workspace_root already IS that folder.  Strip the leading duplicate
+        # only when the joined path doesn't exist and the stripped version does.
+        if not target.exists():
+            ws_dir_name = self.workspace_root.name
+            raw_parts = Path(raw_path).parts
+            if raw_parts and raw_parts[0].lower() == ws_dir_name.lower():
+                stripped = Path(*raw_parts[1:]) if len(raw_parts) > 1 else Path(".")
+                candidate_raw = self.workspace_root / stripped
+                candidate = Path(os.path.realpath(candidate_raw))
+                if candidate.exists() and (workspace_real in candidate.parents or candidate == workspace_real):
+                    target = candidate
+
         if workspace_real not in target.parents and target != workspace_real:
             raise ToolExecutionError("Path escapes workspace root.")
         return target
