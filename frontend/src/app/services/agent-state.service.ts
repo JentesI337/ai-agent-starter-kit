@@ -748,12 +748,27 @@ export class AgentStateService implements OnDestroy {
         };
         break;
 
+      case 'reflection_failed':
+        next = {
+          ...next,
+          phaseStates: new Map(d.phaseStates)
+            .set('synthesis', 'completed')
+            .set('reflection', 'error'),
+        };
+        break;
+
       case 'reply_shaping_started':
         next = { ...next, ...this.activatePhasePartial(d, 'reply_shaping') };
         break;
 
       case 'reply_shaping_completed':
-        next = { ...next, phaseStates: new Map(d.phaseStates).set('reply_shaping', 'completed') };
+        next = {
+          ...next,
+          currentPhase: 'response' as PipelinePhase,
+          phaseStates: new Map(d.phaseStates)
+            .set('reply_shaping', 'completed')
+            .set('response', 'active'),
+        };
         break;
 
       case 'run_completed':

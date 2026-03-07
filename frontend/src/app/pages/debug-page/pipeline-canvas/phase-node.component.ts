@@ -13,7 +13,9 @@ import { PhaseDefinition, PhaseState } from '../debug.types';
          [class.phase--error]="state === 'error'"
          [class.phase--skipped]="state === 'skipped'"
          [attr.aria-label]="phase.label + ' — ' + state"
+         [title]="tooltip"
          role="listitem"
+         tabindex="0"
          (contextmenu)="onRightClick($event)">
 
       @if (hasBreakpoint) {
@@ -205,6 +207,7 @@ export class PhaseNodeComponent {
   @Input() duration: number | null = null;
   @Input() llmCallCount = 0;
   @Input() toolCount = 0;
+  @Input() tooltip = '';
 
   @Output() breakpointToggle = new EventEmitter<void>();
 

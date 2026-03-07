@@ -72,6 +72,18 @@ export class PipelineCanvasComponent {
     return state === 'completed';
   }
 
+  private static readonly PHASE_EVENTS: Record<string, [string, string]> = {
+    routing:        ['run_started',             'guardrails_passed'],
+    guardrails:     ['run_started',             'guardrails_passed'],
+    context:        ['memory_updated',          'planning_started'],
+    planning:       ['planning_started',        'planning_completed'],
+    tool_selection: ['tool_started',            'synthesis_started'],
+    synthesis:      ['synthesis_started',        'reflection_completed'],
+    reflection:     ['synthesis_started',        'reflection_completed'],
+    reply_shaping:  ['reply_shaping_started',   'reply_shaping_completed'],
+    response:       ['reply_shaping_completed', 'run_completed'],
+  };
+
   getEdgeEvents(phaseId: PipelinePhase): DebugEvent[] {
     return this.eventLog
       .filter(e => e.details?.['phase'] === phaseId)
@@ -79,11 +91,31 @@ export class PipelineCanvasComponent {
   }
 
   getPhaseDuration(phaseId: PipelinePhase): number | null {
-    const events = this.eventLog.filter(e => e.details?.['phase'] === phaseId);
-    if (events.length < 2) return null;
-    const start = new Date(events[0].timestamp).getTime();
-    const end = new Date(events[events.length - 1].timestamp).getTime();
-    return end - start || null;
+    const pair = PipelineCanvasComponent.PHASE_EVENTS[phaseId];
+    if (!pair) return null;
+    const [startStage, endStage] = pair;
+    if (startStage === endStage) return null;
+    const startEvt = this.eventLog.find(e => e.stage === startStage);
+    const endEvt = [...this.eventLog].reverse().find(e => e.stage === endStage);
+    if (!startEvt || !endEvt) return null;
+    const ms = new Date(endEvt.timestamp).getTime() - new Date(startEvt.timestamp).getTime();
+    return ms > 0 ? ms : null;
+  }
+
+  getPhaseTooltip(phaseId: PipelinePhase): string {
+    const pair = PipelineCanvasComponent.PHASE_EVENTS[phaseId];
+    if (!pair) return '';
+    const [startStage, endStage] = pair;
+    const startEvt = this.eventLog.find(e => e.stage === startStage);
+    const endEvt = [...this.eventLog].reverse().find(e => e.stage === endStage);
+    const parts: string[] = [];
+    if (startEvt) parts.push('Start: ' + startEvt.timestamp);
+    if (endEvt && endEvt !== startEvt) parts.push('End: ' + endEvt.timestamp);
+    const dur = this.getPhaseDuration(phaseId);
+    if (dur !== null) parts.push('Dauer: ' + (dur < 1000 ? dur + 'ms' : (dur / 1000).toFixed(1) + 's'));
+    const llm = this.getLlmCallCount(phaseId);
+    if (llm > 0) parts.push('LLM Calls: ' + llm);
+    return parts.join('\n');
   }
 
   getLlmCallCount(phaseId: PipelinePhase): number {
