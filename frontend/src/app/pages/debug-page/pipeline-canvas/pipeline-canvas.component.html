@@ -1,0 +1,62 @@
+<div class="pipeline-canvas" role="list" aria-label="Pipeline Phasen">
+
+  <!-- Agent Token -->
+  <div class="agent-token"
+       [class.at-llm]="agentAtLlm"
+       [class.paused]="phaseStates.get(currentPhase!) === 'paused'"
+       [style.transform]="'translateY(' + agentTokenY + 'px)'"
+       aria-hidden="true">
+  </div>
+
+  <!-- Phase Nodes + Edges -->
+  @for (phase of phases; track phase.id) {
+    <div class="phase-row">
+
+      <!-- Edge line to next phase -->
+      @if (!$last) {
+        <div class="edge-line"
+             [class.edge--active]="isEdgeActive(phase)"
+             [class.edge--completed]="isEdgeCompleted(phase)">
+          @for (event of getEdgeEvents(phase.id); track event.timestamp) {
+            <span class="event-pill"
+                  [class.pill--error]="event.level === 'error'"
+                  [title]="event.stage + ' — ' + event.timestamp">
+              {{ event.stage | slice:0:22 }}
+            </span>
+          }
+        </div>
+      }
+
+      <!-- Phase Node -->
+      <app-phase-node
+        [phase]="phase"
+        [state]="phaseStates.get(phase.id) ?? 'idle'"
+        [isActive]="currentPhase === phase.id"
+        [hasBreakpoint]="activeBreakpoints.has(phase.id)"
+        [duration]="getPhaseDuration(phase.id)"
+        [llmCallCount]="getLlmCallCount(phase.id)"
+        [toolCount]="phase.id === 'tool_selection' ? toolExecutions.length : 0"
+        (click)="phaseClick.emit(phase.id)"
+        (breakpointToggle)="breakpointToggle.emit(phase.id)">
+      </app-phase-node>
+
+      <!-- LLM Branch Node -->
+      @if (phase.hasLlm) {
+        <div class="llm-branch">
+          <div class="llm-connector"></div>
+          <div class="llm-node"
+               [class.llm--active]="isLlmActive(phase.id)"
+               [class.llm--completed]="isLlmCompleted(phase.id)">
+            <span class="llm-icon">☁</span>
+            <span class="llm-label">LLM #{{ getLlmCallNumber(phase.id) }}</span>
+            @if (getLlmLatency(phase.id); as latency) {
+              <span class="llm-latency">{{ latency }}ms</span>
+            }
+          </div>
+        </div>
+      }
+
+    </div>
+  }
+
+</div>

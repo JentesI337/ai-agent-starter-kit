@@ -5,6 +5,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from time import monotonic
 from uuid import uuid4
 
@@ -1408,6 +1409,18 @@ class ToolExecutionManager:
                         "duration_ms": tool_elapsed_ms,
                         "elapsed_ms": tool_elapsed_ms,
                         **outcome_payload,
+                    },
+                )
+                await emit_lifecycle(
+                    "tool_execution_detail",
+                    {
+                        "tool": tool,
+                        "args": dict(evaluated_args),
+                        "resultPreview": clipped[:500],
+                        "durationMs": tool_elapsed_ms,
+                        "exitCode": 0,
+                        "blocked": False,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )
                 await self._safe_invoke_hooks(

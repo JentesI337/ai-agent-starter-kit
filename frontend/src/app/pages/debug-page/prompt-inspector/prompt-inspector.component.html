@@ -1,0 +1,142 @@
+<div class="inspector">
+
+  <!-- Tab Bar -->
+  <div class="inspector-tabs" role="tablist" aria-label="Inspector Tabs">
+    @for (tab of tabs; track tab.id) {
+      <button class="tab"
+              role="tab"
+              [attr.aria-selected]="activeTab === tab.id"
+              [class.tab--active]="activeTab === tab.id"
+              [class.tab--has-data]="hasData(tab.id)"
+              (click)="activeTab = tab.id">
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+
+  <!-- Tab Content -->
+  <div class="inspector-content" role="tabpanel">
+
+    @switch (activeTab) {
+
+      @case ('tool_details') {
+        @if (toolExecutions.length > 0) {
+          <div class="tool-table">
+            <div class="tool-header">
+              <span>Tool</span>
+              <span>Args</span>
+              <span>Result</span>
+              <span>Duration</span>
+              <span>Status</span>
+            </div>
+            @for (tool of toolExecutions; track tool.timestamp) {
+              <div class="tool-row" [class.tool-row--blocked]="tool.blocked">
+                <span class="tool-name">{{ tool.tool }}</span>
+                <pre class="tool-args">{{ tool.args | json }}</pre>
+                <pre class="tool-result">{{ tool.resultPreview }}</pre>
+                <span class="tool-duration">{{ tool.durationMs }}ms</span>
+                <span class="tool-status">
+                  @if (tool.blocked) { 🚫 Blocked }
+                  @else if (tool.exitCode === 0) { ✓ OK }
+                  @else { ✕ Error ({{ tool.exitCode }}) }
+                </span>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty-state">Keine Tool-Ausführungen in dieser Phase</div>
+        }
+      }
+
+      @case ('reflection') {
+        @if (reflectionVerdict; as v) {
+          <div class="reflection-card">
+            <div class="score-row">
+              <span class="score-label">Goal Alignment</span>
+              <div class="score-bar">
+                <div class="score-fill"
+                     [style.width.%]="v.goalAlignment * 100"
+                     [class.score--good]="v.goalAlignment >= 0.6"
+                     [class.score--warn]="v.goalAlignment >= 0.4 && v.goalAlignment < 0.6"
+                     [class.score--bad]="v.goalAlignment < 0.4">
+                </div>
+              </div>
+              <span class="score-value">{{ v.goalAlignment.toFixed(2) }}</span>
+            </div>
+
+            <div class="score-row">
+              <span class="score-label">Completeness</span>
+              <div class="score-bar">
+                <div class="score-fill"
+                     [style.width.%]="v.completeness * 100"
+                     [class.score--good]="v.completeness >= 0.6"
+                     [class.score--warn]="v.completeness >= 0.4 && v.completeness < 0.6"
+                     [class.score--bad]="v.completeness < 0.4">
+                </div>
+              </div>
+              <span class="score-value">{{ v.completeness.toFixed(2) }}</span>
+            </div>
+
+            <div class="score-row">
+              <span class="score-label">Factual Grounding</span>
+              <div class="score-bar">
+                <div class="score-fill"
+                     [style.width.%]="v.factualGrounding * 100"
+                     [class.score--good]="v.factualGrounding >= 0.6"
+                     [class.score--warn]="v.factualGrounding >= 0.4 && v.factualGrounding < 0.6"
+                     [class.score--bad]="v.factualGrounding < 0.4">
+                </div>
+              </div>
+              <span class="score-value">{{ v.factualGrounding.toFixed(2) }}</span>
+            </div>
+
+            <div class="verdict-row">
+              <span class="verdict"
+                    [class.verdict--retry]="v.shouldRetry"
+                    [class.verdict--pass]="!v.shouldRetry">
+                {{ v.shouldRetry ? '⟳ Retry triggered' : '✓ Accepted' }}
+              </span>
+              <span class="threshold-info">
+                Threshold: {{ v.threshold.toFixed(2) }} ·
+                Score: {{ v.score.toFixed(2) }}
+              </span>
+            </div>
+
+            @if (v.issues.length > 0) {
+              <div class="issues">
+                <span class="issues-label">Issues:</span>
+                @for (issue of v.issues; track $index) {
+                  <span class="issue-pill">{{ issue }}</span>
+                }
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty-state">Reflection nicht ausgeführt oder noch ausstehend</div>
+        }
+      }
+
+      @default {
+        @if (callsForTab.length > 0) {
+          <div class="call-list">
+            @for (entry of callsForTab; track entry.call.timestamp) {
+              <div class="call-card" [class.call-card--selected]="entry.call.phase === selectedPhase">
+                <div class="call-header">
+                  <span class="phase-badge">{{ getPhaseLabel(entry.call.phase) }}</span>
+                  <span class="call-model">{{ entry.call.model }}</span>
+                  <span class="call-meta">{{ entry.call.latencyMs | number:'1.0-0' }}ms · ~{{ entry.call.tokensEst | number }} tok</span>
+                  <button class="copy-btn" (click)="copyToClipboard(entry.content)">⎘ Copy</button>
+                </div>
+                <pre class="prompt-content"><code [innerHTML]="entry.content | syntaxHighlight"></code></pre>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty-state">Keine Daten für diese Phase</div>
+        }
+      }
+
+    }
+
+  </div>
+</div>

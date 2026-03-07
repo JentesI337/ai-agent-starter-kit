@@ -1253,6 +1253,13 @@ class HeadAgent:
                 },
             )
             await self._debug_checkpoint("synthesis", send_event, request_id, session_id)
+            await self._emit_lifecycle(
+                send_event,
+                stage="synthesis_started",
+                request_id=request_id,
+                session_id=session_id,
+                details={"model": model or self.client.model},
+            )
 
             final_text = await self.synthesize_step_executor.execute(
                 SynthesizerInput(
@@ -1273,6 +1280,19 @@ class HeadAgent:
                 await self._debug_checkpoint("reflection", send_event, request_id, session_id)
                 for reflection_pass in range(reflection_passes):
                     try:
+                        if settings.debug_mode:
+                            await self._emit_lifecycle(
+                                send_event,
+                                "debug_prompt_sent",
+                                request_id,
+                                session_id,
+                                {
+                                    "phase": "reflection",
+                                    "system_prompt": "(reflection prompt)",
+                                    "user_prompt": user_message,
+                                    "model": model or self.client.model,
+                                },
+                            )
                         try:
                             verdict = await self._reflection_service.reflect(
                                 user_message=user_message,
@@ -1305,6 +1325,18 @@ class HeadAgent:
                             },
                         )
                         break
+                    if settings.debug_mode:
+                        await self._emit_lifecycle(
+                            send_event,
+                            "debug_llm_response",
+                            request_id,
+                            session_id,
+                            {
+                                "phase": "reflection",
+                                "raw_response": f"score={verdict.score:.2f} goal={verdict.goal_alignment:.2f} complete={verdict.completeness:.2f} factual={verdict.factual_grounding:.2f}",
+                                "parsed_output": f"retry={verdict.should_retry}",
+                            },
+                        )
                     await self._emit_lifecycle(
                         send_event,
                         stage="reflection_completed",
@@ -1400,26 +1432,20 @@ class HeadAgent:
                 details={"input_chars": len(final_text)},
             )
             shape_result = self._shape_final_response(final_text, tool_results)
-            if (
-                shape_result.removed_tokens
-                or shape_result.deduped_lines > 0
-                or shape_result.text != final_text
-                or shape_result.suppressed
-            ):
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="reply_shaping_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "original_chars": len(final_text),
-                        "shaped_chars": len(shape_result.text),
-                        "suppressed": shape_result.suppressed,
-                        "reason": shape_result.reason,
-                        "removed_tokens": shape_result.removed_tokens,
-                        "deduped_lines": shape_result.deduped_lines,
-                    },
-                )
+            await self._emit_lifecycle(
+                send_event,
+                stage="reply_shaping_completed",
+                request_id=request_id,
+                session_id=session_id,
+                details={
+                    "original_chars": len(final_text),
+                    "shaped_chars": len(shape_result.text),
+                    "suppressed": shape_result.suppressed,
+                    "reason": shape_result.reason,
+                    "removed_tokens": shape_result.removed_tokens,
+                    "deduped_lines": shape_result.deduped_lines,
+                },
+            )
             final_text = shape_result.text
 
             # All-Tools-Failed Gate: verhindert halluzinierte Erfolgsantworten wenn
@@ -1541,6 +1567,14 @@ class HeadAgent:
             return final_text
         except Exception as exc:
             error_text = str(exc)
+            with contextlib.suppress(Exception):
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_error",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"error": error_text[:500], "error_type": type(exc).__name__},
+                )
             if settings.failure_journal_enabled and self._long_term_memory is not None:
                 with contextlib.suppress(Exception):
                     self._long_term_memory.add_failure(
@@ -1692,7 +1726,7 @@ class HeadAgent:
         send_event = self._active_send_event_context.get()
         request_id = self._active_request_id_context.get() or ""
         session_id = self._active_session_id_context.get() or ""
-        if settings.debug_mode and self._debug_mode_active and send_event is not None:
+        if settings.debug_mode and send_event is not None:
             await self._emit_lifecycle(
                 send_event,
                 "debug_prompt_sent",
@@ -1711,7 +1745,7 @@ class HeadAgent:
         else:
             planner_output = await self.planner_agent.execute(payload, model=model)
             result = planner_output.plan_text
-        if settings.debug_mode and self._debug_mode_active and send_event is not None:
+        if settings.debug_mode and send_event is not None:
             await self._emit_lifecycle(
                 send_event,
                 "debug_llm_response",
@@ -1731,7 +1765,20 @@ class HeadAgent:
         allowed_tools: set[str],
         should_steer_interrupt: Callable[[], bool] | None,
     ) -> str:
-        return await self._execute_tools(
+        if settings.debug_mode and send_event is not None:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_prompt_sent",
+                request_id,
+                session_id,
+                {
+                    "phase": "tool_selection",
+                    "system_prompt": self.prompt_profile.tool_selector_prompt,
+                    "user_prompt": payload.user_message,
+                    "model": model or self.client.model,
+                },
+            )
+        result = await self._execute_tools(
             user_message=payload.user_message,
             plan_text=payload.plan_text,
             memory_context=payload.reduced_context,
@@ -1743,6 +1790,15 @@ class HeadAgent:
             prompt_mode=payload.prompt_mode,
             should_steer_interrupt=should_steer_interrupt,
         )
+        if settings.debug_mode and send_event is not None:
+            await self._emit_lifecycle(
+                send_event,
+                "debug_llm_response",
+                request_id,
+                session_id,
+                {"phase": "tool_selection", "raw_response": result, "parsed_output": result},
+            )
+        return result
 
     async def _execute_synthesize_step(
         self,
@@ -1752,7 +1808,7 @@ class HeadAgent:
         send_event: SendEvent,
         model: str | None,
     ) -> str:
-        if settings.debug_mode and self._debug_mode_active:
+        if settings.debug_mode:
             await self._emit_lifecycle(
                 send_event,
                 "debug_prompt_sent",
@@ -1772,7 +1828,7 @@ class HeadAgent:
             request_id=request_id,
             model=model,
         )
-        if settings.debug_mode and self._debug_mode_active:
+        if settings.debug_mode:
             await self._emit_lifecycle(
                 send_event,
                 "debug_llm_response",

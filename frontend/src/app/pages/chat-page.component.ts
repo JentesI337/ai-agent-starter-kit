@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
+import { AgentStateService, ChatLine, PolicyApprovalItem, LifecycleEntry } from '../services/agent-state.service';
 import { SecureStorageService } from '../services/secure-storage.service';
 import {
   AgentDescriptor,
@@ -11,26 +12,10 @@ import {
   CustomAgentDefinition,
   CreateCustomAgentPayload,
   MonitoringSchema,
-  PolicyApprovalRecord,
   RuntimeFeatureFlags,
   PresetDescriptor,
   RunsAuditResponse,
 } from '../services/agents.service';
-
-interface ChatLine {
-  role: 'user' | 'agent' | 'system';
-  text: string;
-  policyAction?: {
-    approvalId: string;
-    runId: string;
-    sessionId: string;
-    tool: string;
-    resource: string;
-    dropdownAction: '' | 'cancel' | 'allow_session';
-    busy: boolean;
-    resolved: boolean;
-  };
-}
 
 interface LifecycleLine {
   time: string;
@@ -65,21 +50,6 @@ interface RequestActivity {
 interface ReasonEntry {
   key: string;
   count: number;
-}
-
-interface PolicyApprovalItem {
-  approvalId: string;
-  runId: string;
-  sessionId: string;
-  agentName: string;
-  tool: string;
-  resource: string;
-  displayText: string;
-  options: string[];
-  selectedOption: string;
-  status: 'pending' | 'approved' | 'expired' | 'denied' | 'cancelled';
-  createdAt: string;
-  updatedAt: string;
 }
 
 type CustomVisionMode = 'inherit' | 'allow' | 'deny';
@@ -145,7 +115,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   monitorSearch = '';
   pendingClarificationQuestion = '';
 
-  private activeAssistantIndex: number | null = null;
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
   private readonly agentActivityMap = new Map<string, AgentActivity>();
@@ -158,12 +127,14 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   constructor(
     private readonly socketService: AgentSocketService,
     private readonly agentsService: AgentsService,
+    private readonly agentState: AgentStateService,
     private readonly cdr: ChangeDetectorRef,
     private readonly secureStorage: SecureStorageService
   ) {}
 
   ngOnInit(): void {
     this.socketService.connect(this.wsUrl);
+    this.agentState.init();
 
     // SEC (FE-05): Use encrypted storage for persisted preferences
     this.secureStorage.getItem('preferredRuntime').then(persistedRuntime => {
@@ -243,8 +214,33 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.refreshPendingPolicyApprovals();
 
     this.subscriptions.add(
+      this.agentState.chatLines$.subscribe(lines => {
+        this.lines = lines;
+      })
+    );
+
+    this.subscriptions.add(
       this.socketService.connected$.subscribe((connected) => {
         this.isConnected = connected;
+      })
+    );
+
+    this.subscriptions.add(
+      this.agentState.approvals$.subscribe(approvals => {
+        this.policyApprovals = approvals;
+        this.ensureApprovalPolling();
+        this.cdr.markForCheck();
+      })
+    );
+
+    this.subscriptions.add(
+      this.agentState.clarification$.subscribe(question => {
+        if (question) {
+          this.pendingClarificationQuestion = question;
+          this.agentState.resetActiveAssistant();
+          this.agentState.pushChatLine({ role: 'agent', text: question });
+          this.cdr.markForCheck();
+        }
       })
     );
 
@@ -260,7 +256,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
             eventType: event.type,
             error: (error as Error).message,
           });
-          this.lines.push({ role: 'system', text: `Frontend event handling failed: ${(error as Error).message}` });
+          this.agentState.pushChatLine({ role: 'system', text: `Frontend event handling failed: ${(error as Error).message}` });
         }
         this.refreshMonitoringViews();
         this.cdr.detectChanges();
@@ -388,7 +384,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   send(): void {
     if (this.firstRunChoicePending) {
-      this.lines.push({ role: 'system', text: 'Please choose local or api runtime first.' });
+      this.agentState.pushChatLine({ role: 'system', text: 'Please choose local or api runtime first.' });
       return;
     }
 
@@ -397,7 +393,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.lines.push({ role: 'user', text: content });
+    this.agentState.pushChatLine({ role: 'user', text: content });
 
     try {
       const toolPolicy = this.buildToolPolicyPayload();
@@ -416,7 +412,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           toolPolicy,
         });
       }
-      this.lines.push({ role: 'system', text: 'Agent is working...' });
+      this.agentState.pushChatLine({ role: 'system', text: 'Agent is working...' });
       this.pushLifecycle('frontend_send', 'Message sent to websocket', {
         sourceType: isClarificationResponse ? 'clarification_response' : 'user_message',
         chars: content.length,
@@ -426,13 +422,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         sessionId: this.sessionId || '(new)',
         toolPolicy,
       });
-      this.activeAssistantIndex = null;
+      this.agentState.resetActiveAssistant();
       if (isClarificationResponse) {
         this.pendingClarificationQuestion = '';
       }
       this.input = '';
     } catch (error) {
-      this.lines.push({ role: 'system', text: `Send failed: ${(error as Error).message}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Send failed: ${(error as Error).message}` });
       this.pushLifecycle('frontend_send_failed', 'Message send failed', {
         error: (error as Error).message,
       });
@@ -478,7 +474,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.customAgentBusy = true;
     this.agentsService.createCustomAgent(payload).subscribe({
       next: (created) => {
-        this.lines.push({ role: 'system', text: `Custom agent created: ${created.id}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Custom agent created: ${created.id}` });
         this.pushLifecycle('frontend_custom_agent_created', 'Custom agent saved', {
           id: created.id,
           base: created.base_agent_id,
@@ -495,7 +491,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.customAgentBusy = false;
       },
       error: (error) => {
-        this.lines.push({ role: 'system', text: `Custom agent creation failed: ${error?.error?.detail ?? error.message}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Custom agent creation failed: ${error?.error?.detail ?? error.message}` });
         this.customAgentBusy = false;
       },
     });
@@ -509,7 +505,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.customAgentBusy = true;
     this.agentsService.deleteCustomAgent(agentId).subscribe({
       next: () => {
-        this.lines.push({ role: 'system', text: `Custom agent deleted: ${agentId}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Custom agent deleted: ${agentId}` });
         this.pushLifecycle('frontend_custom_agent_deleted', 'Custom agent removed', { id: agentId });
         if (this.selectedAgentId === agentId) {
           this.selectedAgentId = 'head-agent';
@@ -518,7 +514,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.customAgentBusy = false;
       },
       error: (error) => {
-        this.lines.push({ role: 'system', text: `Custom agent delete failed: ${error?.error?.detail ?? error.message}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Custom agent delete failed: ${error?.error?.detail ?? error.message}` });
         this.customAgentBusy = false;
       },
     });
@@ -526,7 +522,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
   spawnSubrun(): void {
     if (this.firstRunChoicePending) {
-      this.lines.push({ role: 'system', text: 'Please choose local or api runtime first.' });
+      this.agentState.pushChatLine({ role: 'system', text: 'Please choose local or api runtime first.' });
       return;
     }
 
@@ -535,7 +531,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.lines.push({ role: 'user', text: `[subrun] ${content}` });
+    this.agentState.pushChatLine({ role: 'user', text: `[subrun] ${content}` });
 
     try {
       const toolPolicy = this.buildToolPolicyPayload();
@@ -546,7 +542,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         sessionId: this.sessionId || undefined,
         toolPolicy,
       });
-      this.lines.push({ role: 'system', text: 'Subrun accepted and running in background...' });
+      this.agentState.pushChatLine({ role: 'system', text: 'Subrun accepted and running in background...' });
       this.pushLifecycle('frontend_subrun_send', 'Subrun spawn sent to websocket', {
         chars: content.length,
         agent: this.selectedAgentId,
@@ -557,7 +553,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       });
       this.input = '';
     } catch (error) {
-      this.lines.push({ role: 'system', text: `Subrun spawn failed: ${(error as Error).message}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Subrun spawn failed: ${(error as Error).message}` });
       this.pushLifecycle('frontend_subrun_send_failed', 'Subrun spawn failed', {
         error: (error as Error).message,
       });
@@ -575,7 +571,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.socketService.sendRuntimeSwitchRequest(this.runtimeTarget, this.sessionId || undefined);
     } catch (error) {
       this.runtimeSwitching = false;
-      this.lines.push({ role: 'system', text: `Runtime switch failed: ${(error as Error).message}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Runtime switch failed: ${(error as Error).message}` });
     }
   }
 
@@ -598,7 +594,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.runtimeFeaturesLoading = false;
         this.runtimeFeaturesPersistStatus = 'error';
         this.runtimeFeaturesPersistText = `Load failed: ${error?.error?.detail ?? error.message}`;
-        this.lines.push({ role: 'system', text: `Runtime feature flags load failed: ${error?.error?.detail ?? error.message}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Runtime feature flags load failed: ${error?.error?.detail ?? error.message}` });
       },
     });
   }
@@ -634,7 +630,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           this.runtimeFeaturesPersistStatus = 'persisted';
           this.runtimeFeaturesPersistText = 'Flags persisted to backend/.env.';
         }
-        this.lines.push({ role: 'system', text: 'Runtime feature flags updated.' });
+        this.agentState.pushChatLine({ role: 'system', text: 'Runtime feature flags updated.' });
         this.pushLifecycle('frontend_runtime_features_updated', 'Runtime feature flags updated', {
           ...response.featureFlags,
           longTermMemoryDbPath: this.runtimeLongTermMemoryDbPath,
@@ -644,7 +640,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.runtimeFeaturesSaving = false;
         this.runtimeFeaturesPersistStatus = 'error';
         this.runtimeFeaturesPersistText = `Save failed: ${error?.error?.detail ?? error.message}`;
-        this.lines.push({ role: 'system', text: `Runtime feature flags update failed: ${error?.error?.detail ?? error.message}` });
+        this.agentState.pushChatLine({ role: 'system', text: `Runtime feature flags update failed: ${error?.error?.detail ?? error.message}` });
       },
     });
   }
@@ -660,7 +656,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.secureStorage.removeItem('preferredRuntime');
     this.firstRunChoicePending = true;
     this.runtimeSwitching = false;
-    this.lines.push({ role: 'system', text: 'Runtime preference reset. Please choose local or api.' });
+    this.agentState.pushChatLine({ role: 'system', text: 'Runtime preference reset. Please choose local or api.' });
     this.pushLifecycle('frontend_runtime_reset', 'Runtime preference reset by user');
   }
 
@@ -668,8 +664,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     const previousSessionId = this.sessionId;
     this.sessionId = '';
     this.input = '';
-    this.activeAssistantIndex = null;
-    this.lines = [];
+    this.agentState.resetActiveAssistant();
+    this.agentState.clearChatLines();
     this.lifecycleLines = [];
     this.reasoningLines = [];
     this.agentActivityMap.clear();
@@ -686,7 +682,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.stopApprovalPolling();
     this.resetMonitoringFilters();
 
-    this.lines.push({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
+    this.agentState.pushChatLine({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
     this.pushLifecycle('frontend_session_reset', 'Session reset by user', {
       previousSessionId: previousSessionId || '(none)',
       nextSessionId: '(new)',
@@ -725,13 +721,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
     }
 
+    // clarification_needed is handled by agentState.clarification$ subscription
+
     if (event.type === 'clarification_needed') {
-      if (event.session_id) {
-        this.sessionId = event.session_id;
-      }
-      this.pendingClarificationQuestion = event.message ?? 'Could you clarify your request?';
-      this.activeAssistantIndex = null;
-      this.lines.push({ role: 'agent', text: this.pendingClarificationQuestion });
       return;
     }
 
@@ -747,7 +739,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       if (event.model) {
         this.model = event.model;
       }
-      this.lines.push({ role: 'system', text: event.message });
+      this.agentState.pushChatLine({ role: 'system', text: event.message });
       return;
     }
 
@@ -764,7 +756,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.model = event.model;
       }
       this.runtimeSwitching = false;
-      this.lines.push({ role: 'system', text: `Runtime active: ${event.runtime} (${event.model ?? 'model'})` });
+      this.agentState.pushChatLine({ role: 'system', text: `Runtime active: ${event.runtime} (${event.model ?? 'model'})` });
       this.agentsService.getRuntimeStatus().subscribe({
         next: (status) => {
           this.apiModelsAvailable = status.apiModelsAvailable ?? null;
@@ -784,89 +776,54 @@ export class ChatPageComponent implements OnInit, OnDestroy {
 
     if (event.type === 'runtime_switch_error') {
       this.runtimeSwitching = false;
-      this.lines.push({ role: 'system', text: `Runtime switch error: ${event.message ?? 'unknown error'}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Runtime switch error: ${event.message ?? 'unknown error'}` });
       return;
     }
 
     if (event.type === 'subrun_status') {
       const status = event.status ?? event.message ?? 'unknown';
-      this.lines.push({ role: 'system', text: `Subrun status: ${String(status)}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Subrun status: ${String(status)}` });
       return;
     }
 
     if (event.type === 'subrun_announce') {
       const status = String(event.status ?? 'unknown');
       const result = String(event.result ?? event.message ?? '(not available)');
-      this.lines.push({ role: 'agent', text: `Subrun (${status}): ${result}` });
+      this.agentState.pushChatLine({ role: 'agent', text: `Subrun (${status}): ${result}` });
       return;
     }
 
     if (event.type === 'policy_approval_required') {
+      // Approval state managed by AgentStateService; only create inline chat line here
       const approval = event.approval;
       const approvalId = approval?.approval_id;
       if (approvalId) {
-        const options = (approval?.options ?? ['allow_once']).map((item) => String(item).toLowerCase());
-        const selectedOption = options.includes('allow_once') ? 'allow_once' : options[0] || 'allow_once';
-        const existingIndex = this.policyApprovals.findIndex((item) => item.approvalId === approvalId);
         const displayText = String(approval?.display_text ?? event.message ?? 'Approval required.');
-        const nextItem: PolicyApprovalItem = {
-          approvalId,
-          runId: String(event.request_id ?? ''),
-          sessionId: String(event.session_id ?? ''),
-          agentName: String(event.agent ?? this.selectedAgentId ?? 'agent'),
-          tool: String(approval?.tool ?? 'unknown'),
-          resource: String(approval?.resource ?? ''),
-          displayText,
-          options,
-          selectedOption,
-          status: 'pending',
-          createdAt: event.ts ?? new Date().toISOString(),
-          updatedAt: event.ts ?? new Date().toISOString(),
-        };
-
-        if (existingIndex >= 0) {
-          this.policyApprovals[existingIndex] = nextItem;
-        } else {
-          this.policyApprovals.unshift(nextItem);
-        }
-
-        this.lines.push({
+        this.agentState.pushChatLine({
           role: 'system',
           text: displayText,
           policyAction: {
             approvalId,
-            runId: nextItem.runId,
-            sessionId: nextItem.sessionId,
-            tool: nextItem.tool,
-            resource: nextItem.resource,
+            runId: String(event.request_id ?? ''),
+            sessionId: String(event.session_id ?? ''),
+            tool: String(approval?.tool ?? 'unknown'),
+            resource: String(approval?.resource ?? ''),
             dropdownAction: '',
             busy: false,
             resolved: false,
           },
         });
-        this.ensureApprovalPolling();
       }
       return;
     }
 
+    // policy_approval_updated is handled by AgentStateService
     if (event.type === 'policy_approval_updated') {
-      const approval = event.approval as PolicyApprovalRecord | undefined;
-      const approvalId = String(approval?.approval_id ?? '');
-      if (!approvalId) {
-        return;
+      const approvalId = String((event.approval as { approval_id?: string } | undefined)?.approval_id ?? '');
+      if (approvalId) {
+        const status = String((event.approval as { status?: string } | undefined)?.status ?? '');
+        this.updateInlinePolicyActionState(approvalId, status !== 'pending');
       }
-      const updated = this.mapPolicyApprovalRecord(approval as PolicyApprovalRecord);
-      const existingIndex = this.policyApprovals.findIndex((item) => item.approvalId === approvalId);
-      if (existingIndex >= 0) {
-        this.policyApprovals[existingIndex] = {
-          ...updated,
-          options: this.policyApprovals[existingIndex].options,
-          selectedOption: this.policyApprovals[existingIndex].selectedOption,
-        };
-      } else {
-        this.policyApprovals.unshift(updated);
-      }
-      this.updateInlinePolicyActionState(approvalId, updated.status !== 'pending');
       return;
     }
 
@@ -875,16 +832,9 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'socket_close') {
-      // Verbindung unterbrochen während ein Agent-Request aktiv war.
-      // activeAssistantIndex zurücksetzen, damit der Frontend-Status nicht endlos
-      // auf "aktiv" bleibt und die Reconnect-Schleife keinen veralteten Run-State trägt.
-      if (this.activeAssistantIndex !== null) {
-        const partial = this.lines[this.activeAssistantIndex]?.text ?? '';
-        if (!partial.trim()) {
-          this.lines.splice(this.activeAssistantIndex, 1);
-        }
-        this.activeAssistantIndex = null;
-        this.lines.push({
+      if (this.agentState.activeAssistantIndex !== null) {
+        this.agentState.resetActiveAssistant();
+        this.agentState.pushChatLine({
           role: 'system',
           text: 'Connection lost while agent was responding. Response may be incomplete. Reconnecting…',
         });
@@ -893,7 +843,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'sequence_gap') {
-      this.lines.push({
+      this.agentState.pushChatLine({
         role: 'system',
         text: `Transport warning: ${event.message ?? 'sequence gap detected'} (token/final may be incomplete).`,
       });
@@ -901,30 +851,23 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'error' && event.message) {
-      this.lines.push({ role: 'system', text: `Error: ${event.message}` });
-      this.activeAssistantIndex = null;
+      this.agentState.pushChatLine({ role: 'system', text: `Error: ${event.message}` });
+      this.agentState.resetActiveAssistant();
       return;
     }
 
     if (event.type === 'agent_step' && event.step) {
-      this.lines.push({ role: 'system', text: `Step: ${event.step}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Step: ${event.step}` });
       return;
     }
 
     if (event.type === 'token' && event.token) {
-      if (this.activeAssistantIndex === null) {
-        this.lines.push({ role: 'agent', text: '' });
-        this.activeAssistantIndex = this.lines.length - 1;
-      }
-      this.lines[this.activeAssistantIndex].text += event.token;
+      this.agentState.appendTokenToAssistant(event.token);
       return;
     }
 
     if (event.type === 'final' && event.message) {
-      if (this.activeAssistantIndex === null) {
-        this.lines.push({ role: 'agent', text: event.message });
-      }
-      this.activeAssistantIndex = null;
+      this.agentState.finalizeAssistantMessage(event.message);
     }
   }
 
@@ -1149,7 +1092,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.runAudit = null;
         this.runAuditError = error?.error?.detail ?? error?.message ?? 'Failed to load run audit.';
         if (!silent) {
-          this.lines.push({ role: 'system', text: `Run audit load failed: ${this.runAuditError}` });
+          this.agentState.pushChatLine({ role: 'system', text: `Run audit load failed: ${this.runAuditError}` });
         }
       },
     });
@@ -1193,7 +1136,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
     this.sendPolicyDecision(action.approvalId, 'allow_once', action.sessionId, action.runId);
-    action.busy = true;
+    this.updateInlinePolicyActionBusy(action.approvalId, true);
   }
 
   executePolicyDropdownAction(line: ChatLine): void {
@@ -1202,9 +1145,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
     const selected = action.dropdownAction;
-    action.dropdownAction = '';
     this.sendPolicyDecision(action.approvalId, selected, action.sessionId, action.runId);
-    action.busy = true;
+    this.updateInlinePolicyActionBusy(action.approvalId, true);
   }
 
   hasPendingPolicyAction(line: ChatLine): boolean {
@@ -1220,17 +1162,17 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.policyApprovalBusy.add(approvalId);
     this.updateInlinePolicyActionBusy(approvalId, true);
     try {
-      this.socketService.sendPolicyDecision(approvalId, decision, { sessionId, requestId: runId });
+      this.agentState.sendApprovalDecision(approvalId, decision, sessionId, runId);
       const messageMap: Record<'allow_once' | 'allow_session' | 'cancel', string> = {
         allow_once: 'Policy decision sent: Allow once.',
         allow_session: 'Policy decision sent: Allow all in this session.',
         cancel: 'Policy decision sent: Cancel.',
       };
-      this.lines.push({ role: 'system', text: messageMap[decision] });
+      this.agentState.pushChatLine({ role: 'system', text: messageMap[decision] });
     } catch (error: any) {
       this.policyApprovalBusy.delete(approvalId);
       this.updateInlinePolicyActionBusy(approvalId, false);
-      this.lines.push({ role: 'system', text: `Policy decision failed: ${error?.message ?? 'unknown error'}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Policy decision failed: ${error?.message ?? 'unknown error'}` });
     }
   }
 
@@ -1252,18 +1194,14 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     };
     this.agentsService.getPendingPolicyApprovals(payload).subscribe({
       next: (response) => {
-        this.policyApprovals = response.items.map((item) => {
-          const mapped = this.mapPolicyApprovalRecord(item);
-          mapped.selectedOption = 'allow_once';
-          return mapped;
-        });
+        this.agentState.refreshApprovalsFromRecords(response.items);
         this.approvalPollInFlight = false;
         this.ensureApprovalPolling();
       },
       error: (error) => {
         this.approvalPollInFlight = false;
         if (!silent) {
-          this.lines.push({ role: 'system', text: `Approval refresh failed: ${error?.error?.detail ?? error.message}` });
+          this.agentState.pushChatLine({ role: 'system', text: `Approval refresh failed: ${error?.error?.detail ?? error.message}` });
         }
       },
     });
@@ -1300,64 +1238,23 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   }
 
   private updateInlinePolicyActionBusy(approvalId: string, busy: boolean): void {
-    for (const line of this.lines) {
-      if (line.policyAction?.approvalId === approvalId) {
-        line.policyAction.busy = busy;
-      }
-    }
+    this.agentState.updateChatLinesByApproval(approvalId, line => ({
+      ...line,
+      policyAction: line.policyAction ? { ...line.policyAction, busy } : undefined,
+    }));
   }
 
   private updateInlinePolicyActionState(approvalId: string, resolved: boolean): void {
     if (resolved) {
       this.policyApprovalBusy.delete(approvalId);
     }
-    for (const line of this.lines) {
-      if (line.policyAction?.approvalId === approvalId) {
-        line.policyAction.busy = false;
-        line.policyAction.resolved = resolved;
-      }
-    }
+    this.agentState.updateChatLinesByApproval(approvalId, line => ({
+      ...line,
+      policyAction: line.policyAction ? { ...line.policyAction, busy: false, resolved } : undefined,
+    }));
   }
 
   private resolveInlinePolicyActionsByRequest(requestId: string): void {
-    if (!requestId) {
-      return;
-    }
-    for (const line of this.lines) {
-      if (line.policyAction?.runId === requestId) {
-        line.policyAction.resolved = true;
-        line.policyAction.busy = false;
-        this.policyApprovalBusy.delete(line.policyAction.approvalId);
-      }
-    }
-  }
-
-  private mapPolicyApprovalRecord(record: PolicyApprovalRecord): PolicyApprovalItem {
-    const normalizedStatus = String(record.status ?? 'pending').toLowerCase();
-    const status: 'pending' | 'approved' | 'expired' | 'denied' | 'cancelled' =
-      normalizedStatus === 'approved'
-        ? 'approved'
-        : normalizedStatus === 'expired'
-          ? 'expired'
-          : normalizedStatus === 'denied'
-            ? 'denied'
-            : normalizedStatus === 'cancelled'
-              ? 'cancelled'
-              : 'pending';
-
-    return {
-      approvalId: String(record.approval_id),
-      runId: String(record.run_id ?? ''),
-      sessionId: String(record.session_id ?? ''),
-      agentName: String(record.agent_name ?? 'agent'),
-      tool: String(record.tool ?? 'unknown'),
-      resource: String(record.resource ?? ''),
-      displayText: String(record.display_text ?? 'Approval required.'),
-      options: ['allow_once', 'allow_session', 'cancel'],
-      selectedOption: 'allow_once',
-      status,
-      createdAt: String(record.created_at ?? new Date().toISOString()),
-      updatedAt: String(record.updated_at ?? new Date().toISOString()),
-    };
+    this.agentState.resolveInlinePolicyActionsByRequest(requestId);
   }
 }

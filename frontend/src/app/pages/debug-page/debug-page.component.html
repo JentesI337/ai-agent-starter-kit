@@ -1,0 +1,95 @@
+<div class="debug-page" [class.debug--paused]="debugState === 'paused'">
+
+  <app-debug-toolbar
+    [state]="debugState"
+    [currentPhase]="currentPhase"
+    [breakpoints]="activeBreakpoints"
+    [connected]="isConnected"
+    (play)="onPlay()"
+    (pause)="onPause()"
+    (continueRun)="onContinue()"
+    (breakpointsChange)="onBreakpointsChange($event)">
+  </app-debug-toolbar>
+
+  <div class="debug-workspace">
+
+    <app-pipeline-canvas
+      [phaseStates]="phaseStates"
+      [currentPhase]="currentPhase"
+      [activeBreakpoints]="activeBreakpoints"
+      [llmCalls]="llmCalls"
+      [toolExecutions]="toolExecutions"
+      [eventLog]="eventLog"
+      (phaseClick)="onPhaseClick($event)"
+      (breakpointToggle)="onBreakpointToggle($event)">
+    </app-pipeline-canvas>
+
+    <app-prompt-inspector
+      [selectedPhase]="selectedPhase"
+      [llmCalls]="llmCalls"
+      [toolExecutions]="toolExecutions"
+      [reflectionVerdict]="reflectionVerdict">
+    </app-prompt-inspector>
+
+  </div>
+
+  <!-- Pause Banner -->
+  @if (debugState === 'paused') {
+    <div class="pause-banner" role="alert">
+      <span class="pause-icon">⏸</span>
+      <span class="pause-text">
+        Paused at <strong>{{ pausedAtPhase }}</strong>
+        — Phase {{ getPhaseIndex(pausedAtPhase) }} von 9
+      </span>
+      <button class="pause-continue" (click)="onContinue()">
+        ▶ Continue <kbd>F8</kbd>
+      </button>
+    </div>
+  }
+
+  <!-- Approval Banner -->
+  @for (approval of pendingApprovals; track approval.approvalId) {
+    @if (approval.status === 'pending') {
+      <div class="approval-banner" role="alert">
+        <span class="approval-icon">🔐</span>
+        <span class="approval-text">
+          <strong>{{ approval.tool }}</strong>: {{ approval.displayText }}
+        </span>
+        <div class="approval-actions">
+          <button class="approval-btn approval-btn--allow"
+                  (click)="onApprovalDecision(approval, 'allow_once')">
+            Allow Once
+          </button>
+          <button class="approval-btn approval-btn--session"
+                  (click)="onApprovalDecision(approval, 'allow_session')">
+            Allow Session
+          </button>
+          <button class="approval-btn approval-btn--cancel"
+                  (click)="onApprovalDecision(approval, 'cancel')">
+            Cancel
+          </button>
+        </div>
+      </div>
+    }
+  }
+
+  <app-event-log [events]="eventLog"></app-event-log>
+
+  <!-- Debug Composer -->
+  <div class="composer">
+    <textarea class="composer-input"
+              rows="1"
+              placeholder="Nachricht an Agent senden…"
+              [disabled]="debugState === 'running'"
+              [(ngModel)]="composerMessage"
+              (keydown.enter)="$event.preventDefault(); onSendMessage(composerMessage)"
+              aria-label="Debug Nachricht">
+    </textarea>
+    <button class="composer-send"
+            [disabled]="debugState === 'running' || !composerMessage.trim()"
+            (click)="onSendMessage(composerMessage)">
+      Senden
+    </button>
+  </div>
+
+</div>

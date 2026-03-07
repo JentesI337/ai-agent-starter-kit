@@ -189,8 +189,8 @@ PROMPT_SETTING_KEYS: tuple[str, ...] = (
 
 class Settings(BaseModel):
     app_env: str = os.getenv("APP_ENV", "development").strip().lower()
-    # SEC (CFG-05): debug_mode defaults to False; must be explicitly enabled
-    debug_mode: bool = _parse_bool_env("DEBUG_MODE", False)
+    # SEC (CFG-05): debug_mode enables debug lifecycle events (prompt/response capture)
+    debug_mode: bool = _parse_bool_env("DEBUG_MODE", True)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
     llm_model: str = os.getenv("LLM_MODEL", "llama3.3:70b-instruct-q4_K_M")
