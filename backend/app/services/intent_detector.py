@@ -74,6 +74,17 @@ class IntentDetector:
                 metadata={"extracted_command": None, "missing_slots": ()},
             )
 
+        # Multi-step prompts (numbered lists, multiple tasks) should NOT be
+        # reduced to a single execute_command intent.  Let the LLM-based tool
+        # selection handle them so all steps get appropriate tools.
+        if self._is_multi_step(text):
+            return IntentGateDecision(
+                detected_intent=None,
+                confidence=0.2,
+                gate_action="proceed",
+                metadata={"extracted_command": None, "missing_slots": ()},
+            )
+
         extracted_command = self.extract_command(text)
         if extracted_command and self.is_shell_command(extracted_command):
             return IntentGateDecision(
@@ -97,6 +108,15 @@ class IntentDetector:
             gate_action="force_tool",
             metadata={"extracted_command": None, "missing_slots": ("command",)},
         )
+
+    @staticmethod
+    def _is_multi_step(text: str) -> bool:
+        """Return True when the prompt contains multiple numbered/bulleted steps."""
+        numbered = re.findall(r"(?:^|\n)\s*\d+[.)]", text)
+        if len(numbered) >= 2:
+            return True
+        bullets = re.findall(r"(?:^|\n)\s*[-•*]\s", text)
+        return len(bullets) >= 2
 
     def detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         return self.detect(user_message)

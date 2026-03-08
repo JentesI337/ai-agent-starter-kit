@@ -2,7 +2,7 @@
 
 > Source of truth for the reasoning pipeline from initial WebSocket message
 > to final streamed answer.  All line numbers reference `backend/app/`.
-> Last verified: 2026-03-06.
+> Last verified: 2026-03-08.  Python 3.13.5.
 
 ---
 
@@ -62,7 +62,7 @@ User ──WS──▸ ws_handler ──▸ HeadAgent.run()
 | Component | File | Role |
 |-----------|------|------|
 | WebSocket handler | `ws_handler.py` | Parses envelope, routes to agent |
-| HeadAgent | `agent.py` (~2600 LOC) | Main orchestrator, owns the `run()` loop |
+| HeadAgent | `agent.py` (~3500 LOC) | Main orchestrator, owns the `run()` loop |
 | PlannerAgent | `agents/planner_agent.py` | Creates execution plans |
 | ToolSelectorAgent | `agents/tool_selector_agent.py` | Picks tools + arguments |
 | SynthesizerAgent | `agents/synthesizer_agent.py` | Generates final answer from plan + tool results |
@@ -145,7 +145,7 @@ After routing, `ws_handler` calls `agent.run(user_message, send_event, session_i
 
 ## 4. Phase 1 — Guardrails & Init
 
-**`agent.py` lines ~558–646.**
+**`agent.py` lines ~1961–2060.**
 
 `_validate_guardrails()` runs five checks — **always active, no env toggle**:
 
@@ -159,7 +159,9 @@ After routing, `ws_handler` calls `agent.run(user_message, send_event, session_i
 
 After guardrails pass:
 
-- **Tool policy** is resolved from the envelope payload.
+- **Tool policy** is resolved from the envelope payload.  The policy uses a
+  **deny-only architecture**: tools are allowed by default; only tools
+  explicitly listed in the `deny` set are blocked.  There are no `allow` lists.
 - **MCP tools** are registered if configured (`_ensure_mcp_tools_registered()`).
 - **Toolchain check** verifies tool definitions are consistent.
 
@@ -170,7 +172,7 @@ After guardrails pass:
 
 ## 5. Phase 2 — Memory & Context Budgeting
 
-**`agent.py` lines ~647–851.**
+**`agent.py` lines ~537–566 (long-term memory), ~1882–1960 (context budgeting).**
 
 ### 5.1 Memory
 
@@ -225,7 +227,7 @@ with detailed breakdown:
 
 ## 6. Phase 3 — Planning
 
-**`agent.py` lines ~617–851.  LLM call #1.**
+**`agent.py` lines ~1762–1795.  LLM call #1.**
 
 The `PlannerStepExecutor` calls `PlannerAgent` to classify the request and
 produce an execution plan.
@@ -252,7 +254,15 @@ Each step specifies:
 pip), the plan must include a fallback step using `write_file` in case the
 command times out or is blocked.
 
-### 6.3 Plan Verification
+### 6.3 Direct-Answer Short-Circuit
+
+After planning, `_is_direct_answer_plan()` checks whether the plan is a
+trivial/greeting response that needs no tools.  The classifier rejects
+`direct_answer` when the plan contains **multiple bullet points or numbered
+steps** (`re.findall(r'^\s*(?:\d+[.)\-]|[-*•])\s', text, re.MULTILINE) > 1`),
+preventing multi-step plans from being short-circuited.
+
+### 6.4 Plan Verification
 
 After planning, `VerificationService.verify_plan()` checks the plan
 for structural validity and returns `(status, reason, details)`.
@@ -264,10 +274,19 @@ for structural validity and returns `(status, reason, details)`.
 
 ## 7. Phase 4 — Tool Selection & Execution Loop
 
-**`agent.py` lines ~852–1010.  LLM calls #2–N.**
+**`agent.py` lines ~2144–2298.  LLM calls #2–N.**
 
 This is the core execution loop.  It selects tools, executes them, and
 optionally replans based on results.
+
+> **Removed: Intent Gate.**  An earlier version used `IntentDetector` to
+> classify user intent (e.g. `execute_command`) before tool selection.  This
+> single-intent classifier blocked multi-tool pipelines when any step
+> contained command-like language.  The gate has been neutralized:
+> `_detect_intent_gate()` returns a no-op (`intent=None`), and
+> `select_and_execute_tools()` no longer accepts `detect_intent_gate` or
+> `request_policy_override` parameters.  Tool selection is now fully
+> LLM-driven.
 
 ### 7.1 Tool Selection (LLM call)
 
@@ -326,6 +345,18 @@ Each action is executed sequentially through `tools.py`:
 available**.  The prompts explicitly direct the LLM to use `list_dir`,
 `read_file`, `grep_search` instead.
 
+**Workspace path auto-correction:** `_resolve_workspace_path()` detects and
+corrects duplicated workspace directory prefixes (e.g.
+`backend/backend/app/config.py` → `backend/app/config.py`).  This compensates
+for LLMs that prepend the workspace root when it is already the cwd.
+`grep_search` applies the same auto-correction to its `include_pattern`
+argument.
+
+**Glob matching:** `file_search` and `grep_search` use
+`PurePosixPath(rel).match(pattern)` instead of `fnmatch.fnmatch()` because
+`fnmatch` does not treat `**` as a recursive glob.  `PurePosixPath.match()`
+(Python 3.12+) handles `**` correctly.
+
 **Caps:**
 
 | Cap | Default | Env var |
@@ -379,7 +410,7 @@ After tool execution, `_classify_tool_results_state()` evaluates the results:
 
 ## 8. Phase 5 — Synthesis
 
-**`agent.py` lines ~1168–1273.  LLM call (streaming).**
+**`agent.py` lines ~1840–1882.  LLM call (streaming).**
 
 `SynthesizeStepExecutor` calls `SynthesizerAgent` to generate the final answer.
 
@@ -420,7 +451,7 @@ enforced.
 
 ## 9. Phase 6 — Reflection
 
-**`agent.py` lines ~1275–1358.  LLM call (conditional).**
+**`agent.py` → `services/reflection_service.py`.  LLM call (conditional).**
 
 If `reflection_enabled=True` (default) and `reflection_passes > 0` (default 1)
 and `final_text >= 8 chars`, the `ReflectionService` evaluates the answer.
@@ -484,7 +515,7 @@ Before being fed to the reflection LLM:
 
 ## 10. Phase 7 — Evidence Gates & Reply Shaping
 
-**`agent.py` lines ~1359–1511.**
+**`agent.py` lines ~2725–2824.**
 
 ### 10.1 Evidence Gates
 
@@ -636,7 +667,7 @@ variables.
 | Setting | Default | Env Var |
 |---------|---------|---------|
 | `command_allowlist_enabled` | `True` | `COMMAND_ALLOWLIST_ENABLED` |
-| `command_allowlist` | 37 executables (see §15) | `COMMAND_ALLOWLIST` |
+| `command_allowlist` | 43 executables (see §15) | `COMMAND_ALLOWLIST` |
 | `command_allowlist_extra` | `[]` | `COMMAND_ALLOWLIST_EXTRA` |
 
 ### Distillation
@@ -732,12 +763,12 @@ be used for debugging, monitoring, and UI state tracking.
 | `analyze_image` | Analysis | No |
 | `spawn_subrun` | Orchestration | No |
 
-**Default command allowlist (37 entries):**
-`python`, `py`, `pip`, `pytest`, `uvicorn`, `git`, `npm`, `node`, `npx`,
-`yarn`, `pnpm`, `make`, `cmake`, `docker`, `docker-compose`, `java`, `javac`,
-`mvn`, `gradle`, `go`, `rustc`, `cargo`, `dotnet`, `ls`, `cat`, `rg`, `grep`,
-`sed`, `awk`, `head`, `tail`, `wc`, `sort`, `uniq`, `cp`, `mv`, `mkdir`,
-`touch`, `chmod`, `chown`, `tar`, `zip`, `unzip`.
+**Default command allowlist (43 entries):**
+`awk`, `cargo`, `cat`, `chmod`, `chown`, `cmake`, `cp`, `docker`,
+`docker-compose`, `dotnet`, `git`, `go`, `gradle`, `grep`, `head`, `java`,
+`javac`, `ls`, `make`, `mkdir`, `mv`, `mvn`, `node`, `npm`, `npx`, `pip`,
+`pnpm`, `py`, `pytest`, `python`, `rg`, `rustc`, `sed`, `sort`, `tail`,
+`tar`, `touch`, `uniq`, `unzip`, `uvicorn`, `wc`, `yarn`, `zip`.
 
 **Safety patterns blocked (tools.py):**
 `rm -rf`, `del /f`, `format`, `shutdown`, `reboot`, `mkfs`, `dd`,

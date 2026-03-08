@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import contextlib
-import fnmatch
 import ipaddress
 import json
 import mimetypes
@@ -13,7 +12,7 @@ import subprocess
 import threading
 import uuid
 from html import unescape
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urljoin
 
 import httpx
@@ -179,7 +178,7 @@ class AgentTooling:
         matches: list[str] = []
         for candidate in self.workspace_root.rglob("*"):
             rel = candidate.relative_to(self.workspace_root).as_posix()
-            if fnmatch.fnmatch(rel, query):
+            if PurePosixPath(rel).match(query):
                 matches.append(rel + ("/" if candidate.is_dir() else ""))
                 if len(matches) >= cap:
                     break
@@ -214,7 +213,7 @@ class AgentTooling:
             if not candidate.is_file():
                 continue
             rel = candidate.relative_to(self.workspace_root).as_posix()
-            if not fnmatch.fnmatch(rel, include):
+            if not PurePosixPath(rel).match(include):
                 continue
             try:
                 file_size = candidate.stat().st_size

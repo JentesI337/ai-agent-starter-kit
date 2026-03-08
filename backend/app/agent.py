@@ -2253,11 +2253,9 @@ class HeadAgent:
             emit_tool_selection_empty=_emit_tool_selection_empty_proxy,
             invoke_hooks=_invoke_hooks_proxy,
             send_event=send_event,
-            detect_intent_gate=self._detect_intent_gate,
             resolve_skills_enabled_for_request=self._resolve_skills_enabled_for_request,
             build_skills_snapshot=self.skills_service.build_snapshot,
             empty_skills_snapshot=self._empty_skills_snapshot,
-            request_policy_override=_request_policy_override_proxy,
             complete_chat=self.client.complete_chat,
             complete_chat_with_tools=self.client.complete_chat_with_tools,
             build_function_calling_tools=self._build_function_calling_tools,
@@ -2381,8 +2379,9 @@ class HeadAgent:
         # Too short to be a confident direct answer (ambiguous like "run")
         if len(text) < 8:
             return False
-        # Multiple numbered steps or bullet points → likely an actionable plan
-        if len(re.findall(r'^\s*(?:\d+[.)\-]|[-*•])\s', text, re.MULTILINE)) > 1:
+        # Many numbered steps or bullet points → likely an actionable plan.
+        # Allow up to 3 internal steps for conversational/knowledge plans.
+        if len(re.findall(r'^\s*(?:\d+[.)\-]|[-*•])\s', text, re.MULTILINE)) > 3:
             return False
         # References to allowed tool names → needs tool execution
         text_lower = text.lower()
@@ -2466,15 +2465,14 @@ class HeadAgent:
         )
 
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
-        decision = self._intent.detect(user_message)
-        confidence_label = (
-            "high" if decision.confidence >= 0.8 else ("medium" if decision.confidence >= 0.45 else "low")
-        )
+        # Neutralised: LLM-based tool selection handles intent classification.
+        # The IntentDetector instance is kept alive for ActionAugmenter convenience
+        # methods (is_web_research_task, is_subrun_orchestration_task, etc.).
         return IntentGateDecision(
-            intent=decision.intent,
-            confidence=confidence_label,
-            extracted_command=decision.extracted_command,
-            missing_slots=decision.missing_slots,
+            intent=None,
+            confidence="low",
+            extracted_command=None,
+            missing_slots=(),
         )
 
     def _looks_like_shell_command(self, candidate: str) -> bool:

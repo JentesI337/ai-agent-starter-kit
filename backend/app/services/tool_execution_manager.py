@@ -83,13 +83,6 @@ class ToolExecutionResult:
 
 
 class ToolExecutionManager:
-    @staticmethod
-    def _is_high_confidence(confidence: str | int | float) -> bool:
-        if isinstance(confidence, str):
-            return confidence.strip().lower() == "high"
-        if isinstance(confidence, (int, float)):
-            return float(confidence) >= 0.8
-        return False
 
     READ_ONLY_TOOLS = {
         "list_dir",
@@ -161,12 +154,9 @@ class ToolExecutionManager:
         self._registry = registry
 
     @staticmethod
-    def _infer_required_capabilities(*, user_message: str, plan_text: str, intent: str | None) -> set[str]:
+    def _infer_required_capabilities(*, user_message: str, plan_text: str) -> set[str]:
         text = f"{user_message}\n{plan_text}".lower()
         capabilities: set[str] = set()
-
-        if intent == "execute_command":
-            capabilities.add("command_execution")
 
         if any(
             marker in text
@@ -189,11 +179,36 @@ class ToolExecutionManager:
         if any(marker in text for marker in ("read", "inspect", "analyze", "grep", "find", "search in files")):
             capabilities.update({"filesystem_read", "code_search"})
 
+        if any(marker in text for marker in (
+            "execute", "run ", "ausführ", "führe", "starte", "start ",
+            "command", "befehl", "shell", "terminal", "pip ", "pytest",
+            "python --", "npm ", "git ", "docker ",
+        )):
+            capabilities.update({"command_execution", "build_and_test"})
+
+        if any(marker in text for marker in ("code_execute", "code aus", "snippet", "sandbox")):
+            capabilities.update({"command_execution", "code_sandbox"})
+
         if any(marker in text for marker in ("subrun", "delegate", "orchestrate", "parallel")):
             capabilities.update({"agent_delegation", "orchestration"})
 
         if not capabilities:
-            capabilities.add("filesystem_read")
+            # Detect conversational / knowledge-only prompts that need no tools.
+            _conversational_markers = (
+                "hallo", "hello", "hi ", "wer bist", "who are you",
+                "was ist", "what is", "erkläre", "explain",
+                "warum", "why", "wie funktioniert", "how does",
+                "sag mir", "tell me", "hilfe", "help",
+                "meinung", "opinion", "definition", "beschreibe",
+                "describe", "zusammenfassung", "summary", "summarize",
+                "vergleich", "compare", "unterschied", "difference",
+                "respond", "answer", "reply", "introduction",
+                "antworte", "einführung", "greet", "grüß",
+            )
+            if any(marker in text for marker in _conversational_markers):
+                capabilities.add("conversational")
+            else:
+                capabilities.add("filesystem_read")
         return capabilities
 
     async def _apply_capability_preselection(
@@ -201,45 +216,26 @@ class ToolExecutionManager:
         *,
         allowed_tools: set[str],
         required_capabilities: set[str],
-        intent: str | None,
         emit_lifecycle: Callable[[str, dict | None], Awaitable[None]],
     ) -> set[str]:
+        # Logging-only mode: infer which tools *would* match the capabilities
+        # for telemetry, but always return all allowed tools so the LLM decides.
         registry = self._registry
-        if registry is None or not hasattr(registry, "filter_tools_by_capabilities"):
-            await emit_lifecycle(
-                "tool_capability_preselection_skipped",
-                {
-                    "reason": "registry_missing_filter",
-                    "required_capabilities": sorted(required_capabilities),
-                    "allowed_before": len(allowed_tools),
-                },
+        matched_tools: set[str] = set()
+        if registry is not None and hasattr(registry, "filter_tools_by_capabilities"):
+            matched_tools = registry.filter_tools_by_capabilities(
+                candidate_tools=set(allowed_tools),
+                required_capabilities=required_capabilities,
             )
-            return set(allowed_tools)
-
-        filtered_tools = registry.filter_tools_by_capabilities(
-            candidate_tools=set(allowed_tools),
-            required_capabilities=required_capabilities,
-        )
-        if filtered_tools:
-            await emit_lifecycle(
-                "tool_capability_preselection_applied",
-                {
-                    "intent": intent,
-                    "required_capabilities": sorted(required_capabilities),
-                    "allowed_before": len(allowed_tools),
-                    "allowed_after": len(filtered_tools),
-                    "selected_tools": sorted(filtered_tools),
-                },
-            )
-            return filtered_tools
 
         await emit_lifecycle(
-            "tool_capability_preselection_empty",
+            "tool_capability_preselection_logged",
             {
-                "intent": intent,
+                "mode": "observe_only",
                 "required_capabilities": sorted(required_capabilities),
-                "allowed_before": len(allowed_tools),
-                "fallback_to_allowed_tools": True,
+                "allowed_tools": len(allowed_tools),
+                "matched_tools": len(matched_tools),
+                "matched_tool_names": sorted(matched_tools) if matched_tools else [],
             },
         )
         return set(allowed_tools)
@@ -322,11 +318,9 @@ class ToolExecutionManager:
         emit_tool_selection_empty: Callable[[str, dict | None], Awaitable[None]],
         invoke_hooks: Callable[[str, dict], Awaitable[None]],
         send_event: Callable[[dict], Awaitable[None]],
-        detect_intent_gate: Callable[[str], object],
         resolve_skills_enabled_for_request: Callable[..., tuple[bool, dict[str, object]]],
         build_skills_snapshot: Callable[[], object],
         empty_skills_snapshot: Callable[[], object],
-        request_policy_override: Callable[..., Awaitable[bool]],
         complete_chat: Callable[[str, str, str | None], Awaitable[str]],
         complete_chat_with_tools: Callable[..., Awaitable[list[dict]]] | None = None,
         build_function_calling_tools: Callable[[set[str]], list[dict]] | None = None,
@@ -358,20 +352,13 @@ class ToolExecutionManager:
             await emit_lifecycle("tool_selection_skipped", {"reason": "no_tools_allowed"})
             return ""
 
-        intent_decision = detect_intent_gate(user_message)
-        intent = getattr(intent_decision, "intent", None)
-        confidence = getattr(intent_decision, "confidence", 0.0)
-        extracted_command = getattr(intent_decision, "extracted_command", None)
-        missing_slots = tuple(getattr(intent_decision, "missing_slots", ()) or ())
         required_capabilities = self._infer_required_capabilities(
             user_message=user_message,
             plan_text=plan_text,
-            intent=intent,
         )
         effective_allowed_tools = await self._apply_capability_preselection(
             allowed_tools=effective_allowed_tools,
             required_capabilities=required_capabilities,
-            intent=intent,
             emit_lifecycle=emit_lifecycle,
         )
 
@@ -488,50 +475,6 @@ class ToolExecutionManager:
                         },
                     )
 
-        if intent == "execute_command" and "run_command" not in effective_allowed_tools:
-            approved = await request_policy_override(tool="run_command", resource=(extracted_command or "(missing command)"))
-            if approved:
-                effective_allowed_tools.add("run_command")
-
-        if intent == "execute_command" and "run_command" not in effective_allowed_tools:
-            blocked_message = (
-                "I can execute commands for you, but command execution is currently blocked by the active tool policy. "
-                "Please allow `run_command` (or select a specialist agent with command execution capability) and retry."
-            )
-            await emit_tool_selection_empty(
-                "policy_block",
-                {
-                    "intent": intent,
-                    "confidence": confidence,
-                    "blocked_with_reason": "run_command_not_allowed",
-                },
-            )
-            await emit_lifecycle("tool_selection_completed", {"actions": 0, "blocked_with_reason": "run_command_not_allowed"})
-            return encode_blocked_tool_result(
-                blocked_with_reason="run_command_not_allowed",
-                message=blocked_message,
-            )
-
-        if intent == "execute_command" and missing_slots:
-            blocked_message = (
-                "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
-                "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
-            )
-            await emit_tool_selection_empty(
-                "missing_slots",
-                {
-                    "intent": intent,
-                    "confidence": confidence,
-                    "missing_slots": list(missing_slots),
-                    "blocked_with_reason": "missing_command",
-                },
-            )
-            await emit_lifecycle("tool_selection_completed", {"actions": 0, "blocked_with_reason": "missing_command"})
-            return encode_blocked_tool_result(
-                blocked_with_reason="missing_command",
-                message=blocked_message,
-            )
-
         await self._safe_invoke_hooks(
             invoke_hooks,
             "before_prompt_build",
@@ -579,9 +522,6 @@ class ToolExecutionManager:
             plan_text=plan_text,
             memory_context=effective_memory_context,
             model=model,
-            intent=intent,
-            confidence=confidence,
-            extracted_command=extracted_command,
             approve_blocked_process_tools_if_needed=approve_blocked_process_tools_if_needed,
             validate_actions=validate_actions,
             augment_actions_if_needed=augment_actions_if_needed,
@@ -596,14 +536,9 @@ class ToolExecutionManager:
             await emit_lifecycle("tool_selection_actions_rejected", {"rejected": rejected_count})
         await emit_lifecycle("tool_selection_completed", {"actions": len(actions)})
         if not actions:
-            empty_reason = "ambiguous_input"
-            if intent is not None and isinstance(confidence, str) and confidence == "low":
-                empty_reason = "low_confidence"
             await emit_tool_selection_empty(
-                empty_reason,
+                "ambiguous_input",
                 {
-                    "intent": intent,
-                    "confidence": confidence,
                     "rejected_actions": rejected_count,
                 },
             )
@@ -974,9 +909,6 @@ class ToolExecutionManager:
         plan_text: str,
         memory_context: str,
         model: str | None,
-        intent: str | None,
-        confidence: str | int | float,
-        extracted_command: str | None,
         approve_blocked_process_tools_if_needed: Callable[..., Awaitable[set[str]]],
         validate_actions: Callable[[list[dict], set[str]], tuple[list[dict], int]],
         augment_actions_if_needed: Callable[..., Awaitable[list[dict]]],
@@ -999,50 +931,6 @@ class ToolExecutionManager:
             model=model,
             allowed_tools=updated_allowed_tools,
         )
-
-        if not augmented_actions and intent == "execute_command" and self._is_high_confidence(confidence):
-            if extracted_command:
-                injected_action = {
-                    "tool": "run_command",
-                    "args": {"command": extracted_command},
-                }
-                # M-11: validate injected action through the same pipeline
-                validated_injected, _ = validate_actions(
-                    [injected_action],
-                    updated_allowed_tools,
-                )
-                if validated_injected:
-                    augmented_actions = validated_injected
-                await emit_lifecycle(
-                    "tool_selection_followup_completed",
-                    {
-                        "reason": "intent_execute_command_forced_action",
-                        "added_tool": "run_command",
-                    },
-                )
-            else:
-                blocked_message = (
-                    "Ich kann den Command ausführen, brauche aber den exakten Befehl. "
-                    "Bitte nenne genau den auszuführenden Command (z. B. `pytest -q` oder `npm test`)."
-                )
-                await emit_tool_selection_empty(
-                    "missing_slots",
-                    {
-                        "intent": intent,
-                        "confidence": confidence,
-                        "missing_slots": ["command"],
-                        "blocked_with_reason": "missing_command",
-                    },
-                )
-                await emit_lifecycle(
-                    "tool_selection_completed",
-                    {"actions": 0, "blocked_with_reason": "missing_command"},
-                )
-                blocked_result = encode_blocked_tool_result(
-                    blocked_with_reason="missing_command",
-                    message=blocked_message,
-                )
-                return augmented_actions, updated_allowed_tools, rejected_count, blocked_result
 
         return augmented_actions, updated_allowed_tools, rejected_count, None
 

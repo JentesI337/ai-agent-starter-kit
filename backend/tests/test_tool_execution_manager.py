@@ -141,107 +141,6 @@ def test_select_actions_with_repair_recovers_and_emits_status() -> None:
     assert any(event.get("type") == "status" for event in sent_events)
 
 
-def test_apply_action_pipeline_forces_run_command_for_intent() -> None:
-    manager = ToolExecutionManager()
-
-    async def fake_approve(*, actions: list[dict], allowed_tools: set[str]) -> set[str]:
-        return set(allowed_tools)
-
-    def fake_validate(actions: list[dict], allowed_tools: set[str]) -> tuple[list[dict], int]:
-        return actions, 0
-
-    async def fake_augment(**kwargs) -> list[dict]:
-        return []
-
-    lifecycle_events: list[tuple[str, dict | None]] = []
-
-    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
-        lifecycle_events.append((stage, details))
-
-    async def fake_emit_empty(reason: str, details: dict | None) -> None:
-        raise AssertionError(f"unexpected empty emit: {reason} {details}")
-
-    def fake_encode_blocked_tool_result(*, blocked_with_reason: str, message: str) -> str:
-        return f"{blocked_with_reason}:{message}"
-
-    actions, _, rejected_count, blocked_result = asyncio.run(
-        manager.apply_action_pipeline(
-            actions=[],
-            effective_allowed_tools={"run_command"},
-            user_message="run pytest",
-            plan_text="",
-            memory_context="",
-            model=None,
-            intent="execute_command",
-            confidence=0.9,
-            extracted_command="pytest -q",
-            approve_blocked_process_tools_if_needed=fake_approve,
-            validate_actions=fake_validate,
-            augment_actions_if_needed=fake_augment,
-            emit_lifecycle=fake_emit_lifecycle,
-            emit_tool_selection_empty=fake_emit_empty,
-            encode_blocked_tool_result=fake_encode_blocked_tool_result,
-        )
-    )
-
-    assert rejected_count == 0
-    assert blocked_result is None
-    assert actions == [{"tool": "run_command", "args": {"command": "pytest -q"}}]
-    assert any(stage == "tool_selection_followup_completed" for stage, _ in lifecycle_events)
-
-
-def test_apply_action_pipeline_returns_missing_command_blocked_result() -> None:
-    manager = ToolExecutionManager()
-
-    async def fake_approve(*, actions: list[dict], allowed_tools: set[str]) -> set[str]:
-        return set(allowed_tools)
-
-    def fake_validate(actions: list[dict], allowed_tools: set[str]) -> tuple[list[dict], int]:
-        return actions, 0
-
-    async def fake_augment(**kwargs) -> list[dict]:
-        return []
-
-    empty_events: list[tuple[str, dict | None]] = []
-    lifecycle_events: list[tuple[str, dict | None]] = []
-
-    async def fake_emit_empty(reason: str, details: dict | None) -> None:
-        empty_events.append((reason, details))
-
-    async def fake_emit_lifecycle(stage: str, details: dict | None) -> None:
-        lifecycle_events.append((stage, details))
-
-    def fake_encode_blocked_tool_result(*, blocked_with_reason: str, message: str) -> str:
-        return f"{blocked_with_reason}:{message}"
-
-    actions, _, rejected_count, blocked_result = asyncio.run(
-        manager.apply_action_pipeline(
-            actions=[],
-            effective_allowed_tools={"run_command"},
-            user_message="run command",
-            plan_text="",
-            memory_context="",
-            model=None,
-            intent="execute_command",
-            confidence=0.9,
-            extracted_command=None,
-            approve_blocked_process_tools_if_needed=fake_approve,
-            validate_actions=fake_validate,
-            augment_actions_if_needed=fake_augment,
-            emit_lifecycle=fake_emit_lifecycle,
-            emit_tool_selection_empty=fake_emit_empty,
-            encode_blocked_tool_result=fake_encode_blocked_tool_result,
-        )
-    )
-
-    assert rejected_count == 0
-    assert actions == []
-    assert blocked_result is not None
-    assert blocked_result.startswith("missing_command:")
-    assert any(reason == "missing_slots" for reason, _ in empty_events)
-    assert any(stage == "tool_selection_completed" for stage, _ in lifecycle_events)
-
-
 def test_run_tool_loop_executes_action_and_emits_audit_summary() -> None:
     manager = ToolExecutionManager()
     lifecycle_events: list[tuple[str, dict | None]] = []
@@ -666,18 +565,6 @@ def test_transform_tool_result_for_persist_adds_chunking_and_summary_for_large_p
     assert "summary:" in clipped
 
 
-def test_infer_required_capabilities_for_command_intent() -> None:
-    manager = ToolExecutionManager()
-
-    required = manager._infer_required_capabilities(
-        user_message="run `pytest -q` and show result",
-        plan_text="execute tests",
-        intent="execute_command",
-    )
-
-    assert "command_execution" in required
-
-
 def test_apply_capability_preselection_filters_tools() -> None:
     lifecycle_events: list[tuple[str, dict | None]] = []
     manager = ToolExecutionManager(registry=build_default_tool_registry(command_timeout_seconds=30))
@@ -689,7 +576,6 @@ def test_apply_capability_preselection_filters_tools() -> None:
         manager._apply_capability_preselection(
             allowed_tools={"read_file", "run_command", "web_fetch"},
             required_capabilities={"command_execution"},
-            intent="execute_command",
             emit_lifecycle=fake_emit_lifecycle,
         )
     )
@@ -709,7 +595,6 @@ def test_apply_capability_preselection_falls_back_when_no_match() -> None:
         manager._apply_capability_preselection(
             allowed_tools={"read_file"},
             required_capabilities={"agent_delegation"},
-            intent="delegate",
             emit_lifecycle=fake_emit_lifecycle,
         )
     )

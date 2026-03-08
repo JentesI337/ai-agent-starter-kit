@@ -266,113 +266,6 @@ def test_websocket_user_message_emits_final_and_request_completed(monkeypatch) -
     assert not any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_cancelled" for evt in events)
 
 
-def test_websocket_command_intent_missing_slot_emits_tool_selection_empty(monkeypatch) -> None:
-    _set_local_runtime()
-
-    async def fake_ensure_model_ready(send_event, session_id, model_name):
-        return model_name
-
-    def fake_configure_runtime(base_url: str, model: str) -> None:
-        return
-
-    delegate = agent_registry["head-agent"]._delegate
-
-    async def fake_plan_execute(payload, model=None):
-        return "execute requested command"
-
-    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
-    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
-    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
-
-    client = TestClient(app)
-
-    with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json(
-            {
-                "type": "user_message",
-                "content": "run",
-                "agent_id": "head-agent",
-            }
-        )
-
-        events = []
-        for _ in range(48):
-            evt = _unwrap_event(receive_json_with_timeout(ws))
-            events.append(evt)
-            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
-                break
-
-    assert any(
-        evt.get("type") == "lifecycle"
-        and evt.get("stage") == "tool_selection_empty"
-        and evt.get("details", {}).get("reason") == "missing_slots"
-        for evt in events
-    )
-    assert any(
-        evt.get("type") == "final"
-        and "exakten befehl" in str(evt.get("message", "")).lower()
-        for evt in events
-    )
-    assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed" for evt in events)
-
-
-def test_websocket_command_intent_policy_block_emits_tool_selection_empty(monkeypatch) -> None:
-    _set_local_runtime()
-    monkeypatch.setattr(settings, "policy_approval_wait_seconds", 0.01)
-
-    async def fake_ensure_model_ready(send_event, session_id, model_name):
-        return model_name
-
-    def fake_configure_runtime(base_url: str, model: str) -> None:
-        return
-
-    delegate = agent_registry["head-agent"]._delegate
-
-    async def fake_plan_execute(payload, model=None):
-        return "execute requested command"
-
-    monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
-    monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
-    monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
-
-    client = TestClient(app)
-
-    with client.websocket_connect("/ws/agent") as ws:
-        _ = _unwrap_event(receive_json_with_timeout(ws))
-        ws.send_json(
-            {
-                "type": "user_message",
-                "content": "run `echo hello`",
-                "agent_id": "head-agent",
-                "tool_policy": {"deny": ["run_command"]},
-            }
-        )
-
-        events = []
-        for _ in range(48):
-            envelope = receive_json_with_timeout(ws, timeout_seconds=0.75, fail_on_timeout=False)
-            if envelope is None:
-                break
-            evt = _unwrap_event(envelope)
-            events.append(evt)
-            if evt.get("type") == "lifecycle" and evt.get("stage") == "request_completed":
-                break
-
-    assert any(
-        evt.get("type") == "lifecycle"
-        and evt.get("stage") == "tool_selection_empty"
-        and evt.get("details", {}).get("reason") == "policy_block"
-        and evt.get("details", {}).get("blocked_with_reason") == "run_command_not_allowed"
-        for evt in events
-    )
-    assert any(
-        evt.get("type") == "final"
-        and "currently blocked by the active tool policy" in str(evt.get("message", ""))
-        for evt in events
-    )
-
-
 def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatch) -> None:
     _set_local_runtime()
     monkeypatch.setattr(settings, "policy_approval_wait_seconds", 5.0)
@@ -388,9 +281,13 @@ def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatc
     async def fake_plan_execute(payload, model=None):
         return "execute requested command"
 
+    async def fake_complete_chat(system_prompt, user_prompt, model=None):
+        return '{"actions":[{"tool":"run_command","args":{"command":"echo hello"}}]}'
+
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
 
     client = TestClient(app)
 
@@ -476,9 +373,13 @@ def test_websocket_policy_decision_cancel_aborts_run_cleanly(monkeypatch) -> Non
     async def fake_plan_execute(payload, model=None):
         return "execute requested command"
 
+    async def fake_complete_chat(system_prompt, user_prompt, model=None):
+        return '{"actions":[{"tool":"run_command","args":{"command":"echo hello"}}]}'
+
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
 
     client = TestClient(app)
 
@@ -541,9 +442,13 @@ def test_websocket_policy_decision_conflicting_duplicate_is_noop(monkeypatch) ->
     async def fake_plan_execute(payload, model=None):
         return "execute requested command"
 
+    async def fake_complete_chat(system_prompt, user_prompt, model=None):
+        return '{"actions":[{"tool":"run_command","args":{"command":"echo hello"}}]}'
+
     monkeypatch.setattr(runtime_manager, "ensure_model_ready", fake_ensure_model_ready)
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
+    monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
 
     client = TestClient(app)
 

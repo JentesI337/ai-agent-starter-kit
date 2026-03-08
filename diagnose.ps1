@@ -4,12 +4,17 @@
 .DESCRIPTION
     Checks REST endpoints, then sends a test message via WebSocket
     and validates the full pipeline lifecycle.
+    Supports scenario-based testing via JSON files.
 .PARAMETER BaseUrl
     Backend URL (default: http://localhost:8000)
 .PARAMETER Prompt
     Test prompt to send (default: simple math question)
 .PARAMETER Timeout
     WebSocket timeout in seconds (default: 90)
+.PARAMETER Scenarios
+    Path to scenarios JSON file (enables scenario mode)
+.PARAMETER Pick
+    Comma-separated scenario IDs to run (e.g. "1,5,12")
 .PARAMETER Verbose
     Print every WebSocket event
 #>
@@ -17,6 +22,8 @@ param(
     [string]$BaseUrl = "http://localhost:8000",
     [string]$Prompt = "",
     [int]$Timeout = 90,
+    [string]$Scenarios = "",
+    [string]$Pick = "",
     [switch]$Verbose
 )
 
@@ -34,6 +41,8 @@ $scriptPath = Join-Path $PSScriptRoot "backend\scripts\diagnose.py"
 
 $args_ = @("$scriptPath", "--base-url", $BaseUrl, "--timeout", $Timeout)
 if ($Prompt) { $args_ += @("--prompt", $Prompt) }
+if ($Scenarios) { $args_ += @("--scenarios", $Scenarios) }
+if ($Pick) { $args_ += @("--pick", $Pick) }
 if ($Verbose) { $args_ += "--verbose" }
 
 & $venvPython @args_

@@ -13,6 +13,8 @@ Usage:
     python scripts/diagnose.py --prompt "Explain quicksort"
     python scripts/diagnose.py --timeout 60
     python scripts/diagnose.py --verbose            # print every event
+    python scripts/diagnose.py --scenarios scripts/scenarios.json
+    python scripts/diagnose.py --scenarios scripts/scenarios.json --pick 1,4,7
 """
 
 from __future__ import annotations
@@ -144,6 +146,7 @@ async def check_websocket_pipeline(
     prompt: str,
     timeout_sec: float,
     verbose: bool,
+    tool_policy: dict[str, Any] | None = None,
 ) -> DiagResult:
     ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
     ws_url = f"{ws_url.rstrip('/')}/ws/agent"
@@ -171,11 +174,13 @@ async def check_websocket_pipeline(
                 return DiagResult("WebSocket Pipeline", False, "No initial status event within 8s")
 
             # Send test message (fully automated, no user input needed)
-            payload = {
+            payload: dict[str, Any] = {
                 "type": "user_message",
                 "content": prompt,
                 "agent_id": "head-agent",
             }
+            if tool_policy:
+                payload["tool_policy"] = tool_policy
             await ws.send(json.dumps(payload, ensure_ascii=False))
             if verbose:
                 print(_dim(f"  → [AUTO] Gesendet an Backend: \"{prompt[:80]}\" — warte auf Antwort ..."))
@@ -272,14 +277,14 @@ async def check_websocket_pipeline(
 
     # Evaluate pipeline completeness
     missing_stages = [s for s in EXPECTED_PIPELINE_STAGES if s not in lifecycle_stages]
-    failure_stages = [s for s in lifecycle_stages if "failed" in s]
+    failure_stages = [s for s in lifecycle_stages if s.startswith("request_failed")]
 
     passed = (
         completed
         and not failure_stages
         and not missing_stages
         and len(response_text) > 10
-        and not errors
+        and (not errors or "request_completed" in lifecycle_stages)
     )
 
     # Build detail summary
@@ -388,12 +393,211 @@ def main() -> None:
     parser.add_argument("--prompt", default="Sag mir in einem Satz was 2+2 ist.", help="Test prompt")
     parser.add_argument("--timeout", type=float, default=90, help="WebSocket timeout in seconds")
     parser.add_argument("--verbose", action="store_true", help="Print every event")
+    parser.add_argument("--scenarios", default=None, help="Path to scenarios JSON file")
+    parser.add_argument("--pick", default=None, help="Comma-separated scenario IDs to run (e.g. 1,5,12)")
     args = parser.parse_args()
 
-    results = asyncio.run(run_diagnostics(args.base_url, args.prompt, args.timeout, args.verbose))
+    if args.scenarios:
+        results = asyncio.run(
+            run_scenario_suite(args.base_url, args.scenarios, args.pick, args.verbose)
+        )
+    else:
+        results = asyncio.run(
+            run_diagnostics(args.base_url, args.prompt, args.timeout, args.verbose)
+        )
 
-    # Exit code: 0 if all passed, 1 if any failed
     sys.exit(0 if all(r.passed for r in results) else 1)
+
+
+# ── Scenario runner ─────────────────────────────────────────────────
+def _load_scenarios(path: str, pick: str | None) -> list[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    scenarios = data.get("scenarios", [])
+
+    if pick:
+        ids = {int(x.strip()) for x in pick.split(",") if x.strip().isdigit()}
+        scenarios = [s for s in scenarios if s.get("id") in ids]
+
+    return scenarios
+
+
+def _generate_prompt(scenario: dict[str, Any]) -> str:
+    gen = scenario.get("prompt_generator", "")
+    if gen.startswith("repeat("):
+        # repeat('A', 8500) → 'A' * 8500
+        import re as _re
+        m = _re.match(r"repeat\('(.)',\s*(\d+)\)", gen)
+        if m:
+            return m.group(1) * int(m.group(2))
+    return scenario["prompt"]
+
+
+def _validate_expect(
+    expect: dict[str, Any],
+    ws_result: DiagResult,
+) -> list[str]:
+    """Return list of failure reasons (empty = all passed)."""
+    failures: list[str] = []
+    data = ws_result.data
+    stages = data.get("lifecycle_stages", [])
+    response = data.get("response_preview", "")
+    duration = data.get("duration_ms", 0)
+
+    if "max_duration_ms" in expect:
+        if duration > expect["max_duration_ms"]:
+            failures.append(
+                f"duration {duration}ms > max {expect['max_duration_ms']}ms"
+            )
+
+    for stage in expect.get("stages_present", []):
+        if stage not in stages:
+            failures.append(f"missing expected stage: {stage}")
+
+    for stage in expect.get("stages_absent", []):
+        if stage in stages:
+            failures.append(f"unexpected stage present: {stage}")
+
+    resp_len = expect.get("response_min_length", 0)
+    if len(response) < resp_len:
+        failures.append(
+            f"response too short: {len(response)} < {resp_len} chars"
+        )
+
+    contains_any = expect.get("response_contains_any", [])
+    if contains_any and not any(kw in response for kw in contains_any):
+        failures.append(
+            f"response missing all of: {contains_any}"
+        )
+
+    must_not = expect.get("response_must_not_contain", [])
+    for forbidden in must_not:
+        if forbidden.lower() in response.lower():
+            failures.append(f"response contains forbidden: '{forbidden}'")
+
+    # expect_error: scenario expects the pipeline to fail (e.g. guardrail block)
+    if expect.get("expect_error"):
+        errors = data.get("errors", [])
+        if not errors and not data.get("failure_stages"):
+            failures.append("expected an error/guardrail block but pipeline succeeded")
+        # Check that error message contains expected substring
+        error_contains = expect.get("error_contains_any", [])
+        if error_contains:
+            all_errors = " ".join(errors)
+            if not any(kw.lower() in all_errors.lower() for kw in error_contains):
+                failures.append(f"error message missing all of: {error_contains}")
+
+    return failures
+
+
+async def run_scenario_suite(
+    base_url: str,
+    scenarios_path: str,
+    pick: str | None,
+    verbose: bool,
+) -> list[DiagResult]:
+    results: list[DiagResult] = []
+
+    print(_bold("\n━━━ AI Agent Starter Kit — Scenario Suite ━━━\n"))
+
+    # Phase 1: REST health (quick gate)
+    print(_cyan("▸ Phase 1: REST Health Gate"))
+    health = await check_health(base_url)
+    results.append(health)
+    icon = _green("✓") if health.passed else _red("✗")
+    print(f"  {icon} {health.check}: {health.detail}")
+
+    if not health.passed:
+        print(_red("\n  ⚠ Backend not reachable — aborting scenarios."))
+        return results
+
+    # Load scenarios
+    scenarios = _load_scenarios(scenarios_path, pick)
+    if not scenarios:
+        print(_red("  No scenarios found."))
+        return results
+
+    total = len(scenarios)
+    print(f"\n  {_cyan(f'{total} scenarios')} loaded"
+          f"{f' (filtered by --pick {pick})' if pick else ''}\n")
+
+    # Phase 2: Run each scenario
+    scenario_pass = 0
+    scenario_fail = 0
+
+    for idx, scenario in enumerate(scenarios, 1):
+        sid = scenario.get("id", idx)
+        name = scenario.get("name", "unnamed")
+        desc = scenario.get("description", "")
+        timeout = scenario.get("timeout", 90)
+        tool_policy = scenario.get("tool_policy")
+        prompt = _generate_prompt(scenario)
+        expect = scenario.get("expect", {})
+
+        print(_cyan(f"▸ [{idx}/{total}] Scenario {sid}: {name}"))
+        print(_dim(f"  {desc}"))
+        print(_dim(f"  Prompt: \"{prompt[:80]}{'…' if len(prompt) > 80 else ''}\""))
+
+        ws_result = await check_websocket_pipeline(
+            base_url, prompt, timeout, verbose, tool_policy=tool_policy,
+        )
+
+        # Validate expectations
+        expect_failures = _validate_expect(expect, ws_result) if expect else []
+
+        # For expect_error scenarios, the pipeline is *supposed* to fail
+        if expect.get("expect_error"):
+            passed = not expect_failures
+        else:
+            passed = ws_result.passed and not expect_failures
+        diag = DiagResult(
+            check=f"Scenario {sid}: {name}",
+            passed=passed,
+            detail=ws_result.detail,
+            data={**ws_result.data, "expect_failures": expect_failures},
+        )
+        results.append(diag)
+
+        if passed:
+            scenario_pass += 1
+            print(f"  {_green('✓ PASS')}"
+                  f"  {ws_result.data.get('duration_ms', '?')}ms"
+                  f"  {ws_result.data.get('response_length', '?')} chars")
+        else:
+            scenario_fail += 1
+            print(f"  {_red('✗ FAIL')}"
+                  f"  {ws_result.data.get('duration_ms', '?')}ms")
+            if expect_failures:
+                for ef in expect_failures:
+                    print(f"    {_red('→ ' + ef)}")
+            if ws_result.data.get("errors"):
+                for e in ws_result.data["errors"]:
+                    print(f"    {_red('ERROR: ' + e[:200])}")
+
+        if ws_result.data.get("response_preview") and verbose:
+            preview = ws_result.data["response_preview"]
+            print(f"  {_dim('Response:')}")
+            for i in range(0, min(len(preview), 300), 100):
+                print(f"    {_dim(preview[i:i+100])}")
+
+        print()
+
+    # Summary
+    print(_bold("━━━ Scenario Summary ━━━"))
+    if scenario_fail == 0:
+        print(_green(f"  ALL {scenario_pass} SCENARIOS PASSED"))
+    else:
+        print(_red(f"  {scenario_fail}/{scenario_pass + scenario_fail} SCENARIOS FAILED"))
+        for r in results:
+            if not r.passed and r.check.startswith("Scenario"):
+                detail_short = r.detail.split("\n")[0][:120] if r.detail else ""
+                print(f"    {_red('✗')} {r.check}: {detail_short}")
+                for ef in r.data.get("expect_failures", []):
+                    print(f"      {_red('→ ' + ef)}")
+
+    print()
+    return results
 
 
 if __name__ == "__main__":

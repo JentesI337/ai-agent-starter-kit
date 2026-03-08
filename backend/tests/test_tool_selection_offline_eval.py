@@ -1479,37 +1479,6 @@ def test_execute_tools_budget_blocks_excess_calls(monkeypatch) -> None:
     assert any(evt.get("type") == "lifecycle" and evt.get("stage") == "tool_audit_summary" for evt in events)
 
 
-def test_execute_tools_blocks_when_command_slot_missing() -> None:
-    agent = HeadAgent()
-    events: list[dict] = []
-
-    async def send_event(payload: dict) -> None:
-        events.append(payload)
-
-    result = asyncio.run(
-        agent._execute_tools(
-            user_message="run",
-            plan_text="execute requested command",
-            memory_context="user: run",
-            session_id="s-cmd-missing",
-            request_id="r-cmd-missing",
-            send_event=send_event,
-            model=None,
-            allowed_tools={"run_command"},
-        )
-    )
-
-    parsed = agent._parse_blocked_tool_result(result)
-    assert isinstance(parsed, dict)
-    assert parsed.get("blocked_with_reason") == "missing_command"
-    assert any(
-        evt.get("type") == "lifecycle"
-        and evt.get("stage") == "tool_selection_empty"
-        and evt.get("details", {}).get("reason") == "missing_slots"
-        for evt in events
-    )
-
-
 def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> None:
     agent = HeadAgent()
     events: list[dict] = []
@@ -1521,7 +1490,7 @@ def test_execute_tools_allows_run_command_with_policy_approval(monkeypatch) -> N
         return kwargs.get("tool") == "run_command"
 
     async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
-        return '{"actions":[]}'
+        return '{"actions":[{"tool":"run_command","args":{"command":"pytest -q"}}]}'
 
     def fake_invoke_tool(tool: str, args: dict) -> str:
         assert tool == "run_command"
@@ -1609,83 +1578,6 @@ def test_execute_tools_allows_spawn_subrun_with_policy_approval(monkeypatch) -> 
         and evt.get("stage") == "policy_override_decision"
         and evt.get("details", {}).get("tool") == "spawn_subrun"
         and evt.get("details", {}).get("approved") is True
-        for evt in events
-    )
-
-
-def test_execute_tools_forces_single_run_command_when_intent_is_clear(monkeypatch) -> None:
-    agent = HeadAgent()
-    events: list[dict] = []
-
-    async def send_event(payload: dict) -> None:
-        events.append(payload)
-
-    async def fake_complete_chat(system_prompt: str, user_prompt: str, model: str | None = None) -> str:
-        return '{"actions":[]}'
-
-    def fake_invoke_tool(tool: str, args: dict) -> str:
-        assert tool == "run_command"
-        assert args.get("command") == "pytest -q"
-        return "ok"
-
-    original_complete_chat = agent.client.complete_chat
-    original_invoke = agent._invoke_tool
-    agent.client.complete_chat = fake_complete_chat  # type: ignore[method-assign]
-    agent._invoke_tool = fake_invoke_tool  # type: ignore[method-assign]
-    try:
-        result = asyncio.run(
-            agent._execute_tools(
-                user_message="run `pytest -q`",
-                plan_text="execute tests",
-                memory_context="user: run tests",
-                session_id="s-cmd-force",
-                request_id="r-cmd-force",
-                send_event=send_event,
-                model=None,
-                allowed_tools={"run_command"},
-            )
-        )
-    finally:
-        agent.client.complete_chat = original_complete_chat  # type: ignore[method-assign]
-        agent._invoke_tool = original_invoke  # type: ignore[method-assign]
-
-    assert "[run_command]" in result
-    assert "ok" in result
-    assert any(
-        evt.get("type") == "lifecycle"
-        and evt.get("stage") == "tool_selection_followup_completed"
-        and evt.get("details", {}).get("reason") == "intent_execute_command_forced_action"
-        for evt in events
-    )
-
-
-def test_execute_tools_blocks_on_policy_for_execute_command_intent() -> None:
-    agent = HeadAgent()
-    events: list[dict] = []
-
-    async def send_event(payload: dict) -> None:
-        events.append(payload)
-
-    result = asyncio.run(
-        agent._execute_tools(
-            user_message="run `pytest -q`",
-            plan_text="execute tests",
-            memory_context="user: run tests",
-            session_id="s-cmd-policy",
-            request_id="r-cmd-policy",
-            send_event=send_event,
-            model=None,
-            allowed_tools={"read_file"},
-        )
-    )
-
-    parsed = agent._parse_blocked_tool_result(result)
-    assert isinstance(parsed, dict)
-    assert parsed.get("blocked_with_reason") == "run_command_not_allowed"
-    assert any(
-        evt.get("type") == "lifecycle"
-        and evt.get("stage") == "tool_selection_empty"
-        and evt.get("details", {}).get("reason") == "policy_block"
         for evt in events
     )
 
