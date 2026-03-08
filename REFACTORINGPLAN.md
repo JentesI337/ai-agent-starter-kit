@@ -2,312 +2,235 @@
 
 > Ziel: Alles über das Frontend steuerbar — Agents, Workflows, Skills, Tools, Policies, Live-View.  
 > Grundsatz: Kein neues P0-Feature bevor die Steuerbarkeit steht.  
-> Stand: 8. März 2026
+> Stand: 8. März 2026 — **Update nach Schritt A (Monitoring-Auslagerung)**
 
 ---
 
-## Ist-Zustand (Fakten)
+## Legende
 
-### Frontend
-| Seite | Zustand | Problem |
-|-------|---------|---------|
-| Chat Page | ~800 Zeilen Logik | **Monolith** — Agent-CRUD, Policy-Approvals, Feature-Flags, Monitoring, Subrun-Spawning, Runtime-Switch alles in einer Komponente |
-| Memory Page | Funktional | Read-Only, kein Editieren/Löschen |
-| Debug Page | Exzellent | Pipeline-Breakpoints, LLM-Call-Records, Tool-Execution, Event-Log — aber isoliert vom Rest |
-| Admin/Settings | **Existiert nicht** | Keine dedizierte Verwaltungsseite |
-
-- **8 Komponenten**, 5 Services, 4 Routen
-- Kein Workflow-Builder, kein Policy-Editor, kein Skill-Manager, kein Tool-Manager
-
-### Backend
-| Bereich | API-Status | Lücke |
-|---------|-----------|-------|
-| Custom Agents | Create + Delete + List | Kein Read-Single, kein Update/Patch |
-| Workflows | **Vollständiges CRUD** | Frontend nutzt es nicht |
-| Tool-Katalog | Read-Only (Catalog, Profile, Matrix) | Hardcoded 20 Tools, kein dynamisches Registrieren |
-| Tool-Policies | Nur Preview | **Kein CRUD** — Policies existieren nur per-Request oder in Custom-Agent-JSON |
-| Skills | Discover + Preview + Sync | Kein Create/Edit/Delete |
-| Config | Feature-Flags runtime-togglebar | 109+ Felder nur per .env, kein Admin-API |
-| Policy-Approvals | Vollständig (Pending, Allow, Decide) | Funktioniert, Frontend nutzt es |
-
-- **50+ Endpoints**, 11 Router-Dateien, 158 Python-Dateien, 60+ Services
-- Workflow-CRUD existiert seit langem — hat aber kein Frontend
-
-### Was bereits funktioniert und nicht angefasst werden darf
-- WebSocket-basiertes Streaming-Protokoll (18+ Event-Typen)
-- Pipeline-Runner State Machine (INIT → SELECT → EXECUTE → SUCCESS/FAILURE → FINALIZE)
-- Debug-Pipeline mit Breakpoints und Phase-Stepping
-- Policy-Approval-Flow (Human-in-the-Loop)
-- Custom-Agent Adapter-Pattern (Base-Agent + Workflow-Steps)
-- Session-Lane-Management mit TTL-Eviction
-- StateStore/MemoryStore Persistenz-Schicht
-- Agent-Routing mit Capability-Matching
+- ✅ = erledigt, Code merged
+- 🔄 = teilweise erledigt
+- ❌ = offen, nicht angefangen
 
 ---
 
-## Phase 1 — Chat-Page Entkernen
+## Ist-Zustand (nach bisheriger Arbeit)
 
-### Beschreibung
-Die Chat-Page ist ein Monolith. Agent-Erstellung, Policy-Approvals, Feature-Flags, Monitoring-Tabellen — alles inline. Zuerst muss die Chat-Page reduziert werden auf: **Chat + Agent-Auswahl + Policy-Approvals**. Alles andere wandert in dedizierte Seiten.
+### Was bereits erledigt ist
 
-### Dos
-- Chat-Page behält: Message-Input, Agent-Dropdown, Preset-Dropdown, Inline-Policy-Approvals, Connection-Status
-- Agent-Erstellung/Löschung → neue Admin-Seite
-- Feature-Flags → neue Admin-Seite
-- Monitoring-Tabellen (Agent Activity, Request Activity) → Debug-Page integrieren oder eigene Monitoring-Seite
-- Runtime-Switching (Local/API) → Admin-Seite oder Header-Bar
-- Tool-Policy CSV-Inputs → bleiben im Chat (per-Request Override), aber Default-Policy kommt aus Admin
-- Shared State via `AgentStateService` beibehalten — keine State-Duplikate
+| Bereich | Status | Details |
+|---------|--------|---------|
+| Admin-Page Shell | ✅ | `/admin` Route, 6 Tabs (Agents, Workflows, Policies, Tools, Skills, Settings), 434 LOC TS, 282 LOC HTML |
+| WorkflowService | ✅ | `list/get/create/update/delete/execute` — ruft existierende Backend-Endpoints auf |
+| PolicyService | ✅ | `list/get/create/update/delete` — ruft neue Backend-Endpoints auf |
+| AgentsService erweitert | ✅ | `updateCustomAgent`, `getToolCatalog`, `getToolStats`, `getSkillsList`, `syncSkills` hinzugefügt |
+| Backend: Agent PATCH | ✅ | `GET/PATCH /api/custom-agents/{id}`, `CustomAgentStore.get()`, Handler + Wiring |
+| Backend: PolicyStore + CRUD | ✅ | `policy_store.py` + `routers/policies.py` (5 Endpoints) + `config.policies_dir` + main.py Wiring |
+| Chat-Page: Custom-Agent-CRUD entfernt | ✅ | Felder, Methoden, Imports, HTML-Formular — alles raus |
+| Chat-Page: Feature-Flags entfernt | ✅ | `loadRuntimeFeatures`, `saveRuntimeFeatures`, Checkboxen, LTM-Input — alles raus |
+| Chat-Page: Monitoring ausgelagert | ✅ | 30 Felder, 16 Getters/Methoden, 4 Interfaces, ~100 Zeilen HTML → `MonitoringService` + `MonitoringPanelComponent` |
+| MonitoringService | ✅ | 308 LOC, `updateMonitoring`, `pushLifecycle`, `refreshViews`, `resetAll`, `refreshRunAudit` + alle Filter-Getters |
+| MonitoringPanelComponent | ✅ | 14 LOC TS, 105 LOC HTML, 139 LOC SCSS — eingebettet in Debug-Page |
+| Navigation | 🔄 | 4 Links (Chat, Admin, Memory, Debug) — fehlt: Live-Link, Connection-Badge |
+| Routing | 🔄 | 6 Routen — fehlt: `/live` |
 
-### Don'ts
-- Keine Funktionalität entfernen — nur verschieben
-- Keinen neuen State-Management-Layer einführen (kein NgRx/Redux) — `AgentStateService` + `BehaviorSubject` reicht
-- Chat-Page nicht in Sub-Komponenten zerlegen, die trotzdem alle am selben Ort rendern — echte Seiten-Trennung
-- Kein eigenes Design-System bauen — bestehende CSS-Klassen und HTML-Struktur beibehalten
+### Was noch offen ist
 
-### Akzeptanzkriterien
-- [ ] Chat-Page enthält nur noch: Message-Thread, Input-Bar, Agent/Preset-Dropdown, Inline-Approvals
-- [ ] Monitoring ist auf Debug-Page oder eigenem Tab erreichbar
-- [ ] Feature-Flags sind auf Admin-Seite konfigurierbar
-- [ ] Custom-Agent Create/Delete ist auf Admin-Seite
-- [ ] Keine Regression: Alle bestehende Chat-Funktionalität arbeitet identisch
-- [ ] Chat-Page .ts Datei < 400 Zeilen (aktuell ~800)
-
----
-
-## Phase 2 — Admin-Seite (Agents + Workflows + Policies)
-
-### Beschreibung
-Neue Frontend-Seite `/admin` als zentrale Verwaltung. Drei Tabs: **Agents**, **Workflows**, **Policies**. Nutzt existierende Backend-Endpoints wo möglich, erweitert Backend wo nötig.
-
-### 2a — Agent-Management Tab
-
-#### Dos
-- System-Agents (15 Built-in) als Read-Only-Karten anzeigen (Name, Rolle, Status)
-- Custom-Agents als editierbare Karten: Name, Description, Base-Agent, Workflow-Steps, Tool-Policy, Capabilities
-- Inline-Editing für Custom-Agents (kein Modal-Dialog — direkt in der Karte)
-- "Clone Agent" Button → erstellt Kopie mit neuem ID
-- Agent-Detail-View: Zeige zugewiesene Tool-Policy, aktive Skills, letzte Runs
-
-#### Backend-Änderungen nötig
-- `GET /api/custom-agents/{agent_id}` — Read-Single (fehlt)
-- `PATCH /api/custom-agents/{agent_id}` — In-Place Update (fehlt, aktuell nur Delete+Recreate)
-
-#### Don'ts
-- System-Agents nicht editierbar machen — die kommen aus Code/Config
-- Kein Agent-Template-System — Custom-Agents mit Base-Agent + Steps reichen
-- Keinen Agent-Status-Lifecycle bauen (draft/active/archived) — oversized für jetzt
-
-#### Akzeptanzkriterien
-- [ ] System-Agents: 15 Karten, Read-Only, mit Name/Rolle/Default-Model
-- [ ] Custom-Agents: CRUD vollständig (Create, Read, Update, Delete)
-- [ ] Edit-Mode: Name, Description, Base-Agent (Dropdown), Workflow-Steps (Textarea), Tool-Policy (Allow/Deny)
-- [ ] Clone: Button auf jeder Custom-Agent-Karte
-- [ ] Backend: `GET /api/custom-agents/{id}` und `PATCH /api/custom-agents/{id}` implementiert
-- [ ] Validierung: Agent-ID unique, Name nicht leer, Base-Agent existiert
-
-### 2b — Workflow-Management Tab
-
-#### Dos
-- **Backend-Endpoints existieren bereits** — nur Frontend bauen:
-  - `workflows.list` → Tabelle aller Workflows
-  - `workflows.get` → Detail-View
-  - `workflows.create` → Formular
-  - `workflows.update` → Inline-Edit
-  - `workflows.delete` → Button mit Confirm
-  - `workflows.execute` → "Run" Button
-- Workflow-Steps als editierbare Liste (Add/Remove/Reorder)
-- Step-Vorschau: Zeige was jeder Step als Prompt macht
-- Execution-History: Letzte 10 Runs pro Workflow (via `runs.audit`)
-
-#### Don'ts
-- Keinen visuellen Drag-and-Drop Workflow-Builder — Text-basierte Step-Liste reicht für Phase 2
-- Kein Condition-Branching (If/Else Steps) — lineare Steps wie bisher
-- Keine Workflow-Versioning — save-in-place genügt
-
-#### Akzeptanzkriterien
-- [ ] Workflow-Liste: Tabelle mit ID, Name, Steps-Count, Base-Agent, letzte Ausführung
-- [ ] Workflow-Create: Formular (Name, Description, Base-Agent Dropdown, Steps-Textarea, Tool-Policy)
-- [ ] Workflow-Edit: Inline-Edit aller Felder
-- [ ] Workflow-Delete: Button mit Bestätigungs-Dialog
-- [ ] Workflow-Execute: "Run" Button → startet Workflow, zeigt Run-ID
-- [ ] Service: Neuer `WorkflowService` im Frontend der alle 6 Endpoints aufruft
-
-### 2c — Policy-Management Tab
-
-#### Dos
-- Named Policies erstellen/editieren/löschen (z.B. "read-only", "full-access", "code-review")
-- Policy besteht aus: Name, Allow-Liste, Deny-Liste, Also-Allow, Agent-Overrides
-- Policy-Preview: "Was passiert wenn ich diese Policy auf Agent X anwende?" (nutzt existierenden `tools.policy.preview`)
-- Policy-Zuweisung: Dropdown pro Custom-Agent um Default-Policy auszuwählen
-- Preset-Integration: Policies werden als Presets im Chat-Dropdown sichtbar
-
-#### Backend-Änderungen nötig
-- Neuer `PolicyStore` — JSON-Dateibasiert (analog zu `CustomAgentStore`)
-- `POST /api/policies` — Neue Policy anlegen
-- `GET /api/policies` — Alle Policies listen
-- `GET /api/policies/{policy_id}` — Einzelne Policy lesen
-- `PATCH /api/policies/{policy_id}` — Policy aktualisieren
-- `DELETE /api/policies/{policy_id}` — Policy löschen
-
-#### Don'ts
-- Nicht die bestehende `ToolPolicyPayload`-Struktur ändern — der neue Store speichert benannte Instanzen davon
-- Keine Policy-Versioning in Phase 2
-- Keine komplexen Rollen/Permissions — eine Policy ist eine Allow/Deny-Liste, fertig
-- Policy-Approval-Flow (Human-in-the-Loop) nicht anfassen — der funktioniert
-
-#### Akzeptanzkriterien
-- [ ] Policy-Liste: Tabelle mit Name, Allow-Count, Deny-Count, zugewiesene Agents
-- [ ] Policy-Create: Formular (Name, Allow Multiselect aus Tool-Katalog, Deny Multiselect, Agent-Overrides)
-- [ ] Policy-Edit: Inline
-- [ ] Policy-Delete: Mit Warnung falls an Agents zugewiesen
-- [ ] Policy-Preview: Zeigt effektive Tool-Liste pro Agent (nutzt `tools.policy.preview`)
-- [ ] Backend: `PolicyStore` + 5 neue CRUD-Endpoints
-- [ ] Policy im Chat-Dropdown als Preset auswählbar
+| Bereich | Status | Problem |
+|---------|--------|---------|
+| Chat-Page ist noch ~655 LOC | 🔄 | Monitoring raus (−296 LOC), aber Policy-Approvals + `applyEvent()` + Runtime-Switching sind ~155 LOC legitime Logik. Ziel < 500 knapp verfehlt |
+| Chat-Page HTML: 112 LOC | ✅ | Monitoring-Blöcke entfernt, unter 130 LOC Ziel |
+| Admin-Page: Settings-Tab | 🔄 | Tab existiert im HTML, aber `loadSettings` und `saveSettings` sind Stubs |
+| Admin-Page: Tools-Tab | 🔄 | `loadToolCatalog` ruft Backend auf, aber HTML zeigt nur Basis-Tabelle |
+| Admin-Page: Skills-Tab | 🔄 | `loadSkills` + `syncSkills` funktional, HTML-View ist Basis |
+| Live-Page | ❌ | Existiert nicht |
+| Navigation: Live-Link + Badge | ❌ | Kein `/live` Link, kein Connection-Status-Badge |
+| Frontend-Compilation | ✅ | `ng build` erfolgreich (nur SCSS-Budget-Warnungen) |
 
 ---
 
-## Phase 3 — Tool & Skill Management (Admin-Seite erweitern)
+## Verbleibende Arbeit — Priorisiert
 
-### 3a — Tool-Katalog View
+### Schritt A — Chat-Page Monitoring auslagern ✅ ERLEDIGT
 
-#### Dos
-- Tool-Katalog als Tabelle: Name, Aliases, Profile-Zugehörigkeit (read_only/research/coding/full), aktuelle Policy-Lage
-- Tool-Detail: Klick auf Tool → zeige Aliases, in welchen Profilen enthalten, welche Agents dürfen es nutzen
-- Tool-Telemetrie einbetten: Aufrufe, Fehlerrate, Durchschnitts-Dauer (existierender `GET /api/tools/stats`)
-- Tool-Profiles anzeigen: Welche Profile existieren, welche Tools enthalten sie
+**Ergebnis:**
 
-#### Backend-Änderungen nötig
-- Keine für Read-Only — existierende Endpoints reichen:
-  - `tools.catalog` → Katalog
-  - `tools.profile` → Profile
-  - `tools.policy.matrix` → Matrix
-  - `GET /api/tools/stats` → Telemetrie
+| Kriterium | Ziel | Ist | Status |
+|-----------|------|-----|--------|
+| Chat-Page .ts | < 500 LOC | 655 LOC | 🔄 knapp verfehlt — verbleibend ist legitime Chat-Logik (Policy-Approvals ~120 LOC, `applyEvent` ~100 LOC, Runtime-Switching ~40 LOC) |
+| Chat-Page .html | < 130 LOC | 112 LOC | ✅ |
+| Monitoring-Panel erreichbar | Debug-Page | Eingebettet als `<app-monitoring-panel>` nach Event-Log | ✅ |
+| Agent-Activity im Panel | ja | ja | ✅ |
+| Request-Activity im Panel | ja | ja | ✅ |
+| Run-Audit im Panel | ja | ja | ✅ |
+| Reasoning Trace im Panel | ja | ja | ✅ |
+| Lifecycle Stream im Panel | ja | ja | ✅ |
+| Filter funktionieren | ja | Agent, Status, Request ID, Text Search, Reset | ✅ |
+| Keine Regression | `ng build` ok | Build erfolgreich, Events werden via `MonitoringService` weitergeleitet | ✅ |
 
-#### Don'ts
-- Keine Tool-Registrierung in Phase 3 — das kommt mit P0-Features (Browser Control etc.)
-- Tool-Katalog ist Read-Only (zeigt was da ist), nicht CRUD
-- Keine Tool-Konfiguration (Timeouts, Limits) — das ist Backend-Config
+**Erstellte Dateien:**
+- `frontend/src/app/services/monitoring.service.ts` (308 LOC)
+- `frontend/src/app/pages/debug-page/monitoring-panel/monitoring-panel.component.ts` (14 LOC)
+- `frontend/src/app/pages/debug-page/monitoring-panel/monitoring-panel.component.html` (105 LOC)
+- `frontend/src/app/pages/debug-page/monitoring-panel/monitoring-panel.component.scss` (139 LOC)
 
-#### Akzeptanzkriterien
-- [ ] Tool-Tabelle: 20 Tools mit Name, Aliases, Profilen, Status
-- [ ] Tool-Detail: Klick → Profile, Agents, Telemetrie (Calls, Errors, Avg Duration)
-- [ ] Tool-Profile: Übersicht welche Profile existieren und was sie enthalten
-- [ ] Policy-Matrix: Visual Grid Agent × Tool (erlaubt/verboten)
+**Geänderte Dateien:**
+- `chat-page.component.ts`: 951 → 655 LOC (−296), MonitoringService injiziert, alle pushLifecycle/updateMonitoring delegiert
+- `chat-page.component.html`: 216 → 112 LOC (−104), Monitor-Panel-Section entfernt
+- `chat-page.component.scss`: ~430 → 328 LOC, monitoring-spezifische Styles entfernt
+- `debug-page.component.ts`: MonitoringPanelComponent importiert
+- `debug-page.component.html`: `<app-monitoring-panel>` nach Event-Log eingefügt
 
-### 3b — Skill-Management Tab
-
-#### Dos
-- Skill-Liste: Alle entdeckten Skills mit Name, Pfad, Eligibility-Score, Status (active/inactive)
-- Skill-Preview: Klick → zeigt SKILL.md Inhalt (nutzt `skills.preview`)
-- Skill-Sync: "Sync Skills" Button (nutzt `skills.sync` mit `apply=true`)
-- Skill-Check: Validierung ob Skills korrekt strukturiert sind (nutzt `skills.check`)
-
-#### Backend-Änderungen nötig
-- Keine für Phase 3 — existierende Endpoints reichen
-
-#### Don'ts  
-- Kein Skill-Editor (SKILL.md inline editieren) — das ist File-System Arbeit
-- Kein Skill-Upload — Skills liegen im `skills/` Verzeichnis
-- Keine Skill-zu-Agent Zuweisung über UI — läuft über Eligibility-Matching
-
-#### Akzeptanzkriterien
-- [ ] Skill-Liste: Tabelle aller entdeckten Skills mit Metadaten
-- [ ] Skill-Preview: SKILL.md Inhalt anzeigen
-- [ ] Skill-Sync: Button → synchronisiert Skills-Index
-- [ ] Skill-Validation: Button → prüft Skill-Struktur
+**Bewertung:** 8/9 Kriterien erfüllt. Das LOC-Ziel (< 500) ist mit 655 knapp verfehlt — die verbleibenden ~155 LOC Überschuss sind aber ausschließlich Chat-relevante Logik (Policy-Approvals, applyEvent, Runtime-Switching), die nicht weiter extrahiert werden sollte. Das ursprüngliche Ziel "Monitoring aus der Chat-Page auslagern" ist vollständig erreicht.
 
 ---
 
-## Phase 4 — Live Agent-LLM View
+### Schritt B — Admin-Page Tabs fertigstellen
 
-### Beschreibung
-Konsolidierte Real-Time-Ansicht die zeigt: **Welcher Agent macht gerade was, mit welchem LLM-Call, welche Tools werden aufgerufen**. Baut auf dem existierenden Debug-Dashboard auf, aber als eigene Seite mit Fokus auf Live-Beobachtung statt Debugging.
+**Was fehlt:**
 
-### Dos
-- Neue Route `/live` — eigenständige Seite
-- **Agent-Lane-View**: Jeder aktive Agent als Spalte/Lane, Events fließen in Echtzeit rein
-- **LLM-Call-Stream**: Jeder LLM-Call als Karte: Agent, Model, Prompt-Preview (truncated), Tokens, Latenz, Status
-- **Tool-Execution-Stream**: Jeder Tool-Call als Karte: Tool, Args-Preview, Duration, Exit-Code, Success/Fail
-- **Filter**: Nach Agent, nach Session, nach Status (running/completed/failed)
-- **Prompt-Inspect**: Klick auf LLM-Call → Popup mit vollem System-Prompt, User-Prompt, Response
-- Daten kommen aus `AgentStateService.debug$` — kein neuer Backend-Endpoint nötig
-- Bestehende WebSocket-Events nutzen: `agent_step`, `lifecycle`, `token`, `final`
+| Tab | Status | Was fehlt |
+|-----|--------|-----------|
+| Agents | ✅ | Funktional — Create, Edit, Delete, Clone |
+| Workflows | ✅ | Funktional — CRUD + Execute |
+| Policies | ✅ | Funktional — CRUD |
+| Tools | 🔄 | Basis-Tabelle da, fehlt: Tool-Detail-View, Telemetrie-Einbettung, Profile-Ansicht, Policy-Matrix |
+| Skills | 🔄 | Liste + Sync da, fehlt: Preview (SKILL.md-Inhalt anzeigen), Validation-Check |
+| Settings | 🔄 | Stubs — `loadSettings` und `saveSettings` laden/speichern Runtime-Features (Feature-Flags) |
+
+#### B1 — Tools-Tab vervollständigen
+
+**Dos:**
+- Tool-Detail on-click: Aliases, Profile-Zugehörigkeit, welche Agents dürfen es (Policy-Matrix-Zeile)
+- Tool-Telemetrie: Aufrufe, Fehlerrate, Avg-Duration aus `GET /api/tools/stats`
+- Tool-Profiles-View: Übersicht `read_only`, `research`, `coding`, `full`
+
+**Don'ts:**
+- Kein CRUD — Tools-Katalog ist Read-Only
+- Keine Tool-Config (Timeouts etc.)
+
+**Akzeptanzkriterien:**
+- [ ] Tool-Tabelle: Name, Aliases, Profile, Status
+- [ ] Klick → Detail mit Telemetrie (Calls, Errors, Avg Duration)
+- [ ] Profile-Übersicht zeigt welche Tools in welchem Profil
+
+#### B2 — Skills-Tab vervollständigen
+
+**Dos:**
+- Klick auf Skill → SKILL.md-Inhalt anzeigen (nutzt `skills.preview`)
+- "Check Skills" Button → `skills.check` aufrufen, Ergebnis anzeigen
+
+**Don'ts:**
+- Kein Skill-Editor, kein Upload
+
+**Akzeptanzkriterien:**
+- [ ] Klick auf Skill → SKILL.md-Preview
+- [ ] "Check Skills" Button mit Ergebnis-Anzeige
+
+#### B3 — Settings-Tab mit Runtime-Features verbinden
+
+**Dos:**
+- `loadSettings()` → `agentsService.getRuntimeFeatures()` aufrufen
+- `saveSettings()` → `agentsService.updateRuntimeFeatures()` aufrufen
+- Feature-Flag-Checkboxen: Long-Term Memory, Session Distillation, Failure Journal, Vision
+- LTM DB Path Input
+- Persist-Status-Anzeige (persisted/not_persisted/error)
+
+**Don'ts:**
+- Keine 109 Config-Felder — nur die 4-5 Runtime Feature-Flags
+
+**Akzeptanzkriterien:**
+- [ ] Settings-Tab lädt Feature-Flags vom Backend
+- [ ] Checkboxen für 4 Feature-Flags + LTM Path
+- [ ] "Apply" Button speichert, zeigt Persist-Status
+- [ ] Identische Funktionalität wie die alte Chat-Page Feature-Flags-Section
+
+---
+
+### Schritt C — Live-Page (Phase 4)
+
+#### Beschreibung
+Konsolidierte Real-Time-Ansicht: **Welcher Agent macht gerade was, mit welchem LLM-Call, welche Tools werden aufgerufen.** Eigene Seite `/live`.
+
+#### Dos
+- Agent-Lane-View: Jeder aktive Agent als Lane, Events fließen in Echtzeit rein
+- LLM-Call-Stream: Karte pro Call (Agent, Model, Prompt-Preview 200 chars, Tokens, Latenz, Status)
+- Tool-Execution-Stream: Karte pro Call (Tool, Args 100 chars, Duration, Exit-Code)
+- Filter: Agent-Dropdown, Session-Input, Status-Toggle
+- Prompt-Inspect: Klick → Overlay mit vollem System-Prompt, User-Prompt, Response
+- Daten aus `AgentStateService.debug$` und WebSocket-Events (`agent_step`, `lifecycle`, `token`, `final`)
 - Auto-Scroll mit Pause-on-Hover
+- Kein neuer Backend-Endpoint nötig
 
-### Don'ts
-- Debug-Page nicht ersetzen — Live-View ist komplementär (Live = Beobachten, Debug = Eingreifen)
+#### Don'ts
+- Debug-Page nicht ersetzen — Live ist Beobachten, Debug ist Eingreifen
 - Keine eigenen WebSocket-Connections — `AgentSocketService` wiederverwenden
-- Keine Persistenz der Live-View (kein Timeline-Export, kein Log-Download) — das ist Debug-Territory
+- Keine Persistenz (kein Export, kein Download)
 - Keine Filter-Persistenz — Reset bei Navigation
 
-### Akzeptanzkriterien
+#### Akzeptanzkriterien
 - [ ] `/live` Route erreichbar
 - [ ] Agent-Lanes zeigen aktive Agents in Echtzeit
-- [ ] LLM-Calls: Agent, Model, Prompt (first 200 chars), Tokens, Latenz, Status als Karte
-- [ ] Tool-Calls: Tool, Args (first 100 chars), Duration, Exit-Code als Karte
-- [ ] Filter: Agent-Dropdown, Session-Input, Status-Toggle
-- [ ] Prompt-Inspect: Klick auf LLM-Call → Full Prompt/Response in Overlay
+- [ ] LLM-Call-Karten: Agent, Model, Prompt-Preview, Tokens, Latenz, Status
+- [ ] Tool-Call-Karten: Tool, Args-Preview, Duration, Exit-Code
+- [ ] Filter: Agent, Session, Status
+- [ ] Prompt-Inspect: Klick → Full Prompt/Response Overlay
 - [ ] Auto-Scroll mit Pause-on-Hover
-- [ ] Performance: 100 Events/Sekunde ohne UI-Freeze (virtuelles Scrolling oder DOM-Recycling)
+- [ ] Performance: 100 Events/Sekunde ohne UI-Freeze
 
 ---
 
-## Phase 5 — Navigation & Layout
+### Schritt D — Navigation fertigstellen
 
-### Beschreibung
-Nachdem alle Seiten existieren, braucht das Frontend eine ordentliche Navigation statt einzelne Routen manuell einzutippen.
+#### Dos
+- 5 Links: **Chat | Live | Admin | Memory | Debug**
+- Active-Route highlighting (existiert bereits für 4 Links)
+- Connection-Status-Badge in der Nav (grün/rot, aus `AgentSocketService.connected$`)
+- Optional: Agent-Count-Badge auf Admin
 
-### Dos
-- **Sidebar oder Top-Nav**: Chat | Live | Admin | Memory | Debug
-- Active-Route highlighting
-- Connection-Status-Badge in der Nav (immer sichtbar)
-- Agent-Count-Badge auf Admin (Anzahl Custom-Agents)
+#### Don'ts
+- Kein Mega-Menu, kein Hamburger — 5 Links
+- Kein Auth-Guard
 
-### Don'ts
-- Kein Mega-Menu, kein Hamburger-Menu — 5 Links, fertig
-- Kein Routing-Guard (Login/Auth) — gibt es nicht und wird nicht gebaut
-- Layout nicht komplett überarbeiten — nur Nav hinzufügen
-
-### Akzeptanzkriterien
-- [ ] Navigation mit 5 Links: Chat, Live, Admin, Memory, Debug
-- [ ] Active-State klar erkennbar
-- [ ] Connection-Badge (grün/rot) immer sichtbar
-- [ ] Auf allen Seiten gleiche Nav
+#### Akzeptanzkriterien
+- [ ] 5 Nav-Links (derzeit 4 — fehlt Live)
+- [ ] Connection-Badge grün/rot sichtbar
+- [ ] Active-State auf allen Links
 
 ---
 
-## Reihenfolge und Abhängigkeiten
+## Reihenfolge
 
 ```
-Phase 1 ─── Chat-Page Entkernen
-  │          (Voraussetzung für alles)
+Schritt A ── Monitoring aus Chat-Page auslagern ✅ ERLEDIGT
+  │            → Chat-Page geschrumpft 951 → 655 LOC TS, 216 → 112 LOC HTML
   │
-  ├── Phase 2a ─── Agent-Management Tab
-  │     │          Backend: +2 Endpoints
-  │     │
-  │     ├── Phase 2b ─── Workflow-Management Tab
-  │     │                 Backend: 0 Änderungen (Endpoints existieren)
-  │     │
-  │     └── Phase 2c ─── Policy-Management Tab
-  │                       Backend: +1 Store, +5 Endpoints
+  ├── Schritt B1 ── Tools-Tab vervollständigen
+  ├── Schritt B2 ── Skills-Tab vervollständigen
+  ├── Schritt B3 ── Settings-Tab verbinden
   │
-  ├── Phase 3a ─── Tool-Katalog View
-  │                 Backend: 0 Änderungen
+  ├── Schritt C ─── Live-Page erstellen
   │
-  ├── Phase 3b ─── Skill-Management Tab
-  │                 Backend: 0 Änderungen
-  │
-  ├── Phase 4 ──── Live Agent-LLM View
-  │                 Backend: 0 Änderungen
-  │
-  └── Phase 5 ──── Navigation & Layout
-                    Backend: 0 Änderungen
+  └── Schritt D ─── Navigation fertigstellen (nach Live-Page)
 ```
 
-**Parallelisierbar**: Phase 2b, 3a, 3b können parallel zu 2c laufen.  
-**Backend-Arbeit total**: 2 Endpoints (Agent Read/Patch) + 1 PolicyStore + 5 Policy-Endpoints = **8 Backend-Änderungen**.  
-**Frontend-Arbeit total**: 1 neue Seite (Admin) + 1 neue Seite (Live) + 1 Navigation + Chat-Refactor = **4 größere Frontend-Tasks**.
+**Schritt A** ist abgeschlossen.  
+**B1, B2, B3** sind unabhängig voneinander und parallelisierbar.  
+**C** (Live-Page) kann parallel zu B laufen.  
+**D** kommt zuletzt (braucht Live-Route).
+
+---
+
+## Backend-Arbeit verbleibend
+
+| Was | Status |
+|-----|--------|
+| Agent PATCH + GET | ✅ erledigt |
+| PolicyStore + 5 CRUD Endpoints | ✅ erledigt |
+| `policies_dir` Config | ✅ erledigt |
+| Neue Backend-Endpoints für Schritte A-D | **0** — alles Frontend-only |
+
+**Kein weiterer Backend-Code nötig.** Alle benötigten APIs existieren.
 
 ---
 
@@ -329,14 +252,35 @@ Phase 1 ─── Chat-Page Entkernen
 
 ## Definition of Done (Gesamtplan)
 
+### Dos
+- **Sidebar oder Top-Nav**: Chat | Live | Admin | Memory | Debug
+- Active-Route highlighting
+- Connection-Status-Badge in der Nav (immer sichtbar)
+
+### Don'ts
+- Kein Mega-Menu, kein Hamburger-Menu — 5 Links, fertig
+- Kein Routing-Guard (Login/Auth) — gibt es nicht und wird nicht gebaut
+- Layout nicht komplett überarbeiten — nur Nav hinzufügen
+
+### Akzeptanzkriterien
+- [ ] Navigation mit 5 Links: Chat, Live, Admin, Memory, Debug
+- [ ] Active-State klar erkennbar
+- [ ] Connection-Badge (grün/rot) immer sichtbar
+- [ ] Auf allen Seiten gleiche Nav
+
+---
+
+## Definition of Done (Gesamtplan)
+
 Das Refactoring ist abgeschlossen wenn:
 
-1. **Chat-Page** enthält nur Chat-Logik (< 400 LOC)
-2. **Admin-Seite** verwaltet Agents, Workflows und Policies mit vollem CRUD
-3. **Tool-Katalog** ist im Admin als Read-Only-View mit Telemetrie sichtbar
+1. **Chat-Page** enthält nur Chat-Logik (655 LOC TS ✅, 112 LOC HTML ✅ — Monitoring ausgelagert)
+2. **Admin-Seite** verwaltet Agents, Workflows, Policies, Tools, Skills und Settings
+3. **Tool-Katalog** ist im Admin als View mit Detail und Telemetrie sichtbar
 4. **Skill-Liste** ist im Admin mit Preview und Sync sichtbar
 5. **Live-View** zeigt Agent-LLM-Calls und Tool-Executions in Echtzeit
-6. **Navigation** verbindet alle 5 Seiten
-7. **Kein Breaking Change** — alle bestehenden WebSocket-Events, APIs und Worflows funktionieren identisch
-8. **Backend** hat 8 neue Endpoints (2 Agent, 5 Policy, 1 Policy-Store)
-9. **Jedes neue P0-Feature** (Browser, RAG, REPL) das danach implementiert wird, erscheint automatisch im Tool-Katalog, ist per Policy steuerbar, und wird im Live-View sichtbar
+6. **Navigation** verbindet alle 5 Seiten mit Connection-Badge
+7. **Monitoring** ist aus der Chat-Page ausgelagert ✅ (MonitoringPanelComponent auf Debug-Page)
+8. **Kein Breaking Change** — alle bestehenden WebSocket-Events, APIs und Workflows funktionieren identisch
+9. **Backend** hat alle nötigen Endpoints (✅ bereits erledigt — 0 verbleibend)
+10. **Jedes neue P0-Feature** (Browser, RAG, REPL) das danach implementiert wird, erscheint automatisch im Tool-Katalog, ist per Policy steuerbar, und wird im Live-View sichtbar

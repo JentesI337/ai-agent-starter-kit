@@ -190,6 +190,19 @@ class CustomAgentStore:
         )
         return definition
 
+    def get(self, agent_id: str) -> CustomAgentDefinition | None:
+        target_id = self._normalize_id(agent_id)
+        if not target_id:
+            return None
+        file_path = self.persist_dir / f"{target_id}.json"
+        if not file_path.exists():
+            return None
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+            return CustomAgentDefinition.model_validate(payload)
+        except Exception:
+            return None
+
     def delete(self, agent_id: str) -> bool:
         target_id = self._normalize_id(agent_id)
         if not target_id:

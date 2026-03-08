@@ -16,6 +16,7 @@ import { DebugToolbarComponent } from './debug-toolbar/debug-toolbar.component';
 import { PipelineCanvasComponent } from './pipeline-canvas/pipeline-canvas.component';
 import { PromptInspectorComponent } from './prompt-inspector/prompt-inspector.component';
 import { EventLogComponent } from './event-log/event-log.component';
+import { MonitoringPanelComponent } from './monitoring-panel/monitoring-panel.component';
 import {
   DebugEvent,
   DebugState,
@@ -36,6 +37,7 @@ import {
     PipelineCanvasComponent,
     PromptInspectorComponent,
     EventLogComponent,
+    MonitoringPanelComponent,
   ],
   templateUrl: './debug-page.component.html',
   styleUrl: './debug-page.component.scss',

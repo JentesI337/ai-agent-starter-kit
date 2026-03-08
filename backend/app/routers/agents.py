@@ -20,6 +20,7 @@ def build_agents_router(
     presets_list_handler: Callable[[], JsonDict | list[JsonDict] | Awaitable[JsonDict | list[JsonDict]]],
     custom_agents_list_handler: Callable[[], JsonDict | list[JsonDict] | Awaitable[JsonDict | list[JsonDict]]],
     custom_agents_create_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    custom_agents_update_handler: Callable[[str, JsonDict], JsonDict | Awaitable[JsonDict]],
     custom_agents_delete_handler: Callable[[str], JsonDict | Awaitable[JsonDict]],
     monitoring_schema_handler: Callable[[], JsonDict | Awaitable[JsonDict]],
 ) -> APIRouter:
@@ -52,6 +53,12 @@ def build_agents_router(
     @router.delete("/api/custom-agents/{agent_id}")
     async def delete_custom_agent(agent_id: str):
         result = custom_agents_delete_handler(agent_id)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
+
+    @router.patch("/api/custom-agents/{agent_id}")
+    async def update_custom_agent(agent_id: str, patch: JsonDict = Body(...)):
+        result = custom_agents_update_handler(agent_id, patch)
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
 

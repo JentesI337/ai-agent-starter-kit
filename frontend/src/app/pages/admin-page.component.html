@@ -1,0 +1,296 @@
+<section class="admin">
+  <header class="admin-header">
+    <h1>Administration</h1>
+    <nav class="tab-bar">
+      <button [class.active]="activeTab === 'agents'" (click)="switchTab('agents')">Agents</button>
+      <button [class.active]="activeTab === 'workflows'" (click)="switchTab('workflows')">Workflows</button>
+      <button [class.active]="activeTab === 'policies'" (click)="switchTab('policies')">Policies</button>
+      <button [class.active]="activeTab === 'tools'" (click)="switchTab('tools')">Tools</button>
+      <button [class.active]="activeTab === 'skills'" (click)="switchTab('skills')">Skills</button>
+      <button [class.active]="activeTab === 'settings'" (click)="switchTab('settings')">Settings</button>
+    </nav>
+  </header>
+
+  <!-- ═══════ AGENTS ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'agents'">
+    <h2>System Agents</h2>
+    <div class="card-grid">
+      <div class="card read-only" *ngFor="let agent of systemAgents">
+        <div class="card-header">
+          <strong>{{ agent.id }}</strong>
+          <span class="badge">{{ agent.role }}</span>
+        </div>
+        <div class="card-body">
+          <span class="meta">Model: {{ agent.defaultModel || '—' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <h2>Custom Agents</h2>
+    <div class="card-grid">
+      <div class="card" *ngFor="let agent of customAgents">
+        <ng-container *ngIf="editingAgentId !== agent.id; else agentEditTpl">
+          <div class="card-header">
+            <strong>{{ agent.name }}</strong>
+            <span class="badge">{{ agent.base_agent_id }}</span>
+          </div>
+          <div class="card-body">
+            <p class="description" *ngIf="agent.description">{{ agent.description }}</p>
+            <div class="meta" *ngIf="agent.workflow_steps.length > 0">Steps: {{ agent.workflow_steps.length }}</div>
+            <div class="meta" *ngIf="agent.tool_policy">
+              Allow: {{ agent.tool_policy.allow?.join(', ') || '—' }} ·
+              Deny: {{ agent.tool_policy.deny?.join(', ') || '—' }}
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="small" (click)="startAgentEdit(agent)" [disabled]="agentBusy">Edit</button>
+            <button class="small" (click)="cloneAgent(agent)" [disabled]="agentBusy">Clone</button>
+            <button class="small danger" (click)="deleteAgent(agent.id)" [disabled]="agentBusy">Delete</button>
+          </div>
+        </ng-container>
+        <ng-template #agentEditTpl>
+          <div class="card-body edit-form">
+            <label>Name <input [(ngModel)]="editAgent.name" /></label>
+            <label>Description <input [(ngModel)]="editAgent.description" /></label>
+            <label>Base Agent
+              <select [(ngModel)]="editAgent.base_agent_id">
+                <option value="head-agent">head-agent</option>
+                <option value="coder-agent">coder-agent</option>
+              </select>
+            </label>
+            <label>Workflow Steps
+              <textarea rows="4" [(ngModel)]="editWorkflowStepsText"></textarea>
+            </label>
+          </div>
+          <div class="card-actions">
+            <button class="small accent" (click)="saveAgentEdit()" [disabled]="agentBusy">Save</button>
+            <button class="small" (click)="cancelAgentEdit()">Cancel</button>
+          </div>
+        </ng-template>
+      </div>
+    </div>
+
+    <h3>Create Agent</h3>
+    <div class="create-form">
+      <label>Name <input [(ngModel)]="newAgentName" placeholder="My Agent" [disabled]="agentBusy" /></label>
+      <label>ID (optional) <input [(ngModel)]="newAgentId" placeholder="my-agent" [disabled]="agentBusy" /></label>
+      <label>Description <input [(ngModel)]="newAgentDescription" placeholder="Purpose" [disabled]="agentBusy" /></label>
+      <label>Base Agent
+        <select [(ngModel)]="newAgentBase" [disabled]="agentBusy">
+          <option value="head-agent">head-agent</option>
+          <option value="coder-agent">coder-agent</option>
+        </select>
+      </label>
+      <label>Tool Allow (CSV) <input [(ngModel)]="newToolAllowInput" placeholder="read_file,write_file" [disabled]="agentBusy" /></label>
+      <label>Tool Deny (CSV) <input [(ngModel)]="newToolDenyInput" placeholder="run_command" [disabled]="agentBusy" /></label>
+      <label>Vision
+        <select [(ngModel)]="newVisionMode" [disabled]="agentBusy">
+          <option value="inherit">inherit</option>
+          <option value="allow">allow analyze_image</option>
+          <option value="deny">deny analyze_image</option>
+        </select>
+      </label>
+      <label>Workflow Steps
+        <textarea rows="4" [(ngModel)]="newWorkflowText" placeholder="Step 1&#10;Step 2&#10;Step 3" [disabled]="agentBusy"></textarea>
+      </label>
+      <button (click)="createAgent()" [disabled]="agentBusy || !newAgentName.trim()">
+        {{ agentBusy ? 'Creating...' : 'Create Agent' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════ WORKFLOWS ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'workflows'">
+    <h2>Workflows</h2>
+    <p class="hint" *ngIf="workflowRunResult">{{ workflowRunResult }}</p>
+
+    <div class="card-grid">
+      <div class="card" *ngFor="let wf of workflows">
+        <ng-container *ngIf="editingWorkflowId !== wf.id; else wfEditTpl">
+          <div class="card-header">
+            <strong>{{ wf.name || wf.id }}</strong>
+            <span class="badge">{{ wf.base_agent_id || 'head-agent' }}</span>
+          </div>
+          <div class="card-body">
+            <p class="description" *ngIf="wf.description">{{ wf.description }}</p>
+            <div class="meta">Steps: {{ wf.steps?.length ?? 0 }}</div>
+          </div>
+          <div class="card-actions">
+            <button class="small" (click)="startWorkflowEdit(wf)" [disabled]="workflowBusy">Edit</button>
+            <button class="small accent" (click)="executeWorkflow(wf.id)" [disabled]="workflowBusy">Run</button>
+            <button class="small danger" (click)="deleteWorkflow(wf.id)" [disabled]="workflowBusy">Delete</button>
+          </div>
+        </ng-container>
+        <ng-template #wfEditTpl>
+          <div class="card-body edit-form">
+            <label>Name <input [(ngModel)]="editWorkflow.name" /></label>
+            <label>Description <input [(ngModel)]="editWorkflow.description" /></label>
+            <label>Base Agent
+              <select [(ngModel)]="editWorkflow.base_agent_id">
+                <option value="head-agent">head-agent</option>
+                <option value="coder-agent">coder-agent</option>
+              </select>
+            </label>
+            <label>Steps
+              <textarea rows="4" [(ngModel)]="editWfStepsText"></textarea>
+            </label>
+          </div>
+          <div class="card-actions">
+            <button class="small accent" (click)="saveWorkflowEdit()" [disabled]="workflowBusy">Save</button>
+            <button class="small" (click)="cancelWorkflowEdit()">Cancel</button>
+          </div>
+        </ng-template>
+      </div>
+    </div>
+
+    <h3>Create Workflow</h3>
+    <div class="create-form">
+      <label>Name <input [(ngModel)]="newWfName" placeholder="My Workflow" [disabled]="workflowBusy" /></label>
+      <label>Description <input [(ngModel)]="newWfDescription" placeholder="Purpose" [disabled]="workflowBusy" /></label>
+      <label>Base Agent
+        <select [(ngModel)]="newWfBaseAgent" [disabled]="workflowBusy">
+          <option value="head-agent">head-agent</option>
+          <option value="coder-agent">coder-agent</option>
+        </select>
+      </label>
+      <label>Tool Allow (CSV) <input [(ngModel)]="newWfToolAllow" placeholder="read_file" [disabled]="workflowBusy" /></label>
+      <label>Tool Deny (CSV) <input [(ngModel)]="newWfToolDeny" placeholder="run_command" [disabled]="workflowBusy" /></label>
+      <label>Steps
+        <textarea rows="4" [(ngModel)]="newWfStepsText" placeholder="Step 1&#10;Step 2" [disabled]="workflowBusy"></textarea>
+      </label>
+      <button (click)="createWorkflow()" [disabled]="workflowBusy || !newWfName.trim()">
+        {{ workflowBusy ? 'Creating...' : 'Create Workflow' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════ POLICIES ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'policies'">
+    <h2>Tool Policies</h2>
+
+    <div class="card-grid">
+      <div class="card" *ngFor="let policy of policies">
+        <ng-container *ngIf="editingPolicyId !== policy.id; else policyEditTpl">
+          <div class="card-header">
+            <strong>{{ policy.name }}</strong>
+          </div>
+          <div class="card-body">
+            <div class="meta">Allow: {{ policy.allow?.join(', ') || '—' }}</div>
+            <div class="meta">Deny: {{ policy.deny?.join(', ') || '—' }}</div>
+            <div class="meta" *ngIf="policy.also_allow?.length">Also Allow: {{ policy.also_allow?.join(', ') }}</div>
+          </div>
+          <div class="card-actions">
+            <button class="small" (click)="startPolicyEdit(policy)" [disabled]="policyBusy">Edit</button>
+            <button class="small danger" (click)="deletePolicy(policy.id)" [disabled]="policyBusy">Delete</button>
+          </div>
+        </ng-container>
+        <ng-template #policyEditTpl>
+          <div class="card-body edit-form">
+            <label>Name <input [(ngModel)]="editPolicy.name" /></label>
+            <label>Allow (CSV) <input [(ngModel)]="editPolicy.allow" /></label>
+            <label>Deny (CSV) <input [(ngModel)]="editPolicy.deny" /></label>
+            <label>Also Allow (CSV) <input [(ngModel)]="editPolicy.also_allow" /></label>
+          </div>
+          <div class="card-actions">
+            <button class="small accent" (click)="savePolicyEdit()" [disabled]="policyBusy">Save</button>
+            <button class="small" (click)="cancelPolicyEdit()">Cancel</button>
+          </div>
+        </ng-template>
+      </div>
+    </div>
+
+    <h3>Create Policy</h3>
+    <div class="create-form">
+      <label>Name <input [(ngModel)]="newPolicyName" placeholder="read-only" [disabled]="policyBusy" /></label>
+      <label>Allow (CSV) <input [(ngModel)]="newPolicyAllow" placeholder="read_file,list_dir" [disabled]="policyBusy" /></label>
+      <label>Deny (CSV) <input [(ngModel)]="newPolicyDeny" placeholder="run_command,write_file" [disabled]="policyBusy" /></label>
+      <label>Also Allow (CSV) <input [(ngModel)]="newPolicyAlsoAllow" placeholder="analyze_image" [disabled]="policyBusy" /></label>
+      <button (click)="createPolicy()" [disabled]="policyBusy || !newPolicyName.trim()">
+        {{ policyBusy ? 'Creating...' : 'Create Policy' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════ TOOLS ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'tools'">
+    <h2>Tool Catalog</h2>
+    <div class="data-table" *ngIf="toolCatalog.length > 0">
+      <div class="table-header">
+        <span>Name</span><span>Aliases</span><span>Profiles</span>
+      </div>
+      <div class="table-row" *ngFor="let tool of toolCatalog">
+        <span>{{ tool.name }}</span>
+        <span>{{ tool.aliases?.join(', ') || '—' }}</span>
+        <span>{{ tool.profiles?.join(', ') || '—' }}</span>
+      </div>
+    </div>
+    <p class="hint" *ngIf="toolCatalog.length === 0">No tools loaded. Backend may not expose catalog details.</p>
+
+    <h2>Tool Telemetry</h2>
+    <pre class="code-block" *ngIf="toolStats">{{ toolStats | json }}</pre>
+    <p class="hint" *ngIf="!toolStats">No telemetry data available.</p>
+  </div>
+
+  <!-- ═══════ SKILLS ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'skills'">
+    <h2>Discovered Skills</h2>
+    <div class="toolbar">
+      <button (click)="syncSkills()" [disabled]="skillsBusy">{{ skillsBusy ? 'Syncing...' : 'Sync Skills' }}</button>
+    </div>
+    <div class="data-table" *ngIf="skillsList.length > 0">
+      <div class="table-header">
+        <span>Name</span><span>Path</span><span>Status</span>
+      </div>
+      <div class="table-row" *ngFor="let skill of skillsList">
+        <span>{{ skill.name || skill.id || '—' }}</span>
+        <span>{{ skill.path || '—' }}</span>
+        <span>{{ skill.status || 'discovered' }}</span>
+      </div>
+    </div>
+    <p class="hint" *ngIf="skillsList.length === 0">No skills discovered. Check skills directory configuration.</p>
+  </div>
+
+  <!-- ═══════ SETTINGS ═══════ -->
+  <div class="tab-content" *ngIf="activeTab === 'settings'">
+    <h2>Runtime Feature Flags</h2>
+    <div class="settings-form">
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.long_term_memory_enabled" [disabled]="settingsBusy" />
+        Long-Term Memory
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.session_distillation_enabled" [disabled]="settingsBusy" />
+        Session Distillation
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.failure_journal_enabled" [disabled]="settingsBusy" />
+        Failure Journal
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="runtimeFeatures.vision_enabled" [disabled]="settingsBusy" />
+        Vision Tool
+      </label>
+      <label>
+        LTM DB Path
+        <input [(ngModel)]="runtimeLtmDbPath" placeholder="memory_store/long_term.db" [disabled]="settingsBusy" />
+      </label>
+      <button (click)="saveSettings()" [disabled]="settingsBusy">
+        {{ settingsBusy ? 'Saving...' : 'Apply Settings' }}
+      </button>
+      <span class="hint" *ngIf="settingsStatus">{{ settingsStatus }}</span>
+    </div>
+
+    <h2>Presets</h2>
+    <div class="data-table" *ngIf="presets.length > 0">
+      <div class="table-header">
+        <span>ID</span><span>Allow</span><span>Deny</span>
+      </div>
+      <div class="table-row" *ngFor="let preset of presets">
+        <span>{{ preset.id }}</span>
+        <span>{{ preset.toolPolicy?.allow?.join(', ') || '—' }}</span>
+        <span>{{ preset.toolPolicy?.deny?.join(', ') || '—' }}</span>
+      </div>
+    </div>
+    <p class="hint" *ngIf="presets.length === 0">No presets configured.</p>
+  </div>
+</section>

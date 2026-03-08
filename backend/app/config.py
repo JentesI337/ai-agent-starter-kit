@@ -973,6 +973,11 @@ class Settings(BaseModel):
         workspace_root,
         "custom_agents",
     )
+    policies_dir: str = _resolve_path_from_workspace(
+        os.getenv("POLICIES_DIR"),
+        workspace_root,
+        "policies",
+    )
     skills_dir: str = _resolve_path_from_workspace(
         os.getenv("SKILLS_DIR"),
         workspace_root,

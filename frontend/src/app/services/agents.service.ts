@@ -290,6 +290,26 @@ export class AgentsService {
     return this.http.delete<{ ok: boolean; deletedId: string }>(`${this.apiBase}/api/custom-agents/${encodeURIComponent(agentId)}`);
   }
 
+  updateCustomAgent(agentId: string, payload: Partial<CustomAgentDefinition>) {
+    return this.http.patch<CustomAgentDefinition>(`${this.apiBase}/api/custom-agents/${encodeURIComponent(agentId)}`, payload);
+  }
+
+  getToolCatalog() {
+    return this.http.post<{ schema: string; tools: any[] }>(`${this.apiBase}/api/control/tools.catalog`, {});
+  }
+
+  getToolStats() {
+    return this.http.get<any>(`${this.apiBase}/api/tools/stats`);
+  }
+
+  getSkillsList() {
+    return this.http.post<{ schema: string; skills: any[] }>(`${this.apiBase}/api/control/skills.list`, {});
+  }
+
+  syncSkills() {
+    return this.http.post<any>(`${this.apiBase}/api/control/skills.sync`, { apply: true });
+  }
+
   getPendingPolicyApprovals(payload?: { run_id?: string; session_id?: string; limit?: number }) {
     return this.http.post<PolicyApprovalsPendingResponse>(`${this.apiBase}/api/control/policy-approvals.pending`, payload ?? {});
   }

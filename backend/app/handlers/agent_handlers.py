@@ -108,6 +108,28 @@ def api_custom_agents_delete(agent_id: str) -> dict:
     return {"ok": True, "deletedId": normalized}
 
 
+def api_custom_agents_update(agent_id: str, patch_data: dict) -> CustomAgentDefinition:
+    deps = _require_deps()
+    normalized = deps.normalize_agent_id(agent_id)
+    existing = deps.custom_agent_store.get(normalized)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Custom agent not found")
+
+    merged = existing.model_dump()
+    for key, value in patch_data.items():
+        if key in merged:
+            merged[key] = value
+    merged["id"] = normalized  # keep original id
+
+    request = CustomAgentCreateRequest.model_validate(merged)
+    if request.base_agent_id and deps.normalize_agent_id(request.base_agent_id) not in deps.agent_registry:
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+
+    updated = deps.custom_agent_store.upsert(request)
+    deps.sync_custom_agents()
+    return updated
+
+
 def api_monitoring_schema() -> dict:
     deps = _require_deps()
     deps.sync_custom_agents()

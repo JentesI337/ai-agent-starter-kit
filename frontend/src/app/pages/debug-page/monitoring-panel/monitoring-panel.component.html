@@ -1,0 +1,111 @@
+<section class="monitor-panel">
+  <h2>Monitoring</h2>
+
+  <div class="monitor-filters">
+    <label>
+      Agent
+      <select [(ngModel)]="monitoring.monitorAgentFilter">
+        <option value="all">all</option>
+        <option *ngFor="let agentId of monitoring.monitoringAgentOptions" [value]="agentId">{{ agentId }}</option>
+      </select>
+    </label>
+    <label>
+      Status
+      <select [(ngModel)]="monitoring.monitorStatusFilter">
+        <option value="all">all</option>
+        <option value="running">running</option>
+        <option value="waiting_clarification">waiting_clarification</option>
+        <option value="completed">completed</option>
+        <option value="failed">failed</option>
+        <option value="cancelled">cancelled</option>
+      </select>
+    </label>
+    <label>
+      Request ID
+      <input [(ngModel)]="monitoring.monitorRequestFilter" placeholder="filter by request id" />
+    </label>
+    <label>
+      Text Search
+      <input [(ngModel)]="monitoring.monitorSearch" placeholder="stage, error, tool, ..." />
+    </label>
+    <button class="secondary" (click)="monitoring.resetFilters()">Reset</button>
+  </div>
+
+  <h3>Agent Activity</h3>
+  <div class="table-header" *ngIf="monitoring.filteredAgentActivities.length > 0">
+    <span>Agent</span><span>Role</span><span>Stage</span><span>Req</span><span>Errors</span>
+  </div>
+  <div class="table-row" *ngFor="let item of monitoring.filteredAgentActivities | slice:0:50">
+    <span>{{ item.agentId }}</span>
+    <span>{{ item.role }}</span>
+    <span>{{ item.currentStage }}</span>
+    <span>{{ item.activeRequestId || '-' }}</span>
+    <span>{{ item.errors }}</span>
+  </div>
+
+  <h3>Request Activity</h3>
+  <div class="table-header" *ngIf="monitoring.filteredRequestActivities.length > 0">
+    <span>Request</span><span>Agent</span><span>Status</span><span>Stage</span><span>Tools</span>
+  </div>
+  <div class="table-row" *ngFor="let item of monitoring.filteredRequestActivities | slice:0:100">
+    <span>{{ item.requestId }}</span>
+    <span>{{ item.agentId }}</span>
+    <span [class.ok]="item.status === 'completed'" [class.fail]="item.status === 'failed'" [class.wait]="item.status === 'waiting_clarification'" [class.cancel]="item.status === 'cancelled'">{{ item.status }}</span>
+    <span>{{ item.stage }}</span>
+    <span>{{ item.toolEvents }}</span>
+  </div>
+
+  <h3>Run Audit Snapshot</h3>
+  <div class="audit-actions">
+    <button class="secondary" (click)="monitoring.refreshRunAudit()" [disabled]="monitoring.runAuditLoading || !monitoring.effectiveRunAuditId">
+      {{ monitoring.runAuditLoading ? 'Loading audit...' : 'Refresh Audit' }}
+    </button>
+    <span class="hint" *ngIf="monitoring.effectiveRunAuditId">run_id: {{ monitoring.effectiveRunAuditId }}</span>
+  </div>
+  <p class="trace-note" *ngIf="monitoring.runAuditError">{{ monitoring.runAuditError }}</p>
+  <div class="table-row" *ngIf="monitoring.runAudit as audit">
+    <span>status: {{ audit.run.status || '-' }}</span>
+    <span>events: {{ audit.telemetry.event_count }}</span>
+    <span>lifecycle: {{ audit.telemetry.lifecycle_count }}</span>
+    <span>tool_started: {{ audit.telemetry.tool_started }}</span>
+    <span>tool_failed: {{ audit.telemetry.tool_failed }}</span>
+  </div>
+  <div class="audit-highlights" *ngIf="monitoring.runAudit as audit">
+    <span class="tool-chip" *ngIf="monitoring.topBlockedReason as topBlocked">
+      top blocked_with_reason: {{ topBlocked.key }} ({{ topBlocked.count }})
+    </span>
+    <span class="tool-chip" *ngIf="monitoring.topEmptyReason as topEmpty">
+      top tool_selection_empty: {{ topEmpty.key }} ({{ topEmpty.count }})
+    </span>
+    <span class="trace-note" *ngIf="!monitoring.topBlockedReason && !monitoring.topEmptyReason">
+      no blocked/empty reasons recorded for this run
+    </span>
+  </div>
+  <div class="event-stream" *ngIf="monitoring.runAudit as audit">
+    <div class="event">
+      <div class="meta">blocked_with_reason</div>
+      <div class="text">{{ audit.telemetry.blocked_with_reason | json }}</div>
+    </div>
+    <div class="event">
+      <div class="meta">tool_selection_empty_reasons</div>
+      <div class="text">{{ audit.telemetry.tool_selection_empty_reasons | json }}</div>
+    </div>
+  </div>
+
+  <h3>Observable Reasoning Trace</h3>
+  <p class="trace-note">Shows lifecycle + tool decisions + agent steps emitted by backend. No hidden chain-of-thought content.</p>
+  <div class="event-stream">
+    <div class="event" *ngFor="let item of monitoring.filteredReasoningLines | slice:0:120">
+      <div class="meta">{{ item.time }} · {{ item.type }}</div>
+      <div class="text">{{ item.text }}</div>
+    </div>
+  </div>
+
+  <h3>Lifecycle Stream</h3>
+  <div class="event-stream">
+    <div class="event" *ngFor="let item of monitoring.filteredLifecycleLines | slice:0:150">
+      <div class="meta">{{ item.time }} · {{ item.type }}</div>
+      <div class="text">{{ item.text }}</div>
+    </div>
+  </div>
+</section>

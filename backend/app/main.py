@@ -31,6 +31,7 @@ from app.contracts.agent_contract import AgentContract
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
 from app.custom_agents import CustomAgentStore
+from app.policy_store import PolicyStore
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.handlers import (
     agent_handlers,
@@ -52,6 +53,7 @@ from app.routers import (
     build_ws_agent_router,
 )
 from app.routers.run_api import RunApiRouterHandlers
+from app.routers.policies import build_policies_router
 from app.run_endpoints import (
     AgentTestDependencies,
     RunEndpointsDependencies,
@@ -817,6 +819,7 @@ app.include_router(
         presets_list_handler=agent_handlers.api_presets_list,
         custom_agents_list_handler=agent_handlers.api_custom_agents_list,
         custom_agents_create_handler=agent_handlers.api_custom_agents_create,
+        custom_agents_update_handler=agent_handlers.api_custom_agents_update,
         custom_agents_delete_handler=agent_handlers.api_custom_agents_delete,
         monitoring_schema_handler=agent_handlers.api_monitoring_schema,
     )
@@ -984,3 +987,7 @@ ws_handler_dependencies = WsHandlerDependencies(
     review_agent_id=REVIEW_AGENT_ID,
 )
 app.include_router(build_ws_agent_router(dependencies=ws_handler_dependencies))
+
+# --- Policy CRUD ---
+_policy_store = PolicyStore(persist_dir=settings.policies_dir)
+app.include_router(build_policies_router(policy_store=_policy_store))

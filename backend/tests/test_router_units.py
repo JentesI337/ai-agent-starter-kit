@@ -20,6 +20,7 @@ def test_agents_router_wires_basic_routes() -> None:
             presets_list_handler=lambda: [{"id": "default"}],
             custom_agents_list_handler=lambda: [{"id": "custom-a"}],
             custom_agents_create_handler=lambda payload: {"created": payload.get("name")},
+            custom_agents_update_handler=lambda agent_id, patch: {"updated": agent_id},
             custom_agents_delete_handler=lambda agent_id: {"deleted": agent_id},
             monitoring_schema_handler=lambda: {"eventTypes": ["status"]},
         )

@@ -4,55 +4,15 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
-import { AgentStateService, ChatLine, PolicyApprovalItem, LifecycleEntry } from '../services/agent-state.service';
+import { AgentStateService, ChatLine, PolicyApprovalItem } from '../services/agent-state.service';
+import { MonitoringService } from '../services/monitoring.service';
 import { SecureStorageService } from '../services/secure-storage.service';
 import {
   AgentDescriptor,
   AgentsService,
-  CustomAgentDefinition,
-  CreateCustomAgentPayload,
   MonitoringSchema,
-  RuntimeFeatureFlags,
   PresetDescriptor,
-  RunsAuditResponse,
 } from '../services/agents.service';
-
-interface LifecycleLine {
-  time: string;
-  type: string;
-  text: string;
-}
-
-interface AgentActivity {
-  agentId: string;
-  role: string;
-  currentStage: string;
-  lastMessage: string;
-  activeRequestId: string;
-  updatedAt: string;
-  events: number;
-  toolEvents: number;
-  errors: number;
-}
-
-interface RequestActivity {
-  requestId: string;
-  sessionId: string;
-  agentId: string;
-  stage: string;
-  status: 'running' | 'waiting_clarification' | 'completed' | 'failed' | 'cancelled';
-  startedAt: string;
-  updatedAt: string;
-  toolEvents: number;
-  error: string;
-}
-
-interface ReasonEntry {
-  key: string;
-  count: number;
-}
-
-type CustomVisionMode = 'inherit' | 'allow' | 'deny';
 
 @Component({
   selector: 'app-chat-page',
@@ -70,55 +30,23 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   firstRunChoicePending = false;
   selectedAgentId = 'head-agent';
   selectedPresetId = '';
-  customAgentName = '';
-  customAgentId = '';
-  customAgentDescription = '';
-  customAgentBase = 'head-agent';
-  customWorkflowText = '';
-  customToolAllowInput = '';
-  customToolDenyInput = '';
-  customVisionMode: CustomVisionMode = 'inherit';
-  customAgentBusy = false;
+
   sessionId = '';
   runtimeSwitching = false;
-  runtimeFeaturesLoading = false;
-  runtimeFeaturesSaving = false;
-  runtimeFeaturesPersistStatus: 'unknown' | 'persisted' | 'not_persisted' | 'error' = 'unknown';
-  runtimeFeaturesPersistText = 'Feature flags not saved yet in this session.';
-  runtimeLongTermMemoryDbPath = '';
-  runtimeFeatures: RuntimeFeatureFlags = {
-    long_term_memory_enabled: true,
-    session_distillation_enabled: true,
-    failure_journal_enabled: true,
-    vision_enabled: false,
-  };
+
   apiModelsAvailable: boolean | null = null;
   apiModelsHint = '';
   isConnected = false;
   lines: ChatLine[] = [];
-  lifecycleLines: LifecycleLine[] = [];
-  reasoningLines: LifecycleLine[] = [];
   availableAgents: AgentDescriptor[] = [];
   availablePresets: PresetDescriptor[] = [];
-  customAgents: CustomAgentDefinition[] = [];
+
   monitoringSchema: MonitoringSchema | null = null;
-  runAudit: RunsAuditResponse | null = null;
-  runAuditLoading = false;
-  runAuditError = '';
-  runAuditLastRunId = '';
   policyApprovals: PolicyApprovalItem[] = [];
-  agentActivities: AgentActivity[] = [];
-  requestActivities: RequestActivity[] = [];
-  monitorAgentFilter = 'all';
-  monitorStatusFilter: 'all' | 'running' | 'waiting_clarification' | 'completed' | 'failed' | 'cancelled' = 'all';
-  monitorRequestFilter = '';
-  monitorSearch = '';
   pendingClarificationQuestion = '';
 
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
-  private readonly agentActivityMap = new Map<string, AgentActivity>();
-  private readonly requestActivityMap = new Map<string, RequestActivity>();
   private readonly policyApprovalBusy = new Set<string>();
   private approvalPollTimer: number | null = null;
   private approvalPollInFlight = false;
@@ -128,6 +56,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     private readonly socketService: AgentSocketService,
     private readonly agentsService: AgentsService,
     private readonly agentState: AgentStateService,
+    private readonly monitoringService: MonitoringService,
     private readonly cdr: ChangeDetectorRef,
     private readonly secureStorage: SecureStorageService
   ) {}
@@ -166,23 +95,14 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         if (!this.firstRunChoicePending) {
           this.secureStorage.setItem('preferredRuntime', status.runtime);
         }
-        if (status.featureFlags) {
-          this.runtimeFeatures = {
-            ...this.runtimeFeatures,
-            ...status.featureFlags,
-          };
-        }
-        if (typeof status.longTermMemoryDbPath === 'string') {
-          this.runtimeLongTermMemoryDbPath = status.longTermMemoryDbPath;
-        }
+
       },
     });
-
-    this.loadRuntimeFeatures();
 
     this.agentsService.getAgents().subscribe({
       next: (agents) => {
         this.availableAgents = agents;
+        this.monitoringService.availableAgents = agents;
         const selectedExists = agents.some((agent) => agent.id === this.selectedAgentId);
         if (!selectedExists && agents.length > 0) {
           this.selectedAgentId = agents[0].id;
@@ -202,12 +122,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.agentsService.getMonitoringSchema().subscribe({
       next: (schema) => {
         this.monitoringSchema = schema;
-      },
-    });
-
-    this.agentsService.getCustomAgents().subscribe({
-      next: (items) => {
-        this.customAgents = items;
+        this.monitoringService.monitoringSchema = schema;
       },
     });
 
@@ -252,13 +167,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         try {
           this.applyEvent(event);
         } catch (error) {
-          this.pushLifecycle('frontend_apply_error', 'applyEvent failed', {
+          this.monitoringService.pushLifecycle('frontend_apply_error', 'applyEvent failed', {
             eventType: event.type,
             error: (error as Error).message,
           });
           this.agentState.pushChatLine({ role: 'system', text: `Frontend event handling failed: ${(error as Error).message}` });
         }
-        this.refreshMonitoringViews();
+        this.monitoringService.refreshViews();
         this.cdr.detectChanges();
       })
     );
@@ -272,114 +187,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   get selectedAgentTools(): string[] {
     const match = this.monitoringSchema?.agents.find((item) => item.id === this.selectedAgentId);
     return match?.tools ?? [];
-  }
-
-  get monitoringAgentOptions(): string[] {
-    const options = new Set<string>();
-    for (const agent of this.availableAgents) {
-      options.add(agent.id);
-    }
-    for (const item of this.agentActivities) {
-      options.add(item.agentId);
-    }
-    return [...options].sort((a, b) => a.localeCompare(b));
-  }
-
-  get filteredAgentActivities(): AgentActivity[] {
-    const query = this.monitorSearch.trim().toLowerCase();
-    return this.agentActivities.filter((item) => {
-      if (this.monitorAgentFilter !== 'all' && item.agentId !== this.monitorAgentFilter) {
-        return false;
-      }
-      if (this.monitorRequestFilter.trim() && !item.activeRequestId.includes(this.monitorRequestFilter.trim())) {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
-      const haystack = `${item.agentId} ${item.role} ${item.currentStage} ${item.lastMessage}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }
-
-  get filteredRequestActivities(): RequestActivity[] {
-    const query = this.monitorSearch.trim().toLowerCase();
-    return this.requestActivities.filter((item) => {
-      if (this.monitorAgentFilter !== 'all' && item.agentId !== this.monitorAgentFilter) {
-        return false;
-      }
-      if (this.monitorStatusFilter !== 'all' && item.status !== this.monitorStatusFilter) {
-        return false;
-      }
-      if (this.monitorRequestFilter.trim() && !item.requestId.includes(this.monitorRequestFilter.trim())) {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
-      const haystack = `${item.requestId} ${item.agentId} ${item.stage} ${item.error}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }
-
-  get filteredReasoningLines(): LifecycleLine[] {
-    const query = this.monitorSearch.trim().toLowerCase();
-    if (!query) {
-      return this.reasoningLines;
-    }
-    return this.reasoningLines.filter((item) => `${item.type} ${item.text}`.toLowerCase().includes(query));
-  }
-
-  get filteredLifecycleLines(): LifecycleLine[] {
-    const query = this.monitorSearch.trim().toLowerCase();
-    if (!query) {
-      return this.lifecycleLines;
-    }
-    return this.lifecycleLines.filter((item) => `${item.type} ${item.text}`.toLowerCase().includes(query));
-  }
-
-  get effectiveRunAuditId(): string {
-    const explicit = this.monitorRequestFilter.trim();
-    if (explicit) {
-      return explicit;
-    }
-    return this.filteredRequestActivities[0]?.requestId ?? '';
-  }
-
-  get blockedReasonEntries(): ReasonEntry[] {
-    const source = this.runAudit?.telemetry.blocked_with_reason ?? {};
-    return this.toSortedReasonEntries(source);
-  }
-
-  get emptyReasonEntries(): ReasonEntry[] {
-    const source = this.runAudit?.telemetry.tool_selection_empty_reasons ?? {};
-    return this.toSortedReasonEntries(source);
-  }
-
-  get topBlockedReason(): ReasonEntry | null {
-    return this.blockedReasonEntries[0] ?? null;
-  }
-
-  get topEmptyReason(): ReasonEntry | null {
-    return this.emptyReasonEntries[0] ?? null;
-  }
-
-  resetMonitoringFilters(): void {
-    this.monitorAgentFilter = 'all';
-    this.monitorStatusFilter = 'all';
-    this.monitorRequestFilter = '';
-    this.monitorSearch = '';
-  }
-
-  refreshRunAudit(): void {
-    const runId = this.effectiveRunAuditId;
-    if (!runId) {
-      this.runAuditError = 'No request ID available yet.';
-      this.runAudit = null;
-      this.runAuditLastRunId = '';
-      return;
-    }
-    this.fetchRunAudit(runId);
   }
 
   send(): void {
@@ -413,7 +220,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         });
       }
       this.agentState.pushChatLine({ role: 'system', text: 'Agent is working...' });
-      this.pushLifecycle('frontend_send', 'Message sent to websocket', {
+      this.monitoringService.pushLifecycle('frontend_send', 'Message sent to websocket', {
         sourceType: isClarificationResponse ? 'clarification_response' : 'user_message',
         chars: content.length,
         agent: this.selectedAgentId,
@@ -429,95 +236,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.input = '';
     } catch (error) {
       this.agentState.pushChatLine({ role: 'system', text: `Send failed: ${(error as Error).message}` });
-      this.pushLifecycle('frontend_send_failed', 'Message send failed', {
+      this.monitoringService.pushLifecycle('frontend_send_failed', 'Message send failed', {
         error: (error as Error).message,
       });
     }
-  }
-
-  createCustomAgent(): void {
-    const name = this.customAgentName.trim();
-    if (!name || this.customAgentBusy) {
-      return;
-    }
-
-    const steps = this.customWorkflowText
-      .split('\n')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-
-    const payload: CreateCustomAgentPayload = {
-      id: this.customAgentId.trim() || undefined,
-      name,
-      description: this.customAgentDescription.trim(),
-      base_agent_id: this.customAgentBase,
-      workflow_steps: steps,
-    };
-
-    const customAllow = this.parseCsvTools(this.customToolAllowInput);
-    const customDeny = this.parseCsvTools(this.customToolDenyInput);
-    if (this.customVisionMode === 'allow' && !customAllow.includes('analyze_image')) {
-      customAllow.push('analyze_image');
-    }
-    if (this.customVisionMode === 'deny' && !customDeny.includes('analyze_image')) {
-      customDeny.push('analyze_image');
-    }
-
-    const customToolPolicy: ToolPolicyPayload = {
-      allow: customAllow.length > 0 ? customAllow : undefined,
-      deny: customDeny.length > 0 ? customDeny : undefined,
-    };
-    if ((customToolPolicy.allow?.length ?? 0) > 0 || (customToolPolicy.deny?.length ?? 0) > 0) {
-      payload.tool_policy = customToolPolicy;
-    }
-
-    this.customAgentBusy = true;
-    this.agentsService.createCustomAgent(payload).subscribe({
-      next: (created) => {
-        this.agentState.pushChatLine({ role: 'system', text: `Custom agent created: ${created.id}` });
-        this.pushLifecycle('frontend_custom_agent_created', 'Custom agent saved', {
-          id: created.id,
-          base: created.base_agent_id,
-          workflowSteps: created.workflow_steps.length,
-        });
-        this.customAgentName = '';
-        this.customAgentId = '';
-        this.customAgentDescription = '';
-        this.customWorkflowText = '';
-        this.customToolAllowInput = '';
-        this.customToolDenyInput = '';
-        this.customVisionMode = 'inherit';
-        this.refreshAgentsAndSchema(created.id);
-        this.customAgentBusy = false;
-      },
-      error: (error) => {
-        this.agentState.pushChatLine({ role: 'system', text: `Custom agent creation failed: ${error?.error?.detail ?? error.message}` });
-        this.customAgentBusy = false;
-      },
-    });
-  }
-
-  deleteCustomAgent(agentId: string): void {
-    if (!agentId || this.customAgentBusy) {
-      return;
-    }
-
-    this.customAgentBusy = true;
-    this.agentsService.deleteCustomAgent(agentId).subscribe({
-      next: () => {
-        this.agentState.pushChatLine({ role: 'system', text: `Custom agent deleted: ${agentId}` });
-        this.pushLifecycle('frontend_custom_agent_deleted', 'Custom agent removed', { id: agentId });
-        if (this.selectedAgentId === agentId) {
-          this.selectedAgentId = 'head-agent';
-        }
-        this.refreshAgentsAndSchema();
-        this.customAgentBusy = false;
-      },
-      error: (error) => {
-        this.agentState.pushChatLine({ role: 'system', text: `Custom agent delete failed: ${error?.error?.detail ?? error.message}` });
-        this.customAgentBusy = false;
-      },
-    });
   }
 
   spawnSubrun(): void {
@@ -543,7 +265,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         toolPolicy,
       });
       this.agentState.pushChatLine({ role: 'system', text: 'Subrun accepted and running in background...' });
-      this.pushLifecycle('frontend_subrun_send', 'Subrun spawn sent to websocket', {
+      this.monitoringService.pushLifecycle('frontend_subrun_send', 'Subrun spawn sent to websocket', {
         chars: content.length,
         agent: this.selectedAgentId,
         preset: this.selectedPresetId || '(none)',
@@ -554,7 +276,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.input = '';
     } catch (error) {
       this.agentState.pushChatLine({ role: 'system', text: `Subrun spawn failed: ${(error as Error).message}` });
-      this.pushLifecycle('frontend_subrun_send_failed', 'Subrun spawn failed', {
+      this.monitoringService.pushLifecycle('frontend_subrun_send_failed', 'Subrun spawn failed', {
         error: (error as Error).message,
       });
     }
@@ -565,7 +287,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
     this.runtimeSwitching = true;
-    this.pushLifecycle('frontend_switch', `Runtime switch requested: ${this.runtimeTarget}`);
+    this.monitoringService.pushLifecycle('frontend_switch', `Runtime switch requested: ${this.runtimeTarget}`);
 
     try {
       this.socketService.sendRuntimeSwitchRequest(this.runtimeTarget, this.sessionId || undefined);
@@ -573,76 +295,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.runtimeSwitching = false;
       this.agentState.pushChatLine({ role: 'system', text: `Runtime switch failed: ${(error as Error).message}` });
     }
-  }
-
-  loadRuntimeFeatures(): void {
-    this.runtimeFeaturesLoading = true;
-    this.agentsService.getRuntimeFeatures().subscribe({
-      next: (response) => {
-        this.runtimeFeatures = {
-          ...this.runtimeFeatures,
-          ...response.featureFlags,
-        };
-        if (typeof response.longTermMemoryDbPath === 'string') {
-          this.runtimeLongTermMemoryDbPath = response.longTermMemoryDbPath;
-        }
-        this.runtimeFeaturesPersistStatus = 'unknown';
-        this.runtimeFeaturesPersistText = 'Loaded feature flags from backend.';
-        this.runtimeFeaturesLoading = false;
-      },
-      error: (error) => {
-        this.runtimeFeaturesLoading = false;
-        this.runtimeFeaturesPersistStatus = 'error';
-        this.runtimeFeaturesPersistText = `Load failed: ${error?.error?.detail ?? error.message}`;
-        this.agentState.pushChatLine({ role: 'system', text: `Runtime feature flags load failed: ${error?.error?.detail ?? error.message}` });
-      },
-    });
-  }
-
-  saveRuntimeFeatures(): void {
-    if (this.runtimeFeaturesSaving) {
-      return;
-    }
-
-    this.runtimeFeaturesSaving = true;
-    const payload: RuntimeFeatureFlags = {
-      long_term_memory_enabled: !!this.runtimeFeatures.long_term_memory_enabled,
-      session_distillation_enabled: !!this.runtimeFeatures.session_distillation_enabled,
-      failure_journal_enabled: !!this.runtimeFeatures.failure_journal_enabled,
-      vision_enabled: !!this.runtimeFeatures.vision_enabled,
-    };
-    const dbPath = this.runtimeLongTermMemoryDbPath.trim();
-
-    this.agentsService.updateRuntimeFeatures(payload, dbPath.length > 0 ? dbPath : undefined).subscribe({
-      next: (response) => {
-        this.runtimeFeatures = {
-          ...this.runtimeFeatures,
-          ...response.featureFlags,
-        };
-        if (typeof response.longTermMemoryDbPath === 'string') {
-          this.runtimeLongTermMemoryDbPath = response.longTermMemoryDbPath;
-        }
-        this.runtimeFeaturesSaving = false;
-        if (response.persisted === false) {
-          this.runtimeFeaturesPersistStatus = 'not_persisted';
-          this.runtimeFeaturesPersistText = 'Flags updated in runtime, but not confirmed as persisted in .env.';
-        } else {
-          this.runtimeFeaturesPersistStatus = 'persisted';
-          this.runtimeFeaturesPersistText = 'Flags persisted to backend/.env.';
-        }
-        this.agentState.pushChatLine({ role: 'system', text: 'Runtime feature flags updated.' });
-        this.pushLifecycle('frontend_runtime_features_updated', 'Runtime feature flags updated', {
-          ...response.featureFlags,
-          longTermMemoryDbPath: this.runtimeLongTermMemoryDbPath,
-        });
-      },
-      error: (error) => {
-        this.runtimeFeaturesSaving = false;
-        this.runtimeFeaturesPersistStatus = 'error';
-        this.runtimeFeaturesPersistText = `Save failed: ${error?.error?.detail ?? error.message}`;
-        this.agentState.pushChatLine({ role: 'system', text: `Runtime feature flags update failed: ${error?.error?.detail ?? error.message}` });
-      },
-    });
   }
 
   chooseInitialRuntime(target: 'local' | 'api'): void {
@@ -657,7 +309,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.firstRunChoicePending = true;
     this.runtimeSwitching = false;
     this.agentState.pushChatLine({ role: 'system', text: 'Runtime preference reset. Please choose local or api.' });
-    this.pushLifecycle('frontend_runtime_reset', 'Runtime preference reset by user');
+    this.monitoringService.pushLifecycle('frontend_runtime_reset', 'Runtime preference reset by user');
   }
 
   quickResetSession(): void {
@@ -666,31 +318,21 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.input = '';
     this.agentState.resetActiveAssistant();
     this.agentState.clearChatLines();
-    this.lifecycleLines = [];
-    this.reasoningLines = [];
-    this.agentActivityMap.clear();
-    this.requestActivityMap.clear();
-    this.agentActivities = [];
-    this.requestActivities = [];
-    this.runAudit = null;
-    this.runAuditError = '';
-    this.runAuditLastRunId = '';
-    this.runAuditLoading = false;
+    this.monitoringService.resetAll();
     this.policyApprovals = [];
     this.policyApprovalBusy.clear();
     this.pendingClarificationQuestion = '';
     this.stopApprovalPolling();
-    this.resetMonitoringFilters();
 
     this.agentState.pushChatLine({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
-    this.pushLifecycle('frontend_session_reset', 'Session reset by user', {
+    this.monitoringService.pushLifecycle('frontend_session_reset', 'Session reset by user', {
       previousSessionId: previousSessionId || '(none)',
       nextSessionId: '(new)',
     });
   }
 
   private applyEvent(event: AgentSocketEvent): void {
-    this.pushLifecycle(
+    this.monitoringService.pushLifecycle(
       event.type,
       this.describeEvent(event),
       {
@@ -702,7 +344,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       event.ts
     );
 
-    this.updateMonitoring(event);
+    this.monitoringService.updateMonitoring(event, this.selectedAgentId);
 
     if (
       event.type === 'lifecycle' &&
@@ -871,123 +513,11 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  private updateMonitoring(event: AgentSocketEvent): void {
-    const timestamp = event.ts ?? new Date().toISOString();
-    const agentId = (event.agent || this.selectedAgentId || 'unknown').toString();
-    const stage = event.stage || event.type || 'event';
-    const message = event.message || event.step || stage;
-
-    const existingAgent = this.agentActivityMap.get(agentId) ?? {
-      agentId,
-      role: this.resolveAgentRole(agentId),
-      currentStage: stage,
-      lastMessage: message,
-      activeRequestId: event.request_id || '',
-      updatedAt: timestamp,
-      events: 0,
-      toolEvents: 0,
-      errors: 0,
-    };
-
-    existingAgent.role = this.resolveAgentRole(agentId);
-    existingAgent.currentStage = stage;
-    existingAgent.lastMessage = message;
-    existingAgent.updatedAt = timestamp;
-    existingAgent.events += 1;
-    if (event.request_id) {
-      existingAgent.activeRequestId = event.request_id;
-    }
-    if ((event.stage || '').startsWith('tool_')) {
-      existingAgent.toolEvents += 1;
-    }
-    if (event.type === 'error' || (event.stage || '').startsWith('request_failed')) {
-      existingAgent.errors += 1;
-    }
-    if (event.stage === 'request_completed' || event.stage === 'request_cancelled' || (event.stage || '').startsWith('request_failed')) {
-      existingAgent.activeRequestId = '';
-    }
-
-    this.agentActivityMap.set(agentId, existingAgent);
-
-    if (event.request_id) {
-      const existingRequest = this.requestActivityMap.get(event.request_id) ?? {
-        requestId: event.request_id,
-        sessionId: event.session_id || '',
-        agentId,
-        stage,
-        status: 'running' as const,
-        startedAt: timestamp,
-        updatedAt: timestamp,
-        toolEvents: 0,
-        error: '',
-      };
-
-      existingRequest.agentId = agentId;
-      existingRequest.sessionId = event.session_id || existingRequest.sessionId;
-      existingRequest.stage = stage;
-      existingRequest.updatedAt = timestamp;
-      if ((event.stage || '').startsWith('tool_')) {
-        existingRequest.toolEvents += 1;
-      }
-      if (event.stage === 'request_completed') {
-        existingRequest.status = 'completed';
-      }
-      if (event.stage === 'request_cancelled') {
-        existingRequest.status = 'cancelled';
-      }
-      if (event.stage === 'clarification_waiting_response') {
-        existingRequest.status = 'waiting_clarification';
-      }
-      if ((event.stage || '').startsWith('request_failed') || event.type === 'error') {
-        existingRequest.status = 'failed';
-        existingRequest.error = event.message || existingRequest.error;
-      }
-
-      this.requestActivityMap.set(event.request_id, existingRequest);
-
-      if (event.stage === 'request_completed' || event.stage === 'request_cancelled' || (event.stage || '').startsWith('request_failed')) {
-        this.fetchRunAudit(event.request_id, true);
-      }
-    }
-
-    if (
-      event.type === 'agent_step' ||
-      event.type === 'lifecycle' ||
-      (event.type === 'status' && Boolean(event.message))
-    ) {
-      this.reasoningLines.unshift({
-        time: new Date(timestamp).toLocaleTimeString(),
-        type: event.type,
-        text: `${agentId}: ${message}`,
-      });
-      if (this.reasoningLines.length > 400) {
-        this.reasoningLines = this.reasoningLines.slice(0, 400);
-      }
-    }
-  }
-
-  private resolveAgentRole(agentId: string): string {
-    const fromSchema = this.monitoringSchema?.agents.find((item) => item.id === agentId);
-    if (fromSchema) {
-      return fromSchema.role;
-    }
-    const fromAgents = this.availableAgents.find((item) => item.id === agentId);
-    return fromAgents?.role ?? 'agent';
-  }
-
-  private refreshMonitoringViews(): void {
-    this.agentActivities = [...this.agentActivityMap.values()].sort((a, b) =>
-      b.updatedAt.localeCompare(a.updatedAt)
-    );
-    this.requestActivities = [...this.requestActivityMap.values()]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 200);
-  }
-
   private refreshAgentsAndSchema(selectAgentId?: string): void {
     this.agentsService.getAgents().subscribe({
       next: (agents) => {
         this.availableAgents = agents;
+        this.monitoringService.availableAgents = agents;
         if (selectAgentId && agents.some((agent) => agent.id === selectAgentId)) {
           this.selectedAgentId = selectAgentId;
           return;
@@ -1001,12 +531,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.agentsService.getMonitoringSchema().subscribe({
       next: (schema) => {
         this.monitoringSchema = schema;
-      },
-    });
-
-    this.agentsService.getCustomAgents().subscribe({
-      next: (items) => {
-        this.customAgents = items;
+        this.monitoringService.monitoringSchema = schema;
       },
     });
   }
@@ -1068,59 +593,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return 'token';
     }
     return event.type;
-  }
-
-  private fetchRunAudit(runId: string, silent = false): void {
-    if (!runId) {
-      return;
-    }
-    if (this.runAuditLoading && this.runAuditLastRunId === runId) {
-      return;
-    }
-
-    this.runAuditLoading = true;
-    this.runAuditError = '';
-    this.runAuditLastRunId = runId;
-
-    this.agentsService.getRunAudit(runId).subscribe({
-      next: (payload) => {
-        this.runAudit = payload;
-        this.runAuditLoading = false;
-      },
-      error: (error) => {
-        this.runAuditLoading = false;
-        this.runAudit = null;
-        this.runAuditError = error?.error?.detail ?? error?.message ?? 'Failed to load run audit.';
-        if (!silent) {
-          this.agentState.pushChatLine({ role: 'system', text: `Run audit load failed: ${this.runAuditError}` });
-        }
-      },
-    });
-  }
-
-  private pushLifecycle(type: string, text: string, details?: Record<string, unknown>, ts?: string): void {
-    const time = ts ? new Date(ts).toLocaleTimeString() : new Date().toLocaleTimeString();
-    const detailText = details ? ` ${JSON.stringify(details)}` : '';
-    this.lifecycleLines.unshift({
-      time,
-      type,
-      text: `${text}${detailText}`,
-    });
-    if (this.lifecycleLines.length > 500) {
-      this.lifecycleLines = this.lifecycleLines.slice(0, 500);
-    }
-  }
-
-  private toSortedReasonEntries(source: Record<string, number>): ReasonEntry[] {
-    return Object.entries(source)
-      .filter((entry) => Number.isFinite(entry[1]) && entry[1] > 0)
-      .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => {
-        if (b.count !== a.count) {
-          return b.count - a.count;
-        }
-        return a.key.localeCompare(b.key);
-      });
   }
 
   allowPolicyApproval(item: PolicyApprovalItem): void {
@@ -1186,7 +658,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
     this.approvalPollInFlight = true;
 
-    const runFilter = this.monitorRequestFilter.trim();
+    const runFilter = this.monitoringService.monitorRequestFilter.trim();
     const payload = {
       run_id: runFilter || undefined,
       session_id: this.sessionId || undefined,
