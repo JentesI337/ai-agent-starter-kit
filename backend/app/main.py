@@ -301,6 +301,16 @@ def _build_runtime_components() -> RuntimeComponents:
 
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
     _sync_custom_agents(components)
+
+    for _agent in components.agent_registry.values():
+        _delegate = getattr(_agent, "_delegate", _agent)
+        _tools = getattr(_delegate, "tools", None)
+        if _tools is not None and hasattr(_tools, "set_custom_agent_store"):
+            _tools.set_custom_agent_store(
+                components.custom_agent_store,
+                lambda: _sync_custom_agents(components),
+            )
+
     components.agent = components.agent_registry[PRIMARY_AGENT_ID]
     components.orchestrator_api = components.orchestrator_registry[PRIMARY_AGENT_ID]
     components.subrun_lane = SubrunLane(

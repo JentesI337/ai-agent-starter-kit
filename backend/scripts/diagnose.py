@@ -147,6 +147,7 @@ async def check_websocket_pipeline(
     timeout_sec: float,
     verbose: bool,
     tool_policy: dict[str, Any] | None = None,
+    agent_id: str = "head-agent",
 ) -> DiagResult:
     ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
     ws_url = f"{ws_url.rstrip('/')}/ws/agent"
@@ -177,7 +178,7 @@ async def check_websocket_pipeline(
             payload: dict[str, Any] = {
                 "type": "user_message",
                 "content": prompt,
-                "agent_id": "head-agent",
+                "agent_id": agent_id,
             }
             if tool_policy:
                 payload["tool_policy"] = tool_policy
@@ -539,8 +540,31 @@ async def run_scenario_suite(
         print(_dim(f"  {desc}"))
         print(_dim(f"  Prompt: \"{prompt[:80]}{'…' if len(prompt) > 80 else ''}\""))
 
+        agent_id = scenario.get("agent_id", "head-agent")
+
+        # Setup HTTP steps (e.g. create custom agent before test)
+        setup_steps = scenario.get("setup_http", [])
+        for step in setup_steps:
+            step_method = step.get("method", "POST").upper()
+            step_url = f"{base_url.rstrip('/')}{step['path']}"
+            step_body = step.get("body")
+            try:
+                if step_method == "POST":
+                    step_headers = step.get("headers", {})
+                    resp = requests.post(step_url, json=step_body, headers=step_headers, timeout=10)
+                elif step_method == "DELETE":
+                    resp = requests.delete(step_url, timeout=10)
+                else:
+                    resp = requests.get(step_url, timeout=10)
+                if verbose:
+                    print(_dim(f"  ↑ Setup {step_method} {step['path']}: {resp.status_code}"))
+            except Exception as exc:
+                if verbose:
+                    print(_dim(f"  ↑ Setup {step_method} {step['path']}: FAILED {exc}"))
+
         ws_result = await check_websocket_pipeline(
             base_url, prompt, timeout, verbose, tool_policy=tool_policy,
+            agent_id=agent_id,
         )
 
         # Validate expectations
@@ -580,6 +604,24 @@ async def run_scenario_suite(
             print(f"  {_dim('Response:')}")
             for i in range(0, min(len(preview), 300), 100):
                 print(f"    {_dim(preview[i:i+100])}")
+
+        # Teardown HTTP steps (e.g. delete custom agent after test)
+        teardown_steps = scenario.get("teardown_http", [])
+        for step in teardown_steps:
+            step_method = step.get("method", "DELETE").upper()
+            step_url = f"{base_url.rstrip('/')}{step['path']}"
+            try:
+                if step_method == "DELETE":
+                    resp = requests.delete(step_url, timeout=10)
+                elif step_method == "POST":
+                    resp = requests.post(step_url, json=step.get("body"), timeout=10)
+                else:
+                    resp = requests.get(step_url, timeout=10)
+                if verbose:
+                    print(_dim(f"  ↓ Teardown {step_method} {step['path']}: {resp.status_code}"))
+            except Exception as exc:
+                if verbose:
+                    print(_dim(f"  ↓ Teardown {step_method} {step['path']}: FAILED {exc}"))
 
         print()
 

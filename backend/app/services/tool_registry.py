@@ -630,6 +630,52 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("agent_delegation", "orchestration", "parallelization"),
         ),
+        "create_workflow": ToolSpec(
+            name="create_workflow",
+            required_args=("name", "description", "steps"),
+            optional_args=("base_agent_id",),
+            timeout_seconds=10.0,
+            max_retries=0,
+            description="Create a new workflow agent at runtime. The agent is persisted and immediately available for use.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 1, "description": "Human-readable workflow name."},
+                    "description": {"type": "string", "minLength": 1, "description": "What the workflow does."},
+                    "steps": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "minItems": 1,
+                        "description": "Ordered list of step instructions for the workflow.",
+                    },
+                    "base_agent_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Base agent to derive from. Defaults to head-agent.",
+                    },
+                },
+                "required": ["name", "description", "steps"],
+                "additionalProperties": False,
+            },
+            capabilities=("workflow_management",),
+        ),
+        "delete_workflow": ToolSpec(
+            name="delete_workflow",
+            required_args=("workflow_id",),
+            optional_args=(),
+            timeout_seconds=5.0,
+            max_retries=0,
+            description="Delete a previously created workflow agent by its ID.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "workflow_id": {"type": "string", "minLength": 1, "description": "The workflow agent ID to delete."},
+                },
+                "required": ["workflow_id"],
+                "additionalProperties": False,
+            },
+            capabilities=("workflow_management",),
+        ),
     }
 
 

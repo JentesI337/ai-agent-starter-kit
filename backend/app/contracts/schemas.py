@@ -31,6 +31,7 @@ class PlannerInput(BaseModel):
     user_message: str = Field(min_length=1)
     reduced_context: str = Field(min_length=1)
     prompt_mode: str = Field(default="full")
+    injection_suspect: bool = Field(default=False)
 
 
 class PlannerOutput(BaseModel):
@@ -55,6 +56,7 @@ class SynthesizerInput(BaseModel):
     reduced_context: str = Field(min_length=1)
     prompt_mode: str = Field(default="full")
     task_type: str | None = None
+    injection_suspect: bool = Field(default=False)
 
 
 class SynthesizerOutput(BaseModel):

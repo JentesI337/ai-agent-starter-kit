@@ -70,7 +70,7 @@ PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
 STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 _IMPLEMENTATION_RE = re.compile(
-    r"\b(?:implement|fix|refactor|test(?:s|ing)?|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
+    r"\b(?:implement|fix|refactor|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
 )
 
 
@@ -599,6 +599,10 @@ class HeadAgent:
 
         try:
             guardrail_checks = self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
+            injection_suspect = any(
+                c["name"] == "prompt_injection_suspect" and c.get("actual_value") is True
+                for c in guardrail_checks
+            )
             self._validate_tool_policy(tool_policy)
             await self._emit_lifecycle(
                 send_event,
@@ -816,6 +820,7 @@ class HeadAgent:
                     user_message=user_message,
                     reduced_context=plan_context.rendered,
                     prompt_mode=effective_prompt_mode,
+                    injection_suspect=injection_suspect,
                 ),
                 model,
             )
@@ -1022,6 +1027,7 @@ class HeadAgent:
                         user_message=replan_user_message,
                         reduced_context=replan_context.rendered,
                         prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
+                        injection_suspect=injection_suspect,
                     ),
                     model,
                 )
@@ -1306,6 +1312,7 @@ class HeadAgent:
                     reduced_context=final_context.rendered,
                     prompt_mode=effective_prompt_mode,
                     task_type=synthesis_task_type,
+                    injection_suspect=injection_suspect,
                 ),
                 session_id,
                 request_id,
@@ -1425,6 +1432,7 @@ class HeadAgent:
                             reduced_context=final_context.rendered,
                             prompt_mode=effective_prompt_mode,
                             task_type=synthesis_task_type,
+                            injection_suspect=injection_suspect,
                         ),
                         session_id,
                         request_id,
@@ -2013,6 +2021,36 @@ class HeadAgent:
         for check in checks:
             if not check["passed"]:
                 raise GuardrailViolation(check["reason"], details={"checks": checks})
+
+        # Layer 1: Prompt injection pattern detection (observe-only, never blocks)
+        injection_patterns = [
+            r"ignor(?:iere|e)\b.*(?:anweisung|instruction|prompt|regel)",
+            r"(?:vergiss|forget)\b.*(?:alles|everything|all)",
+            r"du bist (?:jetzt|ab sofort|nun)\b",
+            r"you are now\b",
+            r"act as\b",
+            r"neue (?:rolle|anweisung|persona)",
+            r"new (?:role|instruction|persona)",
+            r"override.*(?:system|prompt|instruction)",
+            r"(?:system|prompt)\s*(?:override|injection|hack)",
+            r"(?:disregard|bypass)\b.*(?:instruction|rule|prompt|system)",
+            r"jailbreak",
+            r"(?:do not|don'?t)\s+follow\b.*(?:rule|instruction|guideline|policy)",
+        ]
+        msg_lower = user_message.lower()
+        matched_pattern = None
+        for pat in injection_patterns:
+            if re.search(pat, msg_lower):
+                matched_pattern = pat
+                break
+        injection_suspect = matched_pattern is not None
+        checks.append({
+            "name": "prompt_injection_suspect",
+            "passed": True,  # never blocks — observe only
+            "actual_value": injection_suspect,
+            "limit": "observe_only",
+            **({"reason": f"Injection pattern detected: {matched_pattern}"} if injection_suspect else {}),
+        })
 
         return checks
 

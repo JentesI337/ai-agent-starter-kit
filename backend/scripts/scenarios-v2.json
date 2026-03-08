@@ -1,0 +1,387 @@
+{
+  "_meta": {
+    "version": "2.0.0",
+    "description": "Stress-test scenarios v2 — covers SW dev cycle, dynamic agents, all agent branches, edge cases",
+    "usage": "diagnose.ps1 -Scenarios backend/scripts/scenarios-v2.json [-Pick 1,5,12] [-Verbose]"
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "sw_cycle_scaffold_angular",
+      "phase": "tool-execution",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 1: Scaffold a minimal Angular todo app — agent should create component files via write_file",
+      "prompt": "Erstelle eine minimale Angular Todo-App mit folgender Struktur:\n1. Eine Datei backend/state_store/_todo-app/src/app/app.component.ts mit einer AppComponent-Klasse die ein todos-Array hat\n2. Eine Datei backend/state_store/_todo-app/src/app/app.component.html mit einem einfachen Template das die Todos als Liste anzeigt\nSchreibe valides TypeScript und HTML.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["component", "Component", "todo", "Todo", "erstellt", "geschrieben"]
+      }
+    },
+    {
+      "id": 2,
+      "name": "sw_cycle_add_service",
+      "phase": "tool-execution",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 2: Create a TodoService with CRUD methods — exercises multi-file write and TypeScript generation",
+      "prompt": "Erstelle eine Datei backend/state_store/_todo-app/src/app/todo.service.ts mit einem TodoService der folgende Methoden hat:\n- getAll(): gibt ein Array von Todo-Objekten zurück\n- add(title: string): fügt ein neues Todo hinzu\n- toggle(id: number): toggled den 'done'-Status\n- remove(id: number): entfernt ein Todo\nVerwende ein Interface 'Todo' mit id, title, done.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["Service", "service", "Todo", "getAll", "add", "toggle", "remove"]
+      }
+    },
+    {
+      "id": 3,
+      "name": "sw_cycle_add_routing",
+      "phase": "tool-execution",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 3: Add routing config with two routes — tests understanding of Angular routing patterns",
+      "prompt": "Erstelle eine Datei backend/state_store/_todo-app/src/app/app.routes.ts mit Angular-Routing:\n- Route '/' zeigt auf eine TodoListComponent\n- Route '/add' zeigt auf eine TodoAddComponent\nErstelle auch Stub-Dateien für beide Komponenten (todo-list.component.ts und todo-add.component.ts) im gleichen Verzeichnis.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["route", "Route", "Routes", "TodoList", "TodoAdd", "path"]
+      }
+    },
+    {
+      "id": 4,
+      "name": "sw_cycle_code_review",
+      "phase": "routing",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 4: Review the created todo app — should route to review-agent and reference actual files",
+      "prompt": "Mach ein Code Review aller Dateien unter backend/state_store/_todo-app/src/app/. Prüfe auf:\n1. TypeScript Best Practices\n2. Fehlende Fehlerbehandlung\n3. Angular-Konventionen\nGib konkrete Verbesserungsvorschläge.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Review", "review", "Verbesserung", "Empfehlung", "TypeScript", "Angular", "todo", "Todo"]
+      }
+    },
+    {
+      "id": 5,
+      "name": "sw_cycle_write_tests",
+      "phase": "tool-execution",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 5: Generate unit tests for TodoService — validates test generation capability",
+      "prompt": "Erstelle eine Datei backend/state_store/_todo-app/src/app/todo.service.spec.ts mit Unit-Tests für den TodoService.\nTeste alle vier Methoden: getAll, add, toggle, remove.\nVerwende Jasmine/describe/it Syntax.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["describe", "it(", "expect", "TodoService", "spec", "test", "Test"]
+      }
+    },
+    {
+      "id": 6,
+      "name": "sw_cycle_cleanup",
+      "phase": "tool-execution",
+      "category": "sw-dev-cycle",
+      "description": "SW-Cycle Step 6: Clean up by removing the temp app folder — validates run_command with safe directory removal",
+      "prompt": "Lösche das Verzeichnis backend/state_store/_todo-app/ mit allen Unterverzeichnissen. Bestätige danach dass es entfernt wurde.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["gelöscht", "entfernt", "removed", "deleted", "bereinigt"]
+      }
+    },
+    {
+      "id": 7,
+      "name": "dynamic_agent_create_via_tool",
+      "phase": "tool-execution",
+      "category": "dynamic-agents",
+      "description": "Dynamic agents: Agent uses create_workflow tool to create a new workflow agent at runtime",
+      "prompt": "Erstelle einen neuen Workflow-Agenten mit dem create_workflow Tool:\n- Name: 'diag-code-reviewer'\n- Beschreibung: 'Reviews code for quality and security issues'\n- Steps: 'Read the target file', 'Analyze code quality', 'Check for security issues', 'Provide improvement suggestions'\nMeld mir die ID des erstellten Workflow-Agenten.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 20,
+        "response_contains_any": ["diag-code-reviewer", "created", "erstellt", "workflow", "Workflow", "id", "ID"]
+      }
+    },
+    {
+      "id": 8,
+      "name": "dynamic_agent_use_via_subrun",
+      "phase": "tool-execution",
+      "category": "dynamic-agents",
+      "description": "Dynamic agents: Use the dynamically created workflow agent via spawn_subrun",
+      "prompt": "Delegiere an den Agenten 'diag-code-reviewer' folgende Aufgabe per spawn_subrun: Lies die Datei backend/app/config.py und gib eine kurze Qualitätsbewertung.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 30
+      }
+    },
+    {
+      "id": 9,
+      "name": "dynamic_agent_delete_via_tool",
+      "phase": "tool-execution",
+      "category": "dynamic-agents",
+      "description": "Dynamic agents: Agent uses delete_workflow tool to remove the previously created workflow agent",
+      "prompt": "Lösche den Workflow-Agenten 'diag-code-reviewer' mit dem delete_workflow Tool. Bestätige die Löschung.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 10,
+        "response_contains_any": ["gelöscht", "deleted", "removed", "entfernt", "delete_workflow"]
+      }
+    },
+    {
+      "id": 10,
+      "name": "dynamic_agent_via_api_lifecycle",
+      "phase": "tool-execution",
+      "category": "dynamic-agents",
+      "description": "Dynamic agents via REST API: setup_http creates agent, test uses it, teardown_http deletes it",
+      "prompt": "Liste alle JSON-Dateien im Verzeichnis custom_agents/ auf. Zeige die Dateinamen.",
+      "timeout": 180,
+      "agent_id": "head-agent",
+      "setup_http": [
+        {
+          "method": "POST",
+          "path": "/api/custom-agents",
+          "body": {
+            "name": "diag-api-test-agent",
+            "description": "Temporary agent created via setup_http for scenario testing",
+            "base_agent_id": "head-agent",
+            "workflow_steps": ["Analyze the request", "Provide a summary"],
+            "capabilities": ["analysis"]
+          }
+        }
+      ],
+      "teardown_http": [
+        {
+          "method": "DELETE",
+          "path": "/api/custom-agents/diag-api-test-agent"
+        }
+      ],
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["diag-api-test-agent", "workflow", "json", "JSON", "custom_agents"]
+      }
+    },
+    {
+      "id": 11,
+      "name": "agent_branch_researcher",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to researcher-agent — validates research-focused keyword routing",
+      "prompt": "Recherchiere: Welche Design Patterns werden in diesem Projekt verwendet? Analysiere die Codebase und identifiziere mindestens 3 Patterns mit konkreten Codestellen.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Pattern", "pattern", "Singleton", "Factory", "Observer", "Strategy", "Registry", "Proxy", "Adapter"]
+      }
+    },
+    {
+      "id": 12,
+      "name": "agent_branch_architect",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to architect-agent — system design and architecture question",
+      "prompt": "Entwirf eine Architektur-Skizze: Wie würdest du das bestehende Agent-System um einen Plugin-Mechanismus erweitern? Beschreibe die Komponenten, Schnittstellen und den Datenfluss.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Architektur", "Komponente", "Schnittstelle", "Plugin", "Interface", "Modul", "Design"]
+      }
+    },
+    {
+      "id": 13,
+      "name": "agent_branch_test",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to test-agent — testing strategy and test generation",
+      "prompt": "Analysiere das Agent-Routing-System in app/agent.py und beschreibe eine Teststrategie: Welche Arten von Tests (Unit, Integration, Edge-Cases) wären sinnvoll? Nenne konkrete Testfälle als Aufzählung.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Test", "test", "Unit", "Integration", "Edge", "assert", "Testfall", "Szenario", "Strategie", "strategy"]
+      }
+    },
+    {
+      "id": 14,
+      "name": "agent_branch_doc",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to doc-agent — documentation generation",
+      "prompt": "Schreibe eine technische Dokumentation für die Datei backend/app/tool_catalog.py. Erkläre den Zweck, die TOOL_NAMES Struktur und die TOOL_NAME_ALIASES mit Beispielen.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["TOOL_NAMES", "Dokumentation", "Katalog", "Alias", "catalog"]
+      }
+    },
+    {
+      "id": 15,
+      "name": "agent_branch_refactor",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to refactor-agent — code refactoring suggestion",
+      "prompt": "Schlage ein Refactoring für backend/app/agent.py vor: Die Datei ist sehr groß. Wie würdest du sie in kleinere Module aufteilen? Zeige die vorgeschlagene Struktur.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Refactoring", "refactor", "Modul", "aufteilen", "Datei", "Extraktion", "Klasse", "separation"]
+      }
+    },
+    {
+      "id": 16,
+      "name": "agent_branch_devops",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to devops-agent — CI/CD and deployment question",
+      "prompt": "Entwirf eine CI/CD Pipeline für dieses Projekt: Welche Stages brauchen wir (Lint, Test, Build, Deploy)? Schreibe eine GitHub Actions Konfiguration als YAML.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["CI", "CD", "Pipeline", "pipeline", "GitHub Actions", "Stage", "deploy", "Deploy", "build", "Build", "yaml", "YAML"]
+      }
+    },
+    {
+      "id": 17,
+      "name": "agent_branch_security",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to security-agent — penetration testing / threat modeling",
+      "prompt": "Führe ein Threat Modeling für die WebSocket-Schnittstelle in der Datei app/ws_handler.py durch: Welche Angriffsvektoren gibt es? STRIDE-Analyse bitte.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["STRIDE", "Threat", "threat", "Spoofing", "Tampering", "Repudiation", "Denial", "Elevation", "Angriff", "WebSocket"]
+      }
+    },
+    {
+      "id": 18,
+      "name": "agent_branch_fintech",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to fintech-agent — financial technology domain question",
+      "prompt": "Entwirf ein Konzept: Wie würde man dieses Agent-System für einen Banking-Chatbot anpassen? Welche Compliance-Anforderungen (PCI-DSS, GDPR) müssten berücksichtigt werden?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Banking", "bank", "PCI", "GDPR", "Compliance", "compliance", "Finanz", "fintech", "Regulierung"]
+      }
+    },
+    {
+      "id": 19,
+      "name": "agent_branch_healthtech",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to healthtech-agent — healthcare technology domain question",
+      "prompt": "Wie würde man das Agent-System als medizinischen Diagnose-Assistenten einsetzen? Welche HL7/FHIR Standards und HIPAA-Anforderungen sind relevant?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["HIPAA", "HL7", "FHIR", "medizin", "Medizin", "Gesundheit", "health", "Health", "Diagnose", "Patient"]
+      }
+    },
+    {
+      "id": 20,
+      "name": "agent_branch_legaltech",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to legaltech-agent — legal technology domain question",
+      "prompt": "Analysiere die rechtlichen Implikationen eines KI-Agenten-Systems: Welche Haftungsfragen entstehen? Was sagt die EU AI Act dazu? Nenne relevante Paragraphen.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Haftung", "EU AI Act", "Recht", "recht", "legal", "Legal", "Gesetz", "Regulierung", "Paragraph", "Artikel", "DSGVO"]
+      }
+    },
+    {
+      "id": 21,
+      "name": "agent_branch_ecommerce",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to ecommerce-agent — e-commerce domain question",
+      "prompt": "Entwirf eine E-Commerce Integration: Wie würde das Agent-System als Shopping-Assistent funktionieren? Beschreibe Produktsuche, Warenkorb-Logik und Checkout-Flow.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["Shop", "shop", "Warenkorb", "cart", "Cart", "Produkt", "product", "Checkout", "checkout", "E-Commerce", "Commerce"]
+      }
+    },
+    {
+      "id": 22,
+      "name": "agent_branch_industrytech",
+      "phase": "routing",
+      "category": "agent-branches",
+      "description": "Route to industrytech-agent — industrial technology / IoT domain question",
+      "prompt": "Wie könnte das Agent-System in einer Industrie-4.0-Umgebung eingesetzt werden? Beschreibe IoT-Sensoranbindung, Predictive Maintenance und SCADA-Integration. Nutze dein bestehendes Wissen, ohne externe Webseiten abzurufen.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 100,
+        "response_contains_any": ["IoT", "Industrie", "industry", "Sensor", "SCADA", "Predictive", "Maintenance", "Wartung", "Maschine", "OPC"]
+      }
+    },
+    {
+      "id": 23,
+      "name": "stress_parallel_multi_tool",
+      "phase": "tool-execution",
+      "category": "stress",
+      "description": "Stress: Force multiple different tool categories in a single prompt — validates parallel tool dispatch",
+      "prompt": "Bitte führe exakt diese 4 Aufgaben gleichzeitig aus:\n1. Lies backend/app/models.py\n2. Suche per grep nach 'class.*Error' in backend/app/errors.py\n3. Liste alle Dateien in backend/app/services/\n4. Führe 'python -c \"print(42)\"' aus\nFasse die Ergebnisse aller 4 Aufgaben zusammen.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["42", "Error", "error", "services", "models", "Models", "Ergebnis", "Task"]
+      }
+    },
+    {
+      "id": 24,
+      "name": "stress_chain_of_thought",
+      "phase": "synthesis",
+      "category": "stress",
+      "description": "Stress: Multi-step reasoning requiring evidence chain — validates tools inform correct synthesis",
+      "prompt": "Beantworte folgende Frage durch Analyse des Codes:\n1. Wie viele Einträge hat TOOL_NAMES in tool_catalog.py?\n2. Wie viele ToolSpec-Einträge gibt es in tool_registry.py?\n3. Stimmen die beiden Zahlen überein?\n4. Falls nicht, welche Tools fehlen wo?\nZeige die genauen Zahlen und belege alles mit den Dateien.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["TOOL_NAMES", "ToolSpec", "tool_catalog", "tool_registry"]
+      }
+    },
+    {
+      "id": 25,
+      "name": "stress_mixed_language_complex",
+      "phase": "tool-execution",
+      "category": "stress",
+      "description": "Stress: English/German mixed prompt with code generation and analysis — validates multilingual robustness",
+      "prompt": "I need you to do the following:\n1. Read the file backend/app/memory.py and summarize its purpose auf Deutsch\n2. Schreibe eine Datei backend/state_store/_lang_test.txt mit dem Inhalt 'multilingual test passed'\n3. Verify the file was written correctly by reading it back\n4. Gib eine Zusammenfassung in both languages",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["memory", "Memory", "multilingual", "Zusammenfassung", "summary"]
+      }
+    }
+  ]
+}

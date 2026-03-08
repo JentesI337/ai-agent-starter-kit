@@ -19,6 +19,8 @@ TOOL_NAMES: tuple[str, ...] = (
     "http_request",
     "analyze_image",
     "spawn_subrun",
+    "create_workflow",
+    "delete_workflow",
 )
 
 TOOL_NAME_SET: set[str] = set(TOOL_NAMES)
@@ -48,4 +50,6 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "vision": "analyze_image",
     "image_analysis": "analyze_image",
     "spawnsubrun": "spawn_subrun",
+    "createworkflow": "create_workflow",
+    "deleteworkflow": "delete_workflow",
 }

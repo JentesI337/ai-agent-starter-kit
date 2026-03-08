@@ -1,0 +1,18 @@
+{
+  "id": "diag-code-reviewer",
+  "name": "diag-code-reviewer",
+  "description": "Reviews code for quality and security issues",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "Read the target file",
+    "Analyze code quality",
+    "Check for security issues",
+    "Provide improvement suggestions"
+  ],
+  "tool_policy": null,
+  "allow_subrun_delegation": false,
+  "capabilities": [],
+  "workspace_scope": null,
+  "skills_scope": null,
+  "credential_scope": null
+}

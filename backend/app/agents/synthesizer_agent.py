@@ -488,6 +488,11 @@ class SynthesizerAgent(AgentContract):
         )
         self._last_prompt_variant_id = prompt_variant_id
 
+        effective_system_prompt = self.system_prompt
+        if payload.injection_suspect:
+            from app.agents.planner_agent import _ANTI_INJECTION_DIRECTIVE
+            effective_system_prompt = _ANTI_INJECTION_DIRECTIVE + "\n\n" + self.system_prompt
+
         effective_temperature = self.constraints.temperature
         if settings.dynamic_temperature_enabled and self._temperature_resolver is not None:
             effective_temperature = self._temperature_resolver.resolve(
@@ -510,7 +515,7 @@ class SynthesizerAgent(AgentContract):
 
         async def _consume_stream() -> None:
             async for token in self.client.stream_chat_completion(
-                self.system_prompt,
+                effective_system_prompt,
                 final_prompt,
                 model=model,
                 temperature=effective_temperature,

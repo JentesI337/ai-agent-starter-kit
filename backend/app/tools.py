@@ -129,6 +129,12 @@ class AgentTooling:
         self._read_file_max_bytes = 1_000_000
         self._grep_max_file_bytes = 1_000_000
         self._grep_max_total_scan_bytes = 8_000_000
+        self._custom_agent_store: object | None = None
+        self._sync_custom_agents_fn: object | None = None
+
+    def set_custom_agent_store(self, store: object, sync_fn: object) -> None:
+        self._custom_agent_store = store
+        self._sync_custom_agents_fn = sync_fn
 
     def list_dir(self, path: str | None = None) -> str:
         target = self._resolve_workspace_path(path or ".")
@@ -927,6 +933,60 @@ class AgentTooling:
                 leader=leader,
             )
         return leader
+
+    def create_workflow(
+        self,
+        name: str,
+        description: str,
+        steps: str | list,
+        base_agent_id: str = "head-agent",
+    ) -> str:
+        if self._custom_agent_store is None:
+            raise ToolExecutionError("Workflow management is not available in this runtime.")
+        name = (name or "").strip()
+        if not name or len(name) > 120:
+            raise ToolExecutionError("Workflow name must be 1-120 characters.")
+        description = (description or "").strip()
+        if len(description) > 500:
+            raise ToolExecutionError("Description must not exceed 500 characters.")
+        if isinstance(steps, list):
+            workflow_steps = [str(s).strip() for s in steps if str(s).strip()]
+        else:
+            workflow_steps = [s.strip() for s in (steps or "").split(",") if s.strip()]
+        if not workflow_steps:
+            raise ToolExecutionError("At least one step is required (comma-separated).")
+        if len(workflow_steps) > 20:
+            raise ToolExecutionError("Maximum 20 workflow steps allowed.")
+
+        from app.custom_agents import CustomAgentCreateRequest
+
+        request = CustomAgentCreateRequest(
+            name=name,
+            description=description,
+            base_agent_id=base_agent_id,
+            workflow_steps=workflow_steps,
+        )
+        definition = self._custom_agent_store.upsert(request)
+        if self._sync_custom_agents_fn is not None:
+            self._sync_custom_agents_fn()
+        return json.dumps(
+            {"status": "created", "id": definition.id, "name": definition.name,
+             "steps": definition.workflow_steps},
+            ensure_ascii=False,
+        )
+
+    def delete_workflow(self, workflow_id: str) -> str:
+        if self._custom_agent_store is None:
+            raise ToolExecutionError("Workflow management is not available in this runtime.")
+        workflow_id = (workflow_id or "").strip()
+        if not workflow_id:
+            raise ToolExecutionError("workflow_id is required.")
+        deleted = self._custom_agent_store.delete(workflow_id)
+        if self._sync_custom_agents_fn is not None:
+            self._sync_custom_agents_fn()
+        if deleted:
+            return json.dumps({"status": "deleted", "id": workflow_id}, ensure_ascii=False)
+        return json.dumps({"status": "not_found", "id": workflow_id}, ensure_ascii=False)
 
     def _enforce_command_safety(self, *, command: str, leader: str) -> None:
         if not (command or "").strip():
