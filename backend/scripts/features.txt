@@ -1,3 +1,18 @@
 command allow list über frontend
 output path über frontend 
 chat agent - llm 
+
+P0	Browser Control	Unlocks Web-Automation, Testing, Scraping
+P0	RAG Engine	Macht den Agent wissensbasiert statt nur kontextbasiert
+P0	Code Interpreter/REPL	Persistenter State = massiv bessere Data-Science
+P1	Visualization Pipeline	Output-Qualität steigt dramatisch
+P1	Structured Data/DB Agent	Jeder Enterprise-Fall braucht DB-Zugriff
+P1	API/Integration Hub	Ohne externe APIs ist der Agent isoliert
+P1	Static Analysis Integration	Security + Quality toolgestützt statt nur LLM-basiert
+P2	Multimodaler I/O	Audio/Video/PDF erweitert Einsatzgebiete massiv
+P2	Scheduled Tasks	Proaktiver statt reaktiver Agent
+P2	Knowledge Graph	Langzeit-Intelligenz über Sessions hinweg
+P2	Deployment/Infra Agent	Full-Stack DevOps
+P3	Fine-Tuning Pipeline	Selbstoptimierung
+P3	Multi-User/Collab	Enterprise-Readiness
+P3	Streaming/Real-Time	Nischen-Use-Cases

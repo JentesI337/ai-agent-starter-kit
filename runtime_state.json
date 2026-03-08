@@ -1,5 +1,11 @@
 {
   "runtime": "local",
   "base_url": "http://localhost:11434/v1",
-  "model": "llama3.3:70b-instruct-q4_K_M"
+  "model": "llama3.3:70b-instruct-q4_K_M",
+  "features": {
+    "long_term_memory_enabled": true,
+    "session_distillation_enabled": true,
+    "failure_journal_enabled": true,
+    "vision_enabled": false
+  }
 }

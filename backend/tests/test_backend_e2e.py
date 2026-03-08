@@ -288,6 +288,7 @@ def test_websocket_policy_decision_allow_once_resumes_blocked_command(monkeypatc
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
     monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(settings, "tool_selection_function_calling_enabled", False)
 
     client = TestClient(app)
 
@@ -380,6 +381,7 @@ def test_websocket_policy_decision_cancel_aborts_run_cleanly(monkeypatch) -> Non
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
     monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(settings, "tool_selection_function_calling_enabled", False)
 
     client = TestClient(app)
 
@@ -449,6 +451,7 @@ def test_websocket_policy_decision_conflicting_duplicate_is_noop(monkeypatch) ->
     monkeypatch.setattr(agent_registry["head-agent"], "configure_runtime", fake_configure_runtime)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
     monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(settings, "tool_selection_function_calling_enabled", False)
 
     client = TestClient(app)
 
@@ -833,6 +836,7 @@ def test_websocket_emits_skills_lifecycle_when_enabled(monkeypatch, tmp_path) ->
     monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
     monkeypatch.setattr(delegate, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
+    monkeypatch.setattr(settings, "tool_selection_function_calling_enabled", False)
     monkeypatch.setattr(settings, "skills_engine_enabled", True)
     monkeypatch.setattr(settings, "skills_dir", str(skills_root))
     monkeypatch.setattr(settings, "skills_max_discovered", 10)
@@ -919,6 +923,7 @@ def test_websocket_skills_canary_gating_event(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(delegate.client, "complete_chat", fake_complete_chat)
     monkeypatch.setattr(delegate, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
     monkeypatch.setattr(delegate, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
+    monkeypatch.setattr(settings, "tool_selection_function_calling_enabled", False)
     monkeypatch.setattr(settings, "skills_engine_enabled", True)
     monkeypatch.setattr(settings, "skills_canary_enabled", True)
     monkeypatch.setattr(settings, "skills_canary_agent_ids", ["coder-agent"])

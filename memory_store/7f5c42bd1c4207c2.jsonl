@@ -1,0 +1,2 @@
+{"session_id": "7fbf5015-0347-40bb-955d-47ef0d251cdb", "role": "user", "content": "run echo hello"}
+{"session_id": "7fbf5015-0347-40bb-955d-47ef0d251cdb", "role": "plan", "content": "execute requested command"}
