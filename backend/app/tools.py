@@ -1002,14 +1002,18 @@ class AgentTooling:
     def _raise_if_env_missing(self, *, command: str, leader: str, returncode: int, output: str) -> None:
         if returncode == 0:
             return
-        normalized = (output or "").strip().lower()
+        # Only check the first few lines — shell "command not found" messages
+        # appear at the very start.  Checking the full output causes false
+        # positives when the *program* itself reports "not found" for a file
+        # (e.g. pytest reporting a missing test file).
+        first_lines = "\n".join((output or "").strip().splitlines()[:3]).lower()
         env_missing_signals = (
             "is not recognized as an internal or external command",
             "command not found",
-            "not found",
             "no such file or directory",
+            "not recognized as",
         )
-        if any(signal in normalized for signal in env_missing_signals):
+        if any(signal in first_lines for signal in env_missing_signals):
             self._raise_command_policy_error(
                 category="env-missing",
                 message=(

@@ -1,0 +1,384 @@
+{
+  "_meta": {
+    "version": "3.0.0",
+    "description": "Planner Capability Assessment — 25 scenarios testing planner intelligence without prompt-engineering crutches. Each prompt is natural language only, no hints about tools or fallbacks.",
+    "usage": "diagnose.ps1 -Scenarios backend/scripts/scenarios-v3.json [-Pick 1,5,12] [-Verbose]",
+    "assessment_categories": {
+      "env-adapt": "Agent must detect environment constraints and adapt (S1-S3)",
+      "multi-step": "Agent must chain multiple tools in correct order without guidance (S4-S7)",
+      "error-recovery": "Agent must handle failures and find alternatives (S8-S10)",
+      "ambiguity": "Agent must handle vague or incomplete requests intelligently (S11-S13)",
+      "read-analyze": "Agent must read code, reason about it, and provide accurate analysis (S14-S17)",
+      "write-verify": "Agent must write code and verify correctness (S18-S20)",
+      "cross-file": "Agent must trace dependencies across multiple files (S21-S23)",
+      "edge-stress": "Edge cases: unicode, long output, unusual requests (S24-S25)"
+    }
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "env_adapt_node_detection",
+      "phase": "tool-execution",
+      "category": "env-adapt",
+      "description": "Agent must figure out if node/npm is available and create a React project accordingly",
+      "prompt": "Erstelle ein React-TypeScript-Projekt unter backend/state_store/_react-app/ mit package.json, tsconfig.json, src/App.tsx und public/index.html.",
+      "timeout": 420,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["react", "React", "package.json", "App", "erstellt", "created", "tsx"]
+      }
+    },
+    {
+      "id": 2,
+      "name": "env_adapt_python_version_check",
+      "phase": "tool-execution",
+      "category": "env-adapt",
+      "description": "Agent must discover available Python version and installed packages",
+      "prompt": "Welche Python-Version läuft hier und welche Pakete sind installiert? Zeig mir die Top-10 Pakete nach Name sortiert.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["Python", "3.", "pip", "fastapi", "uvicorn", "pydantic"]
+      }
+    },
+    {
+      "id": 3,
+      "name": "env_adapt_workspace_discovery",
+      "phase": "tool-execution",
+      "category": "env-adapt",
+      "description": "Agent must explore the workspace structure to answer a question about the project",
+      "prompt": "Wie ist dieses Projekt aufgebaut? Beschreibe die Ordnerstruktur und den Zweck der Hauptkomponenten.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 100,
+        "response_contains_any": ["backend", "frontend", "app", "services", "agent", "Agent"]
+      }
+    },
+    {
+      "id": 4,
+      "name": "multi_step_find_and_count",
+      "phase": "tool-execution",
+      "category": "multi-step",
+      "description": "Agent must search for files, read them, and compute a count",
+      "prompt": "Wie viele verschiedene Exception-Klassen sind in diesem Projekt definiert? Durchsuche den Code und liste sie alle auf.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["Error", "Exception", "error", "exception", "class"]
+      }
+    },
+    {
+      "id": 5,
+      "name": "multi_step_create_and_verify",
+      "phase": "tool-execution",
+      "category": "multi-step",
+      "description": "Agent must write a Python function, then execute it to verify it works",
+      "prompt": "Schreibe eine Python-Datei backend/state_store/_test_calc.py mit einer Funktion fibonacci(n) die die n-te Fibonacci-Zahl berechnet. Teste sie danach indem du sie mit n=10 aufrufst und zeig mir das Ergebnis.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 30,
+        "response_contains_any": ["55", "fibonacci", "Fibonacci", "Ergebnis", "result"]
+      }
+    },
+    {
+      "id": 6,
+      "name": "multi_step_refactor_cycle",
+      "phase": "tool-execution",
+      "category": "multi-step",
+      "description": "Agent must read existing code, refactor it, and verify the fix",
+      "prompt": "Lies die Datei backend/state_store/_test_calc.py (aus dem vorherigen Schritt). Die fibonacci-Funktion ist wahrscheinlich rekursiv und langsam. Refactore sie zu einer iterativen Version und teste mit n=30.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 30,
+        "response_contains_any": ["832040", "iterativ", "iterative", "refactor", "Refactor", "fibonacci", "Fibonacci"]
+      }
+    },
+    {
+      "id": 7,
+      "name": "multi_step_cleanup_temp_files",
+      "phase": "tool-execution",
+      "category": "multi-step",
+      "description": "Agent must find and clean up temporary test files",
+      "prompt": "Lösche alle temporären Testdateien die wir erstellt haben (alles unter backend/state_store/ das mit _test oder _react anfängt). Bestätige was gelöscht wurde.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["gelöscht", "entfernt", "removed", "deleted", "clean", "bereinigt", "keine"]
+      }
+    },
+    {
+      "id": 8,
+      "name": "error_recovery_missing_file",
+      "phase": "tool-execution",
+      "category": "error-recovery",
+      "description": "Agent is asked to test a non-existent file — must recover gracefully",
+      "prompt": "Führe 'pytest backend/tests/test_does_not_exist.py' aus. Was passiert?",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 20,
+        "response_contains_any": ["nicht gefunden", "not found", "error", "Error", "existiert nicht", "no such", "Fehler", "collected 0"]
+      }
+    },
+    {
+      "id": 9,
+      "name": "error_recovery_wrong_path",
+      "phase": "tool-execution",
+      "category": "error-recovery",
+      "description": "Agent must handle a wrong file path and still find the correct file",
+      "prompt": "Lies die Datei src/config.py und zeig mir die Default-Model-Konfiguration.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 30,
+        "response_contains_any": ["model", "Model", "config", "qwen", "ollama", "default", "Default"]
+      }
+    },
+    {
+      "id": 10,
+      "name": "error_recovery_blocked_command",
+      "phase": "tool-execution",
+      "category": "error-recovery",
+      "description": "Agent must handle a potentially blocked shell command",
+      "prompt": "Zeig mir alle laufenden Prozesse auf dem System.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 20
+      }
+    },
+    {
+      "id": 11,
+      "name": "ambiguity_vague_request",
+      "phase": "planning",
+      "category": "ambiguity",
+      "description": "Agent receives a deliberately vague request",
+      "prompt": "Mach das besser.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["was", "Was", "welche", "Welche", "klär", "clarif", "kontext", "Kontext", "genauer", "spezif", "bitte", "können Sie"]
+      }
+    },
+    {
+      "id": 12,
+      "name": "ambiguity_pronoun_resolution",
+      "phase": "planning",
+      "category": "ambiguity",
+      "description": "Agent receives a request with an ambiguous pronoun",
+      "prompt": "Kannst du das fixen?",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["was", "Was", "welche", "Welche", "klär", "clarif", "kontext", "Kontext", "genauer", "spezif", "bitte", "Problem", "Fehler", "welches"]
+      }
+    },
+    {
+      "id": 13,
+      "name": "ambiguity_implicit_task",
+      "phase": "tool-execution",
+      "category": "ambiguity",
+      "description": "Agent receives a complaint that implies a task",
+      "prompt": "Die Tests laufen nicht durch.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 30,
+        "response_contains_any": ["test", "Test", "pytest", "Fehler", "error", "Error", "Ergebnis", "result", "laufen", "fix", "Fix"]
+      }
+    },
+    {
+      "id": 14,
+      "name": "read_analyze_count_lines",
+      "phase": "tool-execution",
+      "category": "read-analyze",
+      "description": "Agent must read a file and provide accurate numerical analysis",
+      "prompt": "Wie viele Zeilen hat die Datei backend/app/agent.py? Und wie viele davon sind Methodendefinitionen (def oder async def)?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 30,
+        "response_contains_any": ["Zeilen", "lines", "def", "Methode", "method"]
+      }
+    },
+    {
+      "id": 15,
+      "name": "read_analyze_find_weakness",
+      "phase": "tool-execution",
+      "category": "read-analyze",
+      "description": "Agent must read code and identify potential issues",
+      "prompt": "Lies backend/app/services/verification_service.py und bewerte: Gibt es potenzielle Schwächen in der Validierungslogik? Was könnte durchrutschen?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["verification", "Verification", "Validierung", "Schwäche", "weakness", "coverage", "threshold", "check", "prüf"]
+      }
+    },
+    {
+      "id": 16,
+      "name": "read_analyze_config_audit",
+      "phase": "tool-execution",
+      "category": "read-analyze",
+      "description": "Agent must identify security-relevant defaults in config",
+      "prompt": "Mach ein Security-Audit der Datei backend/app/config.py: Welche Default-Werte könnten in Produktion unsicher sein?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["security", "Security", "Sicherheit", "default", "Default", "auth", "encrypt", "password", "key", "production", "Produktion"]
+      }
+    },
+    {
+      "id": 17,
+      "name": "read_analyze_compare_files",
+      "phase": "tool-execution",
+      "category": "read-analyze",
+      "description": "Agent must read two related files and compare their contents",
+      "prompt": "Vergleiche backend/app/tool_catalog.py und backend/app/tools.py: Sind die registrierten Tools konsistent? Gibt es Tools im Katalog die nicht implementiert sind?",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["tool_catalog", "tools", "TOOL_NAMES", "konsistent", "consistent", "missing", "fehl", "Tool"]
+      }
+    },
+    {
+      "id": 18,
+      "name": "write_verify_python_script",
+      "phase": "tool-execution",
+      "category": "write-verify",
+      "description": "Agent must write a Python script and prove it works",
+      "prompt": "Schreibe ein Python-Script backend/state_store/_fizzbuzz.py das FizzBuzz von 1 bis 30 ausgibt. Führe es dann aus und zeig mir die Ausgabe.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 30,
+        "response_contains_any": ["Fizz", "Buzz", "FizzBuzz", "fizz", "buzz"]
+      }
+    },
+    {
+      "id": 19,
+      "name": "write_verify_modify_existing",
+      "phase": "tool-execution",
+      "category": "write-verify",
+      "description": "Agent must modify an existing file and verify the change",
+      "prompt": "Ändere die Datei backend/state_store/_fizzbuzz.py: Erweitere sie so dass sie auch 'Jazz' bei durch 7 teilbaren Zahlen ausgibt. Teste danach ob die Ausgabe für 21 korrekt 'FizzJazz' zeigt.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 30,
+        "response_contains_any": ["Jazz", "jazz", "FizzJazz", "21", "7"]
+      }
+    },
+    {
+      "id": 20,
+      "name": "write_verify_cleanup",
+      "phase": "tool-execution",
+      "category": "write-verify",
+      "description": "Cleanup temporary files from write-verify tests",
+      "prompt": "Lösche die Datei backend/state_store/_fizzbuzz.py und bestätige die Löschung.",
+      "timeout": 120,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "response_min_length": 10,
+        "response_contains_any": ["gelöscht", "entfernt", "removed", "deleted"]
+      }
+    },
+    {
+      "id": 21,
+      "name": "cross_file_trace_imports",
+      "phase": "tool-execution",
+      "category": "cross-file",
+      "description": "Agent must trace imports across multiple files",
+      "prompt": "Verfolge die Import-Kette: Was importiert backend/app/main.py und welche davon importieren wiederum etwas aus backend/app/services/? Zeige die Abhängigkeitskette.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["import", "Import", "main.py", "services", "Abhängigkeit", "dependency"]
+      }
+    },
+    {
+      "id": 22,
+      "name": "cross_file_data_flow",
+      "phase": "tool-execution",
+      "category": "cross-file",
+      "description": "Agent must trace how a WebSocket message flows through the system",
+      "prompt": "Beschreibe den kompletten Pfad einer WebSocket-Nachricht vom Empfang bis zur Antwort. Welche Dateien und Funktionen sind beteiligt?",
+      "timeout": 420,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 100,
+        "response_contains_any": ["ws_handler", "WebSocket", "agent", "Agent", "run", "message", "Nachricht", "pipeline"]
+      }
+    },
+    {
+      "id": 23,
+      "name": "cross_file_config_impact",
+      "phase": "tool-execution",
+      "category": "cross-file",
+      "description": "Agent must find where a config setting is used across the codebase",
+      "prompt": "Wo wird die Einstellung REFLECTION_ENABLED überall im Code verwendet? Suche in allen Python-Dateien und erkläre was passiert wenn man sie auf False setzt.",
+      "timeout": 300,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 50,
+        "response_contains_any": ["reflection", "Reflection", "REFLECTION_ENABLED", "config", "agent", "False", "deaktiviert", "disabled"]
+      }
+    },
+    {
+      "id": 24,
+      "name": "edge_unicode_roundtrip",
+      "phase": "tool-execution",
+      "category": "edge-stress",
+      "description": "Agent must handle unicode correctly in write-read-verify cycle",
+      "prompt": "Schreibe eine Datei backend/state_store/_unicode.txt mit folgendem Inhalt: 你好世界 🌍 مرحبا Ünïcödé — Lies sie dann zurück und bestätige dass der Inhalt korrekt ist.",
+      "timeout": 180,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 20,
+        "response_contains_any": ["unicode", "Unicode", "korrekt", "correct", "erstellt", "bestätigt"]
+      }
+    },
+    {
+      "id": 25,
+      "name": "edge_large_output_synthesis",
+      "phase": "tool-execution",
+      "category": "edge-stress",
+      "description": "Agent must handle large outputs and synthesize them meaningfully",
+      "prompt": "Zeig mir alle Konfigurationsoptionen in backend/app/config.py — wie viele gibt es insgesamt und welche Kategorien kannst du erkennen?",
+      "timeout": 420,
+      "expect": {
+        "stages_present": ["planning_completed", "request_completed"],
+        "stages_absent": ["tool_selection_empty"],
+        "response_min_length": 80,
+        "response_contains_any": ["config", "Config", "Konfiguration", "Option", "Kategorie", "category", "setting", "Setting"]
+      }
+    }
+  ]
+}

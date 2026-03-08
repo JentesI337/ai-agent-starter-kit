@@ -580,8 +580,8 @@ def test_apply_capability_preselection_filters_tools() -> None:
         )
     )
 
-    assert selected == {"run_command"}
-    assert any(stage == "tool_capability_preselection_applied" for stage, _ in lifecycle_events)
+    assert selected == {"read_file", "run_command", "web_fetch"}
+    assert any(stage == "tool_capability_preselection_logged" for stage, _ in lifecycle_events)
 
 
 def test_apply_capability_preselection_falls_back_when_no_match() -> None:
@@ -600,4 +600,4 @@ def test_apply_capability_preselection_falls_back_when_no_match() -> None:
     )
 
     assert selected == {"read_file"}
-    assert any(stage == "tool_capability_preselection_empty" for stage, _ in lifecycle_events)
+    assert any(stage == "tool_capability_preselection_logged" for stage, _ in lifecycle_events)

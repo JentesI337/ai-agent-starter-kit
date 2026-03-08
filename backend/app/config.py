@@ -1295,7 +1295,7 @@ class Settings(BaseModel):
     run_direct_answer_max_chars: int = int(os.getenv("RUN_DIRECT_ANSWER_MAX_CHARS", "500"))
     run_max_replan_iterations: int = int(os.getenv("RUN_MAX_REPLAN_ITERATIONS", "1"))
     run_empty_tool_replan_max_attempts: int = int(os.getenv("RUN_EMPTY_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
-    run_error_tool_replan_max_attempts: int = int(os.getenv("RUN_ERROR_TOOL_REPLAN_MAX_ATTEMPTS", "1"))
+    run_error_tool_replan_max_attempts: int = int(os.getenv("RUN_ERROR_TOOL_REPLAN_MAX_ATTEMPTS", "3"))
     tool_loop_warn_threshold: int = int(os.getenv("TOOL_LOOP_WARN_THRESHOLD", "2"))
     tool_loop_critical_threshold: int = int(os.getenv("TOOL_LOOP_CRITICAL_THRESHOLD", "3"))
     tool_loop_circuit_breaker_threshold: int = int(os.getenv("TOOL_LOOP_CIRCUIT_BREAKER_THRESHOLD", "6"))

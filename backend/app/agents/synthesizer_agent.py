@@ -39,7 +39,7 @@ class SynthesizerAgent(AgentContract):
         agent_name: str,
         emit_lifecycle_fn: EmitLifecycleFn,
         system_prompt: str,
-        stream_timeout_seconds: float = 120.0,
+        stream_timeout_seconds: float = 600.0,
         reply_shaper: ReplyShaper | None = None,
         temperature_resolver: DynamicTemperatureResolver | None = None,
         prompt_ab_registry: PromptAbRegistry | None = None,
@@ -510,8 +510,6 @@ class SynthesizerAgent(AgentContract):
 
         output_parts: list[str] = []
         effective_stream_timeout = self.stream_timeout_seconds
-        if task_type == "hard_research":
-            effective_stream_timeout = max(self.stream_timeout_seconds, 180.0)
 
         async def _consume_stream() -> None:
             async for token in self.client.stream_chat_completion(

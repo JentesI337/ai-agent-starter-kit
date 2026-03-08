@@ -226,7 +226,7 @@ async def check_websocket_pipeline(
                         decision_msg = json.dumps({
                             "type": "policy_decision",
                             "approval_id": approval_id,
-                            "decision": "allow_once",
+                            "decision": "allow_session",
                         })
                         await ws.send(decision_msg)
                         if verbose:

@@ -20,7 +20,7 @@ def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_pa
 
     async def fake_plan_execute(payload, model=None):
         _ = (payload, model)
-        return "1) inspect\n2) apply"
+        return "1) Use read_file to inspect the current code\n2) Use write_file to apply the requested changes"
 
     async def fake_tool_execute(
         payload,
