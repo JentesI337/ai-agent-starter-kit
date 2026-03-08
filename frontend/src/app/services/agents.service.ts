@@ -295,15 +295,31 @@ export class AgentsService {
   }
 
   getToolCatalog() {
-    return this.http.post<{ schema: string; tools: any[] }>(`${this.apiBase}/api/control/tools.catalog`, {});
+    return this.http.post<{ schema: string; count: number; tools: any[]; agents: any[]; presets: any[]; globalPolicy: any }>(`${this.apiBase}/api/control/tools.catalog`, {});
   }
 
   getToolStats() {
     return this.http.get<any>(`${this.apiBase}/api/tools/stats`);
   }
 
+  getToolProfiles() {
+    return this.http.post<{ schema: string; count: number; profiles: any[]; selected: string }>(`${this.apiBase}/api/control/tools.profile`, {});
+  }
+
+  getToolPolicyMatrix(agentId?: string) {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.policy.matrix`, { agent_id: agentId });
+  }
+
   getSkillsList() {
-    return this.http.post<{ schema: string; skills: any[] }>(`${this.apiBase}/api/control/skills.list`, {});
+    return this.http.post<{ schema: string; count: number; items: any[] }>(`${this.apiBase}/api/control/skills.list`, {});
+  }
+
+  getSkillPreview() {
+    return this.http.post<{ schema: string; snapshot: { discovered_count: number; eligible_count: number; skills: any[]; prompt: string } }>(`${this.apiBase}/api/control/skills.preview`, {});
+  }
+
+  checkSkills() {
+    return this.http.post<{ schema: string; issues: { missing_env: string[]; missing_bins: string[]; os_mismatch: string[] }; rejected: any[] }>(`${this.apiBase}/api/control/skills.check`, {});
   }
 
   syncSkills() {

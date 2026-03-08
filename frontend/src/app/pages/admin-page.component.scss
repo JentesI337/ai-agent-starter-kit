@@ -337,3 +337,135 @@ button.small {
   max-height: 300px;
   overflow-y: auto;
 }
+
+// ─── Detail Panels ─────────────────────────────────────
+.detail-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-window);
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--c-text);
+  }
+
+  h4 {
+    margin: 10px 0 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--c-text-dim);
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  &.warn-panel {
+    border-color: rgba(255, 180, 50, 0.3);
+  }
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-section {
+  min-width: 0;
+}
+
+.detail-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 0.8rem;
+  align-items: baseline;
+}
+
+.detail-label {
+  flex-shrink: 0;
+  min-width: 100px;
+  font-weight: 500;
+  color: var(--c-text-dim);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.detail-value {
+  color: var(--c-text);
+  word-break: break-word;
+}
+
+// ─── Clickable rows & selection ────────────────────────
+.clickable {
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  &.selected {
+    background: var(--c-accent-dim);
+    border-left: 2px solid var(--c-accent);
+  }
+}
+
+// ─── Extended table grids ──────────────────────────────
+.tools-header,
+.tools-row {
+  grid-template-columns: 2fr 1.5fr 1.5fr 0.8fr;
+}
+
+.skills-header,
+.skills-row {
+  grid-template-columns: 1.2fr 2fr 0.6fr 2fr;
+}
+
+.path-cell {
+  font-family: 'Cascadia Mono', 'Fira Code', monospace;
+  font-size: 0.74rem;
+  color: var(--c-text-dim);
+}
+
+.truncated {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ─── Status badges ─────────────────────────────────────
+.badge-ok {
+  background: rgba(0, 204, 122, 0.15);
+  color: var(--c-accent);
+  border-color: var(--c-accent-border);
+}
+
+.badge-warn {
+  background: rgba(255, 80, 80, 0.12);
+  color: var(--c-red);
+  border-color: rgba(255, 80, 80, 0.3);
+}
+
+.warn-text {
+  color: var(--c-red);
+}
+
+.ok-text {
+  color: var(--c-accent);
+}
+
+// ─── Toolbar enhancements ──────────────────────────────
+.toolbar {
+  display: flex;
+  gap: 6px;
+}

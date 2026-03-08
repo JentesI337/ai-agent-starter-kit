@@ -4,6 +4,7 @@ import { MemoryPageComponent } from './pages/memory-page.component';
 
 export const routes: Routes = [
 	{ path: '', component: ChatPageComponent },
+	{ path: 'live', loadComponent: () => import('./pages/live-page.component').then(m => m.LivePageComponent) },
 	{ path: 'admin', loadComponent: () => import('./pages/admin-page.component').then(m => m.AdminPageComponent) },
 	{ path: 'memory', component: MemoryPageComponent },
 	{ path: 'debug', loadComponent: () => import('./pages/debug-page/debug-page.component').then(m => m.DebugPageComponent) },

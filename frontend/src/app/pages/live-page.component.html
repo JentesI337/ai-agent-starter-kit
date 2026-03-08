@@ -1,0 +1,220 @@
+<section class="live">
+  <!-- ── Toolbar ──────────────────────────────────────── -->
+  <header class="live-toolbar">
+    <div class="toolbar-left">
+      <div class="filter-group">
+        <select [(ngModel)]="live.filterAgent" class="filter-select">
+          <option value="all">All Agents</option>
+          <option *ngFor="let a of live.agentOptions" [value]="a">{{ a }}</option>
+        </select>
+        <select [(ngModel)]="live.filterStatus" class="filter-select">
+          <option value="all">All Status</option>
+          <option value="running">Running</option>
+          <option value="completed">Completed</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+    </div>
+    <div class="toolbar-right">
+      <span class="event-counter">{{ live.feed.length }} events</span>
+      <button class="tool-btn" (click)="togglePause()" [class.active]="live.paused">
+        {{ live.paused ? '▶ Resume' : '⏸ Pause' }}
+      </button>
+      <button class="tool-btn danger" (click)="live.clearFeed()">Clear</button>
+      <span class="connection-dot" [class.connected]="(agentState.connected$ | async) === true"
+            [title]="(agentState.connected$ | async) ? 'Connected' : 'Disconnected'"></span>
+    </div>
+  </header>
+
+  <!-- ── Pipeline Phase Bar ───────────────────────────── -->
+  <div class="pipeline-bar" *ngIf="live.debugState !== 'idle'">
+    <div class="phase-segment"
+         *ngFor="let phase of live.pipelinePhases"
+         [class]="phaseClass(phase)"
+         [class.current]="live.currentPhase === phase">
+      <span class="phase-dot"></span>
+      <span class="phase-name">{{ phaseLabel(phase) }}</span>
+    </div>
+  </div>
+
+  <!-- ── Body ─────────────────────────────────────────── -->
+  <div class="live-body" [class.inspector-open]="live.inspectedEvent">
+
+    <!-- Agent Lanes -->
+    <aside class="lanes-panel">
+      <h3 class="panel-title">Agents</h3>
+      <div class="lane" *ngFor="let lane of live.agentList"
+           [class.active]="lane.active"
+           [class.has-errors]="lane.errors > 0">
+        <div class="lane-header">
+          <span class="lane-dot" [class.pulse]="lane.active"></span>
+          <strong class="lane-name">{{ lane.agentId }}</strong>
+        </div>
+        <div class="lane-stage">{{ lane.currentStage }}</div>
+        <div class="lane-counters">
+          <span class="counter" title="Events">{{ lane.events }} evt</span>
+          <span class="counter" title="LLM Calls">{{ lane.llmCalls }} llm</span>
+          <span class="counter" title="Tool Calls">{{ lane.toolCalls }} tool</span>
+          <span class="counter counter-error" *ngIf="lane.errors > 0" title="Errors">{{ lane.errors }} err</span>
+        </div>
+        <div class="lane-time">{{ formatTime(lane.updatedAt) }}</div>
+      </div>
+      <div class="empty-lanes" *ngIf="live.agentList.length === 0">
+        <span class="idle-dot"></span>
+        <span>Waiting for agents...</span>
+      </div>
+    </aside>
+
+    <!-- Event Feed -->
+    <div class="feed-panel">
+      <!-- Pause Banner -->
+      <div class="pause-banner" *ngIf="live.paused && live.bufferedCount > 0">
+        <span>⏸ Paused · {{ live.bufferedCount }} new events</span>
+        <button class="banner-btn" (click)="live.resume()">Resume ▶</button>
+      </div>
+
+      <!-- Scrollable Feed -->
+      <div class="feed-scroll" #feedScroll (scroll)="onFeedScroll(feedScroll)">
+
+        <!-- ─── LLM Call Card ─── -->
+        <ng-container *ngFor="let ev of live.filteredFeed; trackBy: trackEvent">
+
+          <div class="feed-item type-llm" *ngIf="ev.type === 'llm_call'"
+               [class.inspected]="live.inspectedEvent === ev"
+               (click)="live.inspect(ev)">
+            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
+            <div class="feed-content">
+              <div class="feed-badges">
+                <span class="badge badge-model" *ngIf="ev.model">{{ ev.model }}</span>
+                <span class="badge badge-phase" *ngIf="ev.phase">{{ ev.phase }}</span>
+              </div>
+              <div class="feed-preview">{{ ev.promptPreview || '(awaiting prompt...)' }}</div>
+              <div class="feed-meta">
+                <span *ngIf="ev.tokensEst">~{{ ev.tokensEst }} tok</span>
+                <span *ngIf="ev.latencyMs">{{ ev.latencyMs }}ms</span>
+              </div>
+            </div>
+            <span class="feed-status" [class.running]="ev.status === 'running'" [class.done]="ev.status === 'completed'">
+              {{ ev.status === 'running' ? '●' : '✓' }}
+            </span>
+          </div>
+
+          <!-- ─── Tool Call Card ─── -->
+          <div class="feed-item type-tool" *ngIf="ev.type === 'tool_call'"
+               [class.inspected]="live.inspectedEvent === ev"
+               (click)="live.inspect(ev)">
+            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
+            <div class="feed-content">
+              <div class="feed-badges">
+                <span class="badge badge-tool">{{ ev.tool }}</span>
+                <span class="badge badge-exit" *ngIf="ev.exitCode !== undefined" [class.exit-error]="ev.exitCode !== 0">exit {{ ev.exitCode }}</span>
+              </div>
+              <div class="feed-preview mono">{{ ev.argsPreview }}</div>
+              <div class="feed-meta">
+                <span *ngIf="ev.durationMs !== undefined">{{ ev.durationMs }}ms</span>
+                <span class="blocked-label" *ngIf="ev.blocked">BLOCKED</span>
+              </div>
+            </div>
+            <span class="feed-status" [class.done]="!ev.blocked" [class.error]="ev.blocked">
+              {{ ev.blocked ? '✕' : '✓' }}
+            </span>
+          </div>
+
+          <!-- ─── Step / Lifecycle / Error ─── -->
+          <div class="feed-item"
+               *ngIf="ev.type === 'step' || ev.type === 'lifecycle' || ev.type === 'error'"
+               [class.type-step]="ev.type === 'step'"
+               [class.type-lifecycle]="ev.type === 'lifecycle'"
+               [class.type-error]="ev.type === 'error'"
+               [class.inspected]="live.inspectedEvent === ev"
+               (click)="live.inspect(ev)">
+            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
+            <div class="feed-content compact">
+              <span class="stage-icon">{{ stageIcon(ev.stage || ev.type) }}</span>
+              <span class="stage-label" *ngIf="ev.stage">{{ ev.stage }}</span>
+              <span class="feed-message">{{ ev.message }}</span>
+            </div>
+          </div>
+
+        </ng-container>
+
+        <!-- Empty Feed -->
+        <div class="empty-feed" *ngIf="live.filteredFeed.length === 0">
+          <div class="pulse-ring"></div>
+          <span>Waiting for agent activity...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inspector Drawer -->
+    <aside class="inspector-panel" [class.open]="live.inspectedEvent">
+      <ng-container *ngIf="live.inspectedEvent as ev">
+        <div class="inspector-content">
+          <div class="inspector-header">
+            <h3>
+              <ng-container *ngIf="ev.type === 'llm_call'">LLM Call</ng-container>
+              <ng-container *ngIf="ev.type === 'tool_call'">Tool: {{ ev.tool }}</ng-container>
+              <ng-container *ngIf="ev.type !== 'llm_call' && ev.type !== 'tool_call'">{{ ev.stage || ev.type }}</ng-container>
+            </h3>
+            <button class="close-btn" (click)="live.inspect(null)">✕</button>
+          </div>
+
+          <!-- LLM Inspector -->
+          <ng-container *ngIf="ev.type === 'llm_call'">
+            <div class="inspector-meta">
+              <div class="meta-pair"><span class="meta-key">Model</span><span class="meta-val">{{ ev.model || '—' }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Phase</span><span class="meta-val">{{ ev.phase || '—' }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Tokens</span><span class="meta-val">~{{ ev.tokensEst || '—' }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Latency</span><span class="meta-val">{{ ev.latencyMs ? ev.latencyMs + 'ms' : '—' }}</span></div>
+            </div>
+            <div class="inspector-section">
+              <h4>System Prompt</h4>
+              <pre class="inspector-code">{{ ev.systemPrompt || '(not captured)' }}</pre>
+            </div>
+            <div class="inspector-section">
+              <h4>User Prompt</h4>
+              <pre class="inspector-code">{{ ev.userPrompt || '(not captured)' }}</pre>
+            </div>
+            <div class="inspector-section">
+              <h4>Response</h4>
+              <pre class="inspector-code" [class.awaiting]="!ev.rawResponse">{{ ev.rawResponse || '(awaiting response...)' }}</pre>
+            </div>
+          </ng-container>
+
+          <!-- Tool Inspector -->
+          <ng-container *ngIf="ev.type === 'tool_call'">
+            <div class="inspector-meta">
+              <div class="meta-pair"><span class="meta-key">Tool</span><span class="meta-val">{{ ev.tool }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Duration</span><span class="meta-val">{{ ev.durationMs !== undefined ? ev.durationMs + 'ms' : '—' }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Exit Code</span><span class="meta-val" [class.error-text]="ev.exitCode !== 0">{{ ev.exitCode ?? '—' }}</span></div>
+              <div class="meta-pair" *ngIf="ev.blocked"><span class="meta-key">Blocked</span><span class="meta-val error-text">Yes</span></div>
+            </div>
+            <div class="inspector-section">
+              <h4>Arguments</h4>
+              <pre class="inspector-code">{{ ev.argsPreview }}</pre>
+            </div>
+            <div class="inspector-section" *ngIf="ev.resultPreview">
+              <h4>Result Preview</h4>
+              <pre class="inspector-code">{{ ev.resultPreview }}</pre>
+            </div>
+          </ng-container>
+
+          <!-- Generic Inspector -->
+          <ng-container *ngIf="ev.type !== 'llm_call' && ev.type !== 'tool_call'">
+            <div class="inspector-meta">
+              <div class="meta-pair"><span class="meta-key">Type</span><span class="meta-val">{{ ev.type }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Agent</span><span class="meta-val">{{ ev.agent }}</span></div>
+              <div class="meta-pair" *ngIf="ev.stage"><span class="meta-key">Stage</span><span class="meta-val">{{ ev.stage }}</span></div>
+              <div class="meta-pair"><span class="meta-key">Time</span><span class="meta-val">{{ formatTime(ev.timestamp) }}</span></div>
+            </div>
+            <div class="inspector-section" *ngIf="ev.message">
+              <h4>Message</h4>
+              <pre class="inspector-code">{{ ev.message }}</pre>
+            </div>
+          </ng-container>
+        </div>
+      </ng-container>
+    </aside>
+
+  </div>
+</section>

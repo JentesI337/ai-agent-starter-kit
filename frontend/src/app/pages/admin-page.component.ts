@@ -71,10 +71,16 @@ export class AdminPageComponent implements OnInit, OnDestroy {
   // --- Tools ---
   toolCatalog: any[] = [];
   toolStats: any = null;
+  toolProfiles: any[] = [];
+  toolGlobalPolicy: any = null;
+  selectedTool: any = null;
 
   // --- Skills ---
   skillsList: any[] = [];
   skillsBusy = false;
+  selectedSkill: any = null;
+  skillPreview: any = null;
+  skillCheckResult: any = null;
 
   // --- Settings ---
   runtimeFeatures: RuntimeFeatureFlags = {
@@ -421,19 +427,59 @@ export class AdminPageComponent implements OnInit, OnDestroy {
   // ─── Tools ───────────────────────────────────────────
   private loadToolCatalog(): void {
     this.agentsService.getToolCatalog().subscribe({
-      next: res => { this.toolCatalog = res.tools ?? []; },
+      next: res => {
+        this.toolCatalog = res.tools ?? [];
+        this.toolGlobalPolicy = res.globalPolicy ?? null;
+      },
     });
     this.agentsService.getToolStats().subscribe({
       next: res => { this.toolStats = res; },
       error: () => { this.toolStats = null; },
     });
+    this.agentsService.getToolProfiles().subscribe({
+      next: res => { this.toolProfiles = res.profiles ?? []; },
+      error: () => { this.toolProfiles = []; },
+    });
+  }
+
+  selectTool(tool: any): void {
+    this.selectedTool = this.selectedTool === tool ? null : tool;
+  }
+
+  getToolTelemetry(toolName: string): any {
+    return this.toolStats?.tools?.[toolName] ?? null;
   }
 
   // ─── Skills ──────────────────────────────────────────
   private loadSkills(): void {
     this.agentsService.getSkillsList().subscribe({
-      next: res => { this.skillsList = res.skills ?? []; },
+      next: res => { this.skillsList = res.items ?? []; },
       error: () => { this.skillsList = []; },
+    });
+  }
+
+  selectSkill(skill: any): void {
+    this.selectedSkill = this.selectedSkill === skill ? null : skill;
+  }
+
+  loadSkillPreview(): void {
+    this.agentsService.getSkillPreview().subscribe({
+      next: res => { this.skillPreview = res.snapshot ?? null; },
+      error: () => { this.skillPreview = null; },
+    });
+  }
+
+  checkSkills(): void {
+    this.skillsBusy = true;
+    this.agentsService.checkSkills().subscribe({
+      next: res => {
+        this.skillCheckResult = res;
+        this.skillsBusy = false;
+      },
+      error: () => {
+        this.skillCheckResult = null;
+        this.skillsBusy = false;
+      },
     });
   }
 

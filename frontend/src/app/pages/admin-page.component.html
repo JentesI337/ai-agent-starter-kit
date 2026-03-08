@@ -215,19 +215,108 @@
   <div class="tab-content" *ngIf="activeTab === 'tools'">
     <h2>Tool Catalog</h2>
     <div class="data-table" *ngIf="toolCatalog.length > 0">
-      <div class="table-header">
-        <span>Name</span><span>Aliases</span><span>Profiles</span>
+      <div class="table-header tools-header">
+        <span>Name</span><span>Aliases</span><span>Profiles</span><span>Calls</span>
       </div>
-      <div class="table-row" *ngFor="let tool of toolCatalog">
+      <div class="table-row tools-row clickable"
+           *ngFor="let tool of toolCatalog"
+           [class.selected]="selectedTool === tool"
+           (click)="selectTool(tool)">
         <span>{{ tool.name }}</span>
         <span>{{ tool.aliases?.join(', ') || '—' }}</span>
         <span>{{ tool.profiles?.join(', ') || '—' }}</span>
+        <span>{{ getToolTelemetry(tool.name)?.calls ?? '—' }}</span>
       </div>
     </div>
     <p class="hint" *ngIf="toolCatalog.length === 0">No tools loaded. Backend may not expose catalog details.</p>
 
-    <h2>Tool Telemetry</h2>
-    <pre class="code-block" *ngIf="toolStats">{{ toolStats | json }}</pre>
+    <!-- Tool Detail Panel -->
+    <div class="detail-panel" *ngIf="selectedTool">
+      <h3>{{ selectedTool.name }}</h3>
+      <div class="detail-grid">
+        <div class="detail-section">
+          <h4>Info</h4>
+          <div class="detail-row" *ngIf="selectedTool.description">
+            <span class="detail-label">Description</span>
+            <span class="detail-value">{{ selectedTool.description }}</span>
+          </div>
+          <div class="detail-row" *ngIf="selectedTool.aliases?.length">
+            <span class="detail-label">Aliases</span>
+            <span class="detail-value">{{ selectedTool.aliases.join(', ') }}</span>
+          </div>
+          <div class="detail-row" *ngIf="selectedTool.profiles?.length">
+            <span class="detail-label">Profiles</span>
+            <span class="detail-value">{{ selectedTool.profiles.join(', ') }}</span>
+          </div>
+          <div class="detail-row" *ngIf="selectedTool.parameters">
+            <span class="detail-label">Parameters</span>
+            <span class="detail-value">{{ selectedTool.parameters | json }}</span>
+          </div>
+        </div>
+        <div class="detail-section" *ngIf="getToolTelemetry(selectedTool.name) as tel">
+          <h4>Telemetry</h4>
+          <div class="detail-row">
+            <span class="detail-label">Total Calls</span>
+            <span class="detail-value">{{ tel.calls ?? 0 }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Errors</span>
+            <span class="detail-value" [class.warn-text]="tel.errors > 0">{{ tel.errors ?? 0 }}</span>
+          </div>
+          <div class="detail-row" *ngIf="tel.avg_duration_ms != null">
+            <span class="detail-label">Avg Duration</span>
+            <span class="detail-value">{{ tel.avg_duration_ms | number:'1.0-0' }} ms</span>
+          </div>
+          <div class="detail-row" *ngIf="tel.last_called">
+            <span class="detail-label">Last Called</span>
+            <span class="detail-value">{{ tel.last_called }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Policy -->
+    <div class="detail-panel" *ngIf="toolGlobalPolicy">
+      <h3>Global Policy</h3>
+      <div class="detail-row" *ngIf="toolGlobalPolicy.allow?.length">
+        <span class="detail-label">Allow</span>
+        <span class="detail-value">{{ toolGlobalPolicy.allow.join(', ') }}</span>
+      </div>
+      <div class="detail-row" *ngIf="toolGlobalPolicy.deny?.length">
+        <span class="detail-label">Deny</span>
+        <span class="detail-value">{{ toolGlobalPolicy.deny.join(', ') }}</span>
+      </div>
+    </div>
+
+    <!-- Profiles -->
+    <h2 *ngIf="toolProfiles.length > 0">Tool Profiles</h2>
+    <div class="data-table" *ngIf="toolProfiles.length > 0">
+      <div class="table-header">
+        <span>Profile ID</span><span>Allow</span><span>Deny</span>
+      </div>
+      <div class="table-row" *ngFor="let tp of toolProfiles">
+        <span>{{ tp.id }}</span>
+        <span>{{ tp.toolPolicy?.allow?.join(', ') || '—' }}</span>
+        <span>{{ tp.toolPolicy?.deny?.join(', ') || '—' }}</span>
+      </div>
+    </div>
+
+    <!-- Telemetry Summary -->
+    <h2>Telemetry Summary</h2>
+    <div class="detail-panel" *ngIf="toolStats?.summary">
+      <div class="detail-row">
+        <span class="detail-label">Total Calls</span>
+        <span class="detail-value">{{ toolStats.summary.total_calls ?? 0 }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Total Errors</span>
+        <span class="detail-value" [class.warn-text]="toolStats.summary.total_errors > 0">{{ toolStats.summary.total_errors ?? 0 }}</span>
+      </div>
+      <div class="detail-row" *ngIf="toolStats.summary.unique_tools != null">
+        <span class="detail-label">Unique Tools</span>
+        <span class="detail-value">{{ toolStats.summary.unique_tools }}</span>
+      </div>
+    </div>
     <p class="hint" *ngIf="!toolStats">No telemetry data available.</p>
   </div>
 
@@ -236,18 +325,92 @@
     <h2>Discovered Skills</h2>
     <div class="toolbar">
       <button (click)="syncSkills()" [disabled]="skillsBusy">{{ skillsBusy ? 'Syncing...' : 'Sync Skills' }}</button>
+      <button (click)="checkSkills()" [disabled]="skillsBusy">{{ skillsBusy ? 'Checking...' : 'Check Skills' }}</button>
+      <button (click)="loadSkillPreview()" [disabled]="skillsBusy">Preview</button>
     </div>
-    <div class="data-table" *ngIf="skillsList.length > 0">
-      <div class="table-header">
-        <span>Name</span><span>Path</span><span>Status</span>
+
+    <!-- Check Results -->
+    <div class="detail-panel warn-panel" *ngIf="skillCheckResult">
+      <h3>Skill Check Results</h3>
+      <div class="detail-row" *ngIf="skillCheckResult.issues?.missing_env?.length">
+        <span class="detail-label">Missing Env</span>
+        <span class="detail-value warn-text">{{ skillCheckResult.issues.missing_env.join(', ') }}</span>
       </div>
-      <div class="table-row" *ngFor="let skill of skillsList">
-        <span>{{ skill.name || skill.id || '—' }}</span>
-        <span>{{ skill.path || '—' }}</span>
-        <span>{{ skill.status || 'discovered' }}</span>
+      <div class="detail-row" *ngIf="skillCheckResult.issues?.missing_bins?.length">
+        <span class="detail-label">Missing Binaries</span>
+        <span class="detail-value warn-text">{{ skillCheckResult.issues.missing_bins.join(', ') }}</span>
+      </div>
+      <div class="detail-row" *ngIf="skillCheckResult.issues?.os_mismatch?.length">
+        <span class="detail-label">OS Mismatch</span>
+        <span class="detail-value warn-text">{{ skillCheckResult.issues.os_mismatch.join(', ') }}</span>
+      </div>
+      <div class="detail-row"
+           *ngIf="!skillCheckResult.issues?.missing_env?.length && !skillCheckResult.issues?.missing_bins?.length && !skillCheckResult.issues?.os_mismatch?.length">
+        <span class="detail-value ok-text">All checks passed.</span>
+      </div>
+      <div *ngIf="skillCheckResult.rejected?.length">
+        <h4>Rejected Skills</h4>
+        <div class="detail-row" *ngFor="let r of skillCheckResult.rejected">
+          <span class="detail-label">{{ r.name || r }}</span>
+          <span class="detail-value warn-text">{{ r.reason || '—' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="data-table" *ngIf="skillsList.length > 0">
+      <div class="table-header skills-header">
+        <span>Name</span><span>Path</span><span>Eligible</span><span>Description</span>
+      </div>
+      <div class="table-row skills-row clickable"
+           *ngFor="let skill of skillsList"
+           [class.selected]="selectedSkill === skill"
+           (click)="selectSkill(skill)">
+        <span>{{ skill.name || '—' }}</span>
+        <span class="path-cell">{{ skill.file_path || skill.path || '—' }}</span>
+        <span>
+          <span class="badge" [class.badge-ok]="skill.eligible" [class.badge-warn]="!skill.eligible">
+            {{ skill.eligible ? 'Yes' : 'No' }}
+          </span>
+        </span>
+        <span class="truncated">{{ skill.description || '—' }}</span>
       </div>
     </div>
     <p class="hint" *ngIf="skillsList.length === 0">No skills discovered. Check skills directory configuration.</p>
+
+    <!-- Skill Detail Panel -->
+    <div class="detail-panel" *ngIf="selectedSkill">
+      <h3>{{ selectedSkill.name }}</h3>
+      <div class="detail-row" *ngIf="selectedSkill.description">
+        <span class="detail-label">Description</span>
+        <span class="detail-value">{{ selectedSkill.description }}</span>
+      </div>
+      <div class="detail-row" *ngIf="selectedSkill.file_path">
+        <span class="detail-label">File Path</span>
+        <span class="detail-value">{{ selectedSkill.file_path }}</span>
+      </div>
+      <div class="detail-row" *ngIf="selectedSkill.rejected_reason">
+        <span class="detail-label">Rejected Reason</span>
+        <span class="detail-value warn-text">{{ selectedSkill.rejected_reason }}</span>
+      </div>
+      <div class="detail-row" *ngIf="selectedSkill.metadata">
+        <span class="detail-label">Metadata</span>
+        <span class="detail-value">{{ selectedSkill.metadata | json }}</span>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="detail-panel" *ngIf="skillPreview">
+      <h3>Skill Preview</h3>
+      <div class="detail-row">
+        <span class="detail-label">Discovered</span>
+        <span class="detail-value">{{ skillPreview.discovered_count }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Eligible</span>
+        <span class="detail-value">{{ skillPreview.eligible_count }}</span>
+      </div>
+      <pre class="code-block" *ngIf="skillPreview.prompt">{{ skillPreview.prompt }}</pre>
+    </div>
   </div>
 
   <!-- ═══════ SETTINGS ═══════ -->

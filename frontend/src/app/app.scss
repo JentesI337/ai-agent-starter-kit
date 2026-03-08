@@ -56,6 +56,24 @@
   border: 1px solid var(--c-accent-border);
 }
 
+.nav-spacer {
+  flex: 1;
+}
+
+.nav-connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-red, #f44);
+  box-shadow: 0 0 6px var(--c-red, #f44);
+  transition: background var(--t), box-shadow var(--t);
+
+  &.connected {
+    background: var(--c-accent);
+    box-shadow: 0 0 6px var(--c-accent);
+  }
+}
+
 .content {
   min-height: 0;
   overflow: hidden;

@@ -1,8 +1,12 @@
 <nav class="top-nav">
   <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Chat</a>
+  <a routerLink="/live" routerLinkActive="active">Live</a>
   <a routerLink="/admin" routerLinkActive="active">Admin</a>
   <a routerLink="/memory" routerLinkActive="active">Memory</a>
   <a routerLink="/debug" routerLinkActive="active">Debug</a>
+  <span class="nav-spacer"></span>
+  <span class="nav-connection-dot" [class.connected]="(agentState.connected$ | async) === true"
+        [title]="(agentState.connected$ | async) ? 'Connected' : 'Disconnected'"></span>
 </nav>
 <main class="content">
   <router-outlet></router-outlet>
