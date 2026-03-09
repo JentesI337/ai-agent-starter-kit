@@ -121,6 +121,9 @@ class AgentRunner:
         reply_shaper: Any | None = None,
         verification_service: Any | None = None,
         reflection_feedback_store: Any | None = None,
+        agent_name: str = "agent",
+        distill_fn: Callable[..., Awaitable[None]] | None = None,
+        long_term_context_fn: Callable[[str], str] | None = None,
     ):
         self.client = client
         self.memory = memory
@@ -139,6 +142,9 @@ class AgentRunner:
         self._reply_shaper = reply_shaper
         self._verification_service = verification_service
         self._reflection_feedback_store = reflection_feedback_store
+        self._agent_name = agent_name
+        self._distill_fn = distill_fn
+        self._long_term_context_fn = long_term_context_fn
 
         # Loop limits from settings
         self._max_iterations = settings.runner_max_iterations
@@ -181,6 +187,14 @@ class AgentRunner:
         if self._guardrail_validator:
             self._guardrail_validator(user_message, session_id, model)
 
+        if self._emit_lifecycle:
+            await self._emit_lifecycle(
+                send_event,
+                stage="guardrails_passed",
+                request_id=request_id,
+                session_id=session_id,
+            )
+
         # MCP init
         if self._mcp_initializer:
             await self._mcp_initializer(
@@ -198,6 +212,15 @@ class AgentRunner:
 
         # Context reduction (single budget, not 3-way split)
         memory_items = self.memory.get_items(session_id)
+
+        if self._emit_lifecycle:
+            await self._emit_lifecycle(
+                send_event,
+                stage="memory_updated",
+                request_id=request_id,
+                session_id=session_id,
+                details={"memory_items": len(memory_items)},
+            )
 
         # Ambiguity detection → early return
         if self._ambiguity_detector and settings.clarification_protocol_enabled:
@@ -278,7 +301,7 @@ class AgentRunner:
                 messages=messages,
                 tools=tool_definitions if not loop_state.budget_exhausted else None,
                 model=model,
-                on_text_chunk=lambda chunk: send_event({"type": "stream", "content": chunk}),
+                on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
             )
 
             # ── FINISH REASON: STOP → done ──
@@ -391,7 +414,7 @@ class AgentRunner:
                     ],
                     tools=None,
                     model=model,
-                    on_text_chunk=lambda chunk: send_event({"type": "stream", "content": chunk}),
+                    on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
                 )
                 final_text = stream_result.text
             except Exception:
@@ -470,10 +493,35 @@ class AgentRunner:
                 final_text = "No output generated."
 
         # Final event
-        await send_event({"type": "final", "message": final_text})
+        await send_event({"type": "final", "agent": self._agent_name, "message": final_text})
 
         # Memory persistence
         self.memory.add(session_id, "assistant", final_text)
+
+        # Session distillation (fire-and-forget, like legacy pipeline)
+        if self._distill_fn is not None:
+            import asyncio as _asyncio
+
+            _user = user_message
+            _tool_str = self._tool_results_to_string(all_tool_results)
+            _final = final_text
+            _model = model
+            _sid = session_id
+
+            async def _distill_bg() -> None:
+                try:
+                    await self._distill_fn(
+                        session_id=_sid,
+                        user_message=_user,
+                        plan_text="",
+                        tool_results=_tool_str,
+                        final_text=_final,
+                        model=_model,
+                    )
+                except Exception:
+                    logger.debug("Session distillation failed", exc_info=True)
+
+            _asyncio.create_task(_distill_bg())
 
         if self._emit_lifecycle:
             await self._emit_lifecycle(
@@ -504,8 +552,16 @@ class AgentRunner:
     ) -> list[dict]:
         messages: list[dict] = []
 
-        # 1. System message
-        messages.append({"role": "system", "content": self.system_prompt})
+        # 1. System message (with optional LTM context)
+        system_content = self.system_prompt
+        if self._long_term_context_fn:
+            try:
+                ltm = self._long_term_context_fn(user_message)
+                if ltm:
+                    system_content += f"\n\n## Long-term context\n{ltm}"
+            except Exception:
+                logger.debug("LTM context retrieval failed", exc_info=True)
+        messages.append({"role": "system", "content": system_content})
 
         # 2. Conversation history from memory (last N turns)
         for item in memory_items:
@@ -550,6 +606,7 @@ class AgentRunner:
             # Status event
             await send_event({
                 "type": "tool_start",
+                "agent": self._agent_name,
                 "tool": tool_name,
                 "tool_call_id": tc.id,
             })
@@ -583,6 +640,7 @@ class AgentRunner:
             # Result event
             await send_event({
                 "type": "tool_end",
+                "agent": self._agent_name,
                 "tool": tool_name,
                 "tool_call_id": tc.id,
                 "duration_ms": duration_ms,
@@ -1037,7 +1095,7 @@ class AgentRunner:
                     messages=messages,
                     tools=None,
                     model=model,
-                    on_text_chunk=lambda chunk: send_event({"type": "stream", "content": chunk}),
+                    on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
                 )
                 final_text = stream_result.text
             except Exception:

@@ -316,6 +316,9 @@ class HeadAgent:
                 reply_shaper=self._reply_shaper,
                 verification_service=self._verification,
                 reflection_feedback_store=self._reflection_feedback_store,
+                agent_name=self.name,
+                distill_fn=self._distill_session_knowledge,
+                long_term_context_fn=self._build_long_term_memory_context,
             )
         else:
             self._agent_runner = None
@@ -517,6 +520,14 @@ class HeadAgent:
             if self._agent_runner is not None:
                 self._agent_runner.client = self.client
                 self._agent_runner._reflection_service = self._reflection_service
+                # S3-09: rebuild unified system prompt for new model
+                self._agent_runner.system_prompt = build_unified_system_prompt(
+                    role=self.role,
+                    plan_prompt=self.prompt_profile.plan_prompt,
+                    tool_hints=self.prompt_profile.tool_selector_prompt,
+                    final_instructions=self.prompt_profile.final_prompt,
+                    platform_summary=self._tool_execution_manager._platform_summary,
+                )
         finally:
             self._reconfiguring = False
 
@@ -618,8 +629,14 @@ class HeadAgent:
 
         # ── Feature-flag: Continuous Streaming Tool Loop ──
         if settings.use_continuous_loop and self._agent_runner is not None:
+            # S3-08: ContextVar propagation (same as legacy path)
+            send_event_token = self._active_send_event_context.set(send_event)
+            session_id_token = self._active_session_id_context.set(session_id)
+            request_id_token = self._active_request_id_context.set(request_id)
+            _runner_status = "failed"
+            _runner_final = ""
             try:
-                return await self._agent_runner.run(
+                _runner_final = await self._agent_runner.run(
                     user_message=user_message,
                     send_event=send_event,
                     session_id=session_id,
@@ -628,9 +645,51 @@ class HeadAgent:
                     tool_policy=tool_policy,
                     should_steer_interrupt=should_steer_interrupt,
                 )
+                _runner_status = "completed"
+                return _runner_final
+            except Exception as exc:
+                # S3-07: Failure logging to long-term memory
+                if self._long_term_memory is not None:
+                    with contextlib.suppress(Exception):
+                        self._long_term_memory.add_failure(
+                            FailureEntry(
+                                failure_id=request_id,
+                                task_description=user_message[:500],
+                                error_type=type(exc).__name__,
+                                root_cause=str(exc)[:500],
+                                solution=f"Review {type(exc).__name__} handling in agent run",
+                                prevention=f"Add guard for {type(exc).__name__} before reaching this code path",
+                                tags=[type(exc).__name__],
+                            )
+                        )
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="run_error",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"error": str(exc), "error_type": type(exc).__name__},
+                )
+                raise
             finally:
                 async with self._run_lock:
                     self._active_run_count -= 1
+                # S3-05: Hook integration
+                with contextlib.suppress(Exception):
+                    await self._invoke_hooks(
+                        hook_name="agent_end",
+                        send_event=send_event,
+                        request_id=request_id,
+                        session_id=session_id,
+                        payload={
+                            "status": _runner_status,
+                            "error": None if _runner_status == "completed" else "runner_error",
+                            "final_chars": len(_runner_final),
+                            "model": model or self.client.model,
+                        },
+                    )
+                self._active_request_id_context.reset(request_id_token)
+                self._active_session_id_context.reset(session_id_token)
+                self._active_send_event_context.reset(send_event_token)
 
         # ── Legacy 3-phase pipeline ──
         return await self._run_legacy(

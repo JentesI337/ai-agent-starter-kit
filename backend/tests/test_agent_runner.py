@@ -232,7 +232,7 @@ class TestAgentRunnerRun:
         )
 
         assert result == "Hello!"
-        send_event.assert_any_call({"type": "final", "message": "Hello!"})
+        send_event.assert_any_call({"type": "final", "agent": "agent", "message": "Hello!"})
         memory.add.assert_any_call("s1", "user", "Hi")
         memory.add.assert_any_call("s1", "assistant", "Hello!")
 

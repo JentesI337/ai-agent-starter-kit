@@ -75,7 +75,7 @@ class TestPostLoopIntegration:
         result = await runner.run("What is the capital of France?", send, "s1", "r1")
 
         assert result == "Paris is the capital of France."
-        send.assert_any_call({"type": "final", "message": result})
+        send.assert_any_call({"type": "final", "agent": "agent", "message": result})
 
     @pytest.mark.asyncio
     async def test_implementation_gate_blocks_hallucinated_success(self):
