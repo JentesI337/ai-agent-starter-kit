@@ -27,41 +27,5 @@ class CoderAgentOutput(BaseModel):
     final_text: str
 
 
-class PlannerInput(BaseModel):
-    user_message: str = Field(min_length=1)
-    reduced_context: str = Field(min_length=1)
-    prompt_mode: str = Field(default="full")
-    injection_suspect: bool = Field(default=False)
-
-
-class PlannerOutput(BaseModel):
-    plan_text: str
-
-
-class ToolSelectorInput(BaseModel):
-    user_message: str = Field(min_length=1)
-    plan_text: str
-    reduced_context: str = Field(min_length=1)
-    prompt_mode: str = Field(default="minimal")
-
-
-class ToolSelectorOutput(BaseModel):
-    tool_results: str
-
-
-class SynthesizerInput(BaseModel):
-    user_message: str = Field(min_length=1)
-    plan_text: str
-    tool_results: str
-    reduced_context: str = Field(min_length=1)
-    prompt_mode: str = Field(default="full")
-    task_type: str | None = None
-    injection_suspect: bool = Field(default=False)
-
-
-class SynthesizerOutput(BaseModel):
-    final_text: str
-
-
 HeadCoderInput = AgentInput
 HeadCoderOutput = HeadAgentOutput

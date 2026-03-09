@@ -202,7 +202,6 @@ class TestPostLoopIntegration:
             s.runner_compaction_enabled = True
             s.runner_compaction_tail_keep = 4
             s.runner_tool_result_max_chars = 5000
-            s.clarification_protocol_enabled = False
             s.runner_reflection_max_passes = 2
             s.llm_model = "test-model"
 

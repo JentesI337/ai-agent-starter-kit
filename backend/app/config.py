@@ -1280,11 +1280,6 @@ class Settings(BaseModel):
     circuit_breaker_failure_window_seconds: int = int(os.getenv("CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS", "60"))
     circuit_breaker_recovery_timeout_seconds: int = int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS", "120"))
     circuit_breaker_success_threshold: int = int(os.getenv("CIRCUIT_BREAKER_SUCCESS_THRESHOLD", "2"))
-    clarification_protocol_enabled: bool = _parse_bool_env("CLARIFICATION_PROTOCOL_ENABLED", True)
-    clarification_confidence_threshold: float = max(
-        0.0,
-        min(1.0, float(os.getenv("CLARIFICATION_CONFIDENCE_THRESHOLD", "0.5"))),
-    )
     structured_planning_enabled: bool = _parse_bool_env("STRUCTURED_PLANNING_ENABLED", False)
     plan_max_steps: int = max(1, min(20, int(os.getenv("PLAN_MAX_STEPS", "7"))))
     plan_root_cause_replan_enabled: bool = _parse_bool_env("PLAN_ROOT_CAUSE_REPLAN_ENABLED", True)
@@ -1504,7 +1499,7 @@ class Settings(BaseModel):
     # ------------------------------------------------------------------
     # AgentRunner — Continuous Streaming Tool Loop
     # ------------------------------------------------------------------
-    use_continuous_loop: bool = _parse_bool_env("USE_CONTINUOUS_LOOP", False)
+    use_continuous_loop: bool = _parse_bool_env("USE_CONTINUOUS_LOOP", True)
     # Loop limits
     runner_max_iterations: int = int(os.getenv("RUNNER_MAX_ITERATIONS", "25"))
     runner_max_tool_calls: int = int(os.getenv("RUNNER_MAX_TOOL_CALLS", "50"))

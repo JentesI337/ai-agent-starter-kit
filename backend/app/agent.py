@@ -7,7 +7,6 @@ import inspect
 import json
 import logging
 import re
-import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,35 +14,22 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from app.agents.planner_agent import PlannerAgent
-from app.agents.synthesizer_agent import SynthesizerAgent
-from app.agents.tool_selector_agent import ToolSelectorAgent
 from app.agent_runner import AgentRunner, build_unified_system_prompt
 from app.config import settings
-from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
 from app.contracts.tool_protocol import ToolProvider
-from app.contracts.tool_selector_runtime import ToolSelectorRuntime
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
 from app.model_routing import ModelRegistry
 from app.orchestrator.events import build_lifecycle_event
-from app.orchestrator.step_executors import (
-    PlannerStepExecutor,
-    SynthesizeStepExecutor,
-    ToolStepExecutor,
-)
 from app.services.action_augmenter import ActionAugmenter
 from app.services.action_parser import ActionParser
-from app.services.ambiguity_detector import AmbiguityDetector
-from app.services.dynamic_temperature import DynamicTemperatureResolver
 from app.services.failure_retriever import FailureRetriever
 from app.services.hook_contract import resolve_hook_execution_contract
 from app.services.intent_detector import IntentDetector
 from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
 from app.services.mcp_bridge import McpBridge
 from app.services.platform_info import detect_platform
-from app.services.prompt_ab_registry import PromptAbRegistry
 from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
 from app.services.reflection_service import ReflectionService
@@ -69,7 +55,6 @@ SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]
 PolicyApprovalHandler = Callable[..., Awaitable[bool]]
 ALLOWED_TOOLS = set(TOOL_NAME_SET)
-STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 _IMPLEMENTATION_RE = re.compile(
     r"\b(?:implement|fix|refactor|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
 )
@@ -100,37 +85,6 @@ class PromptProfile:
     tool_repair_prompt: str
     final_prompt: str
 
-
-class _HeadToolSelectorRuntime(ToolSelectorRuntime):
-    def __init__(self, owner: HeadAgent):
-        self._owner_ref: weakref.ReferenceType[HeadAgent] = weakref.ref(owner)
-
-    async def run_tools(
-        self,
-        *,
-        payload: ToolSelectorInput,
-        session_id: str,
-        request_id: str,
-        send_event: SendEvent,
-        model: str | None,
-        allowed_tools: set[str],
-        should_steer_interrupt: Callable[[], bool] | None = None,
-    ) -> str:
-        owner = self._owner_ref()
-        if owner is None:
-            raise RuntimeError("HeadAgent is no longer available for tool selection runtime.")
-        return await owner._execute_tools(
-            user_message=payload.user_message,
-            plan_text=payload.plan_text,
-            memory_context=payload.reduced_context,
-            session_id=session_id,
-            request_id=request_id,
-            send_event=send_event,
-            model=model,
-            allowed_tools=allowed_tools,
-            prompt_mode=payload.prompt_mode,
-            should_steer_interrupt=should_steer_interrupt,
-        )
 
 
 class HeadAgent:
@@ -188,7 +142,6 @@ class HeadAgent:
         self._intent_detector = self._intent
         self._action_parser = ActionParser()
         self._action_augmenter = ActionAugmenter(intent_detector=self._intent)
-        self._ambiguity_detector = AmbiguityDetector()
         self._reply_shaper = ReplyShaper()
         self._verification = VerificationService()
         self._reflection_service = (
@@ -265,63 +218,34 @@ class HeadAgent:
             self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
-        temperature_resolver = DynamicTemperatureResolver(
-            base_temperature=SynthesizerAgent.constraints.temperature,
-            overrides=settings.dynamic_temperature_overrides,
+        system_prompt = build_unified_system_prompt(
+            role=self.role,
+            plan_prompt=self.prompt_profile.plan_prompt,
+            tool_hints=self.prompt_profile.tool_selector_prompt,
+            final_instructions=self.prompt_profile.final_prompt,
+            platform_summary=self._tool_execution_manager._platform_summary,
         )
-        prompt_ab_registry = PromptAbRegistry(settings.prompt_ab_registry_path)
-
-        self.planner_agent = PlannerAgent(
+        self._agent_runner = AgentRunner(
             client=self.client,
-            system_prompt=self.prompt_profile.plan_prompt,
-            failure_retriever=self._failure_retriever,
-        )
-        self.tool_selector_agent = ToolSelectorAgent(runtime=_HeadToolSelectorRuntime(self))
-        self.synthesizer_agent = SynthesizerAgent(
-            client=self.client,
-            agent_name=self.name,
+            memory=self.memory,
+            tool_registry=self.tool_registry,
+            tool_execution_manager=self._tool_execution_manager,
+            context_reducer=self.context_reducer,
+            system_prompt=system_prompt,
+            execute_tool_fn=self._runner_execute_tool,
+            allowed_tools_resolver=self._resolve_effective_allowed_tools,
+            guardrail_validator=self._validate_guardrails,
+            mcp_initializer=self._ensure_mcp_tools_registered,
+            reflection_service=self._reflection_service,
             emit_lifecycle_fn=self._emit_lifecycle,
-            system_prompt=self.prompt_profile.final_prompt,
-            temperature_resolver=temperature_resolver,
-            prompt_ab_registry=prompt_ab_registry,
+            intent_detector=self._intent,
+            reply_shaper=self._reply_shaper,
+            verification_service=self._verification,
+            reflection_feedback_store=self._reflection_feedback_store,
+            agent_name=self.name,
+            distill_fn=self._distill_session_knowledge,
+            long_term_context_fn=self._build_long_term_memory_context,
         )
-        self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
-        self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
-        self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
-
-        # ── Continuous streaming tool loop (behind feature flag) ──
-        if settings.use_continuous_loop:
-            system_prompt = build_unified_system_prompt(
-                role=self.role,
-                plan_prompt=self.prompt_profile.plan_prompt,
-                tool_hints=self.prompt_profile.tool_selector_prompt,
-                final_instructions=self.prompt_profile.final_prompt,
-                platform_summary=self._tool_execution_manager._platform_summary,
-            )
-            self._agent_runner: AgentRunner | None = AgentRunner(
-                client=self.client,
-                memory=self.memory,
-                tool_registry=self.tool_registry,
-                tool_execution_manager=self._tool_execution_manager,
-                context_reducer=self.context_reducer,
-                system_prompt=system_prompt,
-                execute_tool_fn=self._runner_execute_tool,
-                allowed_tools_resolver=self._resolve_effective_allowed_tools,
-                guardrail_validator=self._validate_guardrails,
-                mcp_initializer=self._ensure_mcp_tools_registered,
-                ambiguity_detector=self._ambiguity_detector,
-                reflection_service=self._reflection_service,
-                emit_lifecycle_fn=self._emit_lifecycle,
-                intent_detector=self._intent,
-                reply_shaper=self._reply_shaper,
-                verification_service=self._verification,
-                reflection_feedback_store=self._reflection_feedback_store,
-                agent_name=self.name,
-                distill_fn=self._distill_session_knowledge,
-                long_term_context_fn=self._build_long_term_memory_context,
-            )
-        else:
-            self._agent_runner = None
 
     @staticmethod
     def _matches_canary_rule(value: str, rules: list[str]) -> bool:
@@ -515,19 +439,15 @@ class HeadAgent:
                 if settings.reflection_enabled
                 else None
             )
-            self.planner_agent.configure_runtime(base_url=base_url, model=model)
-            self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
-            if self._agent_runner is not None:
-                self._agent_runner.client = self.client
-                self._agent_runner._reflection_service = self._reflection_service
-                # S3-09: rebuild unified system prompt for new model
-                self._agent_runner.system_prompt = build_unified_system_prompt(
-                    role=self.role,
-                    plan_prompt=self.prompt_profile.plan_prompt,
-                    tool_hints=self.prompt_profile.tool_selector_prompt,
-                    final_instructions=self.prompt_profile.final_prompt,
-                    platform_summary=self._tool_execution_manager._platform_summary,
-                )
+            self._agent_runner.client = self.client
+            self._agent_runner._reflection_service = self._reflection_service
+            self._agent_runner.system_prompt = build_unified_system_prompt(
+                role=self.role,
+                plan_prompt=self.prompt_profile.plan_prompt,
+                tool_hints=self.prompt_profile.tool_selector_prompt,
+                final_instructions=self.prompt_profile.final_prompt,
+                platform_summary=self._tool_execution_manager._platform_summary,
+            )
         finally:
             self._reconfiguring = False
 
@@ -543,10 +463,6 @@ class HeadAgent:
             self._long_term_memory_db_path = None
             self._reflection_feedback_store = None
             self._failure_retriever = None
-            # CB-2: planner_agent muss in ALLEN clear-Pfaden zurückgesetzt werden,
-            # nicht nur im Exception-Catch-Pfad.
-            if hasattr(self, "planner_agent"):
-                self.planner_agent._failure_retriever = None
 
         if not bool(settings.long_term_memory_enabled):
             # N-2: LTM bereits deaktiviert und Stores bereits gecleart → kein Overhead.
@@ -571,8 +487,6 @@ class HeadAgent:
             self._reflection_feedback_store = ReflectionFeedbackStore(configured_path)
             self._failure_retriever = FailureRetriever(self._long_term_memory)
             self._long_term_memory_db_path = configured_path
-            if hasattr(self, "planner_agent"):
-                self.planner_agent._failure_retriever = self._failure_retriever
         except Exception:
             logging.getLogger(__name__).warning(
                 "Failed to initialise long-term memory store",
@@ -627,1184 +541,48 @@ class HeadAgent:
                 raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
             self._active_run_count += 1
 
-        # ── Feature-flag: Continuous Streaming Tool Loop ──
-        if settings.use_continuous_loop and self._agent_runner is not None:
-            # S3-08: ContextVar propagation (same as legacy path)
-            send_event_token = self._active_send_event_context.set(send_event)
-            session_id_token = self._active_session_id_context.set(session_id)
-            request_id_token = self._active_request_id_context.set(request_id)
-            _runner_status = "failed"
-            _runner_final = ""
-            try:
-                _runner_final = await self._agent_runner.run(
-                    user_message=user_message,
-                    send_event=send_event,
-                    session_id=session_id,
-                    request_id=request_id,
-                    model=model,
-                    tool_policy=tool_policy,
-                    should_steer_interrupt=should_steer_interrupt,
-                )
-                _runner_status = "completed"
-                return _runner_final
-            except Exception as exc:
-                # S3-07: Failure logging to long-term memory
-                if self._long_term_memory is not None:
-                    with contextlib.suppress(Exception):
-                        self._long_term_memory.add_failure(
-                            FailureEntry(
-                                failure_id=request_id,
-                                task_description=user_message[:500],
-                                error_type=type(exc).__name__,
-                                root_cause=str(exc)[:500],
-                                solution=f"Review {type(exc).__name__} handling in agent run",
-                                prevention=f"Add guard for {type(exc).__name__} before reaching this code path",
-                                tags=[type(exc).__name__],
-                            )
-                        )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_error",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": str(exc), "error_type": type(exc).__name__},
-                )
-                raise
-            finally:
-                async with self._run_lock:
-                    self._active_run_count -= 1
-                # S3-05: Hook integration
-                with contextlib.suppress(Exception):
-                    await self._invoke_hooks(
-                        hook_name="agent_end",
-                        send_event=send_event,
-                        request_id=request_id,
-                        session_id=session_id,
-                        payload={
-                            "status": _runner_status,
-                            "error": None if _runner_status == "completed" else "runner_error",
-                            "final_chars": len(_runner_final),
-                            "model": model or self.client.model,
-                        },
-                    )
-                self._active_request_id_context.reset(request_id_token)
-                self._active_session_id_context.reset(session_id_token)
-                self._active_send_event_context.reset(send_event_token)
-
-        # ── Legacy 3-phase pipeline ──
-        return await self._run_legacy(
-            user_message=user_message,
-            send_event=send_event,
-            session_id=session_id,
-            request_id=request_id,
-            model=model,
-            tool_policy=tool_policy,
-            prompt_mode=prompt_mode,
-            should_steer_interrupt=should_steer_interrupt,
-        )
-
-    async def _run_legacy(
-        self,
-        user_message: str,
-        send_event: SendEvent,
-        session_id: str,
-        request_id: str,
-        model: str | None = None,
-        tool_policy: ToolPolicyDict | None = None,
-        prompt_mode: str | None = None,
-        should_steer_interrupt: Callable[[], bool] | None = None,
-    ) -> str:
-        """Original 3-phase pipeline (Planner → ToolSelector → Synthesizer)."""
-        status = "failed"
-        error_text: str | None = None
-        final_text = ""
-        plan_text = ""
-        tool_results = ""
         send_event_token = self._active_send_event_context.set(send_event)
         session_id_token = self._active_session_id_context.set(session_id)
         request_id_token = self._active_request_id_context.set(request_id)
-
-        await self._emit_lifecycle(
-            send_event,
-            stage="run_started",
-            request_id=request_id,
-            session_id=session_id,
-            details={"model": model or self.client.model},
-        )
-
+        _runner_status = "failed"
+        _runner_final = ""
         try:
-            guardrail_checks = self._validate_guardrails(user_message=user_message, session_id=session_id, model=model)
-            injection_suspect = any(
-                c["name"] == "prompt_injection_suspect" and c.get("actual_value") is True
-                for c in guardrail_checks
-            )
-            self._validate_tool_policy(tool_policy)
-            await self._emit_lifecycle(
-                send_event,
-                stage="guardrail_check_completed",
-                request_id=request_id,
-                session_id=session_id,
-                details={"checks": guardrail_checks},
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="guardrails_passed",
-                request_id=request_id,
-                session_id=session_id,
-            )
-            await self._debug_checkpoint("guardrails", send_event, request_id, session_id)
-
-            await self._ensure_mcp_tools_registered(
+            _runner_final = await self._agent_runner.run(
+                user_message=user_message,
                 send_event=send_event,
-                request_id=request_id,
                 session_id=session_id,
-            )
-
-            effective_allowed_tools = self._resolve_effective_allowed_tools(tool_policy)
-            policy_details = self._build_tool_policy_resolution_details(
+                request_id=request_id,
+                model=model,
                 tool_policy=tool_policy,
-                effective_allowed_tools=effective_allowed_tools,
+                should_steer_interrupt=should_steer_interrupt,
             )
-            await self._emit_lifecycle(
-                send_event,
-                stage="tool_policy_resolved",
-                request_id=request_id,
-                session_id=session_id,
-                details=policy_details,
-            )
-
-            toolchain_ok, toolchain_details = self.tools.check_toolchain()
-            await self._emit_lifecycle(
-                send_event,
-                stage="toolchain_checked",
-                request_id=request_id,
-                session_id=session_id,
-                details=toolchain_details,
-            )
-            if not toolchain_ok:
-                raise ToolExecutionError("Toolchain unavailable. Check workspace path or shell configuration.")
-
-            self.memory.add(session_id, "user", user_message)
-            repaired_orphans = self.memory.repair_orphaned_tool_calls(session_id)
-            if repaired_orphans > 0:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="orphaned_tool_calls_repaired",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"count": repaired_orphans},
-                )
-            sanitized_items = self.memory.sanitize_session_history(session_id)
-            if sanitized_items > 0:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="session_history_sanitized",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"removed_items": sanitized_items},
-                )
-            await self._invoke_hooks(
-                hook_name="before_model_resolve",
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                payload={
-                    "requested_model": model,
-                    "default_model": self.client.model,
-                    "agent": self.name,
-                },
-            )
-            model_id = model or self.client.model
-            effective_prompt_mode = normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default)
-            profile = self.model_registry.resolve(model_id)
-            budgets = self._step_budgets(profile.max_context)
-            memory_items = self.memory.get_items(session_id)
-            memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
-            ltm_context = self._build_long_term_memory_context(user_message)
-            planning_snapshot_lines = [ltm_context] if ltm_context else None
-
-            plan_context = self.context_reducer.reduce(
-                budget_tokens=budgets["plan"],
-                user_message=user_message,
-                memory_lines=memory_lines,
-                tool_outputs=[],
-                snapshot_lines=planning_snapshot_lines,
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="memory_updated",
-                request_id=request_id,
-                session_id=session_id,
-                details={"memory_items": len(memory_items), "memory_chars": len(plan_context.rendered)},
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="context_reduced",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "model": model_id,
-                    "prompt_mode": effective_prompt_mode,
-                    "max_context": profile.max_context,
-                    "plan_budget": budgets["plan"],
-                    "tool_budget": budgets["tool"],
-                    "final_budget": budgets["final"],
-                    "plan_used": plan_context.used_tokens,
-                },
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="context_segmented",
-                request_id=request_id,
-                session_id=session_id,
-                details=self._build_context_segments(
-                    phase="planning",
-                    prompt_mode=effective_prompt_mode,
-                    prompt_type="planning",
-                    budget_tokens=budgets["plan"],
-                    rendered_text=plan_context.rendered,
-                    used_tokens=plan_context.used_tokens,
-                    user_message=user_message,
-                    memory_lines=memory_lines,
-                    tool_outputs=[],
-                    snapshot_lines=planning_snapshot_lines,
-                    system_prompt=self.prompt_profile.plan_prompt,
-                ),
-            )
-            await self._debug_checkpoint("context", send_event, request_id, session_id)
-
-            if settings.clarification_protocol_enabled and effective_prompt_mode != "subagent":
-                ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
-                threshold = max(0.0, min(1.0, float(settings.clarification_confidence_threshold)))
-                if ambiguity.is_ambiguous and ambiguity.confidence < threshold:
-                    if ambiguity.default_interpretation:
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="clarification_auto_resolved",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "ambiguity_type": ambiguity.ambiguity_type,
-                                "confidence": ambiguity.confidence,
-                                "threshold": threshold,
-                                "action": "proceed_with_default",
-                                "default_interpretation": ambiguity.default_interpretation[:200],
-                            },
-                        )
-                    else:
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="clarification_needed",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "ambiguity_type": ambiguity.ambiguity_type,
-                                "confidence": ambiguity.confidence,
-                                "question": ambiguity.clarification_question,
-                                "threshold": threshold,
-                            },
-                        )
-                        await send_event(
-                            {
-                                "type": "clarification_needed",
-                                "agent": self.name,
-                                "request_id": request_id,
-                                "session_id": session_id,
-                                "message": ambiguity.clarification_question or "Could you clarify your request?",
-                                "default_interpretation": ambiguity.default_interpretation,
-                                "ambiguity_type": ambiguity.ambiguity_type,
-                                "confidence": ambiguity.confidence,
-                            }
-                        )
-                        status = "completed"
-                        clarification_text = ambiguity.clarification_question or "Could you clarify your request?"
-                        self.memory.add(session_id, "assistant", clarification_text)
-                        return clarification_text
-
-            await self._invoke_hooks(
-                hook_name="before_prompt_build",
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                payload={
-                    "prompt_type": "planning",
-                    "model": model,
-                    "prompt_mode": effective_prompt_mode,
-                    "context_chars": len(plan_context.rendered),
-                    "budget_tokens": budgets["plan"],
-                },
-            )
-
-            await send_event(
-                {
-                    "type": "status",
-                    "agent": self.name,
-                    "message": "Analyzing your request and planning execution.",
-                }
-            )
-
-            await self._emit_lifecycle(
-                send_event,
-                stage="planning_started",
-                request_id=request_id,
-                session_id=session_id,
-            )
-            await self._debug_checkpoint("planning", send_event, request_id, session_id)
-            plan_text = await self.plan_step_executor.execute(
-                PlannerInput(
-                    user_message=user_message,
-                    reduced_context=plan_context.rendered,
-                    prompt_mode=effective_prompt_mode,
-                    injection_suspect=injection_suspect,
-                ),
-                model,
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="planning_completed",
-                request_id=request_id,
-                session_id=session_id,
-                details={"plan_chars": len(plan_text), "iteration": 0},
-            )
-            plan_verification = self._verification.verify_plan(user_message=user_message, plan_text=plan_text)
-            await self._emit_lifecycle(
-                send_event,
-                stage="verification_plan",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "status": plan_verification.status,
-                    "reason": plan_verification.reason,
-                    **plan_verification.details,
-                },
-            )
-            semantic_plan_verification = self._verification.verify_plan_semantically(
-                user_message=user_message,
-                plan_text=plan_text,
-            )
-            await self._emit_lifecycle(
-                send_event,
-                stage="verification_plan_semantic",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "status": semantic_plan_verification.status,
-                    "reason": semantic_plan_verification.reason,
-                    **semantic_plan_verification.details,
-                },
-            )
-            self.memory.add(session_id, "plan", plan_text)
-            await send_event(
-                {
-                    "type": "agent_step",
-                    "agent": self.name,
-                    "step": f"Plan ready: {plan_text[:220]}",
-                }
-            )
-
-            # ── Direct-answer shortcut ──────────────────────────────
-            # If the plan already IS the answer (no tools needed),
-            # skip the entire tool loop and go straight to synthesis.
-            skip_tool_phase = False
-            if settings.run_direct_answer_skip_enabled and self._is_direct_answer_plan(
-                plan_text,
-                allowed_tools=effective_allowed_tools,
-                max_chars=settings.run_direct_answer_max_chars,
-            ):
-                skip_tool_phase = True
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="tool_phase_skipped",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "reason": "direct_answer_plan",
-                        "plan_chars": len(plan_text),
-                    },
-                )
-
-            max_replan_iterations = max(1, int(settings.run_max_replan_iterations))
-            max_empty_tool_replan_attempts = max(0, int(settings.run_empty_tool_replan_max_attempts))
-            max_error_tool_replan_attempts = max(0, int(settings.run_error_tool_replan_max_attempts))
-            empty_tool_replan_attempts_used = 0
-            error_tool_replan_attempts_used = 0
-            regular_replan_attempts_used = 0
-            total_replan_cycles = (
-                max_replan_iterations + max_empty_tool_replan_attempts + max_error_tool_replan_attempts
-            )
-            if skip_tool_phase:
-                total_replan_cycles = 0
-            if not skip_tool_phase:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="terminal_wait_started",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "scope": "tool_phase",
-                        "reason": "await_tool_terminal_state",
-                    },
-                )
-                await self._debug_checkpoint("tool_selection", send_event, request_id, session_id)
-            for iteration in range(total_replan_cycles):
-                tool_context_outputs = [plan_text]
-                if tool_results:
-                    tool_context_outputs.append(tool_results)
-                tool_context = self.context_reducer.reduce(
-                    budget_tokens=budgets["tool"],
-                    user_message=user_message,
-                    memory_lines=memory_lines,
-                    tool_outputs=tool_context_outputs,
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="context_segmented",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details=self._build_context_segments(
-                        phase="tool_loop",
-                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
-                        prompt_type="tool_selection",
-                        budget_tokens=budgets["tool"],
-                        rendered_text=tool_context.rendered,
-                        used_tokens=tool_context.used_tokens,
-                        user_message=user_message,
-                        memory_lines=memory_lines,
-                        tool_outputs=tool_context_outputs,
-                        snapshot_lines=None,
-                        system_prompt=self.prompt_profile.tool_selector_prompt,
-                    ),
-                )
-
-                tool_results = await self.tool_step_executor.execute(
-                    ToolSelectorInput(
-                        user_message=user_message,
-                        plan_text=plan_text,
-                        reduced_context=tool_context.rendered,
-                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
-                    ),
-                    session_id,
-                    request_id,
-                    send_event,
-                    model,
-                    effective_allowed_tools,
-                    should_steer_interrupt,
-                )
-
-                tool_results_state = self._classify_tool_results_state(tool_results)
-                if tool_results_state in {"blocked", "usable", "steer_interrupted"}:
-                    break
-
-                replan_reason = self._resolve_replan_reason(
-                    tool_results_state=tool_results_state,
-                    iteration=regular_replan_attempts_used,
-                    max_replan_iterations=max_replan_iterations,
-                    empty_tool_replan_attempts_used=empty_tool_replan_attempts_used,
-                    max_empty_tool_replan_attempts=max_empty_tool_replan_attempts,
-                    error_tool_replan_attempts_used=error_tool_replan_attempts_used,
-                    max_error_tool_replan_attempts=max_error_tool_replan_attempts,
-                )
-                if replan_reason is None:
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="replanning_exhausted",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "iteration": iteration + 1,
-                            "tool_results_state": tool_results_state,
-                            "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
-                            "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
-                            "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
-                            "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
-                        },
-                    )
-                    break
-                if replan_reason == "tool_selection_empty_replan":
-                    empty_tool_replan_attempts_used += 1
-                if replan_reason == "tool_selection_suspicious_replan":
-                    empty_tool_replan_attempts_used += 1
-                if replan_reason == "tool_selection_error_replan":
-                    error_tool_replan_attempts_used += 1
-                if replan_reason == "tool_results_invalidated_plan":
-                    regular_replan_attempts_used += 1
-
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="replanning_started",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "iteration": iteration + 1,
-                        "reason": replan_reason,
-                        "tool_results_state": tool_results_state,
-                        "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
-                        "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
-                        "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
-                        "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
-                    },
-                )
-                replan_context = self.context_reducer.reduce(
-                    budget_tokens=budgets["plan"],
-                    user_message=user_message,
-                    memory_lines=memory_lines,
-                    tool_outputs=[plan_text, tool_results] if tool_results else [plan_text],
-                )
-                replan_user_message = user_message
-                if settings.plan_root_cause_replan_enabled:
-                    replan_user_message = self._build_root_cause_replan_prompt(
-                        user_message=user_message,
-                        previous_plan=plan_text,
-                        tool_results=tool_results,
-                    )
-                plan_text = await self.plan_step_executor.execute(
-                    PlannerInput(
-                        user_message=replan_user_message,
-                        reduced_context=replan_context.rendered,
-                        prompt_mode="minimal" if effective_prompt_mode == "full" else effective_prompt_mode,
-                        injection_suspect=injection_suspect,
-                    ),
-                    model,
-                )
-                self.memory.add(session_id, "plan", plan_text)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="replanning_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "iteration": iteration + 1,
-                        "plan_chars": len(plan_text),
-                        "reason": replan_reason,
-                        "root_cause_replan": bool(settings.plan_root_cause_replan_enabled),
-                    },
-                )
-
-            if not skip_tool_phase:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="terminal_wait_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "scope": "tool_phase",
-                        "terminal_stage": "tool_audit_summary",
-                        "replan_cycles": total_replan_cycles,
-                        "empty_tool_replan_attempts_used": empty_tool_replan_attempts_used,
-                        "max_empty_tool_replan_attempts": max_empty_tool_replan_attempts,
-                        "error_tool_replan_attempts_used": error_tool_replan_attempts_used,
-                        "max_error_tool_replan_attempts": max_error_tool_replan_attempts,
-                    },
-                )
-                tool_result_verification = self._verification.verify_tool_result(
-                    plan_text=plan_text,
-                    tool_results=tool_results,
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="verification_tool_result",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "status": tool_result_verification.status,
-                        "reason": tool_result_verification.reason,
-                        **tool_result_verification.details,
-                    },
-                )
-
-            blocked_payload = self._parse_blocked_tool_result(tool_results)
-            if blocked_payload is not None:
-                final_text = blocked_payload.get("message") or "I need one required detail before I can continue."
-                final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="verification_final",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "status": final_verification.status,
-                        "reason": final_verification.reason,
-                        **final_verification.details,
-                    },
-                )
-                await send_event(
-                    {
-                        "type": "final",
-                        "agent": self.name,
-                        "message": final_text,
-                    }
-                )
-                self.memory.add(session_id, "assistant", final_text)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "response_chars": len(final_text),
-                        "fallback": "blocked_with_reason",
-                        "blocked_with_reason": blocked_payload.get("blocked_with_reason", "blocked"),
-                    },
-                )
-                status = "completed"
-                return final_text
-
-            if self._is_steer_interrupted(tool_results):
-                interrupted_message = "Run interrupted due to newer input (steer). Processing latest message now."
-                final_verification = self._verification.verify_final(
-                    user_message=user_message,
-                    final_text=interrupted_message,
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="verification_final",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "status": final_verification.status,
-                        "reason": final_verification.reason,
-                        **final_verification.details,
-                    },
-                )
-                self.memory.add(session_id, "assistant", interrupted_message)
-                await send_event(
-                    {
-                        "type": "status",
-                        "agent": self.name,
-                        "message": interrupted_message,
-                    }
-                )
-                await send_event(
-                    {
-                        "type": "final",
-                        "agent": self.name,
-                        "message": interrupted_message,
-                        "interrupted": True,
-                    }
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="response_emitted",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "response_chars": len(interrupted_message),
-                        "interrupted": True,
-                        "reason": "steer",
-                    },
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_interrupted",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"reason": "steer"},
-                )
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "steer_interrupt": True,
-                        "superseded_by_new_input": True,
-                        "response_chars": len(interrupted_message),
-                    },
-                )
-                status = "completed"
-                return interrupted_message
-
-            if self._is_web_research_task(user_message) and not self._has_successful_web_fetch(tool_results or ""):
-                web_errors = self._extract_tool_errors(tool_results or "", tool_name="web_search")
-                web_errors.extend(self._extract_tool_errors(tool_results or "", tool_name="web_fetch"))
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="web_research_sources_unavailable",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error_count": len(web_errors)},
-                )
-                final_text = self._build_web_fetch_unavailable_reply(web_errors)
-                final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="verification_final",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "status": final_verification.status,
-                        "reason": final_verification.reason,
-                        **final_verification.details,
-                    },
-                )
-                await send_event(
-                    {
-                        "type": "final",
-                        "agent": self.name,
-                        "message": final_text,
-                    }
-                )
-                self.memory.add(session_id, "assistant", final_text)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_completed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"response_chars": len(final_text), "fallback": "web_search_unavailable"},
-                )
-                status = "completed"
-                return final_text
-
-            await send_event(
-                {
-                    "type": "agent_step",
-                    "agent": self.name,
-                    "step": "Reviewing results and building final response",
-                }
-            )
-
-            if settings.tool_result_context_guard_enabled and tool_results:
-                guarded_tool_results, guard_result = enforce_tool_result_context_budget(
-                    tool_results=tool_results,
-                    context_window_tokens=profile.max_context,
-                    context_input_headroom_ratio=settings.tool_result_context_headroom_ratio,
-                    single_tool_result_share=settings.tool_result_single_share,
-                )
-                if guard_result.modified:
-                    tool_results = guarded_tool_results
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="tool_result_context_guard_applied",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "original_chars": guard_result.original_chars,
-                            "reduced_chars": guard_result.reduced_chars,
-                            "reason": guard_result.reason,
-                        },
-                    )
-
-            final_context = self.context_reducer.reduce(
-                budget_tokens=budgets["final"],
-                user_message=user_message,
-                memory_lines=memory_lines,
-                tool_outputs=[tool_results] if tool_results else [],
-                snapshot_lines=[f"plan: {plan_text[:500]}"] if plan_text else None,
-            )
-            final_snapshot_lines = [f"plan: {plan_text[:500]}"] if plan_text else None
-            await self._emit_lifecycle(
-                send_event,
-                stage="context_segmented",
-                request_id=request_id,
-                session_id=session_id,
-                details=self._build_context_segments(
-                    phase="synthesis",
-                    prompt_mode=effective_prompt_mode,
-                    prompt_type="synthesis",
-                    budget_tokens=budgets["final"],
-                    rendered_text=final_context.rendered,
-                    used_tokens=final_context.used_tokens,
-                    user_message=user_message,
-                    memory_lines=memory_lines,
-                    tool_outputs=[tool_results] if tool_results else [],
-                    snapshot_lines=final_snapshot_lines,
-                    system_prompt=self.prompt_profile.final_prompt,
-                ),
-            )
-            synthesis_task_type = self._resolve_synthesis_task_type(
-                user_message=user_message,
-                tool_results=tool_results or "",
-            )
-
-            await self._invoke_hooks(
-                hook_name="before_prompt_build",
-                send_event=send_event,
-                request_id=request_id,
-                session_id=session_id,
-                payload={
-                    "prompt_type": "synthesize",
-                    "model": model,
-                    "prompt_mode": effective_prompt_mode,
-                    "context_chars": len(final_context.rendered),
-                    "budget_tokens": budgets["final"],
-                    "task_type": synthesis_task_type,
-                },
-            )
-            await self._debug_checkpoint("synthesis", send_event, request_id, session_id)
-            await self._emit_lifecycle(
-                send_event,
-                stage="synthesis_started",
-                request_id=request_id,
-                session_id=session_id,
-                details={"model": model or self.client.model},
-            )
-
-            final_text = await self.synthesize_step_executor.execute(
-                SynthesizerInput(
-                    user_message=user_message,
-                    plan_text=plan_text,
-                    tool_results=tool_results or "",
-                    reduced_context=final_context.rendered,
-                    prompt_mode=effective_prompt_mode,
-                    task_type=synthesis_task_type,
-                    injection_suspect=injection_suspect,
-                ),
-                session_id,
-                request_id,
-                send_event,
-                model,
-            )
-            reflection_passes = max(0, int(self.synthesizer_agent.constraints.reflection_passes))
-            if reflection_passes > 0 and self._reflection_service is not None and len((final_text or "").strip()) >= 8:
-                await self._debug_checkpoint("reflection", send_event, request_id, session_id)
-                for reflection_pass in range(reflection_passes):
-                    try:
-                        if settings.debug_mode:
-                            await self._emit_lifecycle(
-                                send_event,
-                                "debug_prompt_sent",
-                                request_id,
-                                session_id,
-                                {
-                                    "phase": "reflection",
-                                    "system_prompt": "(reflection prompt)",
-                                    "user_prompt": user_message,
-                                    "model": model or self.client.model,
-                                },
-                            )
-                        try:
-                            verdict = await self._reflection_service.reflect(
-                                user_message=user_message,
-                                plan_text=plan_text,
-                                tool_results=tool_results or "",
-                                final_answer=final_text,
-                                model=model,
-                                task_type=synthesis_task_type,
-                            )
-                        except TypeError as inner_exc:
-                            message = str(inner_exc)
-                            if "task_type" not in message:
-                                raise
-                            verdict = await self._reflection_service.reflect(
-                                user_message=user_message,
-                                plan_text=plan_text,
-                                tool_results=tool_results or "",
-                                final_answer=final_text,
-                                model=model,
-                            )
-                    except Exception as exc:
-                        await self._emit_lifecycle(
-                            send_event,
-                            stage="reflection_failed",
-                            request_id=request_id,
-                            session_id=session_id,
-                            details={
-                                "pass": reflection_pass + 1,
-                                "error": str(exc),
-                            },
-                        )
-                        break
-                    if settings.debug_mode:
-                        await self._emit_lifecycle(
-                            send_event,
-                            "debug_llm_response",
-                            request_id,
-                            session_id,
-                            {
-                                "phase": "reflection",
-                                "raw_response": f"score={verdict.score:.2f} goal={verdict.goal_alignment:.2f} complete={verdict.completeness:.2f} factual={verdict.factual_grounding:.2f}",
-                                "parsed_output": f"retry={verdict.should_retry}",
-                            },
-                        )
-                    await self._emit_lifecycle(
-                        send_event,
-                        stage="reflection_completed",
-                        request_id=request_id,
-                        session_id=session_id,
-                        details={
-                            "pass": reflection_pass + 1,
-                            "score": verdict.score,
-                            "goal_alignment": verdict.goal_alignment,
-                            "completeness": verdict.completeness,
-                            "factual_grounding": verdict.factual_grounding,
-                            "issues": verdict.issues[:3],
-                            "should_retry": verdict.should_retry,
-                            "hard_factual_fail": verdict.hard_factual_fail,
-                        },
-                    )
-                    if self._reflection_feedback_store is not None:
-                        self._reflection_feedback_store.store(
-                            ReflectionRecord(
-                                record_id=f"{request_id}-reflection-{reflection_pass + 1}",
-                                session_id=session_id,
-                                request_id=request_id,
-                                task_type=synthesis_task_type,
-                                score=verdict.score,
-                                goal_alignment=verdict.goal_alignment,
-                                completeness=verdict.completeness,
-                                factual_grounding=verdict.factual_grounding,
-                                issues=list(verdict.issues),
-                                suggested_fix=verdict.suggested_fix,
-                                model_id=(model or settings.llm_model),
-                                prompt_variant=self.synthesizer_agent.last_prompt_variant_id,
-                                retry_triggered=verdict.should_retry,
-                                timestamp_utc=datetime.now(UTC).isoformat(),
-                            )
-                        )
-                    if not verdict.should_retry:
-                        break
-
-                    feedback_lines = [issue for issue in verdict.issues if issue]
-                    if verdict.suggested_fix:
-                        feedback_lines.append(f"Suggested fix: {verdict.suggested_fix}")
-                    reflection_feedback = "\n".join(feedback_lines).strip() or "No specific issues provided."
-
-                    final_text = await self.synthesize_step_executor.execute(
-                        SynthesizerInput(
-                            user_message=user_message,
-                            plan_text=plan_text,
-                            tool_results=(tool_results or "") + f"\n\n[REFLECTION FEEDBACK]\n{reflection_feedback}",
-                            reduced_context=final_context.rendered,
-                            prompt_mode=effective_prompt_mode,
-                            task_type=synthesis_task_type,
-                            injection_suspect=injection_suspect,
-                        ),
-                        session_id,
-                        request_id,
-                        send_event,
-                        model,
-                    )
-            elif reflection_passes > 0 and len((final_text or "").strip()) < 8:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="reflection_skipped",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
-                )
-            # L-5: run evidence gates BEFORE shaping to avoid wasted shaping work
-            if self._requires_implementation_evidence(
-                user_message=user_message,
-                synthesis_task_type=synthesis_task_type,
-            ) and not self._has_implementation_evidence(tool_results):
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="implementation_evidence_missing",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "task_type": synthesis_task_type,
-                        "required_evidence_tools": ["write_file", "apply_patch", "run_command", "code_execute"],
-                    },
-                )
-                final_text = (
-                    "I could not complete the implementation in this run because no code-edit or command-execution "
-                    "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
-                    "`run_command`, or `code_execute`) and retry."
-                )
-
-            await self._debug_checkpoint("reply_shaping", send_event, request_id, session_id)
-            await self._emit_lifecycle(
-                send_event,
-                stage="reply_shaping_started",
-                request_id=request_id,
-                session_id=session_id,
-                details={"input_chars": len(final_text)},
-            )
-            shape_result = self._shape_final_response(final_text, tool_results)
-            await self._emit_lifecycle(
-                send_event,
-                stage="reply_shaping_completed",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "original_chars": len(final_text),
-                    "shaped_chars": len(shape_result.text),
-                    "suppressed": shape_result.suppressed,
-                    "reason": shape_result.reason,
-                    "removed_tokens": shape_result.removed_tokens,
-                    "deduped_lines": shape_result.deduped_lines,
-                },
-            )
-            final_text = shape_result.text
-
-            # All-Tools-Failed Gate: verhindert halluzinierte Erfolgsantworten wenn
-            # alle Tool-Calls Fehler zurückgegeben haben und kein einziger erfolgreich war.
-            # Das LLM (besonders lokale Modelle) tendiert dazu, Fehler im Kontext zu ignorieren
-            # und trotzdem eine "Ich hab alles abgeschlossen"-Antwort zu generieren.
-            if self._all_tools_failed(tool_results) and not self._response_acknowledges_failures(final_text):
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="all_tools_failed_gate_applied",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "task_type": synthesis_task_type,
-                        "suppressed_chars": len(final_text),
-                    },
-                )
-                final_text = (
-                    "I was unable to complete this task. All tool calls encountered errors and no work "
-                    "was successfully performed in this run.\n\n"
-                    "Please check the tool error details above, resolve any permission or policy issues "
-                    "(for example, approve the requested commands via the policy dialog), and retry."
-                )
-
-            # Orchestration Evidence Gate: verhindert, dass fabrizierte Erfolgsmeldungen
-            # den Nutzer täuschen, wenn ein Subrun nie erfolgreich abgeschlossen wurde.
-            # Analoges Muster zum implementation_evidence_missing Gate.
-            if synthesis_task_type == "orchestration" and not self._has_orchestration_evidence(tool_results):
-                attempted = self._has_orchestration_attempted(tool_results)
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="orchestration_evidence_missing",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={
-                        "task_type": synthesis_task_type,
-                        "subrun_attempted": attempted,
-                        "expected_terminal_reason": "subrun-complete",
-                    },
-                )
-                if attempted:
-                    final_text = (
-                        "The delegated subrun did not complete successfully. "
-                        "Most likely cause: a tool call inside the subrun timed out (e.g. a CLI scaffolding "
-                        "command such as `npm`, `ng`, or `npx` exceeded COMMAND_TIMEOUT_SECONDS) or was "
-                        "blocked by the command allowlist. "
-                        "Check the subrun lifecycle events for `tool_timeout` or `command_policy_unsupported` "
-                        "errors. If commands are blocked, set COMMAND_ALLOWLIST_EXTRA in the environment or "
-                        "approve the command via the policy dialog. "
-                        "If the subrun succeeded but this message still appears, the subrun returned before "
-                        "the parent could read its result — this is now fixed in the current build."
-                    )
-                else:
-                    final_text = (
-                        "No subrun was executed for this orchestration request. "
-                        "The plan did not result in a `spawn_subrun` tool call. "
-                        "Please verify the orchestration intent and retry."
-                    )
-            final_verification = self._verification.verify_final(user_message=user_message, final_text=final_text)
-            await self._emit_lifecycle(
-                send_event,
-                stage="verification_final",
-                request_id=request_id,
-                session_id=session_id,
-                details={
-                    "status": final_verification.status,
-                    "reason": final_verification.reason,
-                    **final_verification.details,
-                },
-            )
-            if not final_verification.ok:
-                final_text = "No output generated."
-
-            if shape_result.suppressed:
-                suppressed_text = final_text or f"Reply suppressed: {shape_result.reason or 'suppressed'}"
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="reply_suppressed",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"reason": shape_result.reason or "suppressed"},
-                )
-                self.memory.add(session_id, "assistant", suppressed_text)
-                await send_event(
-                    {
-                        "type": "final",
-                        "agent": self.name,
-                        "message": suppressed_text,
-                        "suppressed": True,
-                    }
-                )
-            else:
-                await self._invoke_hooks(
-                    hook_name="before_transcript_append",
-                    send_event=send_event,
-                    request_id=request_id,
-                    session_id=session_id,
-                    payload={
-                        "role": "assistant",
-                        "content_chars": len(final_text or ""),
-                        "status": status,
-                    },
-                )
-                self.memory.add(session_id, "assistant", final_text or "No output generated.")
-                await send_event(
-                    {
-                        "type": "final",
-                        "agent": self.name,
-                        "message": final_text or "No output generated.",
-                    }
-                )
-            await self._emit_lifecycle(
-                send_event,
-                stage="run_completed",
-                request_id=request_id,
-                session_id=session_id,
-            )
-            status = "completed"
-            return final_text
+            _runner_status = "completed"
+            return _runner_final
         except Exception as exc:
-            error_text = str(exc)
-            with contextlib.suppress(Exception):
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="run_error",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"error": error_text[:500], "error_type": type(exc).__name__},
-                )
-            if settings.failure_journal_enabled and self._long_term_memory is not None:
+            if self._long_term_memory is not None:
                 with contextlib.suppress(Exception):
                     self._long_term_memory.add_failure(
                         FailureEntry(
                             failure_id=request_id,
                             task_description=user_message[:500],
                             error_type=type(exc).__name__,
-                            root_cause=error_text[:500],
+                            root_cause=str(exc)[:500],
                             solution=f"Review {type(exc).__name__} handling in agent run",
                             prevention=f"Add guard for {type(exc).__name__} before reaching this code path",
                             tags=[type(exc).__name__],
                         )
                     )
+            await self._emit_lifecycle(
+                send_event,
+                stage="run_error",
+                request_id=request_id,
+                session_id=session_id,
+                details={"error": str(exc), "error_type": type(exc).__name__},
+            )
             raise
         finally:
-            # BUG-4: Decrement run counter BEFORE launching distillation so that
-            # a concurrent configure_runtime() call arriving during the (slow)
-            # distillation LLM call no longer raises RuntimeError.
             async with self._run_lock:
-                self._active_run_count -= 1  # H-6: release run slot
-
-            if status == "completed" and settings.session_distillation_enabled and self._long_term_memory is not None:
-                _session_id = session_id
-                _user_message = user_message
-                _plan_text = plan_text
-                _tool_results = tool_results
-                _final_text = final_text
-                _model = model
-
-                async def _distill_bg() -> None:
-                    try:
-                        await self._distill_session_knowledge(
-                            session_id=_session_id,
-                            user_message=_user_message,
-                            plan_text=_plan_text,
-                            tool_results=_tool_results,
-                            final_text=_final_text,
-                            model=_model,
-                        )
-                    except Exception:
-                        logging.getLogger(__name__).warning(
-                            "Session distillation failed for session %s",
-                            _session_id,
-                            exc_info=True,
-                        )
-
-                _task = asyncio.create_task(_distill_bg())
-                self._background_tasks.add(_task)
-                _task.add_done_callback(self._background_tasks.discard)
-
+                self._active_run_count -= 1
             with contextlib.suppress(Exception):
                 await self._invoke_hooks(
                     hook_name="agent_end",
@@ -1812,9 +590,9 @@ class HeadAgent:
                     request_id=request_id,
                     session_id=session_id,
                     payload={
-                        "status": status,
-                        "error": error_text,
-                        "final_chars": len(final_text),
+                        "status": _runner_status,
+                        "error": None if _runner_status == "completed" else "runner_error",
+                        "final_chars": len(_runner_final),
                         "model": model or self.client.model,
                     },
                 )
@@ -1901,205 +679,6 @@ class HeadAgent:
                 confidence=0.7,
                 source_sessions=[session_id],
             )
-
-    async def _execute_planner_step(self, payload: PlannerInput, model: str | None) -> str:
-        send_event = self._active_send_event_context.get()
-        request_id = self._active_request_id_context.get() or ""
-        session_id = self._active_session_id_context.get() or ""
-        if settings.debug_mode and send_event is not None:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_prompt_sent",
-                request_id,
-                session_id,
-                {
-                    "phase": "planning",
-                    "system_prompt": self.prompt_profile.plan_prompt,
-                    "user_prompt": payload.user_message,
-                    "model": model or self.client.model,
-                },
-            )
-        if settings.structured_planning_enabled:
-            plan_graph = await self.planner_agent.execute_structured(payload, model=model)
-            result = plan_graph.as_plan_text()
-        else:
-            planner_output = await self.planner_agent.execute(payload, model=model)
-            result = planner_output.plan_text
-        if settings.debug_mode and send_event is not None:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_llm_response",
-                request_id,
-                session_id,
-                {"phase": "planning", "raw_response": result, "parsed_output": result},
-            )
-        return result
-
-    async def _execute_tool_step(
-        self,
-        payload: ToolSelectorInput,
-        session_id: str,
-        request_id: str,
-        send_event: SendEvent,
-        model: str | None,
-        allowed_tools: set[str],
-        should_steer_interrupt: Callable[[], bool] | None,
-    ) -> str:
-        if settings.debug_mode and send_event is not None:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_prompt_sent",
-                request_id,
-                session_id,
-                {
-                    "phase": "tool_selection",
-                    "system_prompt": self.prompt_profile.tool_selector_prompt,
-                    "user_prompt": payload.user_message,
-                    "model": model or self.client.model,
-                },
-            )
-        result = await self._execute_tools(
-            user_message=payload.user_message,
-            plan_text=payload.plan_text,
-            memory_context=payload.reduced_context,
-            session_id=session_id,
-            request_id=request_id,
-            send_event=send_event,
-            model=model,
-            allowed_tools=allowed_tools,
-            prompt_mode=payload.prompt_mode,
-            should_steer_interrupt=should_steer_interrupt,
-        )
-        if settings.debug_mode and send_event is not None:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_llm_response",
-                request_id,
-                session_id,
-                {"phase": "tool_selection", "raw_response": result, "parsed_output": result},
-            )
-        return result
-
-    async def _execute_synthesize_step(
-        self,
-        payload: SynthesizerInput,
-        session_id: str,
-        request_id: str,
-        send_event: SendEvent,
-        model: str | None,
-    ) -> str:
-        if settings.debug_mode:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_prompt_sent",
-                request_id,
-                session_id,
-                {
-                    "phase": "synthesis",
-                    "system_prompt": self.prompt_profile.final_prompt,
-                    "user_prompt": payload.user_message,
-                    "model": model or self.client.model,
-                },
-            )
-        synthesize_output = await self.synthesizer_agent.execute(
-            payload,
-            send_event=send_event,
-            session_id=session_id,
-            request_id=request_id,
-            model=model,
-        )
-        if settings.debug_mode:
-            await self._emit_lifecycle(
-                send_event,
-                "debug_llm_response",
-                request_id,
-                session_id,
-                {
-                    "phase": "synthesis",
-                    "raw_response": synthesize_output.final_text,
-                    "parsed_output": synthesize_output.final_text,
-                },
-            )
-        return synthesize_output.final_text
-
-    def _step_budgets(self, max_context: int) -> dict[str, int]:
-        budget = max(1024, max_context)
-        plan_budget = max(256, int(budget * 0.25))
-        tool_budget = max(256, int(budget * 0.30))
-        final_budget = max(512, int(budget * 0.45))
-        total = plan_budget + tool_budget + final_budget
-        if total > budget:
-            scale = budget / total
-            plan_budget = int(plan_budget * scale)
-            tool_budget = int(tool_budget * scale)
-            final_budget = budget - plan_budget - tool_budget
-        return {
-            "plan": plan_budget,
-            "tool": tool_budget,
-            "final": final_budget,
-        }
-
-    def _build_context_segments(
-        self,
-        *,
-        phase: str,
-        prompt_mode: str,
-        prompt_type: str,
-        budget_tokens: int,
-        rendered_text: str,
-        used_tokens: int,
-        user_message: str,
-        memory_lines: list[str],
-        tool_outputs: list[str],
-        snapshot_lines: list[str] | None,
-        system_prompt: str,
-    ) -> dict[str, object]:
-        estimate = self.context_reducer.estimate_tokens
-        user_tokens = estimate(user_message or "")
-        memory_text = "\n".join(memory_lines or [])
-        memory_tokens = estimate(memory_text)
-        tool_text = "\n\n".join(tool_outputs or [])
-        tool_tokens = estimate(tool_text)
-        snapshot_text = "\n".join(snapshot_lines or [])
-        snapshot_tokens = estimate(snapshot_text)
-        system_tokens = estimate(system_prompt or "")
-
-        segments: dict[str, dict[str, int | float]] = {
-            "system_prompt": {"tokens_est": system_tokens, "chars": len(system_prompt or "")},
-            "user_payload": {"tokens_est": user_tokens, "chars": len(user_message or "")},
-            "memory": {"tokens_est": memory_tokens, "chars": len(memory_text)},
-            "tool_results": {"tokens_est": tool_tokens, "chars": len(tool_text)},
-            "snapshot": {"tokens_est": snapshot_tokens, "chars": len(snapshot_text)},
-            "rendered_prompt": {"tokens_est": used_tokens, "chars": len(rendered_text or "")},
-        }
-
-        total = max(1, sum(int(item["tokens_est"]) for item in segments.values()))
-        for value in segments.values():
-            value["share_pct"] = round((int(value["tokens_est"]) / total) * 100.0, 2)
-
-        kernel = self.prompt_kernel_builder.build(
-            prompt_type=prompt_type,
-            prompt_mode=normalize_prompt_mode(prompt_mode, default=settings.prompt_mode_default),
-            sections={
-                "system": system_prompt or "",
-                "platform": self._platform.summary() + f"\nworkspace_root={self.tools.workspace_root}",
-                "context": rendered_text or "",
-                "task": user_message or "",
-                "tool_results": tool_text,
-                "snapshot": snapshot_text,
-            },
-        )
-
-        return {
-            "phase": phase,
-            "prompt_mode": kernel.prompt_mode,
-            "kernel_version": kernel.kernel_version,
-            "prompt_hash": kernel.prompt_hash,
-            "section_fingerprints": kernel.section_fingerprints,
-            "budget_tokens": int(budget_tokens),
-            "used_tokens": int(used_tokens),
-            "segments": segments,
-        }
 
     def _validate_guardrails(self, user_message: str, session_id: str, model: str | None) -> list[dict]:
         """Run all 5 guardrail checks and return a list of check results.
@@ -2461,182 +1040,6 @@ class HeadAgent:
             provider=provider,
         )
 
-    def _plan_still_valid(self, plan_text: str, tool_results: str | None) -> bool:
-        state = self._classify_tool_results_state(tool_results)
-        if state not in {"blocked", "usable"}:
-            return False
-        # L-2: check plan_text for explicit completion/done markers
-        return not (plan_text and any(marker in plan_text.lower() for marker in ("[done]", "[completed]", "[aborted]")))
-
-    def _classify_tool_results_state(self, tool_results: str | None) -> str:
-        if self._is_steer_interrupted(tool_results):
-            return "steer_interrupted"
-
-        if self._parse_blocked_tool_result(tool_results) is not None:
-            return "blocked"
-
-        normalized_results = (tool_results or "").strip()
-        if not normalized_results:
-            return "empty"
-
-        lowered = normalized_results.lower()
-        has_ok = "] ok" in lowered or "[ok]" in lowered
-        has_error = "[error]" in lowered or "] error" in lowered
-        has_rejected = "] rejected:" in lowered
-
-        # Detect substantive content: a [tool] block followed by a real
-        # body (>20 chars) counts as success even without an OK marker.
-        # The tool_execution_manager produces "[tool]\ncontent" on success.
-        _has_substantive = bool(
-            re.search(r'\[\w+\]\s*\n.{20,}', normalized_results, re.DOTALL)
-        )
-
-        if has_error and (has_ok or _has_substantive):
-            # Mixed OK + ERROR → partial_error to enable
-            # targeted replanning of only the failed tools.
-            return "partial_error"
-        if has_error and not has_ok and not _has_substantive:
-            if "tool timeout" in lowered or "timed out" in lowered:
-                return "timeout_error"
-            return "error_only"
-        if has_ok or _has_substantive:
-            return "usable"
-
-        # D-11: suspicious patterns — only for short results where the
-        # entire body is placeholder-like.  Large results (code files etc.)
-        # naturally contain "null", "[]" etc. and must not trigger this.
-        suspicious_patterns = (
-            "no output",
-            "n/a",
-            "not available",
-            "null",
-            "undefined",
-            "placeholder",
-            "{}",
-            "[]",
-        )
-        has_suspicious = any(p in lowered for p in suspicious_patterns)
-        if has_suspicious:
-            return "all_suspicious"
-        return "usable"
-
-    # ── Direct-answer detection ─────────────────────────────────
-    _TOOL_ACTION_RE = re.compile(
-        r'\b(?:read|write|create|delete|execute|run|fetch|open|list|search|modify|update|install|deploy)'
-        r'(?:\s+\S+){0,3}\s+'
-        r'(?:file|directory|folder|command|script|url|endpoint|api|code|package|server)\b',
-        re.IGNORECASE,
-    )
-    # Language-agnostic: file paths, URLs, or known extensions in the plan
-    # signal that tools are needed regardless of the human language used.
-    _FILE_PATH_RE = re.compile(
-        r'(?:'
-        r'(?:[a-zA-Z]:)?(?:[/\\]\S+){2,}'            # absolute or deep relative path
-        r'|\S+[/\\]\S+\.\w{1,10}'                     # relative path with extension
-        r'|\b\S+\.(?:py|js|ts|json|yaml|yml|toml|md|txt|cfg|ini|sh|ps1|bat|html|css|xml|sql|csv|log|env|lock)\b'  # bare filename with known ext
-        r'|https?://\S+'                               # URL
-        r')',
-        re.IGNORECASE,
-    )
-
-    @staticmethod
-    def _is_direct_answer_plan(
-        plan_text: str,
-        allowed_tools: list[str] | None = None,
-        max_chars: int = 500,
-    ) -> bool:
-        """Return True when the plan is already a direct answer needing no tools."""
-        text = (plan_text or "").strip()
-        if not text or len(text) > max_chars:
-            return False
-        # Too short to be a confident direct answer (ambiguous like "run")
-        if len(text) < 8:
-            return False
-        # Many numbered steps or bullet points → likely an actionable plan.
-        # Allow up to 3 internal steps for conversational/knowledge plans.
-        if len(re.findall(r'^\s*(?:\d+[.)\-]|[-*•])\s', text, re.MULTILINE)) > 3:
-            return False
-        # References to allowed tool names → needs tool execution
-        text_lower = text.lower()
-        for tool in (allowed_tools or []):
-            if tool.lower().replace("_", " ") in text_lower or tool.lower() in text_lower:
-                return False
-        # Code blocks → likely needs execution
-        if '```' in text:
-            return False
-        # Action verbs targeting tool-like objects (with up to 3 words between)
-        if HeadAgent._TOOL_ACTION_RE.search(text):
-            return False
-        # File paths, URLs, or known extensions → needs file/web access
-        if HeadAgent._FILE_PATH_RE.search(text):
-            return False
-        return True
-
-    def _is_steer_interrupted(self, tool_results: str | None) -> bool:
-        return (tool_results or "").startswith(STEER_INTERRUPTED_MARKER)
-
-    def _resolve_replan_reason(
-        self,
-        *,
-        tool_results_state: str,
-        iteration: int,
-        max_replan_iterations: int,
-        empty_tool_replan_attempts_used: int,
-        max_empty_tool_replan_attempts: int,
-        error_tool_replan_attempts_used: int,
-        max_error_tool_replan_attempts: int,
-    ) -> str | None:
-        # A timed-out tool call will time out again with the same arguments.
-        # Do not waste replan budget — break the loop immediately.
-        if tool_results_state == "timeout_error":
-            return None
-
-        if tool_results_state == "error_only":
-            if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
-                return "tool_selection_error_replan"
-            return None
-
-        # D-11: partial_error — some tools worked, some failed. Re-plan only
-        # the failed portion while keeping successful results.
-        if tool_results_state == "partial_error":
-            if error_tool_replan_attempts_used < max_error_tool_replan_attempts:
-                return "tool_selection_partial_error_replan"
-            return None
-
-        # D-11: all_suspicious — every result looks like empty/placeholder output.
-        # Treat similarly to empty results but with a specific reason tag.
-        if tool_results_state == "all_suspicious":
-            if empty_tool_replan_attempts_used < max_empty_tool_replan_attempts:
-                return "tool_selection_suspicious_replan"
-            return None
-
-        if tool_results_state == "empty" and empty_tool_replan_attempts_used < max_empty_tool_replan_attempts:
-            return "tool_selection_empty_replan"
-
-        regular_replan_budget_remaining = iteration < max_replan_iterations
-        if regular_replan_budget_remaining:
-            return "tool_results_invalidated_plan"
-
-        return None
-
-    def _build_root_cause_replan_prompt(
-        self,
-        *,
-        user_message: str,
-        previous_plan: str,
-        tool_results: str,
-    ) -> str:
-        return (
-            "The previous plan failed. Analyze WHY and create a better plan.\n\n"
-            f"Original user request: {user_message[:2000]}\n"
-            f"Previous plan: {previous_plan[:2000]}\n"
-            f"Tool results (including errors): {(tool_results or '')[:3000]}\n\n"
-            "Your analysis must include:\n"
-            "1. ROOT CAUSE: Why did the previous plan fail? (wrong tool? wrong arguments? missing info?)\n"
-            "2. LESSON LEARNED: What should we avoid in the new plan?\n"
-            "3. NEW PLAN: A revised plan that addresses the root cause."
-        )
-
     def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
         # Neutralised: LLM-based tool selection handles intent classification.
         # The IntentDetector instance is kept alive for ActionAugmenter convenience
@@ -2853,48 +1256,6 @@ class HeadAgent:
 
     def _is_file_creation_task(self, user_message: str) -> bool:
         return self._intent.is_file_creation_task(user_message)
-
-    def _resolve_synthesis_task_type(self, *, user_message: str, tool_results: str) -> str:
-        message = (user_message or "").strip()
-        if self.synthesizer_agent._requires_hard_research_structure(message):
-            return "hard_research"
-
-        # Evidence-first: Tool-Ergebnisse haben absoluten Vorrang vor Keyword-Match.
-        # "spawned_subrun_id=" im Tool-Result belegt, dass spawn_subrun ausgeführt wurde.
-        # Der terminal_reason entscheidet über den konkreten Orchestrierungs-Typ.
-        if "spawned_subrun_id=" in (tool_results or ""):
-            tr = tool_results or ""
-            terminal_statuses = [
-                (m.start(), m.group(1))
-                for m in re.finditer(
-                    r"terminal_reason=(subrun-complete|subrun-error|subrun-timeout|subrun-cancelled|subrun-running|subrun-accepted)",
-                    tr,
-                )
-            ]
-            if terminal_statuses:
-                _, last_status = max(terminal_statuses, key=lambda item: item[0])
-                if last_status == "subrun-complete":
-                    return "orchestration"
-                if last_status in ("subrun-error", "subrun-timeout", "subrun-cancelled"):
-                    return "orchestration_failed"
-                return "orchestration_pending"
-
-            # Backward-compatible fallback wenn terminal_reason nicht explizit serialisiert ist.
-            if "subrun-complete" in tr:
-                return "orchestration"
-            if any(s in tr for s in ("subrun-error", "subrun-timeout", "subrun-cancelled")):
-                return "orchestration_failed"
-            return "orchestration_pending"
-
-        # Keyword-Scan nur wenn KEIN Subrun-Ergebnis vorliegt.
-        if self._is_subrun_orchestration_task(message):
-            return "orchestration"
-
-        if self._is_file_creation_task(message) or _IMPLEMENTATION_RE.search(message):
-            return "implementation"
-        if self._is_web_research_task(message) or "source_url" in (tool_results or ""):
-            return "research"
-        return "general"
 
     def _requires_implementation_evidence(self, *, user_message: str, synthesis_task_type: str) -> bool:
         if synthesis_task_type == "implementation":

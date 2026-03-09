@@ -33,9 +33,9 @@ def _load_fresh_settings(**env_overrides):
 
 
 class TestRunnerDefaults:
-    def test_use_continuous_loop_default_false(self):
+    def test_use_continuous_loop_default_true(self):
         s = _load_fresh_settings()
-        assert s.use_continuous_loop is False
+        assert s.use_continuous_loop is True
 
     def test_runner_max_iterations_default(self):
         s = _load_fresh_settings()

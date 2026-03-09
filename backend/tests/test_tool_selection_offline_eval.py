@@ -7,7 +7,6 @@ import pytest
 from app.agent import CoderAgent, HeadAgent
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
 
 FULL_TOOLS = {
     "list_dir",
@@ -597,29 +596,11 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
     async def send_event(_: dict) -> None:
         return
 
-    async def fake_plan_execute(payload, model=None):
-        return "plan"
-
-    async def fake_tool_execute(
-        payload,
-        session_id,
-        request_id,
-        send_event,
-        model,
-        allowed_tools,
-        should_steer_interrupt=None,
-    ):
-        return "[run_command]\necho done"
-
-    async def fake_synth_execute(payload, session_id, request_id, send_event, model):
+    async def fake_runner_run(**kwargs):
         return "final response"
 
-    original_plan_executor = agent.plan_step_executor
-    original_tool_executor = agent.tool_step_executor
-    original_synth_executor = agent.synthesize_step_executor
-    agent.plan_step_executor = PlannerStepExecutor(execute_fn=fake_plan_execute)
-    agent.tool_step_executor = ToolStepExecutor(execute_fn=fake_tool_execute)
-    agent.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=fake_synth_execute)
+    original_runner_run = agent._agent_runner.run
+    agent._agent_runner.run = fake_runner_run  # type: ignore[method-assign]
     try:
         result = asyncio.run(
             agent.run(
@@ -632,9 +613,7 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
             )
         )
     finally:
-        agent.plan_step_executor = original_plan_executor
-        agent.tool_step_executor = original_tool_executor
-        agent.synthesize_step_executor = original_synth_executor
+        agent._agent_runner.run = original_runner_run  # type: ignore[method-assign]
 
     assert result == "final response"
     assert any(name == "agent_end" and payload.get("status") == "completed" for name, payload in captured)
@@ -677,17 +656,6 @@ def test_web_research_task_detection_does_not_trigger_on_latest_framework_reques
     assert agent._is_web_research_task("make a to do app with the latest angular version") is False
 
 
-def test_synthesis_task_type_prefers_implementation_over_generic_latest_signal() -> None:
-    agent = HeadAgent()
-
-    resolved = agent._resolve_synthesis_task_type(
-        user_message="implement a todo app with the latest angular version",
-        tool_results="",
-    )
-
-    assert resolved == "implementation"
-
-
 def test_implementation_evidence_requires_successful_write_or_command() -> None:
     agent = HeadAgent()
 
@@ -702,38 +670,6 @@ def test_orchestration_evidence_accepts_subrun_announce_complete() -> None:
     tool_results = "[spawn_subrun_announce]\n[subrun_announce] spawned_subrun_id=run-1 terminal_reason=subrun-complete"
 
     assert agent._has_orchestration_evidence(tool_results) is True
-
-
-def test_synthesis_task_type_uses_last_terminal_reason_complete_wins() -> None:
-    agent = HeadAgent()
-
-    tool_results = (
-        "[spawn_subrun]\nspawned_subrun_id=run-1 terminal_reason=subrun-error\n"
-        "[spawn_subrun_announce]\nspawned_subrun_id=run-1 terminal_reason=subrun-complete"
-    )
-
-    resolved = agent._resolve_synthesis_task_type(
-        user_message="delegate task",
-        tool_results=tool_results,
-    )
-
-    assert resolved == "orchestration"
-
-
-def test_synthesis_task_type_uses_last_terminal_reason_failure_wins() -> None:
-    agent = HeadAgent()
-
-    tool_results = (
-        "[spawn_subrun]\nspawned_subrun_id=run-1 terminal_reason=subrun-complete\n"
-        "[spawn_subrun_announce]\nspawned_subrun_id=run-1 terminal_reason=subrun-timeout"
-    )
-
-    resolved = agent._resolve_synthesis_task_type(
-        user_message="delegate task",
-        tool_results=tool_results,
-    )
-
-    assert resolved == "orchestration_failed"
 
 
 def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:

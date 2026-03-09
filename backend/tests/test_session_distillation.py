@@ -5,7 +5,6 @@ import sqlite3
 
 from app.agent import HeadAgent
 from app.config import settings
-from app.orchestrator.step_executors import PlannerStepExecutor, SynthesizeStepExecutor, ToolStepExecutor
 
 
 def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_path) -> None:
@@ -18,25 +17,19 @@ def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_pa
 
     agent = HeadAgent(name="session-distillation-test-agent")
 
-    async def fake_plan_execute(payload, model=None):
-        _ = (payload, model)
-        return "1) Use read_file to inspect the current code\n2) Use write_file to apply the requested changes"
+    final_text = "Implemented the requested change successfully."
 
-    async def fake_tool_execute(
-        payload,
-        session_id,
-        request_id,
-        send_event,
-        model,
-        allowed_tools,
-        should_steer_interrupt=None,
-    ):
-        _ = (payload, session_id, request_id, send_event, model, allowed_tools, should_steer_interrupt)
-        return "[write_file]\nupdated backend/app/example.py"
-
-    async def fake_synthesize_execute(payload, session_id, request_id, send_event, model=None):
-        _ = (payload, session_id, request_id, send_event, model)
-        return "Implemented the requested change successfully."
+    async def fake_runner_run(**kwargs):
+        # Trigger distillation like AgentRunner would
+        await agent._distill_session_knowledge(
+            session_id=kwargs["session_id"],
+            user_message=kwargs["user_message"],
+            plan_text="1) Use read_file to inspect the current code\n2) Use write_file to apply the requested changes",
+            tool_results="[write_file]\nupdated backend/app/example.py",
+            final_text=final_text,
+            model=kwargs.get("model"),
+        )
+        return final_text
 
     async def fake_complete_chat(system_prompt, user_message, model=None, temperature=0.1):
         _ = (system_prompt, user_message, model, temperature)
@@ -46,10 +39,7 @@ def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_pa
             '"tags":["feature","validation"]}'
         )
 
-    monkeypatch.setattr(agent, "plan_step_executor", PlannerStepExecutor(execute_fn=fake_plan_execute))
-    monkeypatch.setattr(agent, "tool_step_executor", ToolStepExecutor(execute_fn=fake_tool_execute))
-    monkeypatch.setattr(agent, "synthesize_step_executor", SynthesizeStepExecutor(execute_fn=fake_synthesize_execute))
-    monkeypatch.setattr(agent.tools, "check_toolchain", lambda: (True, {"ok": True}))
+    monkeypatch.setattr(agent._agent_runner, "run", fake_runner_run)
     monkeypatch.setattr(agent.client, "complete_chat", fake_complete_chat)
 
     async def send_event(_: dict) -> None:

@@ -74,9 +74,8 @@ class DiagResult:
 
 EXPECTED_PIPELINE_STAGES = [
     "request_received",
-    "run_started",
+    "runner_started",
     "guardrails_passed",
-    "planning_completed",
     "request_completed",
 ]
 

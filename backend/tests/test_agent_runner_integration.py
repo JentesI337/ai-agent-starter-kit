@@ -19,14 +19,7 @@ def _make_settings_with_loop(enabled: bool):
 
 
 class TestFeatureFlagRouter:
-    """Verify that HeadAgent.run() correctly delegates based on USE_CONTINUOUS_LOOP."""
-
-    def test_agent_runner_none_when_flag_off(self):
-        """When USE_CONTINUOUS_LOOP=false, _agent_runner should be None."""
-        from app.agent import HeadAgent
-
-        agent = HeadAgent(name="test-agent")
-        assert agent._agent_runner is None
+    """Verify that HeadAgent.run() correctly delegates to AgentRunner."""
 
     def test_agent_runner_created_when_flag_on(self):
         """When USE_CONTINUOUS_LOOP=true, _agent_runner should be an AgentRunner."""
@@ -39,24 +32,6 @@ class TestFeatureFlagRouter:
 
             agent = HeadAgent(name="test-agent")
             assert isinstance(agent._agent_runner, AgentRunner)
-
-    @pytest.mark.asyncio
-    async def test_run_delegates_to_legacy_when_flag_off(self):
-        """When flag is off, run() should call _run_legacy."""
-        from app.agent import HeadAgent
-
-        agent = HeadAgent(name="test-agent")
-        agent._run_legacy = AsyncMock(return_value="legacy result")
-
-        result = await agent.run(
-            user_message="hello",
-            send_event=AsyncMock(),
-            session_id="s1",
-            request_id="r1",
-        )
-
-        agent._run_legacy.assert_awaited_once()
-        assert result == "legacy result"
 
     @pytest.mark.asyncio
     async def test_run_delegates_to_runner_when_flag_on(self):

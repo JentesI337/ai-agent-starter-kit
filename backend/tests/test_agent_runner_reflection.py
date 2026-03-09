@@ -74,7 +74,6 @@ class TestReflectionLoop:
             mock_settings.runner_compaction_enabled = True
             mock_settings.runner_compaction_tail_keep = 4
             mock_settings.runner_tool_result_max_chars = 5000
-            mock_settings.clarification_protocol_enabled = False
             mock_settings.runner_reflection_max_passes = 1
 
             result = await runner.run(

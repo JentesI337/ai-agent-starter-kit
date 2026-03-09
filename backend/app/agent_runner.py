@@ -114,7 +114,6 @@ class AgentRunner:
         allowed_tools_resolver: Callable[[ToolPolicyDict | None], set[str]],
         guardrail_validator: Callable[..., None] | None = None,
         mcp_initializer: Callable[..., Awaitable[None]] | None = None,
-        ambiguity_detector: Any | None = None,
         reflection_service: Any | None = None,
         emit_lifecycle_fn: Callable[..., Awaitable[None]] | None = None,
         intent_detector: Any | None = None,
@@ -135,7 +134,6 @@ class AgentRunner:
         self._allowed_tools_resolver = allowed_tools_resolver
         self._guardrail_validator = guardrail_validator
         self._mcp_initializer = mcp_initializer
-        self._ambiguity_detector = ambiguity_detector
         self._reflection_service = reflection_service
         self._emit_lifecycle = emit_lifecycle_fn
         self._intent_detector = intent_detector
@@ -221,24 +219,6 @@ class AgentRunner:
                 session_id=session_id,
                 details={"memory_items": len(memory_items)},
             )
-
-        # Ambiguity detection → early return
-        if self._ambiguity_detector and settings.clarification_protocol_enabled:
-            try:
-                ambiguity = self._ambiguity_detector.assess(user_message)
-                if (
-                    hasattr(ambiguity, "is_ambiguous")
-                    and ambiguity.is_ambiguous
-                    and hasattr(ambiguity, "confidence")
-                    and ambiguity.confidence < settings.clarification_confidence_threshold
-                ):
-                    clarification = getattr(ambiguity, "clarification_question", "")
-                    if clarification:
-                        await send_event({"type": "final", "message": clarification})
-                        self.memory.add(session_id, "assistant", clarification)
-                        return clarification
-            except Exception:
-                logger.debug("Ambiguity detection skipped due to error", exc_info=True)
 
         # ═══════════════════════════════════════════
         # BUILD MESSAGES
