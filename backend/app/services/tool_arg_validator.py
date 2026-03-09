@@ -14,6 +14,7 @@ class ToolArgValidator:
             "write_file": self._validate_write_file_args,
             "run_command": self._validate_command_tool_args,
             "code_execute": self._validate_code_execute_args,
+            "code_reset": self._validate_session_id_only_args,
             "apply_patch": self._validate_apply_patch_args,
             "file_search": self._validate_file_search_args,
             "grep_search": self._validate_grep_search_args,
@@ -26,6 +27,15 @@ class ToolArgValidator:
             "web_search": self._validate_web_search_args,
             "http_request": self._validate_http_request_args,
             "analyze_image": self._validate_analyze_image_args,
+            "browser_open": self._validate_browser_open_args,
+            "browser_click": self._validate_browser_selector_args,
+            "browser_type": self._validate_browser_type_args,
+            "browser_screenshot": self._validate_session_id_only_args,
+            "browser_read_dom": self._validate_browser_read_dom_args,
+            "browser_evaluate_js": self._validate_browser_evaluate_js_args,
+            "rag_ingest": self._validate_rag_ingest_args,
+            "rag_query": self._validate_rag_query_args,
+            "rag_collections": self._validate_noop_tool_args,
             "spawn_subrun": self._validate_spawn_subrun_args,
             "create_workflow": self._validate_create_workflow_args,
             "delete_workflow": self._validate_delete_workflow_args,
@@ -481,4 +491,125 @@ class ToolArgValidator:
         if err:
             return err
         normalized_args["workflow_id"] = workflow_id
+        return None
+
+    # ------------------------------------------------------------------
+    # Session-id-only tools (code_reset, browser_screenshot)
+    # ------------------------------------------------------------------
+
+    def _validate_session_id_only_args(self, normalized_args: dict[str, object]) -> str | None:
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    # ------------------------------------------------------------------
+    # Browser tool validators
+    # ------------------------------------------------------------------
+
+    def _validate_browser_open_args(self, normalized_args: dict[str, object]) -> str | None:
+        url, err = self._require_str_arg(normalized_args, "url", max_len=2000)
+        if err:
+            return err
+        normalized_args["url"] = url
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    def _validate_browser_selector_args(self, normalized_args: dict[str, object]) -> str | None:
+        selector, err = self._require_str_arg(normalized_args, "selector", max_len=500)
+        if err:
+            return err
+        normalized_args["selector"] = selector
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    def _validate_browser_type_args(self, normalized_args: dict[str, object]) -> str | None:
+        selector, err = self._require_str_arg(normalized_args, "selector", max_len=500)
+        if err:
+            return err
+        normalized_args["selector"] = selector
+        text, err = self._require_str_arg(normalized_args, "text", non_empty=False, max_len=4000)
+        if err:
+            return err
+        normalized_args["text"] = text
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    def _validate_browser_read_dom_args(self, normalized_args: dict[str, object]) -> str | None:
+        if "selector" in normalized_args:
+            selector, err = self._require_str_arg(normalized_args, "selector", max_len=500)
+            if err:
+                return err
+            normalized_args["selector"] = selector
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    def _validate_browser_evaluate_js_args(self, normalized_args: dict[str, object]) -> str | None:
+        code, err = self._require_str_arg(normalized_args, "code", max_len=50000)
+        if err:
+            return err
+        normalized_args["code"] = code
+        if "session_id" in normalized_args:
+            session_id, err = self._require_str_arg(normalized_args, "session_id", max_len=120)
+            if err:
+                return err
+            normalized_args["session_id"] = session_id
+        return None
+
+    # ------------------------------------------------------------------
+    # RAG tool validators
+    # ------------------------------------------------------------------
+
+    def _validate_rag_ingest_args(self, normalized_args: dict[str, object]) -> str | None:
+        path, err = self._require_str_arg(normalized_args, "path", max_len=400)
+        if err:
+            return err
+        if path is not None and "\x00" in path:
+            return "path is not plausible"
+        normalized_args["path"] = path
+        if "collection" in normalized_args:
+            collection, err = self._require_str_arg(normalized_args, "collection", max_len=120)
+            if err:
+                return err
+            normalized_args["collection"] = collection
+        return None
+
+    def _validate_rag_query_args(self, normalized_args: dict[str, object]) -> str | None:
+        question, err = self._require_str_arg(normalized_args, "question", max_len=4000)
+        if err:
+            return err
+        normalized_args["question"] = question
+        top_k, err = self._optional_int_arg(
+            normalized_args,
+            "top_k",
+            default=5,
+            min_value=1,
+            max_value=20,
+        )
+        if err:
+            return err
+        normalized_args["top_k"] = top_k
+        if "collection" in normalized_args:
+            collection, err = self._require_str_arg(normalized_args, "collection", max_len=120)
+            if err:
+                return err
+            normalized_args["collection"] = collection
         return None

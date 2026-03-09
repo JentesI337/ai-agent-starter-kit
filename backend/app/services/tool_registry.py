@@ -676,6 +676,192 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("workflow_management",),
         ),
+        # ------------------------------------------------------------------
+        # code_reset
+        # ------------------------------------------------------------------
+        "code_reset": ToolSpec(
+            name="code_reset",
+            required_args=(),
+            optional_args=("session_id",),
+            timeout_seconds=10.0,
+            max_retries=0,
+            description="Reset the persistent Python REPL, clearing all state.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("code_execution",),
+        ),
+        # ------------------------------------------------------------------
+        # Browser Control Tools
+        # ------------------------------------------------------------------
+        "browser_open": ToolSpec(
+            name="browser_open",
+            required_args=("url",),
+            optional_args=("session_id",),
+            timeout_seconds=30.0,
+            max_retries=1,
+            description="Open a URL in the browser. Returns the page title and visible text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "minLength": 1},
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation", "web_retrieval"),
+        ),
+        "browser_click": ToolSpec(
+            name="browser_click",
+            required_args=("selector",),
+            optional_args=("session_id",),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Click an element identified by CSS selector. Returns updated page text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "minLength": 1},
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["selector"],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation",),
+        ),
+        "browser_type": ToolSpec(
+            name="browser_type",
+            required_args=("selector", "text"),
+            optional_args=("session_id",),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Type text into an input field identified by CSS selector.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "minLength": 1},
+                    "text": {"type": "string"},
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["selector", "text"],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation",),
+        ),
+        "browser_screenshot": ToolSpec(
+            name="browser_screenshot",
+            required_args=(),
+            optional_args=("session_id",),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Capture a screenshot of the current browser page as Base64 PNG.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation", "vision"),
+        ),
+        "browser_read_dom": ToolSpec(
+            name="browser_read_dom",
+            required_args=(),
+            optional_args=("selector", "session_id"),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Read DOM content, optionally filtered by CSS selector.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "minLength": 1},
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation", "web_retrieval"),
+        ),
+        "browser_evaluate_js": ToolSpec(
+            name="browser_evaluate_js",
+            required_args=("code",),
+            optional_args=("session_id",),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Execute JavaScript in the browser context and return the result.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "minLength": 1},
+                    "session_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["code"],
+                "additionalProperties": False,
+            },
+            capabilities=("browser_automation", "code_execution"),
+        ),
+        # ------------------------------------------------------------------
+        # RAG Tools
+        # ------------------------------------------------------------------
+        "rag_ingest": ToolSpec(
+            name="rag_ingest",
+            required_args=("path",),
+            optional_args=("collection",),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description="Ingest a file into the RAG vector store.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "collection": {"type": "string", "minLength": 1},
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+            capabilities=("rag", "knowledge_retrieval"),
+        ),
+        "rag_query": ToolSpec(
+            name="rag_query",
+            required_args=("question",),
+            optional_args=("top_k", "collection"),
+            timeout_seconds=30.0,
+            max_retries=0,
+            description="Query the RAG vector store for relevant chunks.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "minLength": 1},
+                    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "collection": {"type": "string", "minLength": 1},
+                },
+                "required": ["question"],
+                "additionalProperties": False,
+            },
+            capabilities=("rag", "knowledge_retrieval"),
+        ),
+        "rag_collections": ToolSpec(
+            name="rag_collections",
+            required_args=(),
+            optional_args=(),
+            timeout_seconds=10.0,
+            max_retries=0,
+            description="List all RAG collections with their document counts.",
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("rag", "knowledge_retrieval"),
+        ),
     }
 
 

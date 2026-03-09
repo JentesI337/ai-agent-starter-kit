@@ -20,6 +20,11 @@ import httpx
 from app.config import settings
 from app.errors import ToolExecutionError
 from app.services.code_sandbox import CodeSandbox
+from app.services.repl_session_manager import ReplSessionManager
+from app.services.browser_pool import BrowserPool, validate_browser_url
+from app.services.document_chunker import DocumentChunker
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_store import VectorStore, VectorStoreError
 from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
@@ -131,10 +136,25 @@ class AgentTooling:
         self._grep_max_total_scan_bytes = 8_000_000
         self._custom_agent_store: object | None = None
         self._sync_custom_agents_fn: object | None = None
+        self._repl_manager: ReplSessionManager | None = None
+        self._browser_pool: BrowserPool | None = None
+        self._embedding_service: EmbeddingService | None = None
+        self._vector_store: VectorStore | None = None
+        self._document_chunker: DocumentChunker = DocumentChunker()
 
     def set_custom_agent_store(self, store: object, sync_fn: object) -> None:
         self._custom_agent_store = store
         self._sync_custom_agents_fn = sync_fn
+
+    def set_repl_manager(self, manager: ReplSessionManager) -> None:
+        self._repl_manager = manager
+
+    def set_browser_pool(self, pool: BrowserPool) -> None:
+        self._browser_pool = pool
+
+    def set_rag_services(self, embedding: EmbeddingService, store: VectorStore) -> None:
+        self._embedding_service = embedding
+        self._vector_store = store
 
     def list_dir(self, path: str | None = None) -> str:
         target = self._resolve_workspace_path(path or ".")
@@ -836,7 +856,40 @@ class AgentTooling:
         timeout: int = 30,
         max_output_chars: int = 10000,
         strategy: str = "process",
+        persistent: bool = True,
+        session_id: str | None = None,
     ) -> str:
+        # Persistent REPL path for Python when enabled
+        norm_lang = (language or "python").strip().lower()
+        if (
+            norm_lang == "python"
+            and persistent
+            and settings.repl_enabled
+            and self._repl_manager is not None
+        ):
+            sid = session_id or "default"
+            repl = await self._repl_manager.get_or_create(sid)
+            result = await repl.execute(code)
+            payload = {
+                "success": result.exit_code == 0 and not result.timed_out,
+                "strategy": "persistent_repl",
+                "language": "python",
+                "exit_code": result.exit_code,
+                "timed_out": result.timed_out,
+                "truncated": result.truncated,
+                "duration_ms": result.duration_ms,
+                "error_type": None,
+                "error_message": None,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "images": result.images,
+            }
+            if result.timed_out:
+                payload["error_type"] = "timeout"
+                payload["error_message"] = f"Execution timed out after {repl.timeout_seconds}s"
+            return json.dumps(payload, ensure_ascii=False)
+
+        # Stateless sandbox path (non-Python or persistent=False)
         sandbox = CodeSandbox(
             strategy=strategy,
             workspace_root=self.workspace_root,
@@ -864,6 +917,240 @@ class AgentTooling:
             "stderr": result.stderr,
         }
         return json.dumps(payload, ensure_ascii=False)
+
+    async def code_reset(self, session_id: str | None = None) -> str:
+        """Reset the persistent Python REPL, clearing all state."""
+        if not settings.repl_enabled or self._repl_manager is None:
+            return "Persistent REPL is not enabled."
+        sid = session_id or "default"
+        was_reset = await self._repl_manager.reset(sid)
+        if was_reset:
+            return f"REPL session '{sid}' has been reset. All variables and state cleared."
+        return f"No active REPL session found for '{sid}'."
+
+    # ------------------------------------------------------------------
+    # Browser Control Tools
+    # ------------------------------------------------------------------
+
+    def _require_browser_pool(self) -> BrowserPool:
+        if not settings.browser_enabled:
+            raise ToolExecutionError("Browser tools are disabled (BROWSER_ENABLED=false).")
+        if self._browser_pool is None:
+            raise ToolExecutionError(
+                "Browser pool not available. "
+                "Ensure Playwright is installed: pip install playwright && python -m playwright install chromium"
+            )
+        return self._browser_pool
+
+    async def browser_open(self, url: str, session_id: str | None = None) -> str:
+        """Open a URL in the browser. Returns the page title and visible text."""
+        pool = self._require_browser_pool()
+        validated_url = validate_browser_url(url)
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        try:
+            await page.goto(validated_url, wait_until="domcontentloaded")
+        except Exception as exc:
+            raise ToolExecutionError(f"Navigation failed: {exc}") from exc
+        title = await page.title()
+        max_chars = settings.browser_max_page_text_chars
+        try:
+            text = await page.inner_text("body")
+        except Exception:
+            text = ""
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n... [text truncated]"
+        return f"Title: {title}\n\nVisible text:\n{text}"
+
+    async def browser_click(self, selector: str, session_id: str | None = None) -> str:
+        """Click an element identified by CSS selector. Returns updated page text."""
+        pool = self._require_browser_pool()
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        try:
+            await page.click(selector, timeout=10_000)
+        except Exception as exc:
+            raise ToolExecutionError(f"Click failed for selector '{selector}': {exc}") from exc
+        # Wait briefly for network activity to settle
+        try:
+            await page.wait_for_load_state("networkidle", timeout=5_000)
+        except Exception:
+            pass  # Best-effort wait
+        max_chars = settings.browser_max_page_text_chars
+        try:
+            text = await page.inner_text("body")
+        except Exception:
+            text = ""
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n... [text truncated]"
+        title = await page.title()
+        return f"Clicked '{selector}'.\n\nTitle: {title}\n\nVisible text:\n{text}"
+
+    async def browser_type(self, selector: str, text: str, session_id: str | None = None) -> str:
+        """Type text into an input element identified by CSS selector."""
+        pool = self._require_browser_pool()
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        try:
+            await page.fill(selector, text, timeout=10_000)
+        except Exception:
+            try:
+                await page.type(selector, text, timeout=10_000)
+            except Exception as exc:
+                raise ToolExecutionError(f"Type failed for selector '{selector}': {exc}") from exc
+        # Read back the value for confirmation
+        try:
+            value = await page.input_value(selector, timeout=3_000)
+        except Exception:
+            value = text
+        return f"Typed into '{selector}'. Current value: '{value}'"
+
+    async def browser_screenshot(self, session_id: str | None = None) -> str:
+        """Take a screenshot of the current page. Returns Base64-encoded PNG."""
+        pool = self._require_browser_pool()
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        png_bytes = await page.screenshot(type="png", full_page=False)
+        b64 = base64.b64encode(png_bytes).decode("ascii")
+        return json.dumps({"type": "image", "format": "png", "data": b64})
+
+    async def browser_read_dom(self, selector: str | None = None, session_id: str | None = None) -> str:
+        """Read structured text from the DOM. Extracts text, links, and form fields."""
+        pool = self._require_browser_pool()
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        target = selector or "body"
+        max_chars = settings.browser_max_page_text_chars
+
+        # Extract visible text
+        try:
+            text = await page.inner_text(target)
+        except Exception as exc:
+            raise ToolExecutionError(f"DOM read failed for selector '{target}': {exc}") from exc
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n... [text truncated]"
+
+        # Extract links
+        links = await page.evaluate(
+            """(sel) => {
+                const root = sel === 'body' ? document.body : document.querySelector(sel);
+                if (!root) return [];
+                return Array.from(root.querySelectorAll('a[href]')).slice(0, 50).map(a => ({
+                    text: (a.textContent || '').trim().substring(0, 100),
+                    href: a.href
+                }));
+            }""",
+            target,
+        )
+
+        # Extract form fields
+        fields = await page.evaluate(
+            """(sel) => {
+                const root = sel === 'body' ? document.body : document.querySelector(sel);
+                if (!root) return [];
+                return Array.from(root.querySelectorAll('input, select, textarea')).slice(0, 30).map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    type: el.type || '',
+                    name: el.name || '',
+                    id: el.id || '',
+                    value: (el.value || '').substring(0, 200),
+                    placeholder: el.placeholder || '',
+                    ariaLabel: el.getAttribute('aria-label') || ''
+                }));
+            }""",
+            target,
+        )
+
+        parts = [f"Text content ({target}):", text]
+        if links:
+            parts.append("\nLinks:")
+            for link in links:
+                parts.append(f"  [{link['text']}]({link['href']})")
+        if fields:
+            parts.append("\nForm fields:")
+            for f in fields:
+                label = f.get("ariaLabel") or f.get("placeholder") or f.get("name") or f.get("id") or ""
+                parts.append(f"  <{f['tag']} type='{f['type']}' name='{f['name']}' id='{f['id']}'> label='{label}' value='{f['value']}'")
+        return "\n".join(parts)
+
+    async def browser_evaluate_js(self, code: str, session_id: str | None = None) -> str:
+        """Execute JavaScript in the page context and return the result as JSON."""
+        pool = self._require_browser_pool()
+        sid = session_id or "default"
+        _, page = await pool.get_context(sid)
+        try:
+            result = await page.evaluate(code)
+        except Exception as exc:
+            raise ToolExecutionError(f"JS evaluation failed: {exc}") from exc
+        output = json.dumps(result, ensure_ascii=False, default=str)
+        if len(output) > 50_000:
+            output = output[:50_000] + "\n... [output truncated]"
+        return output
+
+    # ------------------------------------------------------------------
+    # RAG tools
+    # ------------------------------------------------------------------
+
+    def _require_rag(self) -> tuple[EmbeddingService, VectorStore]:
+        if not settings.rag_enabled:
+            raise ToolExecutionError("RAG is disabled (set RAG_ENABLED=true)")
+        if self._embedding_service is None or self._vector_store is None:
+            raise ToolExecutionError("RAG services not initialised")
+        return self._embedding_service, self._vector_store
+
+    async def rag_ingest(self, path: str, collection: str | None = None) -> str:
+        """Ingest a file into the RAG vector store."""
+        embedding_svc, store = self._require_rag()
+        target = self._resolve_workspace_path(path)
+        if not target.is_file():
+            raise ToolExecutionError(f"File not found: {path}")
+
+        collection_name = collection or "default"
+        chunks = self._document_chunker.chunk_file(str(target), chunk_size=512, overlap=64)
+        if not chunks:
+            return f"No chunks generated from {path}"
+
+        texts = [c.text for c in chunks]
+        vectors = await embedding_svc.embed_batch(texts)
+
+        metadatas = [
+            {"source": c.source, "chunk_index": c.chunk_index, **({"page": c.page} if c.page else {}), **c.metadata}
+            for c in chunks
+        ]
+
+        added = store.add(collection_name, texts, vectors, metadatas=metadatas)
+        return f"Ingested {added} chunks from {path} into collection '{collection_name}'"
+
+    async def rag_query(self, question: str, top_k: int | None = None, collection: str | None = None) -> str:
+        """Query the RAG vector store for relevant chunks."""
+        embedding_svc, store = self._require_rag()
+        collection_name = collection or "default"
+        k = top_k or settings.rag_default_top_k
+
+        query_vec = await embedding_svc.embed(question)
+        try:
+            results = store.query(collection_name, query_vec, top_k=k)
+        except VectorStoreError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+
+        if not results:
+            return f"No results found in collection '{collection_name}'"
+
+        output_parts: list[str] = []
+        for i, r in enumerate(results, 1):
+            output_parts.append(
+                f"[{i}] (score: {r.score:.3f}, source: {r.source})\n{r.text}"
+            )
+        return "\n\n".join(output_parts)
+
+    def rag_collections(self) -> str:
+        """List all RAG collections with their document counts."""
+        _, store = self._require_rag()
+        stats = store.list_collections()
+        if not stats:
+            return "No collections found"
+        lines = [f"- {s.name}: {s.count} chunks" for s in stats]
+        return "\n".join(lines)
 
     def _build_command_allowlist(self) -> set[str]:
         values: list[str] = []

@@ -151,6 +151,8 @@ class WsHandlerDependencies:
     coder_agent_id: str
     review_agent_id: str
     policy_approval_service: PolicyApprovalServiceLike | None = None
+    repl_session_manager: object | None = None
+    browser_pool: object | None = None
 
 
 async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> None:
@@ -1631,6 +1633,26 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 except Exception:
                     deps.logger.debug(
                         "policy_session_override_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True
+                    )
+        # Cleanup persistent REPL sessions on disconnect
+        _repl_mgr = getattr(deps, "repl_session_manager", None)
+        if _repl_mgr is not None:
+            for _cleanup_sid in used_session_ids:
+                try:
+                    await _repl_mgr.shutdown_session(_cleanup_sid)
+                except Exception:
+                    deps.logger.debug(
+                        "repl_session_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True
+                    )
+        # Cleanup browser contexts on disconnect
+        _browser_pool = getattr(deps, "browser_pool", None)
+        if _browser_pool is not None:
+            for _cleanup_sid in used_session_ids:
+                try:
+                    await _browser_pool.close_context(_cleanup_sid)
+                except Exception:
+                    deps.logger.debug(
+                        "browser_context_cleanup_failed session_id=%s", _cleanup_sid, exc_info=True
                     )
         workers = [task for task in session_workers.values() if task is not None and not task.done()]
         for task in workers:

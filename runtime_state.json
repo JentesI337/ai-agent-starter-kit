@@ -1,7 +1,7 @@
 {
-  "runtime": "local",
+  "runtime": "api",
   "base_url": "http://localhost:11434/v1",
-  "model": "llama3.3:70b-instruct-q4_K_M",
+  "model": "qwen3-coder:480b-cloud",
   "features": {
     "long_term_memory_enabled": true,
     "session_distillation_enabled": true,

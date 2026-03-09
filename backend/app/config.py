@@ -1470,6 +1470,37 @@ class Settings(BaseModel):
     # SEC (POL-01): Require valid HMAC signature on policy files.
     policy_require_signature: bool = _parse_bool_env("POLICY_REQUIRE_SIGNATURE", False)
 
+    # ------------------------------------------------------------------
+    # Persistent REPL (Code Interpreter)
+    # ------------------------------------------------------------------
+    repl_enabled: bool = _parse_bool_env("REPL_ENABLED", True)
+    repl_timeout_seconds: int = max(5, min(int(os.getenv("REPL_TIMEOUT_SECONDS", "60")), 300))
+    repl_max_memory_mb: int = max(64, min(int(os.getenv("REPL_MAX_MEMORY_MB", "512")), 2048))
+    repl_max_sessions: int = max(1, min(int(os.getenv("REPL_MAX_SESSIONS", "10")), 50))
+    repl_max_output_chars: int = max(500, min(int(os.getenv("REPL_MAX_OUTPUT_CHARS", "10000")), 100_000))
+    repl_sandbox_dir: str = os.getenv("REPL_SANDBOX_DIR", "")
+
+    # ------------------------------------------------------------------
+    # Browser Control (Playwright)
+    # ------------------------------------------------------------------
+    browser_enabled: bool = _parse_bool_env("BROWSER_ENABLED", True)
+    browser_max_contexts: int = max(1, min(int(os.getenv("BROWSER_MAX_CONTEXTS", "5")), 20))
+    browser_navigation_timeout_ms: int = max(5000, min(int(os.getenv("BROWSER_NAVIGATION_TIMEOUT_MS", "30000")), 120_000))
+    browser_context_ttl_seconds: int = max(30, min(int(os.getenv("BROWSER_CONTEXT_TTL_SECONDS", "300")), 1800))
+    browser_max_page_text_chars: int = max(1000, min(int(os.getenv("BROWSER_MAX_PAGE_TEXT_CHARS", "5000")), 50_000))
+
+    # ------------------------------------------------------------------
+    # RAG Engine
+    # ------------------------------------------------------------------
+    rag_enabled: bool = _parse_bool_env("RAG_ENABLED", False)
+    rag_embedding_provider: str = os.getenv("RAG_EMBEDDING_PROVIDER", "ollama")
+    rag_embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "nomic-embed-text")
+    rag_embedding_base_url: str = os.getenv("RAG_EMBEDDING_BASE_URL", "http://localhost:11434")
+    rag_embedding_api_key: str = os.getenv("RAG_EMBEDDING_API_KEY", "")
+    rag_persist_dir: str = os.getenv("RAG_PERSIST_DIR", "./chroma_data")
+    rag_max_chunks_per_collection: int = max(100, min(int(os.getenv("RAG_MAX_CHUNKS_PER_COLLECTION", "10000")), 100_000))
+    rag_default_top_k: int = max(1, min(int(os.getenv("RAG_DEFAULT_TOP_K", "5")), 50))
+
     @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
     @classmethod
     def _validate_reflection_score_range(cls, value: object, info: ValidationInfo) -> float:

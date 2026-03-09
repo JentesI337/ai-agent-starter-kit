@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.errors import GuardrailViolation
-from app.tool_catalog import TOOL_NAME_SET
+from app.tool_catalog import TOOL_NAME_SET, TOOL_NAMES
 from app.tool_policy import ToolPolicyDict
 
 PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {
@@ -333,7 +333,7 @@ def resolve_tool_policy(
     if agent_depth_deny:
         agent_depth_policy = {"deny": sorted(agent_depth_deny)}
 
-    known_tool_names = {item.strip().lower() for item in TOOL_NAME_SET}
+    known_tool_names = {item.strip().lower() for item in TOOL_NAMES}
     agent_override_policy = _resolve_agent_override_policy(
         request_policy=request_policy,
         normalized_agent_id=normalized_agent_id,

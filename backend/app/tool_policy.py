@@ -128,6 +128,8 @@ TOOL_PROFILES: dict[str, frozenset[str] | None] = {
         "get_changed_files",
         "get_background_output",
         "analyze_image",
+        "rag_query",
+        "rag_collections",
     }),
     # Read-only + web access (no code execution, no file writes).
     "research": frozenset({
@@ -142,6 +144,12 @@ TOOL_PROFILES: dict[str, frozenset[str] | None] = {
         "web_search",
         "web_fetch",
         "http_request",
+        "browser_open",
+        "browser_screenshot",
+        "browser_read_dom",
+        "rag_ingest",
+        "rag_query",
+        "rag_collections",
     }),
     # Code-editing profile – enables write/execute but not web.
     "coding": frozenset({
@@ -159,6 +167,15 @@ TOOL_PROFILES: dict[str, frozenset[str] | None] = {
         "get_background_output",
         "kill_background_process",
         "analyze_image",
+        "browser_open",
+        "browser_click",
+        "browser_type",
+        "browser_screenshot",
+        "browser_read_dom",
+        "browser_evaluate_js",
+        "rag_ingest",
+        "rag_query",
+        "rag_collections",
     }),
     # All available tools — resolves to None (no restriction) so that
     # dynamically registered tools (MCP, plugins) are automatically

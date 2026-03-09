@@ -6,3 +6,13 @@ python-dotenv==1.0.1
 # SEC (OE-08): Optional — enables AES-256-GCM state encryption.
 # Without this, a fallback XOR+HMAC obfuscation is used.
 cryptography>=43.0.0
+
+# --- Browser Control (optional) ---
+# Install Playwright browser binaries after pip install:
+#   playwright install chromium
+playwright>=1.40.0
+
+# --- RAG Engine (optional) ---
+chromadb>=1.0.0
+# PyMuPDF for PDF ingestion (optional):
+# pymupdf>=1.24.0

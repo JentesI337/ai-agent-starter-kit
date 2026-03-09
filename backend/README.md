@@ -199,11 +199,76 @@ Available endpoints:
 - Memory context per session (`session_id`) with rolling window, persisted in `MEMORY_PERSIST_DIR`.
 - Persisted session files are automatically trimmed to `MEMORY_MAX_ITEMS` entries.
 - External run state persistence in `ORCHESTRATOR_STATE_DIR` with per-run JSON and summary snapshots.
-- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `code_execute`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`.
+- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `code_execute`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`, `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_fill`, `browser_evaluate`, `browser_close`, `rag_ingest`, `rag_query`, `rag_collections`.
 - `code_execute` runs Python/JavaScript snippets with timeout, output limits, temporary jail execution, network disabled by default, and policy checks for obvious filesystem escape patterns.
 - Execution model: Plan -> Execute tools -> Review/final response.
 - Guardrails: empty/oversized input and invalid model/session values are blocked and returned as `error` events.
 - Tool selection is validated; malformed JSON or invalid actions are reported as lifecycle/error events (no silent fallback).
+
+## Optional Features (Feature-Toggles)
+
+Each optional feature can be enabled/disabled via environment variables. Disabled features remove their tools from the active tool catalog.
+
+### Code Interpreter (Persistent REPL)
+
+Persistent Python/JavaScript sessions with timeout, memory limits, and sandboxed execution.
+
+```
+REPL_ENABLED=true              # default: true
+REPL_TIMEOUT_SECONDS=30
+REPL_MAX_MEMORY_MB=256
+REPL_MAX_SESSIONS=8
+REPL_MAX_OUTPUT_CHARS=50000
+REPL_SANDBOX_DIR=repl_sandbox
+```
+
+Tools: `code_execute`, `code_reset`
+
+### Browser Control (Playwright)
+
+Headless Chromium browser pool for web automation (navigate, screenshot, click, fill, evaluate).
+
+```
+BROWSER_ENABLED=true           # default: true
+BROWSER_MAX_CONTEXTS=4
+BROWSER_NAVIGATION_TIMEOUT_MS=30000
+BROWSER_CONTEXT_TTL_SECONDS=300
+BROWSER_MAX_PAGE_TEXT_CHARS=50000
+```
+
+Additional setup:
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+Tools: `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_fill`, `browser_evaluate`, `browser_close`
+
+### RAG Engine (ChromaDB + Embeddings)
+
+Document ingestion, chunking, vector storage, and semantic retrieval.
+
+```
+RAG_ENABLED=false              # default: false
+RAG_EMBEDDING_PROVIDER=ollama  # ollama | openai
+RAG_EMBEDDING_MODEL=nomic-embed-text
+RAG_EMBEDDING_BASE_URL=http://localhost:11434
+RAG_EMBEDDING_API_KEY=
+RAG_PERSIST_DIR=rag_store
+RAG_MAX_CHUNKS_PER_COLLECTION=10000
+RAG_DEFAULT_TOP_K=5
+```
+
+Additional setup:
+
+```bash
+pip install chromadb
+# Optional for PDF ingestion:
+pip install pymupdf
+```
+
+Tools: `rag_ingest`, `rag_query`, `rag_collections`
 
 ## Custom Flows (Create, Select, Run)
 

@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
@@ -58,7 +59,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     private readonly agentState: AgentStateService,
     private readonly monitoringService: MonitoringService,
     private readonly cdr: ChangeDetectorRef,
-    private readonly secureStorage: SecureStorageService
+    private readonly secureStorage: SecureStorageService,
+    private readonly sanitizer: DomSanitizer
   ) {}
 
   ngOnInit(): void {
@@ -187,6 +189,64 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   get selectedAgentTools(): string[] {
     const match = this.monitoringSchema?.agents.find((item) => item.id === this.selectedAgentId);
     return match?.tools ?? [];
+  }
+
+  // ── Base64 image extraction ──────────────────────────
+
+  private readonly base64ImageCache = new WeakMap<ChatLine, { text: string; images: SafeUrl[] }>();
+
+  /**
+   * Extract base64-encoded images from a chat line's text.
+   * Supports two patterns:
+   * 1. JSON: {"type":"image","format":"png","data":"<base64>"}
+   * 2. Raw data-URI: data:image/png;base64,<data>
+   */
+  getLineImages(line: ChatLine): SafeUrl[] {
+    const cached = this.base64ImageCache.get(line);
+    if (cached && cached.text === line.text) {
+      return cached.images;
+    }
+    const images: SafeUrl[] = [];
+    const text = line.text || '';
+
+    // Pattern 1: JSON with base64 data field
+    const jsonPattern = /\{"type"\s*:\s*"image"\s*,\s*"format"\s*:\s*"(\w+)"\s*,\s*"data"\s*:\s*"([A-Za-z0-9+/=\s]+)"\s*\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = jsonPattern.exec(text)) !== null) {
+      const format = m[1] || 'png';
+      const data = m[2].replace(/\s/g, '');
+      if (data.length > 16) {
+        images.push(this.sanitizer.bypassSecurityTrustUrl(`data:image/${format};base64,${data}`));
+      }
+    }
+
+    // Pattern 2: raw data URIs
+    if (images.length === 0) {
+      const dataUriPattern = /data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)/g;
+      while ((m = dataUriPattern.exec(text)) !== null) {
+        const data = m[2];
+        if (data.length > 16) {
+          images.push(this.sanitizer.bypassSecurityTrustUrl(`data:image/${m[1]};base64,${data}`));
+        }
+      }
+    }
+
+    this.base64ImageCache.set(line, { text: line.text, images });
+    return images;
+  }
+
+  /** Return the text portion of a line with image JSON/data-URIs stripped out. */
+  getLineText(line: ChatLine): string {
+    const images = this.getLineImages(line);
+    if (images.length === 0) {
+      return line.text;
+    }
+    let text = line.text;
+    // Strip JSON image blocks
+    text = text.replace(/\{"type"\s*:\s*"image"\s*,\s*"format"\s*:\s*"\w+"\s*,\s*"data"\s*:\s*"[A-Za-z0-9+/=\s]+"\s*\}/g, '');
+    // Strip raw data URIs
+    text = text.replace(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g, '');
+    return text.trim();
   }
 
   send(): void {

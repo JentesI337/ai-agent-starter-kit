@@ -93,6 +93,10 @@ from app.services.agent_resolution import (
 )
 from app.services.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
 from app.services.idempotency_manager import IdempotencyManager
+from app.services.repl_session_manager import ReplSessionManager
+from app.services.browser_pool import BrowserPool
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_store import VectorStore
 from app.services.log_secret_filter import install_secret_filter
 from app.services.model_health_tracker import ModelHealthTracker
 from app.services.request_normalization import normalize_preset
@@ -207,6 +211,39 @@ def _shutdown_sequence() -> None:
             logger.info("model_health_tracker_persisted_on_shutdown")
     except Exception:
         logger.debug("model_health_tracker_persist_on_shutdown_skipped", exc_info=True)
+    # Shutdown all persistent REPL sessions
+    if _repl_session_manager is not None:
+        import asyncio as _aio
+        try:
+            loop = _aio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_repl_session_manager.shutdown_all())
+            else:
+                loop.run_until_complete(_repl_session_manager.shutdown_all())
+        except Exception:
+            logger.debug("repl_session_manager_shutdown_error", exc_info=True)
+    # Shutdown browser pool
+    if _browser_pool is not None:
+        import asyncio as _aio2
+        try:
+            loop = _aio2.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_browser_pool.shutdown())
+            else:
+                loop.run_until_complete(_browser_pool.shutdown())
+        except Exception:
+            logger.debug("browser_pool_shutdown_error", exc_info=True)
+    # Shutdown embedding service
+    if _embedding_service is not None:
+        import asyncio as _aio3
+        try:
+            loop = _aio3.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_embedding_service.close())
+            else:
+                loop.run_until_complete(_embedding_service.close())
+        except Exception:
+            logger.debug("embedding_service_shutdown_error", exc_info=True)
     run_shutdown_sequence(active_run_tasks=control_plane_state.active_run_tasks, logger=logger)
 
 
@@ -301,8 +338,86 @@ def _build_runtime_components() -> RuntimeComponents:
     )
 
 
+# Module-level reference for shutdown cleanup
+_repl_session_manager: ReplSessionManager | None = None
+_browser_pool: BrowserPool | None = None
+_embedding_service: EmbeddingService | None = None
+_vector_store: VectorStore | None = None
+
+
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
+    global _repl_session_manager  # noqa: PLW0603
+    global _browser_pool  # noqa: PLW0603
+    global _embedding_service  # noqa: PLW0603
+    global _vector_store  # noqa: PLW0603
     _sync_custom_agents(components)
+
+    # Create ReplSessionManager if persistent REPL is enabled
+    repl_manager: ReplSessionManager | None = None
+    if settings.repl_enabled:
+        sandbox_base = settings.repl_sandbox_dir or None
+        repl_manager = ReplSessionManager(
+            max_sessions=settings.repl_max_sessions,
+            timeout_seconds=settings.repl_timeout_seconds,
+            max_memory_mb=settings.repl_max_memory_mb,
+            max_output_chars=settings.repl_max_output_chars,
+            sandbox_base=sandbox_base,
+        )
+        _repl_session_manager = repl_manager
+        logger.info(
+            "repl_session_manager_created max_sessions=%d timeout=%ds",
+            settings.repl_max_sessions,
+            settings.repl_timeout_seconds,
+        )
+
+    # Create BrowserPool if browser control is enabled
+    browser_pool: BrowserPool | None = None
+    if settings.browser_enabled:
+        browser_pool = BrowserPool(
+            max_contexts=settings.browser_max_contexts,
+            navigation_timeout_ms=settings.browser_navigation_timeout_ms,
+            context_ttl_seconds=settings.browser_context_ttl_seconds,
+        )
+        _browser_pool = browser_pool
+        logger.info(
+            "browser_pool_created max_contexts=%d ttl=%ds",
+            settings.browser_max_contexts,
+            settings.browser_context_ttl_seconds,
+        )
+
+    # Create RAG services if enabled
+    embedding_service: EmbeddingService | None = None
+    vector_store: VectorStore | None = None
+    if settings.rag_enabled:
+        embedding_service = EmbeddingService(
+            provider=settings.rag_embedding_provider,
+            model=settings.rag_embedding_model,
+            base_url=settings.rag_embedding_base_url,
+            api_key=settings.rag_embedding_api_key or None,
+        )
+        _embedding_service = embedding_service
+        vector_store = VectorStore(
+            persist_dir=settings.rag_persist_dir,
+            max_chunks_per_collection=settings.rag_max_chunks_per_collection,
+        )
+        _vector_store = vector_store
+        logger.info(
+            "rag_services_created provider=%s model=%s persist_dir=%s",
+            settings.rag_embedding_provider,
+            settings.rag_embedding_model,
+            settings.rag_persist_dir,
+        )
+
+        # Health-checks for RAG subsystem
+        _rag_persist = Path(settings.rag_persist_dir)
+        try:
+            _rag_persist.mkdir(parents=True, exist_ok=True)
+            _probe = _rag_persist / ".write_probe"
+            _probe.write_text("ok", encoding="utf-8")
+            _probe.unlink()
+            logger.info("rag_health_check persist_dir=%s writable=true", _rag_persist)
+        except OSError as _exc:
+            logger.warning("rag_health_check persist_dir=%s writable=false error=%s", _rag_persist, _exc)
 
     for _agent in components.agent_registry.values():
         _delegate = getattr(_agent, "_delegate", _agent)
@@ -312,6 +427,12 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
                 components.custom_agent_store,
                 lambda: _sync_custom_agents(components),
             )
+        if _tools is not None and hasattr(_tools, "set_repl_manager") and repl_manager is not None:
+            _tools.set_repl_manager(repl_manager)
+        if _tools is not None and hasattr(_tools, "set_browser_pool") and browser_pool is not None:
+            _tools.set_browser_pool(browser_pool)
+        if _tools is not None and hasattr(_tools, "set_rag_services") and embedding_service is not None and vector_store is not None:
+            _tools.set_rag_services(embedding_service, vector_store)
 
     components.agent = components.agent_registry[PRIMARY_AGENT_ID]
     components.orchestrator_api = components.orchestrator_registry[PRIMARY_AGENT_ID]
@@ -985,6 +1106,8 @@ ws_handler_dependencies = WsHandlerDependencies(
     primary_agent_id=PRIMARY_AGENT_ID,
     coder_agent_id=CODER_AGENT_ID,
     review_agent_id=REVIEW_AGENT_ID,
+    repl_session_manager=LazyObjectProxy(lambda: _repl_session_manager),
+    browser_pool=LazyObjectProxy(lambda: _browser_pool),
 )
 app.include_router(build_ws_agent_router(dependencies=ws_handler_dependencies))
 

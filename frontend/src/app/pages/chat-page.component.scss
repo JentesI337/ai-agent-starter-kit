@@ -143,6 +143,27 @@
   transition: opacity var(--t);
 }
 
+.line-images {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-image {
+  max-width: 600px;
+  max-height: 400px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  cursor: pointer;
+  transition: transform var(--t), box-shadow var(--t);
+
+  &:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
 .inline-policy-actions {
   margin-top: 10px;
   display: flex;

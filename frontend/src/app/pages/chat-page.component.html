@@ -20,7 +20,10 @@
       <h2>Conversation</h2>
       <div class="chat-log">
         <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
-          <div>{{ line.text }}</div>
+          <div>{{ getLineText(line) }}</div>
+          <div class="line-images" *ngIf="getLineImages(line).length > 0">
+            <img *ngFor="let imgSrc of getLineImages(line)" [src]="imgSrc" class="chat-image" alt="Agent-generated image" loading="lazy" />
+          </div>
           <div class="inline-policy-actions" *ngIf="hasPendingPolicyAction(line)">
             <button (click)="allowPolicyApprovalInline(line)" [disabled]="line.policyAction?.busy">{{ line.policyAction?.busy ? 'Working...' : 'Allow' }}</button>
             <select [(ngModel)]="line.policyAction!.dropdownAction" [disabled]="line.policyAction?.busy ?? false" title="Policy action">
