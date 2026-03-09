@@ -1,13 +1,56 @@
-<nav class="top-nav">
-  <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Chat</a>
-  <a routerLink="/live" routerLinkActive="active">Live</a>
-  <a routerLink="/admin" routerLinkActive="active">Admin</a>
-  <a routerLink="/memory" routerLinkActive="active">Memory</a>
-  <a routerLink="/debug" routerLinkActive="active">Debug</a>
-  <span class="nav-spacer"></span>
-  <span class="nav-connection-dot" [class.connected]="(agentState.connected$ | async) === true"
-        [title]="(agentState.connected$ | async) ? 'Connected' : 'Disconnected'"></span>
+<nav class="side-nav">
+  <div class="nav-brand">
+    <div class="brand-orb">
+      <div class="brand-ring"></div>
+      <span class="brand-icon">◈</span>
+    </div>
+    <span class="brand-text">Open Agent</span>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Core</span>
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+      <span class="nav-icon">⚡</span> Chat
+    </a>
+    <a routerLink="/live" routerLinkActive="active">
+      <span class="nav-icon">◉</span> Live
+    </a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Build</span>
+    <a routerLink="/agents" routerLinkActive="active">
+      <span class="nav-icon">◈</span> Agents
+    </a>
+    <a routerLink="/workflows" routerLinkActive="active">
+      <span class="nav-icon">⬡</span> Workflows
+    </a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Inspect</span>
+    <a routerLink="/debug" routerLinkActive="active">
+      <span class="nav-icon">▣</span> Debug
+    </a>
+    <a routerLink="/architecture" routerLinkActive="active">
+      <span class="nav-icon">⟐</span> Architecture
+    </a>
+  </div>
+
+  <div class="nav-spacer"></div>
+
+  <div class="nav-group nav-bottom">
+    <a routerLink="/settings" routerLinkActive="active">
+      <span class="nav-icon">⚙</span> Settings
+    </a>
+  </div>
+
+  <div class="nav-status">
+    <span class="nav-connection-dot" [class.connected]="(agentState.connected$ | async) === true"></span>
+    <span class="nav-status-text">{{ (agentState.connected$ | async) ? 'Connected' : 'Disconnected' }}</span>
+  </div>
 </nav>
+
 <main class="content">
   <router-outlet></router-outlet>
 </main>

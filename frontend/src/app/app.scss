@@ -1,6 +1,6 @@
 :host {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-columns: 200px 1fr;
   height: 100vh;
   background:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 204, 122, 0.03), transparent 70%),
@@ -9,64 +9,149 @@
   color: var(--c-text);
 }
 
-.top-nav {
+// ═══ SIDE NAV ═══════════════════════════════════════════════════════════════
+.side-nav {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 20px;
-  height: 52px;
-  border-bottom: 1px solid var(--c-border);
-  background: var(--c-bg-bar);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  flex-shrink: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-bg-deep);
+  padding: 16px 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
 
-  &::before {
-    content: 'AI AGENT';
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    color: var(--c-accent);
-    margin-right: 20px;
-    padding-right: 20px;
-    border-right: 1px solid var(--c-border);
-  }
+  &::-webkit-scrollbar { display: none; }
 }
 
-.top-nav a {
+// ── Brand ───────────────────────────────────────────
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 20px;
+}
+
+.brand-orb {
   position: relative;
-  padding: 6px 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brand-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--c-accent-border);
+  animation: brand-spin 10s linear infinite;
+}
+
+@keyframes brand-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.brand-icon {
+  font-size: 14px;
+  color: var(--c-accent);
+  z-index: 1;
+}
+
+.brand-text {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: var(--c-accent);
+}
+
+// ── Nav groups ──────────────────────────────────────
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--c-text-muted);
+  padding: 0 10px 6px;
+}
+
+.side-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   border-radius: var(--r-md);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
   color: var(--c-text-dim);
-  letter-spacing: 0.2px;
-  transition: color var(--t), background var(--t);
+  transition: all var(--t);
+  position: relative;
 
   &:hover {
     color: var(--c-text);
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  &.active {
+    color: var(--c-accent-text);
+    background: var(--c-accent-dim);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -10px;
+      top: 6px;
+      bottom: 6px;
+      width: 3px;
+      border-radius: 0 var(--r-sm) var(--r-sm) 0;
+      background: var(--c-accent);
+    }
   }
 }
 
-.top-nav a.active {
-  color: var(--c-accent);
-  background: var(--c-accent-dim);
-  border: 1px solid var(--c-accent-border);
+.nav-icon {
+  font-size: 14px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
+// ── Spacer + bottom ─────────────────────────────────
 .nav-spacer {
   flex: 1;
 }
 
+.nav-bottom {
+  margin-bottom: 8px;
+}
+
+// ── Connection status ───────────────────────────────
+.nav-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border-top: 1px solid var(--c-border);
+}
+
 .nav-connection-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--c-red, #f44);
-  box-shadow: 0 0 6px var(--c-red, #f44);
+  background: var(--c-red);
+  box-shadow: 0 0 6px var(--c-red);
   transition: background var(--t), box-shadow var(--t);
+  flex-shrink: 0;
 
   &.connected {
     background: var(--c-accent);
@@ -74,6 +159,12 @@
   }
 }
 
+.nav-status-text {
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+
+// ═══ CONTENT ════════════════════════════════════════════════════════════════
 .content {
   min-height: 0;
   overflow: hidden;

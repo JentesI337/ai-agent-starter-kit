@@ -1,5 +1,14 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import {
+  AfterViewChecked,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
@@ -22,7 +31,9 @@ import {
   templateUrl: './chat-page.component.html',
   styleUrl: './chat-page.component.scss',
 })
-export class ChatPageComponent implements OnInit, OnDestroy {
+export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
+  @ViewChild('chatScroll') private chatScrollEl?: ElementRef<HTMLElement>;
+
   input = '';
   toolAllowInput = '';
   toolDenyInput = '';
@@ -46,6 +57,10 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   policyApprovals: PolicyApprovalItem[] = [];
   pendingClarificationQuestion = '';
 
+  // UI state
+  settingsOpen = false;
+  shouldScroll = false;
+
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
   private readonly policyApprovalBusy = new Set<string>();
@@ -60,14 +75,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     private readonly monitoringService: MonitoringService,
     private readonly cdr: ChangeDetectorRef,
     private readonly secureStorage: SecureStorageService,
-    private readonly sanitizer: DomSanitizer
+    private readonly sanitizer: DomSanitizer,
   ) {}
 
   ngOnInit(): void {
     this.socketService.connect(this.wsUrl);
     this.agentState.init();
 
-    // SEC (FE-05): Use encrypted storage for persisted preferences
     this.secureStorage.getItem('preferredRuntime').then(persistedRuntime => {
       if (persistedRuntime === 'local' || persistedRuntime === 'api') {
         this.runtimeTarget = persistedRuntime;
@@ -97,7 +111,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         if (!this.firstRunChoicePending) {
           this.secureStorage.setItem('preferredRuntime', status.runtime);
         }
-
       },
     });
 
@@ -133,13 +146,14 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.subscriptions.add(
       this.agentState.chatLines$.subscribe(lines => {
         this.lines = lines;
-      })
+        this.shouldScroll = true;
+      }),
     );
 
     this.subscriptions.add(
       this.socketService.connected$.subscribe((connected) => {
         this.isConnected = connected;
-      })
+      }),
     );
 
     this.subscriptions.add(
@@ -147,7 +161,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         this.policyApprovals = approvals;
         this.ensureApprovalPolling();
         this.cdr.markForCheck();
-      })
+      }),
     );
 
     this.subscriptions.add(
@@ -158,14 +172,12 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           this.agentState.pushChatLine({ role: 'agent', text: question });
           this.cdr.markForCheck();
         }
-      })
+      }),
     );
 
     this.subscriptions.add(
       this.socketService.events$.subscribe((event) => {
-        if (!event) {
-          return;
-        }
+        if (!event) return;
         try {
           this.applyEvent(event);
         } catch (error) {
@@ -177,8 +189,16 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         }
         this.monitoringService.refreshViews();
         this.cdr.detectChanges();
-      })
+      }),
     );
+  }
+
+  ngAfterViewChecked(): void {
+    if (this.shouldScroll && this.chatScrollEl) {
+      const el = this.chatScrollEl.nativeElement;
+      el.scrollTop = el.scrollHeight;
+      this.shouldScroll = false;
+    }
   }
 
   ngOnDestroy(): void {
@@ -191,25 +211,24 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     return match?.tools ?? [];
   }
 
+  get selectedAgentRole(): string {
+    return this.availableAgents.find(a => a.id === this.selectedAgentId)?.role ?? '';
+  }
+
+  get isAgentWorking(): boolean {
+    return this.lines.length > 0 && this.lines[this.lines.length - 1].text === 'Agent is working...';
+  }
+
   // ── Base64 image extraction ──────────────────────────
 
   private readonly base64ImageCache = new WeakMap<ChatLine, { text: string; images: SafeUrl[] }>();
 
-  /**
-   * Extract base64-encoded images from a chat line's text.
-   * Supports two patterns:
-   * 1. JSON: {"type":"image","format":"png","data":"<base64>"}
-   * 2. Raw data-URI: data:image/png;base64,<data>
-   */
   getLineImages(line: ChatLine): SafeUrl[] {
     const cached = this.base64ImageCache.get(line);
-    if (cached && cached.text === line.text) {
-      return cached.images;
-    }
+    if (cached && cached.text === line.text) return cached.images;
     const images: SafeUrl[] = [];
     const text = line.text || '';
 
-    // Pattern 1: JSON with base64 data field
     const jsonPattern = /\{"type"\s*:\s*"image"\s*,\s*"format"\s*:\s*"(\w+)"\s*,\s*"data"\s*:\s*"([A-Za-z0-9+/=\s]+)"\s*\}/g;
     let m: RegExpExecArray | null;
     while ((m = jsonPattern.exec(text)) !== null) {
@@ -220,7 +239,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Pattern 2: raw data URIs
     if (images.length === 0) {
       const dataUriPattern = /data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)/g;
       while ((m = dataUriPattern.exec(text)) !== null) {
@@ -235,19 +253,16 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     return images;
   }
 
-  /** Return the text portion of a line with image JSON/data-URIs stripped out. */
   getLineText(line: ChatLine): string {
     const images = this.getLineImages(line);
-    if (images.length === 0) {
-      return line.text;
-    }
+    if (images.length === 0) return line.text;
     let text = line.text;
-    // Strip JSON image blocks
     text = text.replace(/\{"type"\s*:\s*"image"\s*,\s*"format"\s*:\s*"\w+"\s*,\s*"data"\s*:\s*"[A-Za-z0-9+/=\s]+"\s*\}/g, '');
-    // Strip raw data URIs
     text = text.replace(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g, '');
     return text.trim();
   }
+
+  // ── Actions ──────────────────────────────────────
 
   send(): void {
     if (this.firstRunChoicePending) {
@@ -256,9 +271,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     const content = this.input.trim();
-    if (!content) {
-      return;
-    }
+    if (!content) return;
 
     this.agentState.pushChatLine({ role: 'user', text: content });
 
@@ -290,9 +303,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         toolPolicy,
       });
       this.agentState.resetActiveAssistant();
-      if (isClarificationResponse) {
-        this.pendingClarificationQuestion = '';
-      }
+      if (isClarificationResponse) this.pendingClarificationQuestion = '';
       this.input = '';
     } catch (error) {
       this.agentState.pushChatLine({ role: 'system', text: `Send failed: ${(error as Error).message}` });
@@ -309,9 +320,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     const content = this.input.trim();
-    if (!content) {
-      return;
-    }
+    if (!content) return;
 
     this.agentState.pushChatLine({ role: 'user', text: `[subrun] ${content}` });
 
@@ -336,19 +345,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       this.input = '';
     } catch (error) {
       this.agentState.pushChatLine({ role: 'system', text: `Subrun spawn failed: ${(error as Error).message}` });
-      this.monitoringService.pushLifecycle('frontend_subrun_send_failed', 'Subrun spawn failed', {
-        error: (error as Error).message,
-      });
     }
   }
 
   switchRuntime(): void {
-    if (this.runtimeSwitching) {
-      return;
-    }
+    if (this.runtimeSwitching) return;
     this.runtimeSwitching = true;
     this.monitoringService.pushLifecycle('frontend_switch', `Runtime switch requested: ${this.runtimeTarget}`);
-
     try {
       this.socketService.sendRuntimeSwitchRequest(this.runtimeTarget, this.sessionId || undefined);
     } catch (error) {
@@ -383,27 +386,79 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     this.policyApprovalBusy.clear();
     this.pendingClarificationQuestion = '';
     this.stopApprovalPolling();
-
-    this.agentState.pushChatLine({ role: 'system', text: 'Session reset complete. Next message starts a fresh session.' });
+    this.agentState.pushChatLine({ role: 'system', text: 'Session reset. Next message starts a fresh session.' });
     this.monitoringService.pushLifecycle('frontend_session_reset', 'Session reset by user', {
       previousSessionId: previousSessionId || '(none)',
-      nextSessionId: '(new)',
     });
   }
+
+  @HostListener('document:keydown.escape')
+  closeSettings(): void {
+    this.settingsOpen = false;
+  }
+
+  // ── Policy Approvals ──────────────────────────────
+
+  allowPolicyApproval(item: PolicyApprovalItem): void {
+    if (!item?.approvalId || this.policyApprovalBusy.has(item.approvalId)) return;
+    this.sendPolicyDecision(item.approvalId, 'allow_once', item.sessionId, item.runId);
+  }
+
+  allowPolicyApprovalInline(line: ChatLine): void {
+    const action = line.policyAction;
+    if (!action || action.busy || action.resolved) return;
+    this.sendPolicyDecision(action.approvalId, 'allow_once', action.sessionId, action.runId);
+    this.updateInlinePolicyActionBusy(action.approvalId, true);
+  }
+
+  executePolicyDropdownAction(line: ChatLine): void {
+    const action = line.policyAction;
+    if (!action || action.busy || action.resolved || !action.dropdownAction) return;
+    this.sendPolicyDecision(action.approvalId, action.dropdownAction, action.sessionId, action.runId);
+    this.updateInlinePolicyActionBusy(action.approvalId, true);
+  }
+
+  hasPendingPolicyAction(line: ChatLine): boolean {
+    return Boolean(line.policyAction && !line.policyAction.resolved);
+  }
+
+  isPolicyApprovalBusy(approvalId: string): boolean {
+    return this.policyApprovalBusy.has(approvalId);
+  }
+
+  refreshPendingPolicyApprovals(silent = false): void {
+    if (this.approvalPollInFlight) return;
+    this.approvalPollInFlight = true;
+    const runFilter = this.monitoringService.monitorRequestFilter.trim();
+    const payload = {
+      run_id: runFilter || undefined,
+      session_id: this.sessionId || undefined,
+      limit: 100,
+    };
+    this.agentsService.getPendingPolicyApprovals(payload).subscribe({
+      next: (response) => {
+        this.agentState.refreshApprovalsFromRecords(response.items);
+        this.approvalPollInFlight = false;
+        this.ensureApprovalPolling();
+      },
+      error: (error) => {
+        this.approvalPollInFlight = false;
+        if (!silent) {
+          this.agentState.pushChatLine({ role: 'system', text: `Approval refresh failed: ${error?.error?.detail ?? error.message}` });
+        }
+      },
+    });
+  }
+
+  // ── Event Processing (preserved) ──────────────────
 
   private applyEvent(event: AgentSocketEvent): void {
     this.monitoringService.pushLifecycle(
       event.type,
       this.describeEvent(event),
-      {
-        stage: event.stage,
-        requestId: event.request_id,
-        sessionId: event.session_id,
-        ...(event.details ?? {}),
-      },
-      event.ts
+      { stage: event.stage, requestId: event.request_id, sessionId: event.session_id, ...(event.details ?? {}) },
+      event.ts,
     );
-
     this.monitoringService.updateMonitoring(event, this.selectedAgentId);
 
     if (
@@ -423,40 +478,28 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       }
     }
 
-    // clarification_needed is handled by agentState.clarification$ subscription
-
-    if (event.type === 'clarification_needed') {
-      return;
-    }
+    if (event.type === 'clarification_needed') return;
 
     if (event.type === 'status' && event.message) {
-      if (event.session_id) {
-        this.sessionId = event.session_id;
-      }
+      if (event.session_id) this.sessionId = event.session_id;
       if (event.runtime === 'local' || event.runtime === 'api') {
         this.runtimeTarget = event.runtime;
         this.secureStorage.setItem('preferredRuntime', event.runtime);
         this.firstRunChoicePending = false;
       }
-      if (event.model) {
-        this.model = event.model;
-      }
+      if (event.model) this.model = event.model;
       this.agentState.pushChatLine({ role: 'system', text: event.message });
       return;
     }
 
-    if (event.type === 'runtime_switch_progress') {
-      return;
-    }
+    if (event.type === 'runtime_switch_progress') return;
 
     if (event.type === 'runtime_switch_done') {
       if (event.runtime === 'local' || event.runtime === 'api') {
         this.runtimeTarget = event.runtime;
         this.secureStorage.setItem('preferredRuntime', event.runtime);
       }
-      if (event.model) {
-        this.model = event.model;
-      }
+      if (event.model) this.model = event.model;
       this.runtimeSwitching = false;
       this.agentState.pushChatLine({ role: 'system', text: `Runtime active: ${event.runtime} (${event.model ?? 'model'})` });
       this.agentsService.getRuntimeStatus().subscribe({
@@ -464,13 +507,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
           this.apiModelsAvailable = status.apiModelsAvailable ?? null;
           const modelsCount = status.apiModelsCount ?? null;
           const modelsError = status.apiModelsError ?? null;
-          if (modelsError) {
-            this.apiModelsHint = modelsError;
-          } else if (modelsCount !== null) {
-            this.apiModelsHint = `${modelsCount} model(s) visible`;
-          } else {
-            this.apiModelsHint = '';
-          }
+          this.apiModelsHint = modelsError ? modelsError : (modelsCount !== null ? `${modelsCount} model(s) visible` : '');
         },
       });
       return;
@@ -483,8 +520,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'subrun_status') {
-      const status = event.status ?? event.message ?? 'unknown';
-      this.agentState.pushChatLine({ role: 'system', text: `Subrun status: ${String(status)}` });
+      this.agentState.pushChatLine({ role: 'system', text: `Subrun status: ${String(event.status ?? event.message ?? 'unknown')}` });
       return;
     }
 
@@ -496,7 +532,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
 
     if (event.type === 'policy_approval_required') {
-      // Approval state managed by AgentStateService; only create inline chat line here
       const approval = event.approval;
       const approvalId = approval?.approval_id;
       if (approvalId) {
@@ -519,7 +554,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // policy_approval_updated is handled by AgentStateService
     if (event.type === 'policy_approval_updated') {
       const approvalId = String((event.approval as { approval_id?: string } | undefined)?.approval_id ?? '');
       if (approvalId) {
@@ -529,16 +563,14 @@ export class ChatPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (event.type === 'socket_raw') {
-      return;
-    }
+    if (event.type === 'socket_raw') return;
 
     if (event.type === 'socket_close') {
       if (this.agentState.activeAssistantIndex !== null) {
         this.agentState.resetActiveAssistant();
         this.agentState.pushChatLine({
           role: 'system',
-          text: 'Connection lost while agent was responding. Response may be incomplete. Reconnecting…',
+          text: 'Connection lost while agent was responding. Response may be incomplete. Reconnecting...',
         });
       }
       return;
@@ -573,6 +605,8 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Private helpers ──────────────────────────────
+
   private refreshAgentsAndSchema(selectAgentId?: string): void {
     this.agentsService.getAgents().subscribe({
       next: (agents) => {
@@ -587,7 +621,6 @@ export class ChatPageComponent implements OnInit, OnDestroy {
         }
       },
     });
-
     this.agentsService.getMonitoringSchema().subscribe({
       next: (schema) => {
         this.monitoringSchema = schema;
@@ -599,9 +632,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   private buildToolPolicyPayload(): ToolPolicyPayload | undefined {
     const allow = this.parseCsvTools(this.toolAllowInput);
     const deny = this.parseCsvTools(this.toolDenyInput);
-    if (allow.length === 0 && deny.length === 0) {
-      return undefined;
-    }
+    if (allow.length === 0 && deny.length === 0) return undefined;
     return {
       allow: allow.length > 0 ? allow : undefined,
       deny: deny.length > 0 ? deny : undefined,
@@ -609,98 +640,36 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   }
 
   private parseCsvTools(value: string): string[] {
-    return value
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
+    return value.split(',').map(e => e.trim()).filter(e => e.length > 0);
   }
 
   private describeEvent(event: AgentSocketEvent): string {
-    if (event.type === 'lifecycle' && event.stage) {
-      return event.stage;
-    }
-    if (event.type === 'status') {
-      return event.message ?? 'status';
-    }
-    if (event.type === 'agent_step') {
-      return event.step ?? 'agent_step';
-    }
-    if (event.type === 'error') {
-      return event.message ?? 'error';
-    }
-    if (event.type === 'runtime_switch_progress') {
-      return `${event.step ?? 'runtime_step'} (attempt ${event.attempt ?? 1}): ${event.message ?? ''}`.trim();
-    }
-    if (event.type === 'runtime_switch_done') {
-      return `runtime_switch_done -> ${event.runtime ?? 'unknown'}`;
-    }
-    if (event.type === 'runtime_switch_error') {
-      return event.message ?? 'runtime_switch_error';
-    }
-    if (event.type === 'subrun_status') {
-      return `subrun_status ${event.status ?? 'unknown'}`;
-    }
-    if (event.type === 'subrun_announce') {
-      return `subrun_announce ${event.status ?? 'unknown'}`;
-    }
-    if (event.type === 'policy_approval_required') {
-      return 'policy_approval_required';
-    }
-    if (event.type === 'final') {
-      return 'final';
-    }
-    if (event.type === 'token') {
-      return 'token';
-    }
+    if (event.type === 'lifecycle' && event.stage) return event.stage;
+    if (event.type === 'status') return event.message ?? 'status';
+    if (event.type === 'agent_step') return event.step ?? 'agent_step';
+    if (event.type === 'error') return event.message ?? 'error';
+    if (event.type === 'runtime_switch_progress') return `${event.step ?? 'runtime_step'} (attempt ${event.attempt ?? 1}): ${event.message ?? ''}`.trim();
+    if (event.type === 'runtime_switch_done') return `runtime_switch_done -> ${event.runtime ?? 'unknown'}`;
+    if (event.type === 'runtime_switch_error') return event.message ?? 'runtime_switch_error';
+    if (event.type === 'subrun_status') return `subrun_status ${event.status ?? 'unknown'}`;
+    if (event.type === 'subrun_announce') return `subrun_announce ${event.status ?? 'unknown'}`;
+    if (event.type === 'policy_approval_required') return 'policy_approval_required';
+    if (event.type === 'final') return 'final';
+    if (event.type === 'token') return 'token';
     return event.type;
   }
 
-  allowPolicyApproval(item: PolicyApprovalItem): void {
-    if (!item?.approvalId || this.policyApprovalBusy.has(item.approvalId)) {
-      return;
-    }
-    this.sendPolicyDecision(item.approvalId, 'allow_once', item.sessionId, item.runId);
-  }
-
-  allowPolicyApprovalInline(line: ChatLine): void {
-    const action = line.policyAction;
-    if (!action || action.busy || action.resolved) {
-      return;
-    }
-    this.sendPolicyDecision(action.approvalId, 'allow_once', action.sessionId, action.runId);
-    this.updateInlinePolicyActionBusy(action.approvalId, true);
-  }
-
-  executePolicyDropdownAction(line: ChatLine): void {
-    const action = line.policyAction;
-    if (!action || action.busy || action.resolved || !action.dropdownAction) {
-      return;
-    }
-    const selected = action.dropdownAction;
-    this.sendPolicyDecision(action.approvalId, selected, action.sessionId, action.runId);
-    this.updateInlinePolicyActionBusy(action.approvalId, true);
-  }
-
-  hasPendingPolicyAction(line: ChatLine): boolean {
-    return Boolean(line.policyAction && !line.policyAction.resolved);
-  }
-
-  private sendPolicyDecision(
-    approvalId: string,
-    decision: 'allow_once' | 'allow_session' | 'cancel',
-    sessionId: string,
-    runId: string
-  ): void {
+  private sendPolicyDecision(approvalId: string, decision: 'allow_once' | 'allow_session' | 'cancel' | string, sessionId: string, runId: string): void {
     this.policyApprovalBusy.add(approvalId);
     this.updateInlinePolicyActionBusy(approvalId, true);
     try {
-      this.agentState.sendApprovalDecision(approvalId, decision, sessionId, runId);
-      const messageMap: Record<'allow_once' | 'allow_session' | 'cancel', string> = {
+      this.agentState.sendApprovalDecision(approvalId, decision as 'allow_once' | 'allow_session' | 'cancel', sessionId, runId);
+      const messageMap: Record<string, string> = {
         allow_once: 'Policy decision sent: Allow once.',
         allow_session: 'Policy decision sent: Allow all in this session.',
         cancel: 'Policy decision sent: Cancel.',
       };
-      this.agentState.pushChatLine({ role: 'system', text: messageMap[decision] });
+      this.agentState.pushChatLine({ role: 'system', text: messageMap[decision] || `Policy decision sent: ${decision}` });
     } catch (error: any) {
       this.policyApprovalBusy.delete(approvalId);
       this.updateInlinePolicyActionBusy(approvalId, false);
@@ -708,56 +677,13 @@ export class ChatPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  isPolicyApprovalBusy(approvalId: string): boolean {
-    return this.policyApprovalBusy.has(approvalId);
-  }
-
-  refreshPendingPolicyApprovals(silent = false): void {
-    if (this.approvalPollInFlight) {
-      return;
-    }
-    this.approvalPollInFlight = true;
-
-    const runFilter = this.monitoringService.monitorRequestFilter.trim();
-    const payload = {
-      run_id: runFilter || undefined,
-      session_id: this.sessionId || undefined,
-      limit: 100,
-    };
-    this.agentsService.getPendingPolicyApprovals(payload).subscribe({
-      next: (response) => {
-        this.agentState.refreshApprovalsFromRecords(response.items);
-        this.approvalPollInFlight = false;
-        this.ensureApprovalPolling();
-      },
-      error: (error) => {
-        this.approvalPollInFlight = false;
-        if (!silent) {
-          this.agentState.pushChatLine({ role: 'system', text: `Approval refresh failed: ${error?.error?.detail ?? error.message}` });
-        }
-      },
-    });
-  }
-
   private ensureApprovalPolling(): void {
     const hasPending = this.policyApprovals.some((item) => item.status === 'pending');
-    if (!hasPending) {
-      this.stopApprovalPolling();
-      return;
-    }
-
-    if (this.approvalPollTimer !== null) {
-      return;
-    }
-
+    if (!hasPending) { this.stopApprovalPolling(); return; }
+    if (this.approvalPollTimer !== null) return;
     this.approvalPollTimer = window.setInterval(() => {
-      if (!this.isConnected) {
-        return;
-      }
-      if (!this.policyApprovals.some((item) => item.status === 'pending')) {
-        this.stopApprovalPolling();
-        return;
-      }
+      if (!this.isConnected) return;
+      if (!this.policyApprovals.some((item) => item.status === 'pending')) { this.stopApprovalPolling(); return; }
       this.refreshPendingPolicyApprovals(true);
     }, this.approvalPollIntervalMs);
   }
@@ -777,9 +703,7 @@ export class ChatPageComponent implements OnInit, OnDestroy {
   }
 
   private updateInlinePolicyActionState(approvalId: string, resolved: boolean): void {
-    if (resolved) {
-      this.policyApprovalBusy.delete(approvalId);
-    }
+    if (resolved) this.policyApprovalBusy.delete(approvalId);
     this.agentState.updateChatLinesByApproval(approvalId, line => ({
       ...line,
       policyAction: line.policyAction ? { ...line.policyAction, busy: false, resolved } : undefined,

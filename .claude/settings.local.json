@@ -18,7 +18,10 @@
       "Read(//tmp/**)",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npx ng:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)"
     ]
   }
 }

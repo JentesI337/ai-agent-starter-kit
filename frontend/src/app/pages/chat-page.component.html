@@ -1,124 +1,225 @@
-<section class="chat">
-  <header class="chat-header">
-    <div>
-      <h1>Agent Control & Monitoring</h1>
-      <p class="subtitle">Live observability from backend events. Internal chain-of-thought stays hidden.</p>
+<section class="chat-shell">
+
+  <!-- ── First-Run Runtime Overlay ──────────────────── -->
+  <div class="runtime-overlay" *ngIf="firstRunChoicePending">
+    <div class="runtime-card">
+      <div class="rc-icon">◈</div>
+      <h2>Choose Runtime</h2>
+      <p>Select how the agent processes your requests</p>
+      <div class="rc-options">
+        <button class="rc-opt" (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">
+          <span class="rc-emoji">⚡</span>
+          <span class="rc-label">Local</span>
+          <span class="rc-desc">70B model on your machine</span>
+        </button>
+        <button class="rc-opt" (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">
+          <span class="rc-emoji">☁</span>
+          <span class="rc-label">Cloud API</span>
+          <span class="rc-desc">Remote model via API</span>
+        </button>
+      </div>
     </div>
-    <div class="header-badges">
-      <span class="pill" [class.online]="isConnected" [class.offline]="!isConnected">
-        {{ isConnected ? 'connected' : 'disconnected' }}
+  </div>
+
+  <!-- ── Header Bar ────────────────────────────────── -->
+  <header class="topbar">
+    <div class="tb-left">
+      <span class="conn-dot" [class.on]="isConnected"></span>
+      <select class="agent-select" [(ngModel)]="selectedAgentId">
+        <option *ngFor="let agent of availableAgents" [value]="agent.id">{{ agent.id }}</option>
+      </select>
+      <span class="role-badge" *ngIf="selectedAgentRole">{{ selectedAgentRole }}</span>
+    </div>
+    <div class="tb-right">
+      <span class="rt-pill" [class.local]="runtimeTarget === 'local'" [class.api]="runtimeTarget === 'api'">
+        {{ runtimeTarget === 'local' ? '⚡ Local' : '☁ API' }}
       </span>
-      <span class="pill" [class.available]="apiModelsAvailable === true" [class.unavailable]="apiModelsAvailable === false">
-        API models: {{ apiModelsAvailable === null ? 'n/a' : (apiModelsAvailable ? 'available' : 'unavailable') }}
-      </span>
-      <span class="hint" *ngIf="apiModelsHint">{{ apiModelsHint }}</span>
+      <span class="model-pill" *ngIf="model">{{ model }}</span>
+      <button class="icon-btn" (click)="settingsOpen = !settingsOpen" [class.active]="settingsOpen" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+      <button class="icon-btn" (click)="quickResetSession()" title="New session">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+        </svg>
+      </button>
     </div>
   </header>
 
-  <div class="workspace">
-    <section class="panel chat-panel">
-      <h2>Conversation</h2>
-      <div class="chat-log">
-        <div class="line" *ngFor="let line of lines" [class.user]="line.role === 'user'" [class.agent]="line.role === 'agent'" [class.system]="line.role === 'system'">
-          <div>{{ getLineText(line) }}</div>
-          <div class="line-images" *ngIf="getLineImages(line).length > 0">
-            <img *ngFor="let imgSrc of getLineImages(line)" [src]="imgSrc" class="chat-image" alt="Agent-generated image" loading="lazy" />
-          </div>
-          <div class="inline-policy-actions" *ngIf="hasPendingPolicyAction(line)">
-            <button (click)="allowPolicyApprovalInline(line)" [disabled]="line.policyAction?.busy">{{ line.policyAction?.busy ? 'Working...' : 'Allow' }}</button>
-            <select [(ngModel)]="line.policyAction!.dropdownAction" [disabled]="line.policyAction?.busy ?? false" title="Policy action">
-              <option value="">More…</option>
-              <option value="cancel">Cancel</option>
-              <option value="allow_session">Allow all in this Session</option>
-            </select>
-            <button class="secondary" (click)="executePolicyDropdownAction(line)" [disabled]="line.policyAction?.busy || !line.policyAction?.dropdownAction">
-              Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <section class="panel composer">
-    <div class="policy-approvals" *ngIf="policyApprovals.length > 0">
-      <div class="composer-actions approvals-header">
-        <h3>Policy approvals</h3>
-        <button class="secondary" (click)="refreshPendingPolicyApprovals()">Refresh Pending</button>
-      </div>
-
-      <div class="approval-bubble" *ngFor="let item of policyApprovals | slice:0:20">
-        <div class="approval-meta">
-          <span>{{ item.agentName }}</span>
-          <span>{{ item.tool }}</span>
-          <span>{{ item.status }}</span>
-        </div>
-        <p>{{ item.displayText }}</p>
-
-        <div class="approval-actions" *ngIf="item.status === 'pending'; else resolvedApprovalState">
-          <button (click)="allowPolicyApproval(item)" [disabled]="isPolicyApprovalBusy(item.approvalId)">
-            {{ isPolicyApprovalBusy(item.approvalId) ? 'Allowing...' : 'Allow' }}
-          </button>
-        </div>
-
-        <ng-template #resolvedApprovalState>
-          <div class="trace-note">decision: {{ item.status }} · run_id: {{ item.runId || '-' }}</div>
-        </ng-template>
-      </div>
+  <!-- ── Settings Flyout ───────────────────────────── -->
+  <div class="settings-flyout" [class.open]="settingsOpen">
+    <div class="sf-head">
+      <span class="sf-title">Settings</span>
+      <button class="sf-close" (click)="settingsOpen = false">✕</button>
     </div>
 
-    <div class="first-run" *ngIf="firstRunChoicePending">
-      <p>First run: choose your runtime mode.</p>
-      <button (click)="chooseInitialRuntime('local')" [disabled]="!isConnected">Use Local 70B</button>
-      <button (click)="chooseInitialRuntime('api')" [disabled]="!isConnected">Use API (cloud model)</button>
-    </div>
-
-    <div class="controls">
-      <label>
-        Agent
-        <select [(ngModel)]="selectedAgentId" [disabled]="firstRunChoicePending">
+    <div class="sf-body">
+      <div class="sf-group">
+        <label class="sf-label">Agent</label>
+        <select class="sf-input" [(ngModel)]="selectedAgentId">
           <option *ngFor="let agent of availableAgents" [value]="agent.id">{{ agent.id }} ({{ agent.role }})</option>
         </select>
-      </label>
-      <label>
-        Preset
-        <select [(ngModel)]="selectedPresetId" [disabled]="firstRunChoicePending">
+      </div>
+
+      <div class="sf-group">
+        <label class="sf-label">Preset</label>
+        <select class="sf-input" [(ngModel)]="selectedPresetId">
           <option value="">(none)</option>
           <option *ngFor="let preset of availablePresets" [value]="preset.id">{{ preset.id }}</option>
         </select>
-      </label>
-      <label>
-        Runtime
-        <select [(ngModel)]="runtimeTarget" [disabled]="firstRunChoicePending">
-          <option value="local">local-70b</option>
-          <option value="api">api-cloud-model</option>
-        </select>
-      </label>
-      <button (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching || firstRunChoicePending">{{ runtimeSwitching ? 'Switching...' : 'Switch Runtime' }}</button>
-      <button class="secondary" (click)="resetRuntimePreference()">Reset Runtime Choice</button>
-      <button class="secondary" (click)="quickResetSession()">Quick Session Reset</button>
-      <label>
-        Model
-        <input [(ngModel)]="model" placeholder="model name" [disabled]="firstRunChoicePending" />
-      </label>
-      <label>
-        Tool allow (CSV)
-        <input [(ngModel)]="toolAllowInput" placeholder="read_file,write_file" [disabled]="firstRunChoicePending" />
-      </label>
-      <label>
-        Tool deny (CSV)
-        <input [(ngModel)]="toolDenyInput" placeholder="run_command" [disabled]="firstRunChoicePending" />
-      </label>
+      </div>
+
+      <div class="sf-group">
+        <label class="sf-label">Runtime</label>
+        <div class="sf-row">
+          <select class="sf-input" [(ngModel)]="runtimeTarget">
+            <option value="local">Local (70B)</option>
+            <option value="api">Cloud API</option>
+          </select>
+          <button class="sf-apply" (click)="switchRuntime()" [disabled]="!isConnected || runtimeSwitching">
+            {{ runtimeSwitching ? '...' : 'Apply' }}
+          </button>
+        </div>
+        <button class="sf-link" (click)="resetRuntimePreference()">Reset preference</button>
+      </div>
+
+      <div class="sf-group">
+        <label class="sf-label">Model</label>
+        <input class="sf-input" [(ngModel)]="model" placeholder="e.g. gpt-4o, llama-3.1-70b">
+      </div>
+
+      <div class="sf-sep"></div>
+
+      <div class="sf-group">
+        <label class="sf-label">Tool Allow (CSV)</label>
+        <input class="sf-input" [(ngModel)]="toolAllowInput" placeholder="read_file, write_file">
+      </div>
+
+      <div class="sf-group">
+        <label class="sf-label">Tool Deny (CSV)</label>
+        <input class="sf-input" [(ngModel)]="toolDenyInput" placeholder="run_command">
+      </div>
+
+      <div class="sf-group" *ngIf="selectedAgentTools.length > 0">
+        <label class="sf-label">Available Tools</label>
+        <div class="tool-chips">
+          <span class="t-chip" *ngFor="let tool of selectedAgentTools">{{ tool }}</span>
+        </div>
+      </div>
+
+      <div class="sf-group" *ngIf="apiModelsHint">
+        <label class="sf-label">API Status</label>
+        <span class="sf-hint" [class.ok]="apiModelsAvailable === true" [class.err]="apiModelsAvailable === false">
+          {{ apiModelsHint }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Chat Messages ─────────────────────────────── -->
+  <div class="messages" #chatScroll>
+
+    <!-- Empty state -->
+    <div class="empty" *ngIf="lines.length === 0 && !firstRunChoicePending">
+      <div class="empty-vis">
+        <div class="e-ring"></div>
+        <div class="e-ring r2"></div>
+        <span class="e-icon">◈</span>
+      </div>
+      <h2>Start a Conversation</h2>
+      <p>Send a message to begin working with the agent</p>
     </div>
 
-    <div class="tool-strip" *ngIf="selectedAgentTools.length > 0">
-      <span class="tool-chip" *ngFor="let tool of selectedAgentTools">{{ tool }}</span>
-    </div>
+    <!-- Messages -->
+    <div *ngFor="let line of lines"
+         class="msg"
+         [class.msg-user]="line.role === 'user'"
+         [class.msg-agent]="line.role === 'agent'"
+         [class.msg-system]="line.role === 'system'"
+         [class.msg-working]="line.text === 'Agent is working...'">
 
-    <textarea [(ngModel)]="input" rows="3" placeholder="Describe what the agent should do..."></textarea>
-    <div class="composer-actions">
-      <button class="secondary" (click)="spawnSubrun()" [disabled]="!isConnected || firstRunChoicePending">Spawn Subrun</button>
-      <button (click)="send()" [disabled]="!isConnected || firstRunChoicePending">Send</button>
+      <span class="msg-role">
+        <ng-container *ngIf="line.role === 'user'">You</ng-container>
+        <ng-container *ngIf="line.role === 'agent'">Agent</ng-container>
+        <ng-container *ngIf="line.role === 'system'">System</ng-container>
+      </span>
+
+      <div class="msg-body">
+        <div class="msg-text" *ngIf="line.text !== 'Agent is working...'">{{ getLineText(line) }}</div>
+
+        <!-- Working dots -->
+        <div class="working-dots" *ngIf="line.text === 'Agent is working...'">
+          <span></span><span></span><span></span>
+        </div>
+
+        <!-- Inline images -->
+        <div class="msg-images" *ngIf="getLineImages(line).length > 0">
+          <img *ngFor="let imgSrc of getLineImages(line)" [src]="imgSrc" class="chat-img" alt="Agent image" loading="lazy">
+        </div>
+
+        <!-- Inline policy actions -->
+        <div class="policy-inline" *ngIf="hasPendingPolicyAction(line)">
+          <span class="pi-tool">{{ line.policyAction?.tool }}</span>
+          <button class="pi-allow" (click)="allowPolicyApprovalInline(line)" [disabled]="line.policyAction?.busy">
+            {{ line.policyAction?.busy ? 'Working...' : 'Allow' }}
+          </button>
+          <select class="pi-select" [(ngModel)]="line.policyAction!.dropdownAction" [disabled]="line.policyAction?.busy ?? false">
+            <option value="">More...</option>
+            <option value="cancel">Cancel</option>
+            <option value="allow_session">Allow Session</option>
+          </select>
+          <button class="pi-apply" (click)="executePolicyDropdownAction(line)"
+                  [disabled]="line.policyAction?.busy || !line.policyAction?.dropdownAction">Apply</button>
+        </div>
+      </div>
     </div>
-  </section>
+  </div>
+
+  <!-- ── Pending Approvals Strip ───────────────────── -->
+  <div class="approvals-strip" *ngIf="policyApprovals.length > 0">
+    <div class="as-head">
+      <span class="as-title">Pending Approvals</span>
+      <span class="as-count">{{ policyApprovals.length }}</span>
+      <button class="as-refresh" (click)="refreshPendingPolicyApprovals()">Refresh</button>
+    </div>
+    <div class="as-list">
+      <div class="as-item" *ngFor="let item of policyApprovals | slice:0:10">
+        <div class="as-meta">
+          <span>{{ item.agentName }}</span>
+          <span class="as-tool">{{ item.tool }}</span>
+          <span class="as-status" [class.pending]="item.status === 'pending'">{{ item.status }}</span>
+        </div>
+        <p class="as-text">{{ item.displayText }}</p>
+        <div class="as-actions" *ngIf="item.status === 'pending'">
+          <button class="pi-allow" (click)="allowPolicyApproval(item)" [disabled]="isPolicyApprovalBusy(item.approvalId)">
+            {{ isPolicyApprovalBusy(item.approvalId) ? 'Allowing...' : 'Allow' }}
+          </button>
+        </div>
+        <div class="as-resolved" *ngIf="item.status !== 'pending'">
+          {{ item.status }} · {{ item.runId || '-' }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Composer ──────────────────────────────────── -->
+  <footer class="composer">
+    <textarea class="comp-input" rows="1" placeholder="Message the agent..."
+              [(ngModel)]="input"
+              [disabled]="firstRunChoicePending"
+              (keydown.enter)="$event.preventDefault(); send()"></textarea>
+    <button class="comp-sub" (click)="spawnSubrun()" [disabled]="!isConnected || firstRunChoicePending || !input.trim()" title="Spawn subrun">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M6 9v12"/>
+      </svg>
+    </button>
+    <button class="comp-send" (click)="send()" [disabled]="!isConnected || firstRunChoicePending || !input.trim()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </footer>
+
 </section>

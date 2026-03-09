@@ -1,0 +1,227 @@
+<div class="arch-page">
+
+  <!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
+  <header class="arch-header">
+    <div class="header-title-row">
+      <div class="header-orb">
+        <div class="orb-ring"></div>
+        <div class="orb-ring r2"></div>
+        <div class="orb-ring r3"></div>
+        <span class="orb-icon">◈</span>
+      </div>
+      <div>
+        <h1>System Architecture</h1>
+        <p class="header-sub">Multi-agent orchestration engine with adaptive reasoning pipeline</p>
+      </div>
+    </div>
+    <div class="layer-filters">
+      <button *ngFor="let l of layers"
+              class="layer-pill"
+              [class.active]="selectedLayer === l.id"
+              [style.--pill-color]="l.color"
+              (click)="filterLayer(l.id)">
+        {{ l.label }}
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══ ARCHITECTURE MAP ════════════════════════════════════════════════ -->
+  <div class="arch-map-wrapper">
+    <div class="arch-map">
+
+      <!-- Background grid -->
+      <div class="map-grid"></div>
+
+      <!-- Layer bands -->
+      <div class="layer-band" *ngFor="let l of layers"
+           [style.--band-color]="l.color"
+           [style.top]="l.id === 'entry' ? '1%' :
+                        l.id === 'orchestration' ? '23%' :
+                        l.id === 'pipeline' ? '37%' :
+                        l.id === 'agent' ? '51%' :
+                        l.id === 'tools' ? '65%' : '79%'"
+           [class.dimmed]="selectedLayer && selectedLayer !== l.id">
+        <span class="band-label">{{ l.label }}</span>
+      </div>
+
+      <!-- SVG edges -->
+      <svg class="edge-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="edgeGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--c-accent)" stop-opacity="0.5"/>
+            <stop offset="100%" stop-color="var(--c-blue)" stop-opacity="0.3"/>
+          </linearGradient>
+        </defs>
+        <g *ngFor="let e of edges">
+          <path *ngIf="isEdgeVisible(e)"
+                [attr.d]="edgePath(e)"
+                class="edge-line"
+                [class.animated]="e.animated"
+                [class.dimmed]="selectedLayer && !isEdgeVisible(e)" />
+          <circle *ngIf="e.animated && isEdgeVisible(e)"
+                  r="0.6" class="edge-particle">
+            <animateMotion [attr.path]="edgePath(e)"
+                           dur="2.5s" repeatCount="indefinite" />
+          </circle>
+          <circle *ngIf="e.animated && isEdgeVisible(e)"
+                  r="0.4" class="edge-particle p2">
+            <animateMotion [attr.path]="edgePath(e)"
+                           dur="2.5s" begin="1.2s" repeatCount="indefinite" />
+          </circle>
+        </g>
+      </svg>
+
+      <!-- Nodes -->
+      <div *ngFor="let n of nodes"
+           class="arch-node"
+           [class.dimmed]="!isNodeVisible(n)"
+           [class.pulse]="n.pulse"
+           [class.hovered]="hoveredNode?.id === n.id"
+           [style.left.%]="n.x"
+           [style.top.%]="n.y"
+           [style.--node-color]="layerColor(n.layer)"
+           (mouseenter)="hoveredNode = n"
+           (mouseleave)="hoveredNode = null">
+        <div class="node-glow"></div>
+        <div class="node-body">
+          <span class="node-icon">{{ n.icon }}</span>
+          <div class="node-text">
+            <span class="node-label">{{ n.label }}</span>
+            <span class="node-sub">{{ n.sub }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hover card -->
+      <div class="hover-card"
+           *ngIf="hoveredNode"
+           [style.left.%]="hoveredNode.x"
+           [style.top.%]="hoveredNode.y"
+           [style.--node-color]="layerColor(hoveredNode.layer)">
+        <h4>{{ hoveredNode.label }}</h4>
+        <span class="hover-file">{{ hoveredNode.sub }}</span>
+        <ul>
+          <li *ngFor="let d of hoveredNode.detail">{{ d }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ REASONING PIPELINE ══════════════════════════════════════════════ -->
+  <section class="pipeline-section">
+    <h2 class="section-title">
+      <span class="title-icon">⟐</span>
+      Reasoning Pipeline
+    </h2>
+    <p class="section-sub">Each request flows through 10 phases. The agent loops between tool selection and execution until the task is complete.</p>
+
+    <div class="pipeline-track">
+      <div class="track-line">
+        <div class="track-pulse"></div>
+      </div>
+      <div *ngFor="let p of phases; let i = index"
+           class="phase-card"
+           [style.--phase-color]="p.color"
+           [style.animation-delay]="i * 80 + 'ms'">
+        <div class="phase-dot">
+          <span>{{ p.icon }}</span>
+        </div>
+        <div class="phase-content">
+          <span class="phase-label">{{ p.label }}</span>
+          <span class="phase-desc">{{ p.desc }}</span>
+        </div>
+        <div class="phase-loop-badge" *ngIf="p.id === 'tool_select' || p.id === 'tool_exec'">
+          loop
+        </div>
+      </div>
+    </div>
+
+    <!-- Loop indicator -->
+    <div class="loop-indicator">
+      <svg viewBox="0 0 200 40" class="loop-svg">
+        <path d="M 60 5 L 140 5 Q 190 5 190 20 Q 190 35 140 35 L 60 35 Q 10 35 10 20 Q 10 5 60 5"
+              class="loop-path" />
+        <circle r="3" class="loop-particle">
+          <animateMotion path="M 60 5 L 140 5 Q 190 5 190 20 Q 190 35 140 35 L 60 35 Q 10 35 10 20 Q 10 5 60 5"
+                         dur="3s" repeatCount="indefinite" />
+        </circle>
+      </svg>
+      <span class="loop-label">Tool Select → Execute → Select (until done)</span>
+    </div>
+  </section>
+
+  <!-- ═══ AGENTS & TOOLS ════════════════════════════════════════════════── -->
+  <div class="bottom-panels">
+
+    <!-- Agent Roster -->
+    <section class="panel agent-panel">
+      <h2 class="section-title">
+        <span class="title-icon">◉</span>
+        Agent Roster
+        <span class="roster-count">{{ agentRoster.length }}</span>
+      </h2>
+      <p class="section-sub">Adapter pattern — each agent specializes the base HeadAgent with unique constraints, tool policies, and domain prompts.</p>
+      <div class="agent-hex-grid">
+        <div *ngFor="let a of agentRoster; let i = index"
+             class="agent-hex"
+             [style.--agent-color]="categoryColor(a.category)"
+             [style.animation-delay]="i * 50 + 'ms'">
+          <div class="hex-inner">
+            <span class="hex-icon">{{ a.icon }}</span>
+          </div>
+          <span class="hex-name">{{ a.name }}</span>
+          <span class="hex-cat">{{ a.category }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tool Groups -->
+    <section class="panel tool-panel">
+      <h2 class="section-title">
+        <span class="title-icon">⬡</span>
+        Tool System
+      </h2>
+      <p class="section-sub">30+ tools organized into capability groups. Budget-controlled execution with loop detection and circuit breakers.</p>
+      <div class="tool-groups">
+        <div *ngFor="let g of toolGroups; let i = index"
+             class="tool-group"
+             [style.animation-delay]="i * 60 + 'ms'">
+          <div class="group-header">
+            <span class="group-icon">{{ g.icon }}</span>
+            <span class="group-name">{{ g.name }}</span>
+            <span class="group-count">{{ g.tools.length }}</span>
+          </div>
+          <div class="group-tools">
+            <span *ngFor="let t of g.tools" class="tool-chip">{{ t }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══ DATA FLOW SUMMARY ═══════════════════════════════════════════════ -->
+  <section class="flow-section">
+    <h2 class="section-title">
+      <span class="title-icon">⚡</span>
+      Request Lifecycle
+    </h2>
+    <div class="flow-strip">
+      <div class="flow-step" *ngFor="let s of [
+        { icon: '⚡', label: 'WebSocket', sub: 'Message arrives' },
+        { icon: '≡', label: 'Lane Acquire', sub: 'Concurrency control' },
+        { icon: '⛊', label: 'Policy Merge', sub: '3-layer resolution' },
+        { icon: '⟐', label: 'Pipeline', sub: '10-phase reasoning' },
+        { icon: '◉', label: 'Agent Loop', sub: 'LLM + Tools cycle' },
+        { icon: '▤', label: 'Persist', sub: 'State + Memory' },
+        { icon: '▶', label: 'Stream', sub: 'Events to client' }
+      ]; let i = index; let last = last"
+           [style.animation-delay]="i * 100 + 'ms'">
+        <div class="step-dot">{{ s.icon }}</div>
+        <span class="step-label">{{ s.label }}</span>
+        <span class="step-sub">{{ s.sub }}</span>
+        <div class="step-arrow" *ngIf="!last"></div>
+      </div>
+    </div>
+  </section>
+
+</div>

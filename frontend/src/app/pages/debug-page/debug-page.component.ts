@@ -1,49 +1,48 @@
 import {
+  ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   HostListener,
   OnDestroy,
   OnInit,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { JsonPipe } from '@angular/common';
 import { Subscription } from 'rxjs';
 
-import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-
 import { AgentSocketService } from '../../services/agent-socket.service';
-import { AgentStateService, PolicyApprovalItem } from '../../services/agent-state.service';
-import { DebugToolbarComponent } from './debug-toolbar/debug-toolbar.component';
-import { PipelineCanvasComponent } from './pipeline-canvas/pipeline-canvas.component';
-import { PromptInspectorComponent } from './prompt-inspector/prompt-inspector.component';
-import { EventLogComponent } from './event-log/event-log.component';
-import { MonitoringPanelComponent } from './monitoring-panel/monitoring-panel.component';
 import {
+  AgentStateService,
   DebugEvent,
   DebugState,
   LlmCallRecord,
   PhaseState,
   PipelinePhase,
+  PolicyApprovalItem,
   ReflectionVerdict,
   ToolExecutionRecord,
-} from './debug.types';
+} from '../../services/agent-state.service';
+
+interface PhaseNode {
+  id: PipelinePhase;
+  label: string;
+  short: string;
+  icon: string;
+  hasLlm: boolean;
+}
+
+type InspectorTab = 'system' | 'user' | 'response' | 'tools' | 'reflection' | 'overrides';
 
 @Component({
   selector: 'app-debug-page',
   standalone: true,
-  imports: [
-    FormsModule,
-    RouterLink,
-    DebugToolbarComponent,
-    PipelineCanvasComponent,
-    PromptInspectorComponent,
-    EventLogComponent,
-    MonitoringPanelComponent,
-  ],
+  imports: [FormsModule, JsonPipe],
   templateUrl: './debug-page.component.html',
   styleUrl: './debug-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DebugPageComponent implements OnInit, OnDestroy {
-  // ── Projected from AgentStateService.debug$ ──────────────
+
   debugState: DebugState = 'idle';
   currentPhase: PipelinePhase | null = null;
   pausedAtPhase: PipelinePhase | null = null;
@@ -56,13 +55,26 @@ export class DebugPageComponent implements OnInit, OnDestroy {
   requestId: string | null = null;
   totalDurationMs = 0;
 
-  // ── Local UI state ───────────────────────────────────────
   activeBreakpoints = new Set<PipelinePhase>();
   isConnected = false;
   pendingApprovals: PolicyApprovalItem[] = [];
   composerMessage = '';
-  selectedAgent = '';
-  selectedModel = '';
+  activeTab: InspectorTab = 'system';
+  eventLogOpen = false;
+  filterText = '';
+  inspectorOpen = false;
+
+  readonly phases: PhaseNode[] = [
+    { id: 'routing',        label: 'Routing',          short: 'Route',   icon: '◈', hasLlm: false },
+    { id: 'guardrails',     label: 'Guardrails',       short: 'Guard',   icon: '⬡', hasLlm: false },
+    { id: 'context',        label: 'Memory & Context', short: 'Context', icon: '◉', hasLlm: false },
+    { id: 'planning',       label: 'Planning',         short: 'Plan',    icon: '◆', hasLlm: true },
+    { id: 'tool_selection', label: 'Tool Selection',   short: 'Tools',   icon: '⬢', hasLlm: true },
+    { id: 'synthesis',      label: 'Synthesis',        short: 'Synth',   icon: '✦', hasLlm: true },
+    { id: 'reflection',     label: 'Reflection',       short: 'Reflect', icon: '◎', hasLlm: true },
+    { id: 'reply_shaping',  label: 'Reply Shaping',    short: 'Shape',   icon: '◇', hasLlm: false },
+    { id: 'response',       label: 'Response',         short: 'Reply',   icon: '▣', hasLlm: false },
+  ];
 
   private subs = new Subscription();
 
@@ -75,7 +87,6 @@ export class DebugPageComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.agentState.init();
 
-    // Project shared debug snapshot → local template fields
     this.subs.add(
       this.agentState.debug$.subscribe(snap => {
         this.debugState = snap.debugState;
@@ -89,116 +100,136 @@ export class DebugPageComponent implements OnInit, OnDestroy {
         this.eventLog = snap.eventLog;
         this.requestId = snap.requestId;
         this.totalDurationMs = snap.totalDurationMs;
-        this.cdr.detectChanges();
-      })
+        if (snap.selectedPhase && !this.inspectorOpen) this.inspectorOpen = true;
+        this.cdr.markForCheck();
+      }),
     );
 
-    this.subs.add(
-      this.agentState.connected$.subscribe(c => this.isConnected = c)
-    );
-    this.subs.add(
-      this.agentState.approvals$.subscribe(approvals => {
-        this.pendingApprovals = approvals;
-      })
-    );
+    this.subs.add(this.agentState.connected$.subscribe(c => { this.isConnected = c; this.cdr.markForCheck(); }));
+    this.subs.add(this.agentState.approvals$.subscribe(a => { this.pendingApprovals = a; this.cdr.markForCheck(); }));
 
-    if (!this.isConnected) {
-      this.socket.connect('ws://localhost:8000/ws/agent');
-    }
+    if (!this.isConnected) this.socket.connect('ws://localhost:8000/ws/agent');
   }
 
-  ngOnDestroy(): void {
-    this.subs.unsubscribe();
-  }
+  ngOnDestroy(): void { this.subs.unsubscribe(); }
 
-  // ── Actions ──────────────────────────────────────────────────
+  // ── Actions ──────────────────────────────────────
 
-  onPlay(): void {
-    this.socket.sendDebugPlay();
-    this.debugState = 'running';
-  }
-
-  onPause(): void {
-    this.socket.sendDebugPause();
-  }
+  onPlay(): void { this.socket.sendDebugPlay(); this.debugState = 'running'; }
+  onPause(): void { this.socket.sendDebugPause(); }
 
   onContinue(): void {
     if (this.debugState !== 'paused' || !this.requestId) return;
     this.socket.sendDebugContinue(this.requestId);
   }
 
-  onBreakpointsChange(bps: Set<PipelinePhase>): void {
-    this.activeBreakpoints = bps;
-    this.socket.sendDebugSetBreakpoints([...bps]);
-  }
-
-  onBreakpointToggle(phase: PipelinePhase): void {
-    const next = new Set(this.activeBreakpoints);
-    if (next.has(phase)) {
-      next.delete(phase);
-    } else {
-      next.add(phase);
-    }
-    this.onBreakpointsChange(next);
-  }
-
-  onPhaseClick(phase: PipelinePhase): void {
+  selectPhase(phase: PipelinePhase): void {
     this.agentState.selectDebugPhase(phase);
+    this.inspectorOpen = true;
+    this.selectedPhase = phase;
   }
 
-  onSendMessage(message: string): void {
-    if (!message.trim()) return;
+  toggleBreakpoint(phase: PipelinePhase, ev?: MouseEvent): void {
+    ev?.preventDefault();
+    ev?.stopPropagation();
+    const next = new Set(this.activeBreakpoints);
+    next.has(phase) ? next.delete(phase) : next.add(phase);
+    this.activeBreakpoints = next;
+    this.socket.sendDebugSetBreakpoints([...next]);
+  }
+
+  onSendMessage(): void {
+    const msg = this.composerMessage.trim();
+    if (!msg) return;
     this.agentState.resetDebugRun();
-    this.socket.sendUserMessage(message, {
-      agentId: this.selectedAgent || undefined,
-      model: this.selectedModel || undefined,
-    });
+    this.socket.sendUserMessage(msg, {});
     this.composerMessage = '';
   }
-
-  getPhaseIndex(phase: PipelinePhase | null): number {
-    if (!phase) return 0;
-    const phases: PipelinePhase[] = [
-      'routing', 'guardrails', 'context', 'planning',
-      'tool_selection', 'synthesis', 'reflection', 'reply_shaping', 'response',
-    ];
-    return phases.indexOf(phase) + 1;
-  }
-
-  // ── Keyboard Shortcuts ───────────────────────────────────────
-
-  @HostListener('document:keydown', ['$event'])
-  handleKeyboard(event: KeyboardEvent): void {
-    const target = event.target as HTMLElement;
-    if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') return;
-
-    switch (event.key) {
-      case 'F5':
-        event.preventDefault();
-        this.onPlay();
-        break;
-      case 'F6':
-        event.preventDefault();
-        this.onPause();
-        break;
-      case 'F8':
-      case ' ':
-        event.preventDefault();
-        this.onContinue();
-        break;
-      case 'F9':
-        event.preventDefault();
-        if (this.currentPhase) {
-          this.onBreakpointToggle(this.currentPhase);
-        }
-        break;
-    }
-  }
-
-  // ── Approvals ────────────────────────────────────────────────
 
   onApprovalDecision(item: PolicyApprovalItem, decision: 'allow_once' | 'allow_session' | 'cancel'): void {
     this.agentState.sendApprovalDecision(item.approvalId, decision, item.sessionId, item.runId);
   }
 
+  // ── Helpers ──────────────────────────────────────
+
+  ps(id: PipelinePhase): PhaseState { return this.phaseStates.get(id) || 'idle'; }
+
+  get selectedNode(): PhaseNode | undefined {
+    return this.phases.find(p => p.id === this.selectedPhase);
+  }
+
+  get selectedLlmCalls(): LlmCallRecord[] {
+    if (!this.selectedPhase) return this.llmCalls;
+    return this.llmCalls.filter(c => c.phase === this.selectedPhase);
+  }
+
+  callContent(call: LlmCallRecord): string {
+    switch (this.activeTab) {
+      case 'system': return call.systemPrompt;
+      case 'user': return call.userPrompt;
+      case 'response': return call.rawResponse;
+      default: return '';
+    }
+  }
+
+  llmCount(id: PipelinePhase): number {
+    return this.llmCalls.filter(c => c.phase === id).length;
+  }
+
+  phaseDur(id: PipelinePhase): number | null {
+    const M: Record<string, [string, string]> = {
+      routing: ['run_started', 'guardrails_passed'],
+      guardrails: ['run_started', 'guardrails_passed'],
+      context: ['memory_updated', 'planning_started'],
+      planning: ['planning_started', 'planning_completed'],
+      tool_selection: ['tool_started', 'synthesis_started'],
+      synthesis: ['synthesis_started', 'reflection_completed'],
+      reflection: ['synthesis_started', 'reflection_completed'],
+      reply_shaping: ['reply_shaping_started', 'reply_shaping_completed'],
+      response: ['reply_shaping_completed', 'run_completed'],
+    };
+    const p = M[id];
+    if (!p) return null;
+    const s = this.eventLog.find(e => e.stage === p[0]);
+    const e = [...this.eventLog].reverse().find(ev => ev.stage === p[1]);
+    if (!s || !e) return null;
+    const ms = new Date(e.timestamp).getTime() - new Date(s.timestamp).getTime();
+    return ms > 0 ? ms : null;
+  }
+
+  get filteredEvents(): DebugEvent[] {
+    if (!this.filterText) return this.eventLog;
+    const q = this.filterText.toLowerCase();
+    return this.eventLog.filter(e =>
+      e.stage.toLowerCase().includes(q) ||
+      (e.details?.['phase'] as string)?.toLowerCase()?.includes(q),
+    );
+  }
+
+  fmtDur(ms: number | null | undefined): string {
+    if (ms == null) return '';
+    return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's';
+  }
+
+  fmtTime(iso: string): string {
+    try {
+      return new Date(iso).toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      });
+    } catch { return iso; }
+  }
+
+  async copyText(text: string): Promise<void> {
+    await navigator.clipboard.writeText(text);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleKey(e: KeyboardEvent): void {
+    const t = (e.target as HTMLElement).tagName;
+    if (t === 'TEXTAREA' || t === 'INPUT') return;
+    if (e.key === 'F5') { e.preventDefault(); this.onPlay(); }
+    else if (e.key === 'F6') { e.preventDefault(); this.onPause(); }
+    else if (e.key === 'F8' || e.key === ' ') { e.preventDefault(); this.onContinue(); }
+    else if (e.key === 'Escape') { this.inspectorOpen = false; this.cdr.markForCheck(); }
+  }
 }

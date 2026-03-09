@@ -1,102 +1,249 @@
-<div class="debug-page" [class.debug--paused]="debugState === 'paused'">
+<section class="debug-shell" [class.state-paused]="debugState === 'paused'">
 
-  <app-debug-toolbar
-    [state]="debugState"
-    [currentPhase]="currentPhase"
-    [breakpoints]="activeBreakpoints"
-    [connected]="isConnected"
-    (play)="onPlay()"
-    (pause)="onPause()"
-    (continueRun)="onContinue()"
-    (breakpointsChange)="onBreakpointsChange($event)">
-  </app-debug-toolbar>
-
-  <div class="debug-workspace">
-
-    <app-pipeline-canvas
-      [phaseStates]="phaseStates"
-      [currentPhase]="currentPhase"
-      [activeBreakpoints]="activeBreakpoints"
-      [llmCalls]="llmCalls"
-      [toolExecutions]="toolExecutions"
-      [eventLog]="eventLog"
-      (phaseClick)="onPhaseClick($event)"
-      (breakpointToggle)="onBreakpointToggle($event)">
-    </app-pipeline-canvas>
-
-    <app-prompt-inspector
-      [selectedPhase]="selectedPhase"
-      [llmCalls]="llmCalls"
-      [toolExecutions]="toolExecutions"
-      [reflectionVerdict]="reflectionVerdict">
-    </app-prompt-inspector>
-
-  </div>
-
-  <!-- Dashboard Link -->
-  <a class="dashboard-link" routerLink="/debug/dashboard">
-    📊 Dashboard — Routing &amp; Guardrails
-  </a>
-
-  <!-- Pause Banner -->
-  @if (debugState === 'paused') {
-    <div class="pause-banner" role="alert">
-      <span class="pause-icon">⏸</span>
-      <span class="pause-text">
-        Paused at <strong>{{ pausedAtPhase }}</strong>
-        — Phase {{ getPhaseIndex(pausedAtPhase) }} von 9
+  <!-- ── Toolbar ──────────────────────────────────── -->
+  <header class="toolbar">
+    <div class="toolbar-l">
+      <div class="transport">
+        <button class="t-btn" (click)="onPlay()" [disabled]="debugState === 'running'" title="Play (F5)">▶</button>
+        <button class="t-btn" (click)="onPause()" [disabled]="debugState !== 'running'" title="Pause (F6)">⏸</button>
+        <button class="t-btn t-continue" (click)="onContinue()" [disabled]="debugState !== 'paused'" title="Continue (F8)">⏭</button>
+      </div>
+      <span class="state-pill" [attr.data-state]="debugState">{{ debugState }}</span>
+    </div>
+    <div class="toolbar-r">
+      @if (activeBreakpoints.size > 0) {
+        <span class="bp-pill">{{ activeBreakpoints.size }} BP</span>
+      }
+      @if (totalDurationMs > 0) {
+        <span class="dur-pill">{{ fmtDur(totalDurationMs) }}</span>
+      }
+      <span class="conn-pill" [class.on]="isConnected">
+        <span class="c-dot"></span>{{ isConnected ? 'Connected' : 'Disconnected' }}
       </span>
-      <button class="pause-continue" (click)="onContinue()">
-        ▶ Continue <kbd>F8</kbd>
-      </button>
+    </div>
+  </header>
+
+  <!-- ── Pause Banner ─────────────────────────────── -->
+  @if (debugState === 'paused') {
+    <div class="pause-banner">
+      <span class="p-pulse"></span>
+      <span>Paused at <strong>{{ pausedAtPhase }}</strong></span>
+      <button class="banner-btn" (click)="onContinue()">Continue <kbd>F8</kbd></button>
     </div>
   }
 
-  <!-- Approval Banner -->
-  @for (approval of pendingApprovals; track approval.approvalId) {
-    @if (approval.status === 'pending') {
-      <div class="approval-banner" role="alert">
-        <span class="approval-icon">🔐</span>
-        <span class="approval-text">
-          <strong>{{ approval.tool }}</strong>: {{ approval.displayText }}
-        </span>
-        <div class="approval-actions">
-          <button class="approval-btn approval-btn--allow"
-                  (click)="onApprovalDecision(approval, 'allow_once')">
-            Allow Once
-          </button>
-          <button class="approval-btn approval-btn--session"
-                  (click)="onApprovalDecision(approval, 'allow_session')">
-            Allow Session
-          </button>
-          <button class="approval-btn approval-btn--cancel"
-                  (click)="onApprovalDecision(approval, 'cancel')">
-            Cancel
-          </button>
+  <!-- ── Approval Banners ─────────────────────────── -->
+  @for (a of pendingApprovals; track a.approvalId) {
+    @if (a.status === 'pending') {
+      <div class="approval-banner">
+        <span class="a-text"><strong>{{ a.tool }}</strong> {{ a.displayText }}</span>
+        <div class="a-actions">
+          <button class="a-btn allow" (click)="onApprovalDecision(a, 'allow_once')">Allow</button>
+          <button class="a-btn session" (click)="onApprovalDecision(a, 'allow_session')">Session</button>
+          <button class="a-btn cancel" (click)="onApprovalDecision(a, 'cancel')">Cancel</button>
         </div>
       </div>
     }
   }
 
-  <app-event-log [events]="eventLog"></app-event-log>
-
-  <app-monitoring-panel></app-monitoring-panel>
-
-  <!-- Debug Composer -->
-  <div class="composer">
-    <textarea class="composer-input"
-              rows="1"
-              placeholder="Nachricht an Agent senden…"
-              [disabled]="debugState === 'running'"
-              [(ngModel)]="composerMessage"
-              (keydown.enter)="$event.preventDefault(); onSendMessage(composerMessage)"
-              aria-label="Debug Nachricht">
-    </textarea>
-    <button class="composer-send"
-            [disabled]="debugState === 'running' || !composerMessage.trim()"
-            (click)="onSendMessage(composerMessage)">
-      Senden
-    </button>
+  <!-- ── Pipeline Flow ────────────────────────────── -->
+  <div class="pipeline">
+    <div class="pipeline-track">
+      @for (phase of phases; track phase.id; let i = $index; let last = $last) {
+        <div class="node"
+             [class.n-idle]="ps(phase.id) === 'idle'"
+             [class.n-active]="ps(phase.id) === 'active'"
+             [class.n-done]="ps(phase.id) === 'completed'"
+             [class.n-error]="ps(phase.id) === 'error'"
+             [class.n-paused]="ps(phase.id) === 'paused'"
+             [class.n-skip]="ps(phase.id) === 'skipped'"
+             [class.n-sel]="selectedPhase === phase.id"
+             [class.n-cur]="currentPhase === phase.id"
+             (click)="selectPhase(phase.id)"
+             (contextmenu)="toggleBreakpoint(phase.id, $event)">
+          @if (activeBreakpoints.has(phase.id)) { <span class="bp"></span> }
+          <span class="n-icon">{{ phase.icon }}</span>
+          <span class="n-lbl">{{ phase.short }}</span>
+          @if (phaseDur(phase.id); as d) { <span class="n-dur">{{ fmtDur(d) }}</span> }
+          @if (phase.hasLlm && llmCount(phase.id) > 0) {
+            <span class="n-llm">{{ llmCount(phase.id) }}</span>
+          }
+        </div>
+        @if (!last) {
+          <div class="conn"
+               [class.c-flow]="ps(phases[i+1].id) === 'active' || ps(phases[i+1].id) === 'completed'"
+               [class.c-done]="ps(phase.id) === 'completed'"></div>
+        }
+      }
+    </div>
   </div>
 
-</div>
+  <!-- ── Main Content ─────────────────────────────── -->
+  <div class="content">
+
+    <!-- Empty state -->
+    @if (debugState === 'idle' && eventLog.length === 0) {
+      <div class="empty">
+        <div class="empty-vis">
+          <div class="e-ring"></div>
+          <div class="e-ring r2"></div>
+          <span class="e-icon">◈</span>
+        </div>
+        <h2>Pipeline Debugger</h2>
+        <p>Send a message to trace through each pipeline phase</p>
+        <p class="hint">Right-click nodes to set breakpoints</p>
+      </div>
+    }
+
+    <!-- Inspector Panel -->
+    @if (inspectorOpen && selectedPhase) {
+      <div class="inspector">
+
+        <!-- Header -->
+        <div class="insp-head">
+          <span class="insp-icon">{{ selectedNode?.icon }}</span>
+          <span class="insp-name">{{ selectedNode?.label }}</span>
+          <span class="insp-state" [attr.data-state]="ps(selectedPhase)">{{ ps(selectedPhase) }}</span>
+          <button class="insp-close" (click)="inspectorOpen = false">✕</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="insp-tabs">
+          <button class="tab" [class.on]="activeTab === 'system'" (click)="activeTab = 'system'">System</button>
+          <button class="tab" [class.on]="activeTab === 'user'" (click)="activeTab = 'user'">User</button>
+          <button class="tab" [class.on]="activeTab === 'response'" (click)="activeTab = 'response'">Response</button>
+          <button class="tab" [class.on]="activeTab === 'tools'" (click)="activeTab = 'tools'"
+                  [class.has]="toolExecutions.length > 0">
+            Tools @if (toolExecutions.length) { <span class="tc">{{ toolExecutions.length }}</span> }
+          </button>
+          <button class="tab" [class.on]="activeTab === 'reflection'" (click)="activeTab = 'reflection'"
+                  [class.has]="reflectionVerdict !== null">Reflect</button>
+          @if (debugState === 'paused') {
+            <button class="tab" [class.on]="activeTab === 'overrides'" (click)="activeTab = 'overrides'">Override</button>
+          }
+        </div>
+
+        <!-- Tab Content -->
+        <div class="insp-body">
+
+          <!-- Prompt / Response tabs -->
+          @if (activeTab === 'system' || activeTab === 'user' || activeTab === 'response') {
+            @for (call of selectedLlmCalls; track call.timestamp) {
+              <div class="llm-card">
+                <div class="llm-meta">
+                  <span class="llm-model">{{ call.model }}</span>
+                  @if (call.latencyMs) { <span class="llm-lat">{{ fmtDur(call.latencyMs) }}</span> }
+                  @if (call.tokensEst) { <span class="llm-tok">~{{ call.tokensEst }} tok</span> }
+                  <button class="cp-btn" (click)="copyText(callContent(call)); $event.stopPropagation()">Copy</button>
+                </div>
+                <pre class="code-block" [class.awaiting]="!callContent(call)">{{ callContent(call) || 'Awaiting...' }}</pre>
+              </div>
+            }
+            @if (selectedLlmCalls.length === 0) { <div class="no-data">No LLM calls for this phase</div> }
+          }
+
+          <!-- Tools tab -->
+          @if (activeTab === 'tools') {
+            @for (t of toolExecutions; track t.timestamp) {
+              <div class="tool-card" [class.blocked]="t.blocked">
+                <div class="tool-head">
+                  <span class="tool-name">{{ t.tool }}</span>
+                  <span class="tool-dur">{{ fmtDur(t.durationMs) }}</span>
+                  <span class="tool-status" [class.ok]="t.exitCode === 0" [class.err]="t.exitCode !== 0">
+                    {{ t.blocked ? 'BLOCKED' : (t.exitCode === 0 ? 'OK' : 'ERR ' + t.exitCode) }}
+                  </span>
+                </div>
+                <pre class="code-block sm">{{ t.args | json }}</pre>
+                @if (t.resultPreview) { <pre class="code-block sm">{{ t.resultPreview }}</pre> }
+              </div>
+            }
+            @if (toolExecutions.length === 0) { <div class="no-data">No tool executions</div> }
+          }
+
+          <!-- Reflection tab -->
+          @if (activeTab === 'reflection') {
+            @if (reflectionVerdict) {
+              <div class="refl">
+                @for (s of [
+                  { l: 'Goal Alignment', v: reflectionVerdict.goalAlignment },
+                  { l: 'Completeness', v: reflectionVerdict.completeness },
+                  { l: 'Factual Grounding', v: reflectionVerdict.factualGrounding }
+                ]; track s.l) {
+                  <div class="score-row">
+                    <span class="s-label">{{ s.l }}</span>
+                    <div class="s-track"><div class="s-fill" [style.width.%]="s.v * 100"
+                      [class.good]="s.v >= 0.6" [class.warn]="s.v >= 0.4 && s.v < 0.6" [class.bad]="s.v < 0.4"></div></div>
+                    <span class="s-val">{{ (s.v * 100).toFixed(0) }}%</span>
+                  </div>
+                }
+                <div class="verdict-row">
+                  <span class="v-badge" [class.pass]="!reflectionVerdict.shouldRetry" [class.retry]="reflectionVerdict.shouldRetry">
+                    {{ reflectionVerdict.shouldRetry ? 'Retry' : 'Pass' }}
+                  </span>
+                  <span class="v-detail">{{ reflectionVerdict.score.toFixed(2) }} / {{ reflectionVerdict.threshold.toFixed(2) }}</span>
+                </div>
+                @if (reflectionVerdict.issues.length > 0) {
+                  <div class="issues">
+                    @for (issue of reflectionVerdict.issues; track $index) {
+                      <span class="issue">{{ issue }}</span>
+                    }
+                  </div>
+                }
+              </div>
+            } @else { <div class="no-data">No reflection data</div> }
+          }
+
+          <!-- Overrides tab (when paused) -->
+          @if (activeTab === 'overrides') {
+            <div class="overrides">
+              <p class="ov-hint">Modify values before continuing execution</p>
+              <div class="ov-field">
+                <label>Temperature</label>
+                <input type="number" min="0" max="2" step="0.1" value="0.3">
+              </div>
+              <div class="ov-field">
+                <label>Max Tokens</label>
+                <input type="number" min="100" max="32000" step="100" value="4096">
+              </div>
+            </div>
+          }
+
+        </div>
+      </div>
+    }
+
+  </div>
+
+  <!-- ── Event Log ────────────────────────────────── -->
+  <div class="events" [class.open]="eventLogOpen">
+    <div class="ev-head" (click)="eventLogOpen = !eventLogOpen">
+      <span class="ev-title">Event Log</span>
+      <span class="ev-cnt">{{ eventLog.length }}</span>
+      @if (eventLogOpen) {
+        <input class="ev-filter" type="text" placeholder="Filter..." [(ngModel)]="filterText" (click)="$event.stopPropagation()">
+      }
+      <span class="ev-arrow">{{ eventLogOpen ? '▾' : '▸' }}</span>
+    </div>
+    @if (eventLogOpen) {
+      <div class="ev-list">
+        @for (ev of filteredEvents; track ev.timestamp) {
+          <div class="ev-row" [class.ev-err]="ev.level === 'error'" [class.ev-warn]="ev.level === 'warn'">
+            <span class="ev-t">{{ fmtTime(ev.timestamp) }}</span>
+            <span class="ev-s">{{ ev.stage }}</span>
+            @if (ev.details?.['phase']) { <span class="ev-p">{{ ev.details?.['phase'] }}</span> }
+          </div>
+        }
+        @if (filteredEvents.length === 0) { <div class="ev-empty">No events</div> }
+      </div>
+    }
+  </div>
+
+  <!-- ── Composer ─────────────────────────────────── -->
+  <footer class="composer">
+    <textarea class="comp-in" rows="1" placeholder="Send a test message to the agent..."
+              [disabled]="debugState === 'running'" [(ngModel)]="composerMessage"
+              (keydown.enter)="$event.preventDefault(); onSendMessage()"></textarea>
+    <button class="comp-send" [disabled]="debugState === 'running' || !composerMessage.trim()" (click)="onSendMessage()">Send</button>
+  </footer>
+
+</section>

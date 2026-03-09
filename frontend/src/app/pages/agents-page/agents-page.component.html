@@ -1,0 +1,444 @@
+<section class="agents-shell" [class.detail-active]="detailOpen">
+
+  <!-- ── Create/Edit Modal ─────────────────────────── -->
+  <div class="modal-overlay" *ngIf="showCreateModal" (click)="showCreateModal = false">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <h2>{{ editMode ? 'Edit Agent' : 'Create Agent' }}</h2>
+        <button class="modal-close" (click)="showCreateModal = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="mf-group">
+          <label class="mf-label">Name *</label>
+          <input class="mf-input" [(ngModel)]="createForm.name" placeholder="My Custom Agent">
+        </div>
+        <div class="mf-group">
+          <label class="mf-label">Description</label>
+          <textarea class="mf-input tall" [(ngModel)]="createForm.description" placeholder="What does this agent do?" rows="2"></textarea>
+        </div>
+        <div class="mf-group">
+          <label class="mf-label">Base Agent</label>
+          <select class="mf-input" [(ngModel)]="createForm.base_agent_id">
+            <option *ngFor="let a of agents" [value]="a.id" [disabled]="a.isCustom">{{ a.id }}</option>
+          </select>
+        </div>
+        <div class="mf-group">
+          <label class="mf-label">Workflow Steps</label>
+          <textarea class="mf-input tall" [(ngModel)]="workflowStepsText" placeholder="One step per line..." rows="4"></textarea>
+        </div>
+        <div class="mf-row">
+          <div class="mf-group">
+            <label class="mf-label">Tool Allow (CSV)</label>
+            <input class="mf-input" [(ngModel)]="toolAllowText" placeholder="read_file, write_file">
+          </div>
+          <div class="mf-group">
+            <label class="mf-label">Tool Deny (CSV)</label>
+            <input class="mf-input" [(ngModel)]="toolDenyText" placeholder="run_command">
+          </div>
+        </div>
+        <label class="mf-check">
+          <input type="checkbox" [(ngModel)]="createForm.allow_subrun_delegation">
+          <span>Allow subrun delegation</span>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" (click)="showCreateModal = false">Cancel</button>
+        <button class="btn primary" (click)="submitCreate()" [disabled]="!createForm.name?.trim()">
+          {{ editMode ? 'Update' : 'Create' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Left: Agent Grid ──────────────────────────── -->
+  <div class="grid-panel">
+
+    <!-- Header -->
+    <div class="grid-head">
+      <div class="gh-title">
+        <h1>Agents</h1>
+        <span class="gh-count">{{ agents.length }}</span>
+      </div>
+      <div class="gh-actions">
+        <input class="gh-search" type="text" placeholder="Search agents..."
+               [(ngModel)]="searchQuery">
+        <button class="btn primary create-btn" (click)="openCreate()">
+          <span class="plus">+</span> New Agent
+        </button>
+      </div>
+    </div>
+
+    <!-- Category filter -->
+    <div class="cat-filter">
+      <button class="cat-pill" [class.active]="filterCategory === 'all'" (click)="filterCategory = 'all'">
+        All <span class="cat-n">{{ categoryCounts['all'] }}</span>
+      </button>
+      <button class="cat-pill" [class.active]="filterCategory === 'core'" (click)="filterCategory = 'core'">
+        Core <span class="cat-n">{{ categoryCounts['core'] }}</span>
+      </button>
+      <button class="cat-pill" [class.active]="filterCategory === 'specialist'" (click)="filterCategory = 'specialist'">
+        Specialist <span class="cat-n">{{ categoryCounts['specialist'] }}</span>
+      </button>
+      <button class="cat-pill" [class.active]="filterCategory === 'industry'" (click)="filterCategory = 'industry'">
+        Industry <span class="cat-n">{{ categoryCounts['industry'] }}</span>
+      </button>
+      <button class="cat-pill" [class.active]="filterCategory === 'custom'" (click)="filterCategory = 'custom'">
+        Custom <span class="cat-n">{{ categoryCounts['custom'] }}</span>
+      </button>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading" *ngIf="loading">
+      <div class="ld-orb"><div class="orb-ring"></div><span class="orb-icon">◈</span></div>
+      <span>Loading agents...</span>
+    </div>
+
+    <!-- Agent Cards Grid -->
+    <div class="cards" *ngIf="!loading">
+      <div class="agent-card" *ngFor="let agent of filteredAgents; let i = index"
+           [class.selected]="selectedAgent?.id === agent.id"
+           [class.is-custom]="agent.isCustom"
+           [style.animation-delay]="(i * 40) + 'ms'"
+           (click)="selectAgent(agent)">
+
+        <div class="ac-glow"></div>
+
+        <div class="ac-head">
+          <div class="ac-avatar" [attr.data-cat]="agent.category">
+            <span class="ac-icon">{{ agent.icon }}</span>
+          </div>
+          <div class="ac-info">
+            <span class="ac-name">{{ agent.name || agent.id }}</span>
+            <span class="ac-role">{{ agent.role }}</span>
+          </div>
+          <span class="ac-status" [class.ready]="agent.status === 'ready'"></span>
+        </div>
+
+        <div class="ac-stats">
+          <div class="ac-stat">
+            <span class="stat-val">{{ agent.toolCount }}</span>
+            <span class="stat-lbl">Tools</span>
+          </div>
+          <div class="ac-stat">
+            <span class="stat-val cat-badge" [attr.data-cat]="agent.category">{{ agent.category }}</span>
+          </div>
+          <div class="ac-stat" *ngIf="agent.model">
+            <span class="stat-val model-tag">{{ agent.model }}</span>
+          </div>
+        </div>
+
+        <!-- Custom agent actions -->
+        <div class="ac-actions" *ngIf="agent.isCustom">
+          <button class="ac-btn" (click)="openEdit(agent); $event.stopPropagation()" title="Edit">✎</button>
+          <button class="ac-btn" (click)="openClone(agent); $event.stopPropagation()" title="Clone">⧉</button>
+          <button class="ac-btn danger" (click)="deleteAgent(agent); $event.stopPropagation()" title="Delete">✕</button>
+        </div>
+        <div class="ac-actions" *ngIf="!agent.isCustom">
+          <button class="ac-btn" (click)="openClone(agent); $event.stopPropagation()" title="Clone as custom">⧉</button>
+        </div>
+      </div>
+
+      <div class="no-agents" *ngIf="filteredAgents.length === 0">
+        No agents match your search
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Detail Panel ───────────────────────── -->
+  <div class="detail-panel" [class.open]="detailOpen" *ngIf="selectedAgent">
+
+    <!-- Detail Header -->
+    <div class="dp-head">
+      <div class="dp-avatar" [attr.data-cat]="selectedAgent.category">
+        <span class="dp-icon">{{ selectedAgent.icon }}</span>
+      </div>
+      <div class="dp-info">
+        <h2>{{ selectedAgent.name || selectedAgent.id }}</h2>
+        <span class="dp-role">{{ selectedAgent.role }}</span>
+        <span class="dp-cat" [attr.data-cat]="selectedAgent.category">{{ selectedAgent.category }}</span>
+      </div>
+      <button class="dp-close" (click)="closeDetail()">✕</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="dp-tabs">
+      <button class="dp-tab" [class.active]="detailTab === 'overview'" (click)="detailTab = 'overview'">Overview</button>
+      <button class="dp-tab" [class.active]="detailTab === 'config'" (click)="detailTab = 'config'">Config</button>
+      <button class="dp-tab" [class.active]="detailTab === 'tools'" (click)="detailTab = 'tools'">Tools</button>
+      <button class="dp-tab" [class.active]="detailTab === 'skills'" (click)="loadSkills()">Skills</button>
+      <button class="dp-tab" [class.active]="detailTab === 'memory'" (click)="loadMemory()">Memory</button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="dp-body">
+
+      <!-- ── Overview ──────────────────────────────── -->
+      <div class="tab-content" *ngIf="detailTab === 'overview'">
+        <div class="ov-grid">
+          <div class="ov-card">
+            <span class="ov-label">Agent ID</span>
+            <code class="ov-val mono">{{ selectedAgent.id }}</code>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">Status</span>
+            <span class="ov-val" [class.ok]="selectedAgent.status === 'ready'">{{ selectedAgent.status }}</span>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">Model</span>
+            <span class="ov-val mono">{{ selectedAgent.model || '(default)' }}</span>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">Tools Available</span>
+            <span class="ov-val accent">{{ selectedAgent.toolCount }}</span>
+          </div>
+          <div class="ov-card" *ngIf="agentConfig">
+            <span class="ov-label">Temperature</span>
+            <span class="ov-val accent">{{ agentConfig.temperature }}</span>
+          </div>
+          <div class="ov-card" *ngIf="agentConfig">
+            <span class="ov-label">Reflection</span>
+            <span class="ov-val">{{ agentConfig.reflection_passes }} passes</span>
+          </div>
+          <div class="ov-card" *ngIf="agentConfig">
+            <span class="ov-label">Reasoning</span>
+            <span class="ov-val">depth {{ agentConfig.reasoning_depth }}</span>
+          </div>
+          <div class="ov-card" *ngIf="agentConfig?.read_only">
+            <span class="ov-label">Access</span>
+            <span class="ov-val warn">Read-Only</span>
+          </div>
+        </div>
+
+        <!-- Custom agent details -->
+        <div class="ov-section" *ngIf="selectedAgent.isCustom && selectedAgent.custom">
+          <h3 class="ov-section-title">Custom Agent Details</h3>
+          <p class="ov-desc" *ngIf="selectedAgent.custom.description">{{ selectedAgent.custom.description }}</p>
+          <div class="ov-card">
+            <span class="ov-label">Base Agent</span>
+            <span class="ov-val mono">{{ selectedAgent.custom.base_agent_id }}</span>
+          </div>
+          <div class="ov-steps" *ngIf="selectedAgent.custom.workflow_steps?.length">
+            <span class="ov-label">Workflow Steps</span>
+            <div class="step" *ngFor="let step of selectedAgent.custom.workflow_steps; let i = index">
+              <span class="step-num">{{ i + 1 }}</span>
+              <span class="step-text">{{ step }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mandatory deny tools -->
+        <div class="ov-section" *ngIf="agentConfig?.mandatory_deny_tools?.length">
+          <h3 class="ov-section-title">Security Restrictions</h3>
+          <div class="tool-chips deny">
+            <span class="tc" *ngFor="let t of agentConfig!.mandatory_deny_tools">{{ t }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Config ────────────────────────────────── -->
+      <div class="tab-content" *ngIf="detailTab === 'config'">
+        <div class="config-msg" *ngIf="configMessage">{{ configMessage }}</div>
+
+        <div class="config-fields" *ngIf="agentConfig">
+          <div class="cf-field" *ngFor="let key of configKeys()">
+            <div class="cf-head">
+              <label class="cf-name">{{ key }}</label>
+            </div>
+            <div class="cf-val">
+              <!-- Boolean -->
+              <label class="toggle" *ngIf="isBoolean(configDraft[key])">
+                <input type="checkbox" [checked]="configDraft[key]"
+                       (change)="configDraft[key] = !configDraft[key]">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">{{ configDraft[key] ? 'Yes' : 'No' }}</span>
+              </label>
+              <!-- Number + slider for temperature -->
+              <div class="cf-slider" *ngIf="isNumber(configDraft[key]) && key === 'temperature'">
+                <input type="range" min="0" max="2" step="0.05" [(ngModel)]="configDraft[key]" class="slider">
+                <span class="slider-val">{{ configDraft[key] }}</span>
+              </div>
+              <div class="cf-slider" *ngIf="isNumber(configDraft[key]) && (key === 'reflection_passes' || key === 'reasoning_depth')">
+                <input type="range" [min]="0" [max]="10" step="1" [(ngModel)]="configDraft[key]" class="slider">
+                <span class="slider-val">{{ configDraft[key] }}</span>
+              </div>
+              <input class="cf-input num" *ngIf="isNumber(configDraft[key]) && key !== 'temperature' && key !== 'reflection_passes' && key !== 'reasoning_depth'"
+                     type="number" [(ngModel)]="configDraft[key]">
+              <!-- Array -->
+              <textarea class="cf-input tall" *ngIf="isArray(configDraft[key])"
+                        [value]="configDraft[key] | json"
+                        (input)="configDraft[key] = $any($event.target).value"
+                        rows="2"></textarea>
+              <!-- String -->
+              <input class="cf-input" *ngIf="!isBoolean(configDraft[key]) && !isNumber(configDraft[key]) && !isArray(configDraft[key])"
+                     type="text" [value]="configDraft[key] ?? ''"
+                     (input)="configDraft[key] = $any($event.target).value">
+            </div>
+          </div>
+        </div>
+
+        <div class="config-actions" *ngIf="agentConfig">
+          <button class="btn ghost" (click)="resetConfig()" [disabled]="configSaving">Reset Defaults</button>
+          <button class="btn primary" (click)="saveConfig()" [disabled]="configSaving">
+            {{ configSaving ? 'Saving...' : 'Save Config' }}
+          </button>
+        </div>
+
+        <div class="no-data" *ngIf="!agentConfig">
+          No configuration available for this agent
+        </div>
+      </div>
+
+      <!-- ── Tools ─────────────────────────────────── -->
+      <div class="tab-content" *ngIf="detailTab === 'tools'">
+        <div class="tools-head">
+          <input class="gh-search sm" type="text" placeholder="Filter tools..."
+                 [(ngModel)]="toolSearch">
+          <span class="tools-count">
+            <span class="tc-allowed">{{ agentEffectiveTools.length }} allowed</span>
+            <span class="tc-denied" *ngIf="agentDenyTools.length">{{ agentDenyTools.length }} denied</span>
+          </span>
+        </div>
+        <div class="tools-grid">
+          <div class="tool-tile" *ngFor="let tool of filteredAllTools"
+               [class.allowed]="isToolAllowed(tool)"
+               [class.denied]="isToolDenied(tool)"
+               [class.mandatory-deny]="isToolMandatoryDeny(tool)">
+            <span class="tt-name">{{ tool }}</span>
+            <span class="tt-badge" *ngIf="isToolAllowed(tool)">✓</span>
+            <span class="tt-badge deny" *ngIf="isToolDenied(tool) && !isToolMandatoryDeny(tool)">✕</span>
+            <span class="tt-badge locked" *ngIf="isToolMandatoryDeny(tool)">🔒</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Skills ────────────────────────────────── -->
+      <div class="tab-content" *ngIf="detailTab === 'skills'">
+        <div class="skills-head">
+          <span class="skills-count" *ngIf="skills.length">{{ skills.length }} skill(s) discovered</span>
+          <div class="skills-actions">
+            <button class="btn ghost sm" (click)="checkSkills()" [disabled]="skillsLoading">Check</button>
+            <button class="btn primary sm" (click)="syncSkills()" [disabled]="skillsLoading">Sync</button>
+          </div>
+        </div>
+        <div class="skills-msg" *ngIf="skillsMessage">{{ skillsMessage }}</div>
+
+        <div class="loading sm" *ngIf="skillsLoading">
+          <div class="ld-spinner"></div> Loading skills...
+        </div>
+
+        <div class="skills-list" *ngIf="!skillsLoading">
+          <div class="skill-card" *ngFor="let s of skills"
+               [class.eligible]="s.eligible" [class.ineligible]="!s.eligible">
+            <div class="sk-head">
+              <span class="sk-name">{{ s.name }}</span>
+              <span class="sk-badge" [class.ok]="s.eligible" [class.err]="!s.eligible">
+                {{ s.eligible ? 'eligible' : 'ineligible' }}
+              </span>
+              <span class="sk-badge inv" *ngIf="s.user_invocable">user-invocable</span>
+            </div>
+            <p class="sk-desc" *ngIf="s.description">{{ s.description }}</p>
+            <div class="sk-meta" *ngIf="s.rejected_reason">
+              <span class="sk-reason">{{ s.rejected_reason }}</span>
+            </div>
+            <div class="sk-meta" *ngIf="s.metadata?.requires_env?.length">
+              <span class="sk-req">ENV: {{ s.metadata.requires_env.join(', ') }}</span>
+            </div>
+            <div class="sk-meta" *ngIf="s.metadata?.requires_bins?.length">
+              <span class="sk-req">BIN: {{ s.metadata.requires_bins.join(', ') }}</span>
+            </div>
+          </div>
+          <div class="no-data" *ngIf="skills.length === 0">No skills discovered</div>
+        </div>
+      </div>
+
+      <!-- ── Memory ────────────────────────────────── -->
+      <div class="tab-content" *ngIf="detailTab === 'memory'">
+        <div class="loading sm" *ngIf="memoryLoading">
+          <div class="ld-spinner"></div> Loading memory...
+        </div>
+
+        <div class="mem-overview" *ngIf="!memoryLoading && memoryOverview">
+          <div class="ov-grid">
+            <div class="ov-card">
+              <span class="ov-label">Sessions</span>
+              <span class="ov-val accent">{{ memoryOverview.session_count }}</span>
+            </div>
+            <div class="ov-card">
+              <span class="ov-label">Total Entries</span>
+              <span class="ov-val">{{ memoryOverview.total_entries }}</span>
+            </div>
+            <div class="ov-card">
+              <span class="ov-label">Content Size</span>
+              <span class="ov-val mono">{{ formatBytes(memoryOverview.total_content_chars) }}</span>
+            </div>
+            <div class="ov-card">
+              <span class="ov-label">Store Dir</span>
+              <code class="ov-val mono sm-text">{{ memoryOverview.memory_store_dir }}</code>
+            </div>
+          </div>
+
+          <!-- LTM Section -->
+          <div class="mem-section" *ngIf="memoryOverview.long_term_memory?.available">
+            <h3 class="ms-title">Long-Term Memory</h3>
+            <div class="ov-grid">
+              <div class="ov-card">
+                <span class="ov-label">Episodic</span>
+                <span class="ov-val">{{ memoryOverview.long_term_memory.counts.episodic }} entries</span>
+              </div>
+              <div class="ov-card">
+                <span class="ov-label">Semantic</span>
+                <span class="ov-val">{{ memoryOverview.long_term_memory.counts.semantic }} entries</span>
+              </div>
+              <div class="ov-card">
+                <span class="ov-label">Failure Journal</span>
+                <span class="ov-val">{{ memoryOverview.long_term_memory.counts.failure_journal }} entries</span>
+              </div>
+            </div>
+            <div class="ltm-db" *ngIf="memoryOverview.long_term_db">
+              <span class="ov-label">DB Path</span>
+              <code class="ov-val mono sm-text">{{ memoryOverview.long_term_db.path }}</code>
+              <span class="ov-val mono">{{ formatBytes(memoryOverview.long_term_db.size_bytes) }}</span>
+            </div>
+          </div>
+
+          <!-- Feature Flags -->
+          <div class="mem-section" *ngIf="memoryOverview.flags">
+            <h3 class="ms-title">Feature Flags</h3>
+            <div class="flag-grid">
+              <div class="flag" [class.on]="memoryOverview.flags.long_term_memory_enabled">
+                <span class="flag-dot"></span> Long-Term Memory
+              </div>
+              <div class="flag" [class.on]="memoryOverview.flags.session_distillation_enabled">
+                <span class="flag-dot"></span> Session Distillation
+              </div>
+              <div class="flag" [class.on]="memoryOverview.flags.failure_journal_enabled">
+                <span class="flag-dot"></span> Failure Journal
+              </div>
+              <div class="flag" [class.on]="memoryOverview.flags.vision_enabled">
+                <span class="flag-dot"></span> Vision
+              </div>
+            </div>
+          </div>
+
+          <!-- Session list -->
+          <div class="mem-section" *ngIf="memoryOverview.sessions?.length">
+            <h3 class="ms-title">Recent Sessions</h3>
+            <div class="session-list">
+              <div class="session-row" *ngFor="let s of memoryOverview.sessions">
+                <code class="sr-id">{{ s.session_id }}</code>
+                <span class="sr-entries">{{ s.entry_count }} entries</span>
+                <span class="sr-errors" *ngIf="s.parse_errors > 0">{{ s.parse_errors }} errors</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="no-data" *ngIf="!memoryLoading && !memoryOverview">
+          Unable to load memory overview
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</section>

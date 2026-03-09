@@ -1,0 +1,258 @@
+<!-- ═══ LIST VIEW ═══════════════════════════════════════════════════════════ -->
+<div class="wf-page" *ngIf="view === 'list'">
+  <header class="list-header">
+    <div class="header-left">
+      <h1 class="page-title">Workflows</h1>
+      <span class="count-badge">{{ workflows.length }}</span>
+    </div>
+    <div class="header-right">
+      <input class="search-input"
+             type="text"
+             placeholder="Search workflows…"
+             [(ngModel)]="searchQuery" />
+      <button class="btn-primary" (click)="openNew()">
+        <span class="btn-icon">+</span> New Workflow
+      </button>
+    </div>
+  </header>
+
+  <!-- Loading -->
+  <div class="list-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Loading workflows…</span>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty-state" *ngIf="!loading && workflows.length === 0">
+    <div class="empty-icon">⬡</div>
+    <h2>No Workflows Yet</h2>
+    <p>Create your first workflow to automate agent tasks</p>
+    <button class="btn-primary" (click)="openNew()">
+      <span class="btn-icon">+</span> Create Workflow
+    </button>
+  </div>
+
+  <!-- Workflow Cards -->
+  <div class="wf-grid" *ngIf="!loading && workflows.length > 0">
+    <div class="wf-card"
+         *ngFor="let wf of filteredWorkflows; let i = index"
+         [style.animation-delay]="i * 40 + 'ms'"
+         (click)="openEdit(wf)">
+      <div class="wf-card-header">
+        <div class="wf-card-icon">⬡</div>
+        <div class="wf-card-info">
+          <h3>{{ wf.name }}</h3>
+          <p *ngIf="wf.description">{{ wf.description }}</p>
+        </div>
+      </div>
+      <div class="wf-card-meta">
+        <span class="meta-pill">
+          <span class="meta-icon">{{ agentIcon(wf.base_agent_id ?? 'head-agent') }}</span>
+          {{ wf.base_agent_id ?? 'head-agent' }}
+        </span>
+        <span class="meta-pill steps-pill">
+          {{ (wf.steps ?? []).length }} step{{ (wf.steps ?? []).length !== 1 ? 's' : '' }}
+        </span>
+      </div>
+      <div class="wf-card-actions">
+        <button class="card-action" title="Edit" (click)="openEdit(wf); $event.stopPropagation()">✎</button>
+        <button class="card-action" title="Duplicate" (click)="duplicateWorkflow(wf, $event)">⧉</button>
+        <button class="card-action danger" title="Delete" (click)="deleteWorkflow(wf, $event)">✕</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ EDITOR VIEW ════════════════════════════════════════════════════════ -->
+<div class="editor" *ngIf="view === 'editor'">
+
+  <!-- Top bar -->
+  <header class="editor-topbar">
+    <button class="btn-ghost" (click)="backToList()">← Back</button>
+    <div class="topbar-center">
+      <input class="wf-name-input"
+             type="text"
+             placeholder="Workflow name"
+             [(ngModel)]="wfName" />
+    </div>
+    <div class="topbar-right">
+      <button class="btn-ghost" (click)="resetView()" title="Reset view">⟳</button>
+      <button class="btn-secondary" (click)="save()" [disabled]="saving">
+        {{ saving ? 'Saving…' : (editId ? 'Update' : 'Save') }}
+      </button>
+    </div>
+  </header>
+
+  <!-- Toast message -->
+  <div class="toast" *ngIf="message"
+       [class.toast-ok]="messageType === 'ok'"
+       [class.toast-err]="messageType === 'err'">
+    {{ message }}
+    <button class="toast-close" (click)="message = ''">✕</button>
+  </div>
+
+  <!-- Main canvas area -->
+  <div class="editor-body">
+
+    <!-- Canvas -->
+    <div class="canvas-wrapper"
+         (mousedown)="onCanvasMouseDown($event)"
+         (wheel)="onCanvasWheel($event)">
+
+      <!-- Dot grid background (CSS) -->
+      <div class="canvas-grid"></div>
+
+      <!-- Zoom indicator -->
+      <div class="zoom-badge">{{ (canvasScale * 100) | number:'1.0-0' }}%</div>
+
+      <!-- Transform layer -->
+      <div class="canvas-layer" [style.transform]="canvasTransform">
+
+        <!-- SVG connections -->
+        <svg class="connections-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="connGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--c-accent)" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="var(--c-blue)" stop-opacity="0.4"/>
+            </linearGradient>
+          </defs>
+          <path *ngFor="let c of connections"
+                [attr.d]="connPath(c)"
+                class="conn-path" />
+          <!-- Animated particles on paths -->
+          <circle *ngFor="let c of connections"
+                  r="3" class="conn-particle">
+            <animateMotion [attr.path]="connPath(c)"
+                           dur="2s" repeatCount="indefinite" />
+          </circle>
+        </svg>
+
+        <!-- Add step buttons -->
+        <button *ngFor="let pos of addButtonPositions"
+                class="add-step-btn"
+                [style.left.px]="pos.x"
+                [style.top.px]="pos.y"
+                (click)="addStepAfter(pos.index); $event.stopPropagation()"
+                title="Add step">
+          +
+        </button>
+
+        <!-- Nodes -->
+        <div *ngFor="let node of orderedNodes"
+             class="canvas-node"
+             [class.node-trigger]="node.type === 'trigger'"
+             [class.node-step]="node.type === 'step'"
+             [class.node-end]="node.type === 'end'"
+             [class.selected]="selectedNodeId === node.id"
+             [style.left.px]="node.x"
+             [style.top.px]="node.y"
+             (mousedown)="onNodeMouseDown($event, node.id)"
+             (click)="selectNode(node.id); $event.stopPropagation()">
+
+          <div class="node-icon">
+            <span *ngIf="node.type === 'trigger'">▶</span>
+            <span *ngIf="node.type === 'end'">■</span>
+            <span *ngIf="node.type === 'step'">{{ agentIcon(node.agentId) }}</span>
+          </div>
+          <div class="node-content">
+            <span class="node-label">{{ node.label }}</span>
+            <span class="node-sub" *ngIf="node.type === 'step' && node.instruction">
+              {{ node.instruction.length > 40 ? (node.instruction.substring(0, 40) + '…') : node.instruction }}
+            </span>
+          </div>
+          <button class="node-remove"
+                  *ngIf="node.type === 'step'"
+                  (click)="removeNode(node.id); $event.stopPropagation()"
+                  title="Remove step">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Properties -->
+    <div class="props-panel" [class.open]="selectedNode || true">
+
+      <!-- Workflow properties -->
+      <section class="props-section">
+        <h3 class="props-heading">Workflow</h3>
+        <label class="field-label">
+          Description
+          <textarea class="field-input" rows="2"
+                    placeholder="Optional description"
+                    [(ngModel)]="wfDescription"></textarea>
+        </label>
+        <label class="field-label">
+          Base Agent
+          <select class="field-input" [(ngModel)]="wfBaseAgent">
+            <option *ngFor="let a of agents" [value]="a.id">
+              {{ agentIcon(a.id) }} {{ a.name ?? a.id }}
+            </option>
+          </select>
+        </label>
+        <label class="field-label">
+          Tool Allow (comma-separated)
+          <input class="field-input" type="text"
+                 placeholder="e.g. read_file, web_search"
+                 [(ngModel)]="wfToolAllow" />
+        </label>
+        <label class="field-label">
+          Tool Deny (comma-separated)
+          <input class="field-input" type="text"
+                 placeholder="e.g. run_command"
+                 [(ngModel)]="wfToolDeny" />
+        </label>
+        <label class="field-toggle">
+          <input type="checkbox" [(ngModel)]="wfSubrunDelegation" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          Subrun Delegation
+        </label>
+      </section>
+
+      <!-- Selected Node -->
+      <section class="props-section" *ngIf="selectedNode">
+        <h3 class="props-heading">
+          {{ selectedNode.type === 'trigger' ? 'Trigger' : selectedNode.type === 'end' ? 'End' : selectedNode.label }}
+        </h3>
+        <label class="field-label" *ngIf="selectedNode.type === 'step'">
+          Label
+          <input class="field-input" type="text" [(ngModel)]="selectedNode.label" />
+        </label>
+        <label class="field-label" *ngIf="selectedNode.type === 'step'">
+          Instruction
+          <textarea class="field-input instruction-area" rows="4"
+                    placeholder="What should the agent do in this step?"
+                    [(ngModel)]="selectedNode.instruction"></textarea>
+        </label>
+        <label class="field-label" *ngIf="selectedNode.type === 'step'">
+          Agent Override
+          <select class="field-input" [(ngModel)]="selectedNode.agentId">
+            <option *ngFor="let a of agents" [value]="a.id">
+              {{ agentIcon(a.id) }} {{ a.name ?? a.id }}
+            </option>
+          </select>
+        </label>
+        <p class="hint" *ngIf="selectedNode.type === 'trigger'">
+          The trigger node marks the entry point of your workflow.
+        </p>
+        <p class="hint" *ngIf="selectedNode.type === 'end'">
+          The end node marks workflow completion.
+        </p>
+      </section>
+
+      <!-- Execute -->
+      <section class="props-section" *ngIf="editId">
+        <h3 class="props-heading">Execute</h3>
+        <label class="field-label">
+          Input Message
+          <textarea class="field-input" rows="2"
+                    placeholder="Message to pass to the workflow"
+                    [(ngModel)]="executeMessage"></textarea>
+        </label>
+        <button class="btn-primary btn-execute" (click)="execute()" [disabled]="executing">
+          {{ executing ? 'Running…' : '▶ Execute' }}
+        </button>
+        <div class="execute-result" *ngIf="executeResult">{{ executeResult }}</div>
+      </section>
+
+    </div>
+  </div>
+</div>

@@ -1,0 +1,382 @@
+<section class="settings-shell">
+
+  <!-- ── Sidebar ───────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sb-head">
+      <span class="sb-title">Settings</span>
+    </div>
+
+    <div class="sb-search">
+      <input class="sb-input" type="text" placeholder="Search settings..."
+             [(ngModel)]="searchQuery">
+    </div>
+
+    <nav class="sb-nav">
+      <!-- Config section categories -->
+      <div class="sb-section-label">Configuration</div>
+      <div class="sb-cat" *ngFor="let cat of filteredCategories">
+        <button class="sb-cat-btn" (click)="toggleCategory(cat.id)"
+                [class.expanded]="expandedCategories.has(cat.id)">
+          <span class="sb-icon">{{ cat.icon }}</span>
+          <span class="sb-cat-label">{{ cat.label }}</span>
+          <span class="sb-arrow">{{ expandedCategories.has(cat.id) ? '▾' : '▸' }}</span>
+        </button>
+        <div class="sb-items" *ngIf="expandedCategories.has(cat.id)">
+          <button class="sb-item" *ngFor="let key of cat.sectionKeys"
+                  [class.active]="viewMode === 'config' && selectedSectionKey === key"
+                  (click)="selectSection(key)">
+            <span class="sb-item-label">{{ sectionLabel(key) }}</span>
+            <span class="sb-item-count">{{ sectionFieldCount(key) }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sb-sep"></div>
+
+      <!-- Special views -->
+      <div class="sb-section-label">Runtime</div>
+      <button class="sb-item top-item" [class.active]="viewMode === 'agents'" (click)="loadAgentConfigs()">
+        <span class="sb-icon">◎</span> Agent Configs
+      </button>
+      <button class="sb-item top-item" [class.active]="viewMode === 'tools'" (click)="loadToolConfigs()">
+        <span class="sb-icon">⬢</span> Tool Configs
+      </button>
+      <button class="sb-item top-item" [class.active]="viewMode === 'execution'" (click)="loadExecutionConfig()">
+        <span class="sb-icon">◆</span> Execution
+      </button>
+      <button class="sb-item top-item" [class.active]="viewMode === 'security'" (click)="loadSecurityView()">
+        <span class="sb-icon">⛊</span> Security Patterns
+      </button>
+
+      <div class="sb-sep"></div>
+
+      <div class="sb-section-label">Diagnostics</div>
+      <button class="sb-item top-item" [class.active]="viewMode === 'diff'" (click)="loadDiff()">
+        <span class="sb-icon">◇</span> Override Diff
+      </button>
+      <button class="sb-item top-item" [class.active]="viewMode === 'health'" (click)="loadHealth()">
+        <span class="sb-icon">♥</span> Config Health
+      </button>
+    </nav>
+  </aside>
+
+  <!-- ── Content ───────────────────────────────────── -->
+  <main class="content">
+
+    <!-- Loading -->
+    <div class="loading" *ngIf="loading">
+      <div class="ld-spinner"></div>
+      <span>Loading configuration...</span>
+    </div>
+
+    <!-- ── Config Section Editor ───────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'config' && selectedSectionMeta">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>{{ selectedSectionMeta.label }}</h2>
+          <span class="ch-count">{{ filteredFields.length }} field(s)</span>
+          <span class="ch-modified" *ngIf="modifiedFieldCount > 0">{{ modifiedFieldCount }} modified</span>
+        </div>
+        <div class="ch-actions">
+          <button class="btn secondary" (click)="resetSection()" [disabled]="sectionSaving">Reset</button>
+          <button class="btn primary" (click)="saveSection()" [disabled]="sectionSaving || modifiedFieldCount === 0">
+            {{ sectionSaving ? 'Saving...' : 'Save Changes' }}
+          </button>
+        </div>
+      </div>
+      <div class="content-msg" *ngIf="sectionMessage"
+           [class.msg-ok]="sectionMessageType === 'ok'" [class.msg-err]="sectionMessageType === 'err'">
+        {{ sectionMessage }}
+      </div>
+      <div class="fields">
+        <div class="field" *ngFor="let f of filteredFields" [class.modified]="isFieldModified(f.name)" [class.sensitive]="f.sensitive">
+
+          <div class="field-head">
+            <label class="field-name">{{ f.name }}</label>
+            <span class="field-type">{{ f.type }}</span>
+            <span class="field-mod" *ngIf="isFieldModified(f.name)">modified</span>
+          </div>
+          <p class="field-desc" *ngIf="f.description">{{ f.description }}</p>
+
+          <!-- Sensitive -->
+          <div class="field-val" *ngIf="f.sensitive">
+            <span class="sensitive-mask">••••••••</span>
+          </div>
+
+          <!-- Boolean -->
+          <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'boolean'">
+            <label class="toggle">
+              <input type="checkbox" [checked]="getDraftValue(f.name)" (change)="setDraftBool(f.name, $event)">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">{{ getDraftValue(f.name) ? 'Enabled' : 'Disabled' }}</span>
+            </label>
+          </div>
+
+          <!-- Number -->
+          <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'number'">
+            <input class="field-input num" type="number" [value]="getDraftValue(f.name)"
+                   (input)="setDraftNumber(f.name, $event)">
+          </div>
+
+          <!-- String (short) -->
+          <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'string'">
+            <ng-container *ngIf="('' + (getDraftValue(f.name) ?? '')).length > 120; else shortInput">
+              <textarea class="field-input tall" [value]="getDraftValue(f.name) ?? ''"
+                        (input)="setDraftString(f.name, $event)" rows="4"></textarea>
+            </ng-container>
+            <ng-template #shortInput>
+              <input class="field-input" type="text" [value]="getDraftValue(f.name) ?? ''"
+                     (input)="setDraftString(f.name, $event)">
+            </ng-template>
+          </div>
+
+          <!-- List -->
+          <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'list'">
+            <textarea class="field-input tall" [value]="(getDraftValue(f.name) | json) ?? '[]'"
+                      (input)="setDraftString(f.name, $event)" rows="3"
+                      placeholder="JSON array, e.g. [&quot;a&quot;, &quot;b&quot;]"></textarea>
+          </div>
+        </div>
+
+        <div class="no-fields" *ngIf="filteredFields.length === 0">
+          No matching fields
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Agent Configs ───────────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'agents'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Agent Configurations</h2>
+          <span class="ch-count">{{ agentConfigs.length }} agent(s)</span>
+        </div>
+        <div class="ch-actions" *ngIf="selectedAgentId">
+          <button class="btn secondary" (click)="resetAgentConfig()" [disabled]="agentSaving">Reset</button>
+          <button class="btn primary" (click)="saveAgentConfig()" [disabled]="agentSaving">
+            {{ agentSaving ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+      </div>
+      <div class="content-msg" *ngIf="agentMessage">{{ agentMessage }}</div>
+
+      <div class="sub-nav">
+        <button class="sub-pill" *ngFor="let a of agentConfigs"
+                [class.active]="selectedAgentId === a.agent_id"
+                (click)="selectAgent(a.agent_id)">
+          {{ a.agent_id }}
+        </button>
+      </div>
+
+      <div class="fields" *ngIf="selectedAgentId && agentDraft">
+        <div class="field" *ngFor="let key of objectKeys(agentDraft)">
+          <div class="field-head">
+            <label class="field-name">{{ key }}</label>
+          </div>
+          <div class="field-val">
+            <label class="toggle" *ngIf="isBoolean(agentDraft[key])">
+              <input type="checkbox" [checked]="agentDraft[key]"
+                     (change)="agentDraft[key] = !agentDraft[key]">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">{{ agentDraft[key] ? 'Yes' : 'No' }}</span>
+            </label>
+            <input class="field-input num" *ngIf="isNumber(agentDraft[key])"
+                   type="number" [(ngModel)]="agentDraft[key]">
+            <textarea class="field-input tall" *ngIf="isArray(agentDraft[key])"
+                      [value]="agentDraft[key] | json"
+                      (input)="agentDraft[key] = $any($event.target).value"
+                      rows="2"></textarea>
+            <input class="field-input" *ngIf="!isBoolean(agentDraft[key]) && !isNumber(agentDraft[key]) && !isArray(agentDraft[key])"
+                   type="text" [value]="agentDraft[key] ?? ''"
+                   (input)="agentDraft[key] = $any($event.target).value">
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Tool Configs ────────────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'tools'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Tool Configurations</h2>
+          <span class="ch-count">{{ toolConfigs.length }} tool(s)</span>
+        </div>
+        <div class="ch-actions" *ngIf="selectedToolName">
+          <button class="btn secondary" (click)="resetToolConfig()" [disabled]="toolSaving">Reset</button>
+          <button class="btn primary" (click)="saveToolConfig()" [disabled]="toolSaving">
+            {{ toolSaving ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+      </div>
+      <div class="content-msg" *ngIf="toolMessage">{{ toolMessage }}</div>
+
+      <div class="sub-nav">
+        <button class="sub-pill" *ngFor="let t of toolConfigs"
+                [class.active]="selectedToolName === t.tool_name"
+                (click)="selectTool(t.tool_name)">
+          {{ t.tool_name }}
+        </button>
+      </div>
+
+      <div class="fields" *ngIf="selectedToolName && toolDraft">
+        <div class="field" *ngFor="let key of objectKeys(toolDraft)">
+          <div class="field-head">
+            <label class="field-name">{{ key }}</label>
+          </div>
+          <div class="field-val">
+            <label class="toggle" *ngIf="isBoolean(toolDraft[key])">
+              <input type="checkbox" [checked]="toolDraft[key]"
+                     (change)="toolDraft[key] = !toolDraft[key]">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">{{ toolDraft[key] ? 'Yes' : 'No' }}</span>
+            </label>
+            <input class="field-input num" *ngIf="isNumber(toolDraft[key])"
+                   type="number" [(ngModel)]="toolDraft[key]">
+            <input class="field-input" *ngIf="!isBoolean(toolDraft[key]) && !isNumber(toolDraft[key])"
+                   type="text" [value]="toolDraft[key] ?? ''"
+                   (input)="toolDraft[key] = $any($event.target).value">
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Execution Config ────────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'execution'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Execution & Loop Detection</h2>
+        </div>
+        <div class="ch-actions">
+          <button class="btn primary" (click)="saveExecutionConfig()" [disabled]="executionSaving">
+            {{ executionSaving ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+      </div>
+      <div class="content-msg" *ngIf="executionMessage">{{ executionMessage }}</div>
+
+      <div class="fields-group">
+        <h3 class="fg-title">Budget & Result Processing</h3>
+        <div class="fields">
+          <div class="field" *ngFor="let key of objectKeys(executionDraft)">
+            <div class="field-head">
+              <label class="field-name">{{ key }}</label>
+            </div>
+            <div class="field-val">
+              <input class="field-input" type="text" [(ngModel)]="executionDraft[key]">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fields-group">
+        <h3 class="fg-title">Loop Detection</h3>
+        <div class="fields">
+          <div class="field" *ngFor="let key of objectKeys(loopDraft)">
+            <div class="field-head">
+              <label class="field-name">{{ key }}</label>
+            </div>
+            <div class="field-val">
+              <input class="field-input" type="text" [(ngModel)]="loopDraft[key]">
+            </div>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Security Patterns ───────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'security'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Command Security Patterns</h2>
+          <span class="ch-count">{{ securityPatterns.length }} pattern(s)</span>
+        </div>
+      </div>
+      <div class="content-msg" *ngIf="securityMessage">{{ securityMessage }}</div>
+
+      <div class="security-add">
+        <input class="field-input" type="text" placeholder="Pattern (regex)"
+               [(ngModel)]="newPatternValue">
+        <input class="field-input" type="text" placeholder="Reason"
+               [(ngModel)]="newPatternReason">
+        <button class="btn primary" (click)="addSecurityPattern()"
+                [disabled]="securitySaving || !newPatternValue.trim() || !newPatternReason.trim()">Add</button>
+      </div>
+
+      <div class="patterns-list">
+        <div class="pattern-row" *ngFor="let p of securityPatterns" [class.builtin]="p.builtin">
+          <code class="pattern-val">{{ p.pattern }}</code>
+          <span class="pattern-reason">{{ p.reason }}</span>
+          <span class="pattern-badge" *ngIf="p.builtin">builtin</span>
+          <span class="pattern-badge custom" *ngIf="!p.builtin">custom</span>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Override Diff ───────────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'diff'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Runtime Override Diff</h2>
+          <span class="ch-count">{{ getDiffSections().length }} section(s) with overrides</span>
+        </div>
+        <div class="ch-actions">
+          <button class="btn secondary" (click)="loadDiff()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="diff-empty" *ngIf="getDiffSections().length === 0">
+        No runtime overrides — all values match .env defaults
+      </div>
+
+      <div class="diff-section" *ngFor="let sec of getDiffSections()">
+        <h3 class="diff-section-title">{{ sec }}</h3>
+        <div class="diff-table">
+          <div class="diff-row head">
+            <span class="diff-field">Field</span>
+            <span class="diff-env">.env Value</span>
+            <span class="diff-rt">Runtime Value</span>
+          </div>
+          <div class="diff-row" *ngFor="let d of getDiffFields(sec)">
+            <span class="diff-field">{{ d.field }}</span>
+            <code class="diff-env">{{ d.env | json }}</code>
+            <code class="diff-rt">{{ d.runtime | json }}</code>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ── Config Health ───────────────────────────── -->
+    <ng-container *ngIf="!loading && viewMode === 'health'">
+      <div class="content-head">
+        <div class="ch-info">
+          <h2>Config Health</h2>
+        </div>
+        <div class="ch-actions">
+          <button class="btn secondary" (click)="loadHealth()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="health-card" *ngIf="healthData">
+        <div class="health-stat">
+          <span class="hs-label">Status</span>
+          <span class="hs-val" [class.ok]="healthData.status === 'healthy'" [class.err]="healthData.status !== 'healthy'">
+            {{ healthData.status }}
+          </span>
+        </div>
+        <div class="health-stat">
+          <span class="hs-label">Sections Loaded</span>
+          <span class="hs-val">{{ healthData.sections_loaded }}</span>
+        </div>
+        <div class="health-stat">
+          <span class="hs-label">Active Overrides</span>
+          <span class="hs-val">{{ healthData.override_count }}</span>
+        </div>
+        <div class="health-errors" *ngIf="healthData.errors.length > 0">
+          <h4>Errors</h4>
+          <div class="he-item" *ngFor="let e of healthData.errors">{{ e }}</div>
+        </div>
+      </div>
+    </ng-container>
+
+  </main>
+</section>
