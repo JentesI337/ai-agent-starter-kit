@@ -332,12 +332,53 @@ class AgentRunner:
                     details={"iteration": loop_state.iteration},
                 )
 
+            _llm_t0 = time.monotonic()
             stream_result = await self.client.stream_chat_with_tools(
                 messages=messages,
                 tools=tool_definitions if not loop_state.budget_exhausted else None,
                 model=model,
                 on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
             )
+            _llm_latency_ms = int((time.monotonic() - _llm_t0) * 1000)
+
+            # Emit LLM telemetry with conversation content (always, not debug-gated)
+            if self._emit_lifecycle:
+                _usage = stream_result.usage or {}
+
+                # Extract the last user/system message sent to the LLM
+                _last_user_msg = ""
+                _system_msg = ""
+                for _m in reversed(messages):
+                    if _m.get("role") == "user" and not _last_user_msg:
+                        _last_user_msg = str(_m.get("content", ""))[:2000]
+                    if _m.get("role") == "system" and not _system_msg:
+                        _system_msg = str(_m.get("content", ""))[:2000]
+                    if _last_user_msg and _system_msg:
+                        break
+
+                # Tool call names
+                _tool_names = [tc.name for tc in stream_result.tool_calls] if stream_result.tool_calls else []
+
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="llm_call_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "model": model,
+                        "iteration": loop_state.iteration,
+                        "finish_reason": stream_result.finish_reason,
+                        "latency_ms": _llm_latency_ms,
+                        "input_tokens": _usage.get("prompt_tokens", _usage.get("input_tokens", 0)),
+                        "output_tokens": _usage.get("completion_tokens", _usage.get("output_tokens", 0)),
+                        "tool_calls_count": len(stream_result.tool_calls),
+                        "tool_names": _tool_names,
+                        "response_chars": len(stream_result.text or ""),
+                        "response_text": (stream_result.text or "")[:3000],
+                        "prompt_preview": _last_user_msg[:500],
+                        "system_prompt_preview": _system_msg[:500],
+                    },
+                )
 
             # ── FINISH REASON: STOP → done ──
             if stream_result.finish_reason == "stop":

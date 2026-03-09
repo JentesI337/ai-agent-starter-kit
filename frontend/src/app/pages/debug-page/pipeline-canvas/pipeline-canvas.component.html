@@ -35,7 +35,7 @@
         [hasBreakpoint]="activeBreakpoints.has(phase.id)"
         [duration]="getPhaseDuration(phase.id)"
         [llmCallCount]="getLlmCallCount(phase.id)"
-        [toolCount]="phase.id === 'tool_selection' ? toolExecutions.length : 0"
+        [toolCount]="phase.id === 'agent_loop' ? toolExecutions.length : 0"
         [tooltip]="getPhaseTooltip(phase.id)"
         (click)="phaseClick.emit(phase.id)"
         (breakpointToggle)="breakpointToggle.emit(phase.id)">

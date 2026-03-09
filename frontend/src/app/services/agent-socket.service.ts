@@ -2,7 +2,7 @@ import { Injectable, NgZone } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 
 export interface AgentSocketEvent {
-  type: 'status' | 'agent_step' | 'token' | 'final' | 'error' | string;
+  type: 'status' | 'agent_step' | 'token' | 'final' | 'error' | 'tool_start' | 'tool_end' | string;
   agent?: string;
   message?: string;
   step?: string;
@@ -12,6 +12,10 @@ export interface AgentSocketEvent {
   stage?: string;
   ts?: string;
   details?: Record<string, unknown>;
+  tool?: string;
+  tool_call_id?: string;
+  duration_ms?: number;
+  is_error?: boolean;
   runtime?: 'local' | 'api';
   model?: string;
   base_url?: string;

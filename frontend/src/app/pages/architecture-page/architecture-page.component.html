@@ -113,7 +113,7 @@
       <span class="title-icon">⟐</span>
       Reasoning Pipeline
     </h2>
-    <p class="section-sub">Each request flows through 10 phases. The agent loops between tool selection and execution until the task is complete.</p>
+    <p class="section-sub">Each request flows through 7 phases. The agent loop continuously invokes LLM reasoning and tools until the task is complete.</p>
 
     <div class="pipeline-track">
       <div class="track-line">
@@ -130,23 +130,7 @@
           <span class="phase-label">{{ p.label }}</span>
           <span class="phase-desc">{{ p.desc }}</span>
         </div>
-        <div class="phase-loop-badge" *ngIf="p.id === 'tool_select' || p.id === 'tool_exec'">
-          loop
-        </div>
       </div>
-    </div>
-
-    <!-- Loop indicator -->
-    <div class="loop-indicator">
-      <svg viewBox="0 0 200 40" class="loop-svg">
-        <path d="M 60 5 L 140 5 Q 190 5 190 20 Q 190 35 140 35 L 60 35 Q 10 35 10 20 Q 10 5 60 5"
-              class="loop-path" />
-        <circle r="3" class="loop-particle">
-          <animateMotion path="M 60 5 L 140 5 Q 190 5 190 20 Q 190 35 140 35 L 60 35 Q 10 35 10 20 Q 10 5 60 5"
-                         dur="3s" repeatCount="indefinite" />
-        </circle>
-      </svg>
-      <span class="loop-label">Tool Select → Execute → Select (until done)</span>
     </div>
   </section>
 
@@ -210,7 +194,7 @@
         { icon: '⚡', label: 'WebSocket', sub: 'Message arrives' },
         { icon: '≡', label: 'Lane Acquire', sub: 'Concurrency control' },
         { icon: '⛊', label: 'Policy Merge', sub: '3-layer resolution' },
-        { icon: '⟐', label: 'Pipeline', sub: '10-phase reasoning' },
+        { icon: '⟐', label: 'Pipeline', sub: '7-phase reasoning' },
         { icon: '◉', label: 'Agent Loop', sub: 'LLM + Tools cycle' },
         { icon: '▤', label: 'Persist', sub: 'State + Memory' },
         { icon: '▶', label: 'Stream', sub: 'Events to client' }

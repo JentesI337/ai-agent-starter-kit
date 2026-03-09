@@ -471,6 +471,8 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     ) {
       this.pendingClarificationQuestion = '';
       this.resolveInlinePolicyActionsByRequest(event.request_id ?? '');
+      // Safety net: finalize assistant if 'final' event was missed or already processed
+      this.agentState.finalizeAssistantMessage('');
     }
 
     if (event.type === 'lifecycle' && event.stage === 'policy_approval_decision_rejected') {

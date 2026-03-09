@@ -26,6 +26,9 @@ export interface LiveEvent {
   systemPrompt?: string;
   userPrompt?: string;
   rawResponse?: string;
+  finishReason?: string;
+  toolNames?: string[];
+  iteration?: number;
   // Tool
   tool?: string;
   argsPreview?: string;
@@ -72,22 +75,35 @@ export class LiveService implements OnDestroy {
   currentPhase: PipelinePhase | null = null;
   debugState = 'idle';
 
+  // Real-time thinking stream
+  thinkingText = '';
+  thinkingIteration = 0;
+  isThinking = false;
+
   private nextId = 0;
-  private seenLlmCalls = 0;
   private seenToolExecs = 0;
-  private readonly llmEventIds = new Map<number, number>();
   private readonly subs = new Subscription();
   private initialized = false;
 
   private static readonly FEED_STAGES = new Set([
+    // Lifecycle markers
     'run_started', 'request_started', 'request_dispatched',
-    'guardrails_passed', 'guardrail_check_failed',
+    'guardrails_passed', 'guardrail_check_failed', 'guardrail_check_completed',
+    'memory_updated', 'context_reduced', 'context_segmented',
+    'model_route_selected',
+    'loop_iteration_started',
+    'tool_started', 'tool_completed', 'tool_blocked', 'tool_failed',
+    'tool_selection_completed', 'tool_selection_started',
+    'reflection_completed', 'reflection_skipped', 'reflection_failed',
+    'reply_shaping_started', 'reply_shaping_completed',
+    'verification_final',
+    'runner_started', 'runner_completed',
     'request_completed', 'request_cancelled', 'request_failed',
+    'llm_call_completed',
   ]);
 
   private static readonly PHASES: PipelinePhase[] = [
-    'routing', 'guardrails', 'context', 'planning',
-    'tool_selection', 'tool_execution', 'synthesis',
+    'routing', 'guardrails', 'context', 'agent_loop',
     'reflection', 'reply_shaping', 'response',
   ];
 
@@ -131,8 +147,32 @@ export class LiveService implements OnDestroy {
     const agent = event.agent || 'system';
     const ts = event.ts || new Date().toISOString();
 
-    // Skip high-volume noise
-    if (event.type === 'token') return;
+    // Token events → accumulate into thinking stream
+    if (event.type === 'token') {
+      if (!this.isThinking) {
+        this.isThinking = true;
+        this.thinkingText = '';
+      }
+      this.thinkingText += event.token || '';
+      return;
+    }
+
+    // Auto-reset on new run/request
+    if (event.stage === 'run_started' || event.stage === 'request_started') {
+      this.clearFeed();
+    }
+
+    // New iteration → reset thinking buffer
+    if (event.stage === 'loop_iteration_started') {
+      this.thinkingText = '';
+      this.isThinking = true;
+      this.thinkingIteration = (event.details?.['iteration'] as number) || 0;
+    }
+
+    // LLM completed → stop thinking
+    if (event.stage === 'llm_call_completed') {
+      this.isThinking = false;
+    }
 
     // Update lane for non-system agents
     if (agent && agent !== 'system') {
@@ -159,7 +199,123 @@ export class LiveService implements OnDestroy {
       return;
     }
 
+    // Rich lifecycle events
     if (event.stage && LiveService.FEED_STAGES.has(event.stage)) {
+      const details = event.details ?? {};
+
+      // LLM call completed → rich conversational event
+      if (event.stage === 'llm_call_completed') {
+        const toolNames = Array.isArray(details['tool_names']) ? (details['tool_names'] as string[]) : [];
+        this.push({
+          id: this.nextId++, type: 'llm_call', timestamp: ts, agent,
+          status: 'completed',
+          model: (details['model'] as string) || '',
+          phase: 'agent_loop',
+          latencyMs: (details['latency_ms'] as number) || 0,
+          tokensEst: ((details['input_tokens'] as number) || 0) + ((details['output_tokens'] as number) || 0),
+          finishReason: (details['finish_reason'] as string) || '',
+          iteration: (details['iteration'] as number) || 0,
+          toolNames,
+          promptPreview: (details['prompt_preview'] as string) || '',
+          systemPrompt: (details['system_prompt_preview'] as string) || '',
+          userPrompt: (details['prompt_preview'] as string) || '',
+          rawResponse: (details['response_text'] as string) || '',
+        });
+        return;
+      }
+
+      // Tool lifecycle events → enrich with tool info
+      if (event.stage === 'tool_completed' || event.stage === 'tool_execution_detail') {
+        // These are handled by processDebug via the debug snapshot — skip to avoid duplicates
+        return;
+      }
+
+      // Route selection → enrich
+      if (event.stage === 'model_route_selected') {
+        this.push({
+          id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
+          status: 'completed', stage: event.stage,
+          message: `Model: ${details['primary'] || 'default'} · Reasoning: ${details['reasoning_level'] || 'standard'}`,
+        });
+        return;
+      }
+
+      // Loop iteration → step
+      if (event.stage === 'loop_iteration_started') {
+        this.push({
+          id: this.nextId++, type: 'step', timestamp: ts, agent,
+          status: 'running', stage: event.stage,
+          message: `Agent loop iteration ${details['iteration'] || '?'}`,
+        });
+        return;
+      }
+
+      // Reflection completed → rich
+      if (event.stage === 'reflection_completed') {
+        const score = details['score'] || details['quality_score'] || 0;
+        const shouldRetry = details['should_retry'] || false;
+        this.push({
+          id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
+          status: shouldRetry ? 'error' : 'completed', stage: event.stage,
+          message: `Reflection score: ${typeof score === 'number' ? (score * 100).toFixed(0) : score}%${shouldRetry ? ' — retrying' : ''}`,
+        });
+        return;
+      }
+
+      // Runner completed → stats
+      if (event.stage === 'runner_completed') {
+        const iters = details['iterations'] || 0;
+        const tools = details['total_tool_calls'] || 0;
+        const elapsed = typeof details['elapsed_seconds'] === 'number' ? (details['elapsed_seconds'] as number).toFixed(1) : '?';
+        this.push({
+          id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
+          status: 'completed', stage: event.stage,
+          message: `Completed in ${elapsed}s · ${iters} iterations · ${tools} tool calls`,
+        });
+        return;
+      }
+
+      // Verification final
+      if (event.stage === 'verification_final') {
+        this.push({
+          id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
+          status: details['status'] === 'pass' ? 'completed' : 'error', stage: event.stage,
+          message: `Verification: ${details['status'] || 'unknown'} — ${details['reason'] || ''}`,
+        });
+        return;
+      }
+
+      // Tool selection completed
+      if (event.stage === 'tool_selection_completed') {
+        this.push({
+          id: this.nextId++, type: 'step', timestamp: ts, agent,
+          status: 'completed', stage: event.stage,
+          message: `Selected ${details['actions'] || 0} tool actions`,
+        });
+        return;
+      }
+
+      // Tool blocked
+      if (event.stage === 'tool_blocked') {
+        this.push({
+          id: this.nextId++, type: 'step', timestamp: ts, agent,
+          status: 'error', stage: event.stage,
+          message: `Tool blocked: ${details['tool'] || 'unknown'} — ${details['reason'] || ''}`,
+        });
+        return;
+      }
+
+      // Memory updated
+      if (event.stage === 'memory_updated') {
+        this.push({
+          id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
+          status: 'completed', stage: event.stage,
+          message: `Memory loaded · ${details['memory_items'] || '?'} items`,
+        });
+        return;
+      }
+
+      // Default lifecycle
       this.push({
         id: this.nextId++, type: 'lifecycle', timestamp: ts, agent,
         status: 'completed', stage: event.stage,
@@ -174,49 +330,11 @@ export class LiveService implements OnDestroy {
     this.debugState = snap.debugState;
 
     // Reset on new run
-    if (snap.llmCalls.length < this.seenLlmCalls) {
-      this.seenLlmCalls = 0;
-      this.llmEventIds.clear();
-    }
     if (snap.toolExecutions.length < this.seenToolExecs) {
       this.seenToolExecs = 0;
     }
 
-    // New LLM calls
-    for (let i = this.seenLlmCalls; i < snap.llmCalls.length; i++) {
-      const c = snap.llmCalls[i];
-      const id = this.nextId++;
-      this.llmEventIds.set(i, id);
-      this.push({
-        id, type: 'llm_call', timestamp: c.timestamp || new Date().toISOString(),
-        agent: 'agent', model: c.model, phase: c.phase,
-        promptPreview: (c.userPrompt || '').slice(0, 200),
-        tokensEst: c.tokensEst, latencyMs: c.latencyMs,
-        systemPrompt: c.systemPrompt, userPrompt: c.userPrompt,
-        rawResponse: c.rawResponse,
-        status: c.rawResponse ? 'completed' : 'running',
-      });
-    }
-    this.seenLlmCalls = snap.llmCalls.length;
-
-    // Update running LLM calls with response
-    for (const [idx, eventId] of this.llmEventIds) {
-      if (idx >= snap.llmCalls.length) continue;
-      const c = snap.llmCalls[idx];
-      if (!c.rawResponse) continue;
-      const fi = this.feed.findIndex(e => e.id === eventId && e.status === 'running');
-      if (fi >= 0) {
-        this.feed[fi] = {
-          ...this.feed[fi],
-          rawResponse: c.rawResponse,
-          latencyMs: c.latencyMs,
-          tokensEst: c.tokensEst,
-          status: 'completed',
-        };
-      }
-    }
-
-    // New tool executions
+    // Tool executions (from tool_completed/tool_execution_detail lifecycle events)
     for (let i = this.seenToolExecs; i < snap.toolExecutions.length; i++) {
       const t = snap.toolExecutions[i];
       this.push({
@@ -258,7 +376,7 @@ export class LiveService implements OnDestroy {
     lane.updatedAt = event.ts || new Date().toISOString();
 
     if ((event.stage || '').startsWith('tool_')) lane.toolCalls++;
-    if (event.stage === 'debug_prompt_sent') lane.llmCalls++;
+    if (event.stage === 'llm_call_completed' || event.stage === 'debug_prompt_sent') lane.llmCalls++;
     if (event.type === 'error') lane.errors++;
 
     lane.active =
@@ -295,11 +413,12 @@ export class LiveService implements OnDestroy {
     this.bufferedCount = 0;
     this.agents.clear();
     this.agentList = [];
-    this.seenLlmCalls = 0;
     this.seenToolExecs = 0;
-    this.llmEventIds.clear();
     this.nextId = 0;
     this.inspectedEvent = null;
+    this.thinkingText = '';
+    this.thinkingIteration = 0;
+    this.isThinking = false;
   }
 
   resetFilters(): void {

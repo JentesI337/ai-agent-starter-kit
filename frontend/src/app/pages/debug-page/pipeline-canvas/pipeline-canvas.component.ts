@@ -32,12 +32,10 @@ export class PipelineCanvasComponent {
     { id: 'routing',        label: 'Routing',            icon: '🔀', hasLlm: false, index: 0 },
     { id: 'guardrails',     label: 'Guardrails',         icon: '🛡',  hasLlm: false, index: 1 },
     { id: 'context',        label: 'Memory & Context',   icon: '🧠', hasLlm: false, index: 2 },
-    { id: 'planning',       label: 'Planning',           icon: '📋', hasLlm: true,  index: 3 },
-    { id: 'tool_selection', label: 'Tool Loop',          icon: '🔧', hasLlm: true,  index: 4 },
-    { id: 'synthesis',      label: 'Synthesis',          icon: '✨', hasLlm: true,  index: 5 },
-    { id: 'reflection',     label: 'Reflection',         icon: '🔍', hasLlm: true,  index: 6 },
-    { id: 'reply_shaping',  label: 'Reply Shaping',      icon: '✂',  hasLlm: false, index: 7 },
-    { id: 'response',       label: 'Response + Distill', icon: '📤', hasLlm: false, index: 8 },
+    { id: 'agent_loop',     label: 'Agent Loop',         icon: '🔄', hasLlm: true,  index: 3 },
+    { id: 'reflection',     label: 'Reflection',         icon: '🔍', hasLlm: true,  index: 4 },
+    { id: 'reply_shaping',  label: 'Reply Shaping',      icon: '✂',  hasLlm: false, index: 5 },
+    { id: 'response',       label: 'Response + Distill', icon: '📤', hasLlm: false, index: 6 },
   ];
 
   get agentTokenY(): number {
@@ -76,10 +74,8 @@ export class PipelineCanvasComponent {
     routing:        ['run_started',             'guardrails_passed'],
     guardrails:     ['run_started',             'guardrails_passed'],
     context:        ['memory_updated',          'planning_started'],
-    planning:       ['planning_started',        'planning_completed'],
-    tool_selection: ['tool_started',            'synthesis_started'],
-    synthesis:      ['synthesis_started',        'reflection_completed'],
-    reflection:     ['synthesis_started',        'reflection_completed'],
+    agent_loop:     ['planning_started',        'reflection_completed'],
+    reflection:     ['reflection_completed',    'reflection_completed'],
     reply_shaping:  ['reply_shaping_started',   'reply_shaping_completed'],
     response:       ['reply_shaping_completed', 'run_completed'],
   };

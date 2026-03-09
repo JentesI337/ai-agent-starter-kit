@@ -1499,7 +1499,6 @@ class Settings(BaseModel):
     # ------------------------------------------------------------------
     # AgentRunner — Continuous Streaming Tool Loop
     # ------------------------------------------------------------------
-    use_continuous_loop: bool = _parse_bool_env("USE_CONTINUOUS_LOOP", True)
     # Loop limits
     runner_max_iterations: int = int(os.getenv("RUNNER_MAX_ITERATIONS", "25"))
     runner_max_tool_calls: int = int(os.getenv("RUNNER_MAX_TOOL_CALLS", "50"))

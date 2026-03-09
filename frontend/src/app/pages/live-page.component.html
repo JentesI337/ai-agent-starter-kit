@@ -21,7 +21,7 @@
     </div>
   </div>
 
-  <!-- ── Thought Stream ───────────────────────────────── -->
+  <!-- ── Conversation Stream ────────────────────────────── -->
   <div class="thought-stream" #thoughtStream>
 
     <!-- Empty state -->
@@ -36,164 +36,140 @@
       <p class="empty-subtitle">{{ isConnected ? 'Send a message in Chat to see the AI think in real-time' : 'Establishing connection to the agent backend' }}</p>
     </div>
 
-    <!-- Thought groups -->
-    <div class="thought-group"
-         *ngFor="let group of groups; trackBy: trackGroup"
-         [class.animate-in]="group.animateIn"
-         [class.status-active]="group.status === 'active'"
-         [class.status-error]="group.status === 'error'"
-         [class.is-lifecycle]="group.events[0]?.type === 'lifecycle'"
-         [class.collapsed]="group.collapsed">
+    <!-- Conversation flow -->
+    <div class="convo-flow" *ngIf="!isEmpty">
+      <ng-container *ngFor="let group of groups; trackBy: trackGroup">
+        <ng-container *ngFor="let ev of group.events; trackBy: trackEvent">
 
-      <!-- Lifecycle events render as a slim timeline marker -->
-      <ng-container *ngIf="group.events[0]?.type === 'lifecycle'; else thoughtBubble">
-        <div class="lifecycle-marker" (click)="toggleGroup(group)">
-          <span class="lifecycle-line"></span>
-          <span class="lifecycle-badge">
-            <span class="lifecycle-icon">{{ group.phaseIcon }}</span>
-            {{ group.phaseLabel }}
-            <span class="lifecycle-time">{{ formatTime(group.timestamp) }}</span>
-          </span>
-          <span class="lifecycle-line"></span>
-        </div>
+          <!-- ─── Lifecycle / step → timeline pill ─── -->
+          <div class="timeline-pill"
+               *ngIf="ev.type === 'lifecycle' || ev.type === 'step'"
+               [class.animate-in]="group.animateIn"
+               [class.pill-error]="ev.status === 'error'">
+            <span class="pill-icon">{{ phaseIconFor(ev.stage || 'step') }}</span>
+            <span class="pill-text">{{ ev.message || phaseDisplayLabel(ev.stage || '') }}</span>
+            <span class="pill-time">{{ formatTime(ev.timestamp) }}</span>
+          </div>
+
+          <!-- ─── LLM Call → conversation turn ─── -->
+          <div class="convo-turn"
+               *ngIf="ev.type === 'llm_call'"
+               [class.animate-in]="group.animateIn">
+
+            <!-- Iteration label -->
+            <div class="iteration-label">
+              <span class="iter-line"></span>
+              <span class="iter-badge">
+                Iteration {{ ev.iteration }}
+                <span class="iter-model" *ngIf="ev.model">{{ ev.model }}</span>
+              </span>
+              <span class="iter-line"></span>
+            </div>
+
+            <!-- What the agent sent → prompt bubble (left) -->
+            <div class="turn-row prompt-row" *ngIf="ev.userPrompt" (click)="toggleEventDetail(ev.id)">
+              <div class="turn-avatar prompt-avatar">A</div>
+              <div class="turn-bubble prompt-bubble">
+                <p class="turn-text">{{ ev.userPrompt }}</p>
+                <div class="turn-meta">
+                  <span class="turn-stat" *ngIf="ev.tokensEst">{{ ev.tokensEst }} tokens</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- The LLM's reasoning/response (right) -->
+            <div class="turn-row response-row" (click)="toggleEventDetail(ev.id)">
+              <div class="turn-bubble response-bubble">
+
+                <!-- Reasoning text (always shown if present) -->
+                <p class="turn-text" *ngIf="ev.rawResponse">{{ ev.rawResponse }}</p>
+
+                <!-- Tool calls the LLM decided on -->
+                <div class="turn-tools" *ngIf="ev.toolNames && ev.toolNames.length > 0">
+                  <div class="tool-decision">
+                    <span class="tool-decision-arrow">→</span>
+                    <span class="tool-decision-label">calls</span>
+                    <span class="tool-chip" *ngFor="let t of ev.toolNames">{{ t }}</span>
+                  </div>
+                </div>
+
+                <p class="turn-text muted" *ngIf="!ev.rawResponse && (!ev.toolNames || ev.toolNames.length === 0)">
+                  (empty response)
+                </p>
+
+                <div class="turn-meta">
+                  <span class="turn-stat" *ngIf="ev.latencyMs">{{ formatDuration(ev.latencyMs) }}</span>
+                  <span class="turn-stat finish" *ngIf="ev.finishReason">{{ ev.finishReason }}</span>
+                  <span class="turn-time">{{ formatTime(ev.timestamp) }}</span>
+                </div>
+              </div>
+              <div class="turn-avatar response-avatar">
+                <span>LLM</span>
+              </div>
+            </div>
+
+            <!-- Expanded: system prompt -->
+            <div class="turn-detail" *ngIf="expandedEventId === ev.id && ev.systemPrompt">
+              <div class="detail-section">
+                <h5>System Prompt</h5>
+                <pre class="detail-code">{{ ev.systemPrompt }}</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ─── Tool Call → action card ─── -->
+          <div class="tool-action"
+               *ngIf="ev.type === 'tool_call'"
+               [class.animate-in]="group.animateIn"
+               [class.tool-error]="ev.blocked"
+               [class.expanded]="expandedEventId === ev.id"
+               (click)="toggleEventDetail(ev.id)">
+            <div class="tool-action-icon">⚡</div>
+            <div class="tool-action-body">
+              <div class="tool-action-header">
+                <span class="tool-name">{{ ev.tool }}</span>
+                <span class="tool-badge exit-ok" *ngIf="ev.exitCode === 0">OK</span>
+                <span class="tool-badge exit-err" *ngIf="ev.exitCode !== undefined && ev.exitCode !== 0">exit {{ ev.exitCode }}</span>
+                <span class="tool-badge blocked" *ngIf="ev.blocked">BLOCKED</span>
+                <span class="tool-duration" *ngIf="ev.durationMs !== undefined">{{ formatDuration(ev.durationMs) }}</span>
+              </div>
+              <p class="tool-args" *ngIf="ev.argsPreview">{{ ev.argsPreview }}</p>
+              <!-- Expanded: full result -->
+              <div class="tool-result-preview" *ngIf="expandedEventId === ev.id && ev.resultPreview">
+                <h5>Result</h5>
+                <pre class="detail-code">{{ ev.resultPreview }}</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ─── Error ─── -->
+          <div class="error-card"
+               *ngIf="ev.type === 'error'"
+               [class.animate-in]="group.animateIn">
+            <span class="error-icon">⚠</span>
+            <span class="error-text">{{ ev.message }}</span>
+          </div>
+
+        </ng-container>
       </ng-container>
 
-      <!-- Regular thought bubble -->
-      <ng-template #thoughtBubble>
-        <div class="thought-bubble">
-
-          <!-- Bubble header -->
-          <div class="bubble-header" (click)="toggleGroup(group)">
-            <div class="bubble-phase-icon" [class.pulse]="group.status === 'active'">
-              {{ group.phaseIcon }}
-            </div>
-            <div class="bubble-info">
-              <span class="bubble-phase">{{ group.phaseLabel }}</span>
-              <span class="bubble-agent">{{ group.agent }}</span>
-            </div>
-            <div class="bubble-meta">
-              <span class="bubble-count">{{ group.events.length }}</span>
-              <span class="bubble-time">{{ formatTime(group.timestamp) }}</span>
-            </div>
-            <div class="bubble-status">
-              <span class="status-indicator"
-                    [class.active]="group.status === 'active'"
-                    [class.completed]="group.status === 'completed'"
-                    [class.error]="group.status === 'error'">
-              </span>
-            </div>
+      <!-- ── Live Thinking Bubble (real-time token stream) ── -->
+      <div class="thinking-bubble" *ngIf="live.isThinking && live.thinkingText">
+        <div class="thinking-header">
+          <div class="thinking-dots-inline">
+            <span></span><span></span><span></span>
           </div>
-
-          <!-- Bubble body (collapsible) -->
-          <div class="bubble-body" *ngIf="!group.collapsed">
-            <div class="event-card"
-                 *ngFor="let ev of group.events; trackBy: trackEvent"
-                 [class.type-llm]="ev.type === 'llm_call'"
-                 [class.type-tool]="ev.type === 'tool_call'"
-                 [class.type-error]="ev.type === 'error'"
-                 [class.type-step]="ev.type === 'step'"
-                 [class.expanded]="expandedEventId === ev.id"
-                 (click)="toggleEventDetail(ev.id)">
-
-              <!-- ─── LLM Call ─── -->
-              <ng-container *ngIf="ev.type === 'llm_call'">
-                <div class="card-row">
-                  <span class="card-icon">⟐</span>
-                  <div class="card-main">
-                    <div class="card-title-row">
-                      <span class="card-label">LLM Inference</span>
-                      <span class="card-badge model" *ngIf="ev.model">{{ ev.model }}</span>
-                    </div>
-                    <p class="card-preview">{{ ev.promptPreview || 'Processing...' }}</p>
-                    <div class="card-metrics" *ngIf="ev.tokensEst || ev.latencyMs">
-                      <span *ngIf="ev.tokensEst" class="metric">{{ ev.tokensEst }} tokens</span>
-                      <span *ngIf="ev.latencyMs" class="metric">{{ formatDuration(ev.latencyMs) }}</span>
-                    </div>
-                  </div>
-                  <span class="card-status"
-                        [class.running]="ev.status === 'running'"
-                        [class.done]="ev.status === 'completed'">
-                    <span class="status-dot"></span>
-                  </span>
-                </div>
-
-                <!-- Expanded detail -->
-                <div class="card-detail" *ngIf="expandedEventId === ev.id">
-                  <div class="detail-section" *ngIf="ev.systemPrompt">
-                    <h5>System Prompt</h5>
-                    <pre class="detail-code">{{ ev.systemPrompt }}</pre>
-                  </div>
-                  <div class="detail-section" *ngIf="ev.userPrompt">
-                    <h5>User Prompt</h5>
-                    <pre class="detail-code">{{ ev.userPrompt }}</pre>
-                  </div>
-                  <div class="detail-section">
-                    <h5>Response</h5>
-                    <pre class="detail-code" [class.awaiting]="!ev.rawResponse">{{ ev.rawResponse || 'Awaiting response...' }}</pre>
-                  </div>
-                </div>
-              </ng-container>
-
-              <!-- ─── Tool Call ─── -->
-              <ng-container *ngIf="ev.type === 'tool_call'">
-                <div class="card-row">
-                  <span class="card-icon">⚡</span>
-                  <div class="card-main">
-                    <div class="card-title-row">
-                      <span class="card-label">{{ ev.tool }}</span>
-                      <span class="card-badge exit" *ngIf="ev.exitCode !== undefined"
-                            [class.exit-ok]="ev.exitCode === 0"
-                            [class.exit-err]="ev.exitCode !== 0">
-                        exit {{ ev.exitCode }}
-                      </span>
-                      <span class="card-badge blocked" *ngIf="ev.blocked">BLOCKED</span>
-                    </div>
-                    <p class="card-preview mono">{{ ev.argsPreview }}</p>
-                    <div class="card-metrics" *ngIf="ev.durationMs !== undefined">
-                      <span class="metric">{{ formatDuration(ev.durationMs) }}</span>
-                    </div>
-                  </div>
-                  <span class="card-status"
-                        [class.done]="!ev.blocked"
-                        [class.error]="ev.blocked">
-                    <span class="status-dot"></span>
-                  </span>
-                </div>
-
-                <!-- Expanded detail -->
-                <div class="card-detail" *ngIf="expandedEventId === ev.id">
-                  <div class="detail-section" *ngIf="ev.argsPreview">
-                    <h5>Arguments</h5>
-                    <pre class="detail-code">{{ ev.argsPreview }}</pre>
-                  </div>
-                  <div class="detail-section" *ngIf="ev.resultPreview">
-                    <h5>Result</h5>
-                    <pre class="detail-code">{{ ev.resultPreview }}</pre>
-                  </div>
-                </div>
-              </ng-container>
-
-              <!-- ─── Step / Error ─── -->
-              <ng-container *ngIf="ev.type === 'step' || ev.type === 'error'">
-                <div class="card-row compact">
-                  <span class="card-icon" [class.error-icon]="ev.type === 'error'">{{ ev.type === 'error' ? '⚠' : '·' }}</span>
-                  <span class="card-message" [class.error-message]="ev.type === 'error'">{{ ev.message }}</span>
-                </div>
-              </ng-container>
-
-            </div>
-          </div>
+          <span class="thinking-header-label">Agent is thinking...</span>
         </div>
-      </ng-template>
+        <p class="thinking-stream-text">{{ live.thinkingText }}</p>
+      </div>
 
-      <!-- Connector line between groups -->
-      <div class="group-connector" *ngIf="!group.collapsed"></div>
-    </div>
-
-    <!-- Active thinking indicator -->
-    <div class="thinking-indicator" *ngIf="activePhase && !isEmpty">
-      <div class="thinking-dots">
-        <span></span><span></span><span></span>
+      <!-- Active phase indicator (when thinking but no text yet) -->
+      <div class="thinking-indicator" *ngIf="activePhase && !live.thinkingText">
+        <div class="thinking-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="thinking-label">{{ phaseDisplayLabel(activePhase) }}</span>
       </div>
     </div>
 

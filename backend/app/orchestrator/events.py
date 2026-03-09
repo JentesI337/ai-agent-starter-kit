@@ -14,7 +14,6 @@ class LifecycleStage(StrEnum):
     TOOLCHAIN_CHECKED = "toolchain_checked"
     MEMORY_UPDATED = "memory_updated"
     CONTEXT_REDUCED = "context_reduced"
-    PLANNING_STARTED = "planning_started"
     PLANNING_COMPLETED = "planning_completed"
     REPLANNING_EXHAUSTED = "replanning_exhausted"
     TOOL_SELECTION_STARTED = "tool_selection_started"

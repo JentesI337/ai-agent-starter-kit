@@ -17,7 +17,6 @@ class CoreSection(BaseModel):
     queue_mode_default: str = "wait"
     prompt_mode_default: str = "full"
     session_visibility_default: str = "tree"
-    use_continuous_loop: bool = True
     structured_planning_enabled: bool = False
     plan_max_steps: int = 7
     plan_root_cause_replan_enabled: bool = True

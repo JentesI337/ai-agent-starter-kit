@@ -292,8 +292,8 @@ export class DebugToolbarComponent {
   bpDropdownOpen = false;
 
   readonly allPhases: PipelinePhase[] = [
-    'routing', 'guardrails', 'context', 'planning',
-    'tool_selection', 'synthesis', 'reflection', 'reply_shaping', 'response',
+    'routing', 'guardrails', 'context', 'agent_loop',
+    'reflection', 'reply_shaping', 'response',
   ];
 
   toggleBreakpoint(phase: PipelinePhase): void {

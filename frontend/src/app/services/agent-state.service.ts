@@ -42,8 +42,7 @@ export interface LifecycleEntry {
 
 export type DebugState = 'idle' | 'running' | 'paused' | 'completed' | 'error';
 export type PipelinePhase =
-  | 'routing' | 'guardrails' | 'context' | 'planning'
-  | 'tool_selection' | 'tool_execution' | 'synthesis'
+  | 'routing' | 'guardrails' | 'context' | 'agent_loop'
   | 'reflection' | 'reply_shaping' | 'response';
 export type PhaseState = 'idle' | 'active' | 'paused' | 'completed' | 'error' | 'skipped';
 
@@ -842,20 +841,20 @@ export class AgentStateService implements OnDestroy {
         next = {
           ...next,
           phaseStates: new Map(d.phaseStates).set('context', 'completed'),
-          ...this.activatePhasePartial(d, 'planning'),
+          ...this.activatePhasePartial(d, 'agent_loop'),
         };
         break;
 
       case 'planning_completed':
-        next = { ...next, phaseStates: new Map(d.phaseStates).set('planning', 'completed') };
+        next = { ...next, ...this.activatePhasePartial(d, 'agent_loop') };
         break;
 
       case 'debug_prompt_sent':
         next = {
           ...next,
-          ...this.activatePhasePartial(d, (details['phase'] as PipelinePhase) ?? d.currentPhase ?? 'planning'),
+          ...this.activatePhasePartial(d, (details['phase'] as PipelinePhase) ?? d.currentPhase ?? 'agent_loop'),
           llmCalls: [...d.llmCalls, {
-            phase: (details['phase'] as PipelinePhase) ?? d.currentPhase ?? 'planning',
+            phase: (details['phase'] as PipelinePhase) ?? d.currentPhase ?? 'agent_loop',
             systemPrompt: (details['system_prompt'] as string) ?? '',
             userPrompt: (details['user_prompt'] as string) ?? '',
             rawResponse: '',
@@ -896,15 +895,20 @@ export class AgentStateService implements OnDestroy {
         break;
       }
 
+      case 'llm_call_completed':
+      case 'loop_iteration_started':
+        next = { ...next, ...this.activatePhasePartial(d, 'agent_loop') };
+        break;
+
       case 'tool_started':
-        next = { ...next, ...this.activatePhasePartial(d, 'tool_selection') };
+        next = { ...next, ...this.activatePhasePartial(d, 'agent_loop') };
         break;
 
       case 'tool_execution_detail':
       case 'tool_completed':
         next = {
           ...next,
-          ...this.activatePhasePartial(d, 'tool_selection'),
+          ...this.activatePhasePartial(d, 'agent_loop'),
           toolExecutions: [...d.toolExecutions, {
             tool: (details['tool'] as string) ?? '',
             args: (details['args'] as Record<string, unknown>) ?? {},
@@ -920,15 +924,14 @@ export class AgentStateService implements OnDestroy {
       case 'synthesis_started':
         next = {
           ...next,
-          phaseStates: new Map(d.phaseStates).set('tool_selection', 'completed'),
-          ...this.activatePhasePartial(d, 'synthesis'),
+          ...this.activatePhasePartial(d, 'agent_loop'),
         };
         break;
 
       case 'reflection_completed':
         next = {
           ...next,
-          phaseStates: new Map(d.phaseStates).set('synthesis', 'completed').set('reflection', 'completed'),
+          phaseStates: new Map(d.phaseStates).set('agent_loop', 'completed').set('reflection', 'completed'),
           reflectionVerdict: this.mapReflectionVerdict(details),
         };
         break;
@@ -936,7 +939,7 @@ export class AgentStateService implements OnDestroy {
       case 'reflection_skipped':
         next = {
           ...next,
-          phaseStates: new Map(d.phaseStates).set('synthesis', 'completed').set('reflection', 'skipped'),
+          phaseStates: new Map(d.phaseStates).set('agent_loop', 'completed').set('reflection', 'skipped'),
         };
         break;
 
@@ -944,7 +947,7 @@ export class AgentStateService implements OnDestroy {
         next = {
           ...next,
           phaseStates: new Map(d.phaseStates)
-            .set('synthesis', 'completed')
+            .set('agent_loop', 'completed')
             .set('reflection', 'error'),
         };
         break;
@@ -967,6 +970,7 @@ export class AgentStateService implements OnDestroy {
       case 'request_completed':
         next = {
           ...next,
+          currentPhase: null,
           phaseStates: new Map(d.phaseStates).set('response', 'completed'),
           debugState: 'completed',
           totalDurationMs: Date.now() - (d.runStartTime ?? Date.now()),
