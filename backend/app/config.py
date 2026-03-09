@@ -1501,6 +1501,26 @@ class Settings(BaseModel):
     rag_max_chunks_per_collection: int = max(100, min(int(os.getenv("RAG_MAX_CHUNKS_PER_COLLECTION", "10000")), 100_000))
     rag_default_top_k: int = max(1, min(int(os.getenv("RAG_DEFAULT_TOP_K", "5")), 50))
 
+    # ------------------------------------------------------------------
+    # AgentRunner — Continuous Streaming Tool Loop
+    # ------------------------------------------------------------------
+    use_continuous_loop: bool = _parse_bool_env("USE_CONTINUOUS_LOOP", False)
+    # Loop limits
+    runner_max_iterations: int = int(os.getenv("RUNNER_MAX_ITERATIONS", "25"))
+    runner_max_tool_calls: int = int(os.getenv("RUNNER_MAX_TOOL_CALLS", "50"))
+    runner_time_budget_seconds: int = int(os.getenv("RUNNER_TIME_BUDGET_SECONDS", "300"))
+    runner_context_budget: int = int(os.getenv("RUNNER_CONTEXT_BUDGET", "4096"))
+    # Loop detection
+    runner_loop_detection_enabled: bool = _parse_bool_env("RUNNER_LOOP_DETECTION_ENABLED", True)
+    runner_loop_detection_threshold: int = int(os.getenv("RUNNER_LOOP_DETECTION_THRESHOLD", "3"))
+    # Compaction
+    runner_compaction_enabled: bool = _parse_bool_env("RUNNER_COMPACTION_ENABLED", True)
+    runner_compaction_tail_keep: int = int(os.getenv("RUNNER_COMPACTION_TAIL_KEEP", "4"))
+    runner_tool_result_max_chars: int = int(os.getenv("RUNNER_TOOL_RESULT_MAX_CHARS", "5000"))
+    # Post-loop
+    runner_reflection_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_ENABLED", True)
+    runner_reflection_max_passes: int = int(os.getenv("RUNNER_REFLECTION_MAX_PASSES", "1"))
+
     @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
     @classmethod
     def _validate_reflection_score_range(cls, value: object, info: ValidationInfo) -> float:

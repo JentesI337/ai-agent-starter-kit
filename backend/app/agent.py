@@ -18,6 +18,7 @@ from typing import Any
 from app.agents.planner_agent import PlannerAgent
 from app.agents.synthesizer_agent import SynthesizerAgent
 from app.agents.tool_selector_agent import ToolSelectorAgent
+from app.agent_runner import AgentRunner, build_unified_system_prompt
 from app.config import settings
 from app.contracts.schemas import PlannerInput, SynthesizerInput, ToolSelectorInput
 from app.contracts.tool_protocol import ToolProvider
@@ -288,6 +289,33 @@ class HeadAgent:
         self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
         self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
 
+        # ── Continuous streaming tool loop (behind feature flag) ──
+        if settings.use_continuous_loop:
+            system_prompt = build_unified_system_prompt(
+                role=self.role,
+                plan_prompt=self.prompt_profile.plan_prompt,
+                tool_hints=self.prompt_profile.tool_selector_prompt,
+                final_instructions=self.prompt_profile.final_prompt,
+                platform_summary=self._tool_execution_manager._platform_summary,
+            )
+            self._agent_runner: AgentRunner | None = AgentRunner(
+                client=self.client,
+                memory=self.memory,
+                tool_registry=self.tool_registry,
+                tool_execution_manager=self._tool_execution_manager,
+                context_reducer=self.context_reducer,
+                system_prompt=system_prompt,
+                execute_tool_fn=self._runner_execute_tool,
+                allowed_tools_resolver=self._resolve_effective_allowed_tools,
+                guardrail_validator=self._validate_guardrails,
+                mcp_initializer=self._ensure_mcp_tools_registered,
+                ambiguity_detector=self._ambiguity_detector,
+                reflection_service=self._reflection_service,
+                emit_lifecycle_fn=self._emit_lifecycle,
+            )
+        else:
+            self._agent_runner = None
+
     @staticmethod
     def _matches_canary_rule(value: str, rules: list[str]) -> bool:
         normalized_value = (value or "").strip().lower()
@@ -482,6 +510,8 @@ class HeadAgent:
             )
             self.planner_agent.configure_runtime(base_url=base_url, model=model)
             self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
+            if self._agent_runner is not None:
+                self._agent_runner.client = self.client
         finally:
             self._reconfiguring = False
 
@@ -580,6 +610,47 @@ class HeadAgent:
             if self._reconfiguring:
                 raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
             self._active_run_count += 1
+
+        # ── Feature-flag: Continuous Streaming Tool Loop ──
+        if settings.use_continuous_loop and self._agent_runner is not None:
+            try:
+                return await self._agent_runner.run(
+                    user_message=user_message,
+                    send_event=send_event,
+                    session_id=session_id,
+                    request_id=request_id,
+                    model=model,
+                    tool_policy=tool_policy,
+                    should_steer_interrupt=should_steer_interrupt,
+                )
+            finally:
+                async with self._run_lock:
+                    self._active_run_count -= 1
+
+        # ── Legacy 3-phase pipeline ──
+        return await self._run_legacy(
+            user_message=user_message,
+            send_event=send_event,
+            session_id=session_id,
+            request_id=request_id,
+            model=model,
+            tool_policy=tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
+        )
+
+    async def _run_legacy(
+        self,
+        user_message: str,
+        send_event: SendEvent,
+        session_id: str,
+        request_id: str,
+        model: str | None = None,
+        tool_policy: ToolPolicyDict | None = None,
+        prompt_mode: str | None = None,
+        should_steer_interrupt: Callable[[], bool] | None = None,
+    ) -> str:
+        """Original 3-phase pipeline (Planner → ToolSelector → Synthesizer)."""
         status = "failed"
         error_text: str | None = None
         final_text = ""
@@ -3020,6 +3091,18 @@ class HeadAgent:
 
     def _build_execution_policy(self, tool: str) -> ToolExecutionPolicy:
         return self.tool_registry.build_execution_policy(tool)
+
+    async def _runner_execute_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict,
+        session_id: str,
+        request_id: str,
+    ) -> str:
+        """Bridge: AgentRunner → HeadAgent tool dispatch."""
+        policy = self._build_execution_policy(tool_name)
+        return await self._run_tool_with_policy(tool_name, tool_args, policy)
 
     async def _run_tool_with_policy(self, tool: str, args: dict, policy: ToolExecutionPolicy) -> str:
         max_attempts = policy.max_retries + 1

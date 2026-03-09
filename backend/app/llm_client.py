@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import random
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import httpx
 
@@ -463,5 +463,229 @@ class LlmClient:
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_native_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc
+            )
+            raise LlmClientError(f"LLM HTTP error: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # AgentRunner: Streaming with function calling (Continuous Tool Loop)
+    # ------------------------------------------------------------------
+
+    async def stream_chat_with_tools(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        on_text_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> "StreamResult":
+        """Stream an LLM response, collecting text and tool_calls.
+
+        Accepts a full messages array (not just system+user like older methods).
+        Streams text via *on_text_chunk* callback while accumulating tool_calls.
+        Returns a structured ``StreamResult``.
+
+        For providers that don't support streaming (native Ollama API) a
+        non-streaming fallback is used automatically.
+        """
+        from app.agent_runner_types import StreamResult, ToolCall
+
+        active_model = model or self.model
+        normalized_temperature = self._normalize_temperature(temperature)
+
+        # ── Ollama native: non-streaming fallback ──
+        if self._is_native_ollama_api():
+            return await self._stream_chat_with_tools_ollama_fallback(
+                messages=messages,
+                model=active_model,
+                temperature=normalized_temperature,
+                on_text_chunk=on_text_chunk,
+            )
+
+        payload: dict = {
+            "model": active_model,
+            "stream": True,
+            "messages": messages,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        if normalized_temperature is not None:
+            payload["temperature"] = normalized_temperature
+
+        headers = self._build_headers()
+        url = f"{self.base_url}/chat/completions"
+
+        collected_text: list[str] = []
+        collected_tool_calls: dict[int, dict] = {}  # index → {id, name, arguments_str}
+        finish_reason = "stop"
+        usage: dict = {}
+
+        try:
+            for attempt in range(1, MAX_RETRIES + 1):
+                async with (
+                    httpx.AsyncClient(timeout=120) as client,
+                    client.stream("POST", url, headers=headers, json=payload) as response,
+                ):
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        body_text = body.decode(errors="ignore")
+                        logger.warning(
+                            "llm_stream_tools_http_error url=%s model=%s status=%s attempt=%s body=%s",
+                            url, active_model, response.status_code, attempt, body_text[:300],
+                        )
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            await asyncio.sleep(_retry_delay(attempt))
+                            continue
+                        raise LlmClientError(
+                            f"LLM stream request failed ({response.status_code}): {body_text[:600]}"
+                        )
+
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line.removeprefix("data:").strip()
+                        if data_str == "[DONE]":
+                            break
+
+                        try:
+                            chunk = json.loads(data_str)
+                        except Exception:
+                            continue
+
+                        choice = (chunk.get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
+                        chunk_finish = choice.get("finish_reason")
+
+                        # Text content
+                        if delta.get("content"):
+                            text_piece = delta["content"]
+                            collected_text.append(text_piece)
+                            if on_text_chunk:
+                                await on_text_chunk(text_piece)
+
+                        # Tool calls (arrive in chunks)
+                        if "tool_calls" in delta:
+                            for tc in delta["tool_calls"]:
+                                idx = tc.get("index", 0)
+                                if idx not in collected_tool_calls:
+                                    collected_tool_calls[idx] = {
+                                        "id": tc.get("id", ""),
+                                        "name": (tc.get("function") or {}).get("name", ""),
+                                        "arguments_str": "",
+                                    }
+                                func = tc.get("function") or {}
+                                if func.get("name"):
+                                    collected_tool_calls[idx]["name"] = func["name"]
+                                if tc.get("id"):
+                                    collected_tool_calls[idx]["id"] = tc["id"]
+                                if func.get("arguments"):
+                                    collected_tool_calls[idx]["arguments_str"] += func["arguments"]
+
+                        if chunk_finish:
+                            finish_reason = chunk_finish
+
+                        if "usage" in chunk and isinstance(chunk["usage"], dict):
+                            usage = chunk["usage"]
+
+                    # Successful response processed
+                    break
+
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "llm_stream_tools_timeout base_url=%s model=%s error=%s",
+                self.base_url, active_model, exc,
+            )
+            raise LlmClientError(f"LLM timeout: {exc}") from exc
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "llm_stream_tools_httpx_error base_url=%s model=%s error=%s",
+                self.base_url, active_model, exc,
+            )
+            raise LlmClientError(f"LLM HTTP error: {exc}") from exc
+
+        # Parse collected tool calls
+        parsed_tool_calls: list[ToolCall] = []
+        for idx in sorted(collected_tool_calls.keys()):
+            tc = collected_tool_calls[idx]
+            try:
+                args = json.loads(tc["arguments_str"]) if tc["arguments_str"] else {}
+            except (json.JSONDecodeError, ValueError):
+                args = {"_raw": tc["arguments_str"]}
+            if not isinstance(args, dict):
+                args = {"_raw": tc["arguments_str"]}
+            parsed_tool_calls.append(
+                ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+            )
+
+        # Normalize finish_reason for tool calls
+        if finish_reason == "tool_calls" or (parsed_tool_calls and finish_reason != "length"):
+            finish_reason = "tool_calls"
+
+        return StreamResult(
+            text="".join(collected_text),
+            tool_calls=tuple(parsed_tool_calls),
+            finish_reason=finish_reason,
+            usage=usage,
+        )
+
+    async def _stream_chat_with_tools_ollama_fallback(
+        self,
+        *,
+        messages: list[dict],
+        model: str,
+        temperature: float | None = None,
+        on_text_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> "StreamResult":
+        """Non-streaming fallback for Ollama native API."""
+        from app.agent_runner_types import StreamResult
+
+        payload: dict = {
+            "model": model,
+            "stream": False,
+            "messages": messages,
+        }
+        if temperature is not None:
+            payload["options"] = {"temperature": temperature}
+
+        headers = self._build_headers()
+        url = f"{self.base_url}/chat"
+
+        try:
+            for attempt in range(1, MAX_RETRIES + 1):
+                async with httpx.AsyncClient(timeout=120) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    if response.status_code >= 400:
+                        logger.warning(
+                            "llm_native_tools_http_error url=%s model=%s status=%s attempt=%s body=%s",
+                            url, model, response.status_code, attempt, response.text[:300],
+                        )
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            await asyncio.sleep(_retry_delay(attempt))
+                            continue
+                        raise LlmClientError(
+                            f"LLM request failed ({response.status_code}): {response.text[:600]}"
+                        )
+                    data = response.json()
+                    content = (data.get("message") or {}).get("content") or ""
+                    if content and on_text_chunk:
+                        await on_text_chunk(content)
+
+                    return StreamResult(
+                        text=content,
+                        tool_calls=(),
+                        finish_reason="stop",
+                        usage={},
+                    )
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "llm_native_tools_timeout base_url=%s model=%s error=%s",
+                self.base_url, model, exc,
+            )
+            raise LlmClientError(f"LLM timeout: {exc}") from exc
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "llm_native_tools_httpx_error base_url=%s model=%s error=%s",
+                self.base_url, model, exc,
             )
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
