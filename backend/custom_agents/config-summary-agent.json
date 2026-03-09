@@ -1,0 +1,18 @@
+{
+  "id": "config-summary-agent",
+  "name": "Config Summary Agent",
+  "description": "Analysiert config.py und erstellt eine Zusammenfassung der wichtigsten Einstellungen",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "Lese die Datei backend/app/config.py",
+    "Identifiziere die wichtigsten Konfigurationen und Einstellungen",
+    "Erstelle eine strukturierte Zusammenfassung der gefundenen Einstellungen",
+    "Gib die Zusammenfassung als Antwort zurück"
+  ],
+  "tool_policy": null,
+  "allow_subrun_delegation": false,
+  "capabilities": [],
+  "workspace_scope": null,
+  "skills_scope": null,
+  "credential_scope": null
+}

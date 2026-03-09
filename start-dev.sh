@@ -470,12 +470,32 @@ set_runtime_state() {
   [[ -z "$api_base_url" ]] && api_base_url="http://localhost:$LLM_PORT/api"
   [[ -z "$llm_base_url" ]] && llm_base_url="http://localhost:$LLM_PORT/v1"
 
+  # Read feature flags from .env
+  local ltm_enabled distill_enabled fj_enabled vision_enabled
+  ltm_enabled="$(grep -E '^LONG_TERM_MEMORY_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+  distill_enabled="$(grep -E '^SESSION_DISTILLATION_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+  fj_enabled="$(grep -E '^FAILURE_JOURNAL_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+  vision_enabled="$(grep -E '^VISION_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2- || true)"
+  [[ -z "$ltm_enabled" ]] && ltm_enabled="true"
+  [[ -z "$distill_enabled" ]] && distill_enabled="true"
+  [[ -z "$fj_enabled" ]] && fj_enabled="true"
+  [[ -z "$vision_enabled" ]] && vision_enabled="false"
+
+  # BUG-FIX: API mode must use LLM_BASE_URL (/v1, OpenAI-compatible) so that
+  # function calling is enabled.  Previously this used api_base_url (/api,
+  # native Ollama) which disabled function calling.
   if [[ "$mode" == "api" ]]; then
     cat > "$state_file" <<JSON
 {
   "runtime": "api",
-  "base_url": "$api_base_url",
-  "model": "$api_model"
+  "base_url": "$llm_base_url",
+  "model": "$api_model",
+  "features": {
+    "long_term_memory_enabled": $ltm_enabled,
+    "session_distillation_enabled": $distill_enabled,
+    "failure_journal_enabled": $fj_enabled,
+    "vision_enabled": $vision_enabled
+  }
 }
 JSON
   else
@@ -483,7 +503,13 @@ JSON
 {
   "runtime": "local",
   "base_url": "$llm_base_url",
-  "model": "$local_model"
+  "model": "$local_model",
+  "features": {
+    "long_term_memory_enabled": $ltm_enabled,
+    "session_distillation_enabled": $distill_enabled,
+    "failure_journal_enabled": $fj_enabled,
+    "vision_enabled": $vision_enabled
+  }
 }
 JSON
   fi

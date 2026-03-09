@@ -13,12 +13,15 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+import os
 from typing import Any
 
 from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
 from app.config import settings
+from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
+from app.services.compaction_service import CompactionService
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolRegistry
 from app.state.context_reducer import ContextReducer
@@ -38,6 +41,20 @@ SendEvent = Callable[[dict], Awaitable[None]]
 # ──────────────────────────────────────────────────────────────────────
 
 
+def _format_current_datetime() -> str:
+    """Return the current date/time formatted for the system prompt."""
+    import zoneinfo as _zi
+
+    tz_name = (os.environ.get("USER_TIMEZONE") or "").strip()
+    try:
+        tz = _zi.ZoneInfo(tz_name) if tz_name else None
+    except (KeyError, Exception):
+        tz = None
+    now = datetime.now(tz=tz or UTC)
+    tz_label = tz_name or "UTC"
+    return now.strftime(f"%A, %d %B %Y, %H:%M {tz_label}")
+
+
 def build_unified_system_prompt(
     *,
     role: str,
@@ -47,6 +64,8 @@ def build_unified_system_prompt(
     guardrails: str = "",
     skills_prompt: str = "",
     platform_summary: str = "",
+    current_datetime: str = "",
+    reasoning_hint: str = "",
 ) -> str:
     """Merge the 3 phase-specific prompts into a single unified system prompt.
 
@@ -59,7 +78,11 @@ def build_unified_system_prompt(
     # 1. Identity & role (extracted from plan_prompt preamble)
     sections.append(f"You are {role}, an autonomous AI assistant with access to tools.\n")
 
-    # 2. Working style — let LLM decide naturally
+    # 2. Current date & time
+    dt_str = current_datetime or _format_current_datetime()
+    sections.append(f"## Current date & time\n{dt_str}\n")
+
+    # 3. Working style — let LLM decide naturally
     sections.append(
         "## How you work\n"
         "- Analyse the user's request carefully.\n"
@@ -70,25 +93,47 @@ def build_unified_system_prompt(
         "- Think step-by-step but do NOT announce your plan to the user unless asked.\n"
     )
 
-    # 3. Tool hints (from tool_selector_prompt, trimmed)
+    # 4. When to search the web
+    sections.append(
+        "## When to search the web\n"
+        "Use `web_search` BEFORE answering when the user's question involves:\n"
+        "- Current events, news, recent developments (anything after your knowledge cutoff)\n"
+        "- Software versions, release dates, changelogs\n"
+        "- Prices, availability, stock, or any live data\n"
+        "- People's current roles, recent actions, or latest statements\n"
+        "- Any question containing 'latest', 'newest', 'current', 'today', 'recently'\n\n"
+        "You MAY answer from model knowledge when:\n"
+        "- The question is about well-established facts (math, physics, history)\n"
+        "- The question is about code syntax, language features, or algorithms\n"
+        "- The user explicitly says 'from what you know' or 'without searching'\n"
+        "- The question is about the current project/workspace (use file tools instead)\n\n"
+        "When in doubt: **search first, then verify against your knowledge.**\n"
+        "State explicitly when your answer is based on model knowledge vs. search results.\n"
+    )
+
+    # 5. Tool hints (from tool_selector_prompt, trimmed)
     if tool_hints and tool_hints.strip():
         sections.append(f"## Tool guidelines\n{tool_hints.strip()}\n")
 
-    # 4. Answer guidelines (from final_prompt)
+    # 6. Answer guidelines (from final_prompt)
     if final_instructions and final_instructions.strip():
         sections.append(f"## Answer guidelines\n{final_instructions.strip()}\n")
 
-    # 5. Platform info
+    # 7. Platform info
     if platform_summary and platform_summary.strip():
         sections.append(f"## Environment\n{platform_summary.strip()}\n")
 
-    # 6. Skills
+    # 8. Skills
     if skills_prompt and skills_prompt.strip():
         sections.append(f"## Active skills\n{skills_prompt.strip()}\n")
 
-    # 7. Guardrails & safety
+    # 9. Guardrails & safety
     if guardrails and guardrails.strip():
         sections.append(f"## Safety rules\n{guardrails.strip()}\n")
+
+    # 10. Reasoning hint (adaptive)
+    if reasoning_hint and reasoning_hint.strip():
+        sections.append(f"## Reasoning approach\n{reasoning_hint.strip()}\n")
 
     return "\n".join(sections)
 
@@ -123,6 +168,7 @@ class AgentRunner:
         agent_name: str = "agent",
         distill_fn: Callable[..., Awaitable[None]] | None = None,
         long_term_context_fn: Callable[[str], str] | None = None,
+        policy_approval_fn: Callable[..., Awaitable[bool]] | None = None,
     ):
         self.client = client
         self.memory = memory
@@ -143,6 +189,8 @@ class AgentRunner:
         self._agent_name = agent_name
         self._distill_fn = distill_fn
         self._long_term_context_fn = long_term_context_fn
+        self._policy_approval_fn = policy_approval_fn
+        self._compaction_service = CompactionService(client)
 
         # Loop limits from settings
         self._max_iterations = settings.runner_max_iterations
@@ -268,6 +316,13 @@ class AgentRunner:
                 break
 
             # ── LLM CALL ──
+            # Proactive compaction: summarise before hitting context limit
+            if self._compaction_enabled and self._compaction_service.needs_compaction(messages):
+                try:
+                    messages = await self._compaction_service.compact(messages)
+                except Exception:
+                    logger.debug("Proactive compaction failed", exc_info=True)
+
             if self._emit_lifecycle:
                 await self._emit_lifecycle(
                     send_event,
@@ -364,7 +419,11 @@ class AgentRunner:
             # ── FINISH REASON: LENGTH → context overflow ──
             if stream_result.finish_reason == "length":
                 if self._compaction_enabled:
-                    messages = self._compact_messages(messages)
+                    try:
+                        messages = await self._compaction_service.compact(messages)
+                    except Exception:
+                        logger.debug("LLM compaction on overflow failed, using text fallback", exc_info=True)
+                        messages = self._compact_messages(messages)
                     continue
                 else:
                     loop_state.budget_exhausted = True
@@ -533,7 +592,13 @@ class AgentRunner:
         messages: list[dict] = []
 
         # 1. System message (with optional LTM context)
-        system_content = self.system_prompt
+        #    Refresh the date/time line on every request so the LLM always
+        #    sees the current timestamp, not the one from server startup.
+        system_content = re.sub(
+            r"(?m)^## Current date & time\n.*\n",
+            f"## Current date & time\n{_format_current_datetime()}\n",
+            self.system_prompt,
+        )
         if self._long_term_context_fn:
             try:
                 ltm = self._long_term_context_fn(user_message)
@@ -560,6 +625,28 @@ class AgentRunner:
     # Tool execution
     # ──────────────────────────────────────────────────────────────────
 
+    _APPROVABLE_PROCESS_TOOLS = frozenset({"run_command", "code_execute", "spawn_subrun"})
+
+    @staticmethod
+    def _extract_resource_for_approval(tool_name: str, args: dict) -> str:
+        """Extract a human-readable resource description from tool arguments."""
+        if tool_name == "run_command":
+            candidate = args.get("command")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        elif tool_name == "code_execute":
+            code = args.get("code")
+            lang = args.get("language")
+            if isinstance(code, str) and code.strip():
+                snippet = code.strip().splitlines()[0][:160]
+                language = str(lang).strip() if isinstance(lang, str) else "python"
+                return f"{language}: {snippet}"
+        elif tool_name == "spawn_subrun":
+            candidate = args.get("message")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return tool_name
+
     async def _execute_tool_calls(
         self,
         tool_calls: tuple[ToolCall, ...],
@@ -573,15 +660,43 @@ class AgentRunner:
         for tc in tool_calls:
             tool_name = tc.name.strip()
 
-            # Policy check
+            # Policy check — prompt user for approvable process tools
             if tool_name not in effective_allowed_tools:
-                results.append(ToolResult(
-                    tool_call_id=tc.id,
-                    tool_name=tool_name,
-                    content=f"Error: Tool '{tool_name}' is not in the allowed tools list.",
-                    is_error=True,
-                ))
-                continue
+                if (
+                    tool_name in self._APPROVABLE_PROCESS_TOOLS
+                    and self._policy_approval_fn is not None
+                ):
+                    resource = self._extract_resource_for_approval(tool_name, tc.arguments)
+                    try:
+                        approved = await self._policy_approval_fn(
+                            send_event=send_event,
+                            session_id=session_id,
+                            request_id=request_id,
+                            tool=tool_name,
+                            resource=resource,
+                        )
+                    except PolicyApprovalCancelledError:
+                        raise
+                    except Exception:
+                        approved = False
+                    if approved:
+                        effective_allowed_tools.add(tool_name)
+                    else:
+                        results.append(ToolResult(
+                            tool_call_id=tc.id,
+                            tool_name=tool_name,
+                            content=f"Error: Tool '{tool_name}' is blocked by policy. The user denied the approval request.",
+                            is_error=True,
+                        ))
+                        continue
+                else:
+                    results.append(ToolResult(
+                        tool_call_id=tc.id,
+                        tool_name=tool_name,
+                        content=f"Error: Tool '{tool_name}' is not in the allowed tools list.",
+                        is_error=True,
+                    ))
+                    continue
 
             # Status event
             await send_event({
@@ -601,6 +716,8 @@ class AgentRunner:
                     request_id=request_id,
                 )
                 is_error = False
+            except PolicyApprovalCancelledError:
+                raise
             except Exception as exc:
                 result_text = f"Error executing {tool_name}: {exc}"
                 is_error = True

@@ -478,11 +478,28 @@ function Set-RuntimeState([string]$Mode, [int]$Port) {
     $apiBaseUrl = if ($envVars.ContainsKey('API_BASE_URL')) { $envVars['API_BASE_URL'] } else { "http://localhost:$Port/api" }
     $llmBaseUrl = if ($envVars.ContainsKey('LLM_BASE_URL')) { $envVars['LLM_BASE_URL'] } else { "http://localhost:$Port/v1" }
 
+    # Read feature flags from .env so runtime_state.json stays consistent
+    $ltmEnabled = if ($envVars.ContainsKey('LONG_TERM_MEMORY_ENABLED')) { $envVars['LONG_TERM_MEMORY_ENABLED'].ToLower() -in @('1','true','yes','on') } else { $true }
+    $distillEnabled = if ($envVars.ContainsKey('SESSION_DISTILLATION_ENABLED')) { $envVars['SESSION_DISTILLATION_ENABLED'].ToLower() -in @('1','true','yes','on') } else { $true }
+    $fjEnabled = if ($envVars.ContainsKey('FAILURE_JOURNAL_ENABLED')) { $envVars['FAILURE_JOURNAL_ENABLED'].ToLower() -in @('1','true','yes','on') } else { $true }
+    $visionEnabled = if ($envVars.ContainsKey('VISION_ENABLED')) { $envVars['VISION_ENABLED'].ToLower() -in @('1','true','yes','on') } else { $false }
+
+    $features = @{
+        long_term_memory_enabled = $ltmEnabled
+        session_distillation_enabled = $distillEnabled
+        failure_journal_enabled = $fjEnabled
+        vision_enabled = $visionEnabled
+    }
+
+    # BUG-FIX: API mode must use LLM_BASE_URL (/v1, OpenAI-compatible) so that
+    # function calling is enabled.  Previously this used API_BASE_URL (/api,
+    # native Ollama) which disabled function calling.
     if ($Mode -eq 'api') {
         $state = @{
             runtime = 'api'
-            base_url = $apiBaseUrl
+            base_url = $llmBaseUrl
             model = $apiModel
+            features = $features
         }
     }
     else {
@@ -490,6 +507,7 @@ function Set-RuntimeState([string]$Mode, [int]$Port) {
             runtime = 'local'
             base_url = $llmBaseUrl
             model = $localModel
+            features = $features
         }
     }
 

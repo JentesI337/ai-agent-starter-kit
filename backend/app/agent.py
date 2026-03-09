@@ -245,6 +245,7 @@ class HeadAgent:
             agent_name=self.name,
             distill_fn=self._distill_session_knowledge,
             long_term_context_fn=self._build_long_term_memory_context,
+            policy_approval_fn=self._request_policy_override,
         )
 
     @staticmethod
@@ -406,6 +407,13 @@ class HeadAgent:
                 tool_selector_prompt=settings.head_agent_tool_selector_prompt,
                 tool_repair_prompt=settings.head_agent_tool_repair_prompt,
                 final_prompt=settings.industrytech_agent_final_prompt,
+            )
+        # review-agent intentionally uses head-agent prompts (no dedicated prompts)
+        _KNOWN_FALLBACK_ROLES = {"head-agent", "review-agent"}
+        if normalized_role and normalized_role not in _KNOWN_FALLBACK_ROLES:
+            logging.getLogger(__name__).warning(
+                "unknown_agent_role role=%s — falling back to head-agent prompts",
+                normalized_role,
             )
         return PromptProfile(
             system_prompt=settings.head_agent_system_prompt,

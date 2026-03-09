@@ -18,6 +18,7 @@ from urllib.parse import urljoin
 import httpx
 
 from app.config import settings
+from app.content_security import wrap_external_content
 from app.errors import ToolExecutionError
 from app.services.code_sandbox import CodeSandbox
 from app.services.repl_session_manager import ReplSessionManager
@@ -477,7 +478,10 @@ class AgentTooling:
         if not normalized_text:
             normalized_text = "(empty response)"
 
-        return f"source_url: {current_url}\ncontent_type: {content_type}\ncontent:\n{normalized_text}"
+        return wrap_external_content(
+            f"source_url: {current_url}\ncontent_type: {content_type}\ncontent:\n{normalized_text}",
+            source="web_fetch",
+        )
 
     async def web_search(self, query: str, max_results: int = 5) -> str:
         normalized_query = (query or "").strip()
@@ -516,7 +520,7 @@ class AgentTooling:
             lines.append(f"   snippet: {result.snippet}")
             lines.append(f"   source: {result.source}")
             lines.append(f"   relevance_score: {result.relevance_score}")
-        return "\n".join(lines)
+        return wrap_external_content("\n".join(lines), source="web_search")
 
     async def analyze_image(
         self,
@@ -679,13 +683,14 @@ class AgentTooling:
                         for name, value in sorted(response.headers.items(), key=lambda item: item[0].lower())[:50]
                     ]
                     rendered_headers = "\n".join(header_lines) if header_lines else "(none)"
-                    return (
+                    return wrap_external_content(
                         f"status: {int(response.status_code)}\n"
                         f"method: {normalized_method}\n"
                         f"source_url: {response_url}\n"
                         f"content_type: {content_type_value}\n"
                         f"headers:\n{rendered_headers}\n"
-                        f"body:\n{normalized_body or '(empty response)'}"
+                        f"body:\n{normalized_body or '(empty response)'}",
+                        source="http_request",
                     )
         except ToolExecutionError:
             raise

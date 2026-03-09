@@ -1511,6 +1511,7 @@ class Settings(BaseModel):
     # Compaction
     runner_compaction_enabled: bool = _parse_bool_env("RUNNER_COMPACTION_ENABLED", True)
     runner_compaction_tail_keep: int = int(os.getenv("RUNNER_COMPACTION_TAIL_KEEP", "4"))
+    runner_compaction_context_window: int = int(os.getenv("RUNNER_COMPACTION_CONTEXT_WINDOW", "200000"))
     runner_tool_result_max_chars: int = int(os.getenv("RUNNER_TOOL_RESULT_MAX_CHARS", "5000"))
     # Post-loop
     runner_reflection_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_ENABLED", True)
@@ -1557,6 +1558,11 @@ class Settings(BaseModel):
         try:
             return _parse_mcp_servers_config(self.mcp_servers_config, workspace_root=self.workspace_root)
         except Exception:
+            import logging as _logging
+            _logging.getLogger("app.config").warning(
+                "mcp_servers_config_parse_failed — MCP servers disabled",
+                exc_info=True,
+            )
             return []
 
 
