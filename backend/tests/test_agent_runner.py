@@ -282,7 +282,7 @@ class TestAgentRunnerRun:
         runner.client.stream_chat_with_tools = AsyncMock(
             side_effect=[
                 _tool_calls_result(("c1", "delete_file", {"path": "important.py"})),
-                _stop_result("OK, I won't delete it."),
+                _stop_result("I could not delete the file because the tool is not allowed."),
             ]
         )
 
@@ -293,7 +293,7 @@ class TestAgentRunnerRun:
             request_id="r1",
         )
 
-        assert result == "OK, I won't delete it."
+        assert "could not" in result.lower()
         # execute_tool_fn should NOT have been called for blocked tool
         runner._execute_tool_fn.assert_not_awaited()
 

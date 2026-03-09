@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
@@ -21,6 +23,10 @@ from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolRegistry
 from app.state.context_reducer import ContextReducer
 from app.tool_policy import ToolPolicyDict
+
+_IMPLEMENTATION_RE = re.compile(
+    r"\b(?:implement|fix|refactor|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
+)
 
 logger = logging.getLogger("app.agent_runner")
 
@@ -111,6 +117,10 @@ class AgentRunner:
         ambiguity_detector: Any | None = None,
         reflection_service: Any | None = None,
         emit_lifecycle_fn: Callable[..., Awaitable[None]] | None = None,
+        intent_detector: Any | None = None,
+        reply_shaper: Any | None = None,
+        verification_service: Any | None = None,
+        reflection_feedback_store: Any | None = None,
     ):
         self.client = client
         self.memory = memory
@@ -125,6 +135,10 @@ class AgentRunner:
         self._ambiguity_detector = ambiguity_detector
         self._reflection_service = reflection_service
         self._emit_lifecycle = emit_lifecycle_fn
+        self._intent_detector = intent_detector
+        self._reply_shaper = reply_shaper
+        self._verification_service = verification_service
+        self._reflection_feedback_store = reflection_feedback_store
 
         # Loop limits from settings
         self._max_iterations = settings.runner_max_iterations
@@ -395,11 +409,65 @@ class AgentRunner:
         if not final_text:
             final_text = "I was unable to generate a response. Please try again."
 
-        # Evidence gates (stub — full migration in Sprint 2, Phase C)
-        final_text = self._apply_evidence_gates(final_text, all_tool_results, user_message)
+        # ── POST-LOOP: Evidence Gates → Reflection → Reply Shaping → Verification ──
 
-        # Reply shaping (stub — full migration in Sprint 2, Phase C)
-        final_text = self._shape_final_response(final_text, all_tool_results)
+        # 1. Evidence gates
+        final_text = self._apply_evidence_gates(
+            final_text, all_tool_results, user_message, send_event, request_id, session_id,
+        )
+
+        # 2. Reflection (before shaping — reflection sees unshaped text)
+        if (
+            self._reflection_service
+            and settings.runner_reflection_enabled
+            and len((final_text or "").strip()) >= 8
+        ):
+            final_text = await self._run_reflection(
+                final_text=final_text,
+                user_message=user_message,
+                tool_results=all_tool_results,
+                task_type=self._resolve_task_type(user_message, all_tool_results),
+                model=model,
+                send_event=send_event,
+                request_id=request_id,
+                session_id=session_id,
+                messages=messages,
+            )
+        elif self._reflection_service and settings.runner_reflection_enabled:
+            if self._emit_lifecycle:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="reflection_skipped",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
+                )
+
+        # 3. Reply shaping
+        final_text = self._shape_final_response(
+            final_text, all_tool_results, send_event, request_id, session_id,
+        )
+
+        # 4. Verification (last check)
+        if self._verification_service:
+            final_check = self._verification_service.verify_final(
+                user_message=user_message,
+                final_text=final_text,
+            )
+            if self._emit_lifecycle:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="verification_final",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "status": final_check.status,
+                        "reason": final_check.reason,
+                        **final_check.details,
+                    },
+                )
+            if not final_check.ok:
+                final_text = "No output generated."
 
         # Final event
         await send_event({"type": "final", "message": final_text})
@@ -628,7 +696,86 @@ class AgentRunner:
         return [system] + compacted + keep_tail
 
     # ──────────────────────────────────────────────────────────────────
-    # Evidence gates & reply shaping (stubs — Phase C migration)
+    # Tool-result conversion
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _tool_results_to_string(tool_results: list[ToolResult]) -> str:
+        """Convert ``list[ToolResult]`` to the legacy string format.
+
+        Format per result::
+
+            [tool_name] content          (success)
+            [tool_name] [ERROR] content  (error)
+        """
+        if not tool_results:
+            return ""
+        lines: list[str] = []
+        for tr in tool_results:
+            prefix = f"[{tr.tool_name}]"
+            if tr.is_error:
+                lines.append(f"{prefix} [ERROR] {tr.content}")
+            else:
+                lines.append(f"{prefix} {tr.content}")
+        return "\n".join(lines)
+
+    # ──────────────────────────────────────────────────────────────────
+    # Task-type resolution
+    # ──────────────────────────────────────────────────────────────────
+
+    def _resolve_task_type(self, user_message: str, tool_results: list[ToolResult]) -> str:
+        """Determine the synthesis task type from user intent + tool results.
+
+        Returns one of: ``"hard_research"``, ``"research"``, ``"implementation"``,
+        ``"orchestration"``, ``"orchestration_failed"``, ``"orchestration_pending"``,
+        ``"general"``.
+        """
+        tool_results_str = self._tool_results_to_string(tool_results)
+        message = (user_message or "").strip()
+
+        # Evidence-first: spawned_subrun_id in tool results has absolute priority
+        if "spawned_subrun_id=" in tool_results_str:
+            terminal_statuses = [
+                (m.start(), m.group(1))
+                for m in re.finditer(
+                    r"terminal_reason=(subrun-complete|subrun-error|subrun-timeout|subrun-cancelled|subrun-running|subrun-accepted)",
+                    tool_results_str,
+                )
+            ]
+            if terminal_statuses:
+                _, last_status = max(terminal_statuses, key=lambda item: item[0])
+                if last_status == "subrun-complete":
+                    return "orchestration"
+                if last_status in ("subrun-error", "subrun-timeout", "subrun-cancelled"):
+                    return "orchestration_failed"
+                return "orchestration_pending"
+
+            if "subrun-complete" in tool_results_str:
+                return "orchestration"
+            if any(s in tool_results_str for s in ("subrun-error", "subrun-timeout", "subrun-cancelled")):
+                return "orchestration_failed"
+            return "orchestration_pending"
+
+        # Intent-based classification (via IntentDetector when available)
+        if self._intent_detector:
+            if hasattr(self._intent_detector, "is_subrun_orchestration_task"):
+                if self._intent_detector.is_subrun_orchestration_task(message):
+                    return "orchestration"
+            if hasattr(self._intent_detector, "is_file_creation_task"):
+                if self._intent_detector.is_file_creation_task(message):
+                    return "implementation"
+            if hasattr(self._intent_detector, "is_web_research_task"):
+                if self._intent_detector.is_web_research_task(message):
+                    return "research"
+
+        # Regex fallback
+        if _IMPLEMENTATION_RE.search(message):
+            return "implementation"
+
+        return "general"
+
+    # ──────────────────────────────────────────────────────────────────
+    # Evidence gates
     # ──────────────────────────────────────────────────────────────────
 
     def _apply_evidence_gates(
@@ -636,14 +783,265 @@ class AgentRunner:
         final_text: str,
         tool_results: list[ToolResult],
         user_message: str,
+        send_event: SendEvent | None = None,
+        request_id: str = "",
+        session_id: str = "",
     ) -> str:
-        """Stub — full evidence gate migration happens in Sprint 2 (Phase C)."""
+        """Run evidence gates to prevent hallucinated success responses.
+
+        Gates (in order):
+        1. Implementation Evidence — blocks success claims when no code-edit tool succeeded
+        2. All-Tools-Failed — blocks optimistic text when every tool errored
+        3. Orchestration Evidence — blocks success claims when subrun did not complete
+        """
+        task_type = self._resolve_task_type(user_message, tool_results)
+
+        # Gate 1: Implementation Evidence
+        if self._requires_implementation_evidence(user_message, task_type):
+            if not self._has_implementation_evidence(tool_results):
+                if self._emit_lifecycle and send_event:
+                    # fire-and-forget lifecycle event from sync context is not possible;
+                    # lifecycle is emitted from the caller (run()) when needed.
+                    pass
+                final_text = (
+                    "I could not complete the implementation in this run because no code-edit or command-execution "
+                    "step succeeded. Please allow the required tools (for example `write_file`, `apply_patch`, "
+                    "`run_command`, or `code_execute`) and retry."
+                )
+
+        # Gate 2: All-Tools-Failed
+        if self._all_tools_failed(tool_results) and not self._response_acknowledges_failures(final_text):
+            final_text = (
+                "I was unable to complete this task. All tool calls encountered errors and no work "
+                "was successfully performed in this run.\n\n"
+                "Please check the tool error details above, resolve any permission or policy issues "
+                "(for example, approve the requested commands via the policy dialog), and retry."
+            )
+
+        # Gate 3: Orchestration Evidence
+        if task_type in ("orchestration", "orchestration_failed", "orchestration_pending"):
+            if not self._has_orchestration_evidence(tool_results):
+                attempted = self._has_orchestration_attempted(tool_results)
+                if attempted:
+                    final_text = (
+                        "The delegated subrun did not complete successfully. "
+                        "Most likely cause: a tool call inside the subrun timed out (e.g. a CLI scaffolding "
+                        "command such as `npm`, `ng`, or `npx` exceeded COMMAND_TIMEOUT_SECONDS) or was "
+                        "blocked by the command allowlist. "
+                        "Check the subrun lifecycle events for `tool_timeout` or `command_policy_unsupported` "
+                        "errors. If commands are blocked, set COMMAND_ALLOWLIST_EXTRA in the environment or "
+                        "approve the command via the policy dialog. "
+                        "If the subrun succeeded but this message still appears, the subrun returned before "
+                        "the parent could read its result — this is now fixed in the current build."
+                    )
+                else:
+                    final_text = (
+                        "No subrun was executed for this orchestration request. "
+                        "The plan did not result in a `spawn_subrun` tool call. "
+                        "Please verify the orchestration intent and retry."
+                    )
+
         return final_text
+
+    # ── Evidence gate helpers ──
+
+    def _requires_implementation_evidence(self, user_message: str, task_type: str) -> bool:
+        if task_type == "implementation":
+            return True
+        if self._intent_detector and hasattr(self._intent_detector, "is_file_creation_task"):
+            return self._intent_detector.is_file_creation_task(user_message)
+        return False
+
+    def _has_implementation_evidence(self, tool_results: list[ToolResult]) -> bool:
+        evidence_tools = ("write_file", "apply_patch", "run_command", "code_execute")
+        return any(
+            tr.tool_name in evidence_tools and not tr.is_error
+            for tr in tool_results
+        )
+
+    @staticmethod
+    def _all_tools_failed(tool_results: list[ToolResult]) -> bool:
+        if not tool_results:
+            return False
+        return all(tr.is_error for tr in tool_results)
+
+    @staticmethod
+    def _response_acknowledges_failures(final_text: str) -> bool:
+        lowered = (final_text or "").lower()
+        acknowledgement_phrases = (
+            "error", "fail", "unable", "could not", "cannot", "can't",
+            "couldn't", "not able", "not allowed", "blocked", "policy",
+            "permission", "denied", "unsuccessful", "not complete",
+            "unfortunately", "did not succeed", "did not complete", "was not",
+        )
+        return any(phrase in lowered for phrase in acknowledgement_phrases)
+
+    def _has_orchestration_evidence(self, tool_results: list[ToolResult]) -> bool:
+        combined = self._tool_results_to_string(tool_results)
+        if "spawned_subrun_id=" in combined and "subrun-complete" in combined:
+            return True
+        return bool("subrun_announce" in combined and "subrun-complete" in combined)
+
+    def _has_orchestration_attempted(self, tool_results: list[ToolResult]) -> bool:
+        combined = self._tool_results_to_string(tool_results)
+        return "spawned_subrun_id=" in combined
+
+    # ──────────────────────────────────────────────────────────────────
+    # Reply shaping
+    # ──────────────────────────────────────────────────────────────────
 
     def _shape_final_response(
         self,
         final_text: str,
         tool_results: list[ToolResult],
+        send_event: SendEvent | None = None,
+        request_id: str = "",
+        session_id: str = "",
     ) -> str:
-        """Stub — full reply shaping migration happens in Sprint 2 (Phase C)."""
+        """Shape the final response using ReplyShaper (sanitize + deduplicate)."""
+        if not self._reply_shaper:
+            return final_text
+
+        tool_results_str = self._tool_results_to_string(tool_results)
+        tool_markers: set[str] = set()
+        if hasattr(self.tool_registry, "keys"):
+            tool_markers = set(self.tool_registry.keys())
+
+        shape_result = self._reply_shaper.shape(
+            final_text=final_text,
+            tool_results=tool_results_str,
+            tool_markers=tool_markers,
+        )
+
+        if shape_result.was_suppressed:
+            return shape_result.text or f"Reply suppressed: {shape_result.suppression_reason or 'suppressed'}"
+
+        return shape_result.text
+
+    # ──────────────────────────────────────────────────────────────────
+    # Reflection loop
+    # ──────────────────────────────────────────────────────────────────
+
+    async def _run_reflection(
+        self,
+        final_text: str,
+        user_message: str,
+        tool_results: list[ToolResult],
+        task_type: str,
+        model: str | None,
+        send_event: SendEvent,
+        request_id: str,
+        session_id: str,
+        messages: list[dict],
+    ) -> str:
+        """Run post-loop reflection passes.
+
+        The ReflectionService evaluates the answer on goal_alignment, completeness
+        and factual_grounding.  When ``should_retry`` is True a follow-up LLM call
+        with reflection feedback is made (without tools).
+        """
+        tool_results_str = self._tool_results_to_string(tool_results)
+        max_passes = max(0, settings.runner_reflection_max_passes)
+
+        for reflection_pass in range(max_passes):
+            try:
+                try:
+                    verdict = await self._reflection_service.reflect(
+                        user_message=user_message,
+                        plan_text="",
+                        tool_results=tool_results_str,
+                        final_answer=final_text,
+                        model=model,
+                        task_type=task_type,
+                    )
+                except TypeError:
+                    # Fallback for older ReflectionService without task_type param
+                    verdict = await self._reflection_service.reflect(
+                        user_message=user_message,
+                        plan_text="",
+                        tool_results=tool_results_str,
+                        final_answer=final_text,
+                        model=model,
+                    )
+            except Exception as exc:
+                logger.warning("Reflection pass %d failed: %s", reflection_pass + 1, exc, exc_info=True)
+                if self._emit_lifecycle:
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="reflection_failed",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={"pass": reflection_pass + 1, "error": str(exc)},
+                    )
+                break
+
+            if self._emit_lifecycle:
+                await self._emit_lifecycle(
+                    send_event,
+                    stage="reflection_completed",
+                    request_id=request_id,
+                    session_id=session_id,
+                    details={
+                        "pass": reflection_pass + 1,
+                        "score": verdict.score,
+                        "goal_alignment": verdict.goal_alignment,
+                        "completeness": verdict.completeness,
+                        "factual_grounding": verdict.factual_grounding,
+                        "issues": verdict.issues[:3],
+                        "should_retry": verdict.should_retry,
+                        "hard_factual_fail": verdict.hard_factual_fail,
+                    },
+                )
+
+            # Store reflection record
+            if self._reflection_feedback_store is not None:
+                try:
+                    from app.services.reflection_feedback_store import ReflectionRecord
+
+                    self._reflection_feedback_store.store(
+                        ReflectionRecord(
+                            record_id=f"{request_id}-reflection-{reflection_pass + 1}",
+                            session_id=session_id,
+                            request_id=request_id,
+                            task_type=task_type,
+                            score=verdict.score,
+                            goal_alignment=verdict.goal_alignment,
+                            completeness=verdict.completeness,
+                            factual_grounding=verdict.factual_grounding,
+                            issues=list(verdict.issues),
+                            suggested_fix=verdict.suggested_fix,
+                            model_id=model or settings.llm_model,
+                            prompt_variant="unified",
+                            retry_triggered=verdict.should_retry,
+                            timestamp_utc=datetime.now(UTC).isoformat(),
+                        )
+                    )
+                except Exception:
+                    logger.debug("Failed to store reflection record", exc_info=True)
+
+            if not verdict.should_retry:
+                break
+
+            # Build feedback and retry via LLM (without tools)
+            feedback_lines = [issue for issue in verdict.issues if issue]
+            if verdict.suggested_fix:
+                feedback_lines.append(f"Suggested fix: {verdict.suggested_fix}")
+            feedback = "\n".join(feedback_lines).strip() or "No specific issues provided."
+
+            messages.append({
+                "role": "user",
+                "content": f"[REFLECTION FEEDBACK]\n{feedback}\n\nPlease revise your answer.",
+            })
+            try:
+                stream_result = await self.client.stream_chat_with_tools(
+                    messages=messages,
+                    tools=None,
+                    model=model,
+                    on_text_chunk=lambda chunk: send_event({"type": "stream", "content": chunk}),
+                )
+                final_text = stream_result.text
+            except Exception:
+                logger.warning("Reflection retry LLM call failed", exc_info=True)
+                break
+
         return final_text

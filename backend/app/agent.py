@@ -312,6 +312,10 @@ class HeadAgent:
                 ambiguity_detector=self._ambiguity_detector,
                 reflection_service=self._reflection_service,
                 emit_lifecycle_fn=self._emit_lifecycle,
+                intent_detector=self._intent,
+                reply_shaper=self._reply_shaper,
+                verification_service=self._verification,
+                reflection_feedback_store=self._reflection_feedback_store,
             )
         else:
             self._agent_runner = None
@@ -512,6 +516,7 @@ class HeadAgent:
             self.synthesizer_agent.configure_runtime(base_url=base_url, model=model)
             if self._agent_runner is not None:
                 self._agent_runner.client = self.client
+                self._agent_runner._reflection_service = self._reflection_service
         finally:
             self._reconfiguring = False
 
