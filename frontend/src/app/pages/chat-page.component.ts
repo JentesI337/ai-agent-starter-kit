@@ -219,6 +219,10 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     return this.lines.length > 0 && this.lines[this.lines.length - 1].text === 'Agent is working...';
   }
 
+  trackLine(index: number, _line: ChatLine): number {
+    return index;
+  }
+
   // ── Base64 image extraction ──────────────────────────
 
   private readonly base64ImageCache = new WeakMap<ChatLine, { text: string; images: SafeUrl[] }>();
@@ -600,8 +604,8 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
       return;
     }
 
-    if (event.type === 'final' && event.message) {
-      this.agentState.finalizeAssistantMessage(event.message);
+    if (event.type === 'final') {
+      this.agentState.finalizeAssistantMessage(event.message ?? '');
     }
   }
 

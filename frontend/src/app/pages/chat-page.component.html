@@ -133,7 +133,7 @@
     </div>
 
     <!-- Messages -->
-    <div *ngFor="let line of lines"
+    <div *ngFor="let line of lines; trackBy: trackLine"
          class="msg"
          [class.msg-user]="line.role === 'user'"
          [class.msg-agent]="line.role === 'agent'"

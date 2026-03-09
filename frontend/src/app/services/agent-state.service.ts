@@ -322,8 +322,26 @@ export class AgentStateService implements OnDestroy {
   }
 
   finalizeAssistantMessage(message: string): void {
-    if (this._activeAssistantIndex === null) {
-      this.pushChatLine({ role: 'agent', text: message });
+    const lines = [...this._chatLines.value];
+    // Remove "Agent is working..." placeholder
+    const workingIdx = lines.findIndex(l => l.role === 'system' && l.text === 'Agent is working...');
+    if (workingIdx >= 0) lines.splice(workingIdx, 1);
+
+    if (this._activeAssistantIndex !== null) {
+      // Tokens were streaming — update with final message if provided
+      const idx = workingIdx >= 0 && workingIdx < this._activeAssistantIndex
+        ? this._activeAssistantIndex - 1
+        : this._activeAssistantIndex;
+      if (message && idx >= 0 && idx < lines.length) {
+        lines[idx] = { ...lines[idx], text: message };
+      }
+      this._chatLines.next(lines);
+    } else {
+      // No streaming happened — push the final message directly
+      if (message) {
+        lines.push({ role: 'agent', text: message });
+      }
+      this._chatLines.next(lines);
     }
     this._activeAssistantIndex = null;
   }
