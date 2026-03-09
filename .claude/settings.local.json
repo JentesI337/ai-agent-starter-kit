@@ -17,7 +17,8 @@
       "Bash(/tmp/api_surface_report.txt:*)",
       "Read(//tmp/**)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python:*)"
     ]
   }
 }

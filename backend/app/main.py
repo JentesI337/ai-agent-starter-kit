@@ -27,6 +27,36 @@ from app.agents.head_agent_adapter import (
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import resolved_prompt_settings, settings, validate_environment_config
+from app.agents.agent_config_store import init_agent_config_store
+from app.config_service import init_config_service
+from app.handlers.agent_config_handlers import (
+    handle_agents_config_get,
+    handle_agents_config_list,
+    handle_agents_config_reset,
+    handle_agents_config_update,
+)
+from app.handlers.config_handlers import (
+    handle_config_diff,
+    handle_config_get,
+    handle_config_reset,
+    handle_config_sections,
+    handle_config_update,
+)
+from app.handlers.execution_config_handlers import (
+    handle_execution_config_get,
+    handle_execution_config_update,
+    handle_execution_loop_detection_get,
+    handle_execution_loop_detection_update,
+)
+from app.handlers.tool_config_handlers import (
+    handle_tools_config_get,
+    handle_tools_config_list,
+    handle_tools_config_reset,
+    handle_tools_config_update,
+    handle_tools_security_patterns,
+    handle_tools_security_update,
+)
+from app.tool_modules.tool_config_store import init_tool_config_store
 from app.contracts.agent_contract import AgentContract
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
@@ -182,6 +212,20 @@ def _sanitize_handover_contract(payload: dict[str, Any] | None) -> dict[str, Any
 
 
 def _startup_sequence() -> None:
+    # R1: Initialize ConfigService before anything else
+    init_config_service(settings)
+    logger.info("config_service_initialized")
+
+    # R2: Initialize AgentConfigStore
+    _agent_cfg_dir = Path(settings.workspace_root) / "agent_configs"
+    init_agent_config_store(persist_dir=_agent_cfg_dir)
+    logger.info("agent_config_store_initialized persist_dir=%s", _agent_cfg_dir)
+
+    # R3: Initialize ToolConfigStore
+    _tool_cfg_path = Path(settings.workspace_root) / "tool_configs.json"
+    init_tool_config_store(persist_path=_tool_cfg_path)
+    logger.info("tool_config_store_initialized persist_path=%s", _tool_cfg_path)
+
     config_validation = validate_environment_config(settings)
     if not bool(config_validation.get("is_valid", True)):
         unknown_keys = list(config_validation.get("unknown_keys") or [])
@@ -1033,6 +1077,25 @@ include_control_routers(
     context_detail_handler=tools_handlers.api_control_context_detail,
     config_health_handler=tools_handlers.api_control_config_health,
     memory_overview_handler=tools_handlers.api_control_memory_overview,
+    config_sections_handler=handle_config_sections,
+    config_get_handler=handle_config_get,
+    config_update_handler=handle_config_update,
+    config_diff_handler=handle_config_diff,
+    config_reset_handler=handle_config_reset,
+    agents_config_list_handler=handle_agents_config_list,
+    agents_config_get_handler=handle_agents_config_get,
+    agents_config_update_handler=handle_agents_config_update,
+    agents_config_reset_handler=handle_agents_config_reset,
+    execution_config_get_handler=handle_execution_config_get,
+    execution_config_update_handler=handle_execution_config_update,
+    execution_loop_detection_get_handler=handle_execution_loop_detection_get,
+    execution_loop_detection_update_handler=handle_execution_loop_detection_update,
+    tools_config_list_handler=handle_tools_config_list,
+    tools_config_get_handler=handle_tools_config_get,
+    tools_config_update_handler=handle_tools_config_update,
+    tools_config_reset_handler=handle_tools_config_reset,
+    tools_security_patterns_handler=handle_tools_security_patterns,
+    tools_security_update_handler=handle_tools_security_update,
 )
 app.include_router(
     build_runtime_debug_router(

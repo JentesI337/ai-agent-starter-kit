@@ -1,220 +1,216 @@
-<section class="live">
-  <!-- ── Toolbar ──────────────────────────────────────── -->
-  <header class="live-toolbar">
-    <div class="toolbar-left">
-      <div class="filter-group">
-        <select [(ngModel)]="live.filterAgent" class="filter-select">
-          <option value="all">All Agents</option>
-          <option *ngFor="let a of live.agentOptions" [value]="a">{{ a }}</option>
-        </select>
-        <select [(ngModel)]="live.filterStatus" class="filter-select">
-          <option value="all">All Status</option>
-          <option value="running">Running</option>
-          <option value="completed">Completed</option>
-          <option value="error">Error</option>
-        </select>
-      </div>
-    </div>
-    <div class="toolbar-right">
-      <span class="event-counter">{{ live.feed.length }} events</span>
-      <button class="tool-btn" (click)="togglePause()" [class.active]="live.paused">
-        {{ live.paused ? '▶ Resume' : '⏸ Pause' }}
-      </button>
-      <button class="tool-btn danger" (click)="live.clearFeed()">Clear</button>
-      <span class="connection-dot" [class.connected]="(agentState.connected$ | async) === true"
-            [title]="(agentState.connected$ | async) ? 'Connected' : 'Disconnected'"></span>
-    </div>
-  </header>
+<section class="live-shell">
 
-  <!-- ── Pipeline Phase Bar ───────────────────────────── -->
-  <div class="pipeline-bar" *ngIf="live.debugState !== 'idle'">
-    <div class="phase-segment"
-         *ngFor="let phase of live.pipelinePhases"
-         [class]="phaseClass(phase)"
-         [class.current]="live.currentPhase === phase">
-      <span class="phase-dot"></span>
-      <span class="phase-name">{{ phaseLabel(phase) }}</span>
-    </div>
-  </div>
-
-  <!-- ── Body ─────────────────────────────────────────── -->
-  <div class="live-body" [class.inspector-open]="live.inspectedEvent">
-
-    <!-- Agent Lanes -->
-    <aside class="lanes-panel">
-      <h3 class="panel-title">Agents</h3>
-      <div class="lane" *ngFor="let lane of live.agentList"
-           [class.active]="lane.active"
-           [class.has-errors]="lane.errors > 0">
-        <div class="lane-header">
-          <span class="lane-dot" [class.pulse]="lane.active"></span>
-          <strong class="lane-name">{{ lane.agentId }}</strong>
+  <!-- ── Phase Progress Rail ──────────────────────────── -->
+  <div class="phase-rail" [class.visible]="activePhase">
+    <div class="phase-rail-track">
+      <ng-container *ngFor="let phase of phases; let i = index">
+        <div class="rail-node"
+             [class.idle]="phaseBarState(phase) === 'idle'"
+             [class.active]="phaseBarState(phase) === 'active'"
+             [class.completed]="phaseBarState(phase) === 'completed'"
+             [class.error]="phaseBarState(phase) === 'error'"
+             [class.skipped]="phaseBarState(phase) === 'skipped'"
+             [class.current]="activePhase === phase">
+          <span class="rail-dot"></span>
+          <span class="rail-label">{{ phaseBarLabel(phase) }}</span>
         </div>
-        <div class="lane-stage">{{ lane.currentStage }}</div>
-        <div class="lane-counters">
-          <span class="counter" title="Events">{{ lane.events }} evt</span>
-          <span class="counter" title="LLM Calls">{{ lane.llmCalls }} llm</span>
-          <span class="counter" title="Tool Calls">{{ lane.toolCalls }} tool</span>
-          <span class="counter counter-error" *ngIf="lane.errors > 0" title="Errors">{{ lane.errors }} err</span>
-        </div>
-        <div class="lane-time">{{ formatTime(lane.updatedAt) }}</div>
-      </div>
-      <div class="empty-lanes" *ngIf="live.agentList.length === 0">
-        <span class="idle-dot"></span>
-        <span>Waiting for agents...</span>
-      </div>
-    </aside>
-
-    <!-- Event Feed -->
-    <div class="feed-panel">
-      <!-- Pause Banner -->
-      <div class="pause-banner" *ngIf="live.paused && live.bufferedCount > 0">
-        <span>⏸ Paused · {{ live.bufferedCount }} new events</span>
-        <button class="banner-btn" (click)="live.resume()">Resume ▶</button>
-      </div>
-
-      <!-- Scrollable Feed -->
-      <div class="feed-scroll" #feedScroll (scroll)="onFeedScroll(feedScroll)">
-
-        <!-- ─── LLM Call Card ─── -->
-        <ng-container *ngFor="let ev of live.filteredFeed; trackBy: trackEvent">
-
-          <div class="feed-item type-llm" *ngIf="ev.type === 'llm_call'"
-               [class.inspected]="live.inspectedEvent === ev"
-               (click)="live.inspect(ev)">
-            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
-            <div class="feed-content">
-              <div class="feed-badges">
-                <span class="badge badge-model" *ngIf="ev.model">{{ ev.model }}</span>
-                <span class="badge badge-phase" *ngIf="ev.phase">{{ ev.phase }}</span>
-              </div>
-              <div class="feed-preview">{{ ev.promptPreview || '(awaiting prompt...)' }}</div>
-              <div class="feed-meta">
-                <span *ngIf="ev.tokensEst">~{{ ev.tokensEst }} tok</span>
-                <span *ngIf="ev.latencyMs">{{ ev.latencyMs }}ms</span>
-              </div>
-            </div>
-            <span class="feed-status" [class.running]="ev.status === 'running'" [class.done]="ev.status === 'completed'">
-              {{ ev.status === 'running' ? '●' : '✓' }}
-            </span>
-          </div>
-
-          <!-- ─── Tool Call Card ─── -->
-          <div class="feed-item type-tool" *ngIf="ev.type === 'tool_call'"
-               [class.inspected]="live.inspectedEvent === ev"
-               (click)="live.inspect(ev)">
-            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
-            <div class="feed-content">
-              <div class="feed-badges">
-                <span class="badge badge-tool">{{ ev.tool }}</span>
-                <span class="badge badge-exit" *ngIf="ev.exitCode !== undefined" [class.exit-error]="ev.exitCode !== 0">exit {{ ev.exitCode }}</span>
-              </div>
-              <div class="feed-preview mono">{{ ev.argsPreview }}</div>
-              <div class="feed-meta">
-                <span *ngIf="ev.durationMs !== undefined">{{ ev.durationMs }}ms</span>
-                <span class="blocked-label" *ngIf="ev.blocked">BLOCKED</span>
-              </div>
-            </div>
-            <span class="feed-status" [class.done]="!ev.blocked" [class.error]="ev.blocked">
-              {{ ev.blocked ? '✕' : '✓' }}
-            </span>
-          </div>
-
-          <!-- ─── Step / Lifecycle / Error ─── -->
-          <div class="feed-item"
-               *ngIf="ev.type === 'step' || ev.type === 'lifecycle' || ev.type === 'error'"
-               [class.type-step]="ev.type === 'step'"
-               [class.type-lifecycle]="ev.type === 'lifecycle'"
-               [class.type-error]="ev.type === 'error'"
-               [class.inspected]="live.inspectedEvent === ev"
-               (click)="live.inspect(ev)">
-            <span class="feed-time">{{ formatTime(ev.timestamp) }}</span>
-            <div class="feed-content compact">
-              <span class="stage-icon">{{ stageIcon(ev.stage || ev.type) }}</span>
-              <span class="stage-label" *ngIf="ev.stage">{{ ev.stage }}</span>
-              <span class="feed-message">{{ ev.message }}</span>
-            </div>
-          </div>
-
-        </ng-container>
-
-        <!-- Empty Feed -->
-        <div class="empty-feed" *ngIf="live.filteredFeed.length === 0">
-          <div class="pulse-ring"></div>
-          <span>Waiting for agent activity...</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Inspector Drawer -->
-    <aside class="inspector-panel" [class.open]="live.inspectedEvent">
-      <ng-container *ngIf="live.inspectedEvent as ev">
-        <div class="inspector-content">
-          <div class="inspector-header">
-            <h3>
-              <ng-container *ngIf="ev.type === 'llm_call'">LLM Call</ng-container>
-              <ng-container *ngIf="ev.type === 'tool_call'">Tool: {{ ev.tool }}</ng-container>
-              <ng-container *ngIf="ev.type !== 'llm_call' && ev.type !== 'tool_call'">{{ ev.stage || ev.type }}</ng-container>
-            </h3>
-            <button class="close-btn" (click)="live.inspect(null)">✕</button>
-          </div>
-
-          <!-- LLM Inspector -->
-          <ng-container *ngIf="ev.type === 'llm_call'">
-            <div class="inspector-meta">
-              <div class="meta-pair"><span class="meta-key">Model</span><span class="meta-val">{{ ev.model || '—' }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Phase</span><span class="meta-val">{{ ev.phase || '—' }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Tokens</span><span class="meta-val">~{{ ev.tokensEst || '—' }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Latency</span><span class="meta-val">{{ ev.latencyMs ? ev.latencyMs + 'ms' : '—' }}</span></div>
-            </div>
-            <div class="inspector-section">
-              <h4>System Prompt</h4>
-              <pre class="inspector-code">{{ ev.systemPrompt || '(not captured)' }}</pre>
-            </div>
-            <div class="inspector-section">
-              <h4>User Prompt</h4>
-              <pre class="inspector-code">{{ ev.userPrompt || '(not captured)' }}</pre>
-            </div>
-            <div class="inspector-section">
-              <h4>Response</h4>
-              <pre class="inspector-code" [class.awaiting]="!ev.rawResponse">{{ ev.rawResponse || '(awaiting response...)' }}</pre>
-            </div>
-          </ng-container>
-
-          <!-- Tool Inspector -->
-          <ng-container *ngIf="ev.type === 'tool_call'">
-            <div class="inspector-meta">
-              <div class="meta-pair"><span class="meta-key">Tool</span><span class="meta-val">{{ ev.tool }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Duration</span><span class="meta-val">{{ ev.durationMs !== undefined ? ev.durationMs + 'ms' : '—' }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Exit Code</span><span class="meta-val" [class.error-text]="ev.exitCode !== 0">{{ ev.exitCode ?? '—' }}</span></div>
-              <div class="meta-pair" *ngIf="ev.blocked"><span class="meta-key">Blocked</span><span class="meta-val error-text">Yes</span></div>
-            </div>
-            <div class="inspector-section">
-              <h4>Arguments</h4>
-              <pre class="inspector-code">{{ ev.argsPreview }}</pre>
-            </div>
-            <div class="inspector-section" *ngIf="ev.resultPreview">
-              <h4>Result Preview</h4>
-              <pre class="inspector-code">{{ ev.resultPreview }}</pre>
-            </div>
-          </ng-container>
-
-          <!-- Generic Inspector -->
-          <ng-container *ngIf="ev.type !== 'llm_call' && ev.type !== 'tool_call'">
-            <div class="inspector-meta">
-              <div class="meta-pair"><span class="meta-key">Type</span><span class="meta-val">{{ ev.type }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Agent</span><span class="meta-val">{{ ev.agent }}</span></div>
-              <div class="meta-pair" *ngIf="ev.stage"><span class="meta-key">Stage</span><span class="meta-val">{{ ev.stage }}</span></div>
-              <div class="meta-pair"><span class="meta-key">Time</span><span class="meta-val">{{ formatTime(ev.timestamp) }}</span></div>
-            </div>
-            <div class="inspector-section" *ngIf="ev.message">
-              <h4>Message</h4>
-              <pre class="inspector-code">{{ ev.message }}</pre>
-            </div>
-          </ng-container>
+        <div class="rail-connector" *ngIf="i < phases.length - 1"
+             [class.filled]="phaseBarState(phases[i+1]) === 'completed' || phaseBarState(phases[i+1]) === 'active'">
         </div>
       </ng-container>
-    </aside>
+    </div>
+  </div>
+
+  <!-- ── Thought Stream ───────────────────────────────── -->
+  <div class="thought-stream" #thoughtStream>
+
+    <!-- Empty state -->
+    <div class="empty-state" *ngIf="isEmpty">
+      <div class="empty-orb">
+        <div class="orb-ring"></div>
+        <div class="orb-ring delay-1"></div>
+        <div class="orb-ring delay-2"></div>
+        <div class="orb-core" [class.connected]="isConnected"></div>
+      </div>
+      <h2 class="empty-title">{{ isConnected ? 'Listening for activity' : 'Connecting...' }}</h2>
+      <p class="empty-subtitle">{{ isConnected ? 'Send a message in Chat to see the AI think in real-time' : 'Establishing connection to the agent backend' }}</p>
+    </div>
+
+    <!-- Thought groups -->
+    <div class="thought-group"
+         *ngFor="let group of groups; trackBy: trackGroup"
+         [class.animate-in]="group.animateIn"
+         [class.status-active]="group.status === 'active'"
+         [class.status-error]="group.status === 'error'"
+         [class.is-lifecycle]="group.events[0]?.type === 'lifecycle'"
+         [class.collapsed]="group.collapsed">
+
+      <!-- Lifecycle events render as a slim timeline marker -->
+      <ng-container *ngIf="group.events[0]?.type === 'lifecycle'; else thoughtBubble">
+        <div class="lifecycle-marker" (click)="toggleGroup(group)">
+          <span class="lifecycle-line"></span>
+          <span class="lifecycle-badge">
+            <span class="lifecycle-icon">{{ group.phaseIcon }}</span>
+            {{ group.phaseLabel }}
+            <span class="lifecycle-time">{{ formatTime(group.timestamp) }}</span>
+          </span>
+          <span class="lifecycle-line"></span>
+        </div>
+      </ng-container>
+
+      <!-- Regular thought bubble -->
+      <ng-template #thoughtBubble>
+        <div class="thought-bubble">
+
+          <!-- Bubble header -->
+          <div class="bubble-header" (click)="toggleGroup(group)">
+            <div class="bubble-phase-icon" [class.pulse]="group.status === 'active'">
+              {{ group.phaseIcon }}
+            </div>
+            <div class="bubble-info">
+              <span class="bubble-phase">{{ group.phaseLabel }}</span>
+              <span class="bubble-agent">{{ group.agent }}</span>
+            </div>
+            <div class="bubble-meta">
+              <span class="bubble-count">{{ group.events.length }}</span>
+              <span class="bubble-time">{{ formatTime(group.timestamp) }}</span>
+            </div>
+            <div class="bubble-status">
+              <span class="status-indicator"
+                    [class.active]="group.status === 'active'"
+                    [class.completed]="group.status === 'completed'"
+                    [class.error]="group.status === 'error'">
+              </span>
+            </div>
+          </div>
+
+          <!-- Bubble body (collapsible) -->
+          <div class="bubble-body" *ngIf="!group.collapsed">
+            <div class="event-card"
+                 *ngFor="let ev of group.events; trackBy: trackEvent"
+                 [class.type-llm]="ev.type === 'llm_call'"
+                 [class.type-tool]="ev.type === 'tool_call'"
+                 [class.type-error]="ev.type === 'error'"
+                 [class.type-step]="ev.type === 'step'"
+                 [class.expanded]="expandedEventId === ev.id"
+                 (click)="toggleEventDetail(ev.id)">
+
+              <!-- ─── LLM Call ─── -->
+              <ng-container *ngIf="ev.type === 'llm_call'">
+                <div class="card-row">
+                  <span class="card-icon">⟐</span>
+                  <div class="card-main">
+                    <div class="card-title-row">
+                      <span class="card-label">LLM Inference</span>
+                      <span class="card-badge model" *ngIf="ev.model">{{ ev.model }}</span>
+                    </div>
+                    <p class="card-preview">{{ ev.promptPreview || 'Processing...' }}</p>
+                    <div class="card-metrics" *ngIf="ev.tokensEst || ev.latencyMs">
+                      <span *ngIf="ev.tokensEst" class="metric">{{ ev.tokensEst }} tokens</span>
+                      <span *ngIf="ev.latencyMs" class="metric">{{ formatDuration(ev.latencyMs) }}</span>
+                    </div>
+                  </div>
+                  <span class="card-status"
+                        [class.running]="ev.status === 'running'"
+                        [class.done]="ev.status === 'completed'">
+                    <span class="status-dot"></span>
+                  </span>
+                </div>
+
+                <!-- Expanded detail -->
+                <div class="card-detail" *ngIf="expandedEventId === ev.id">
+                  <div class="detail-section" *ngIf="ev.systemPrompt">
+                    <h5>System Prompt</h5>
+                    <pre class="detail-code">{{ ev.systemPrompt }}</pre>
+                  </div>
+                  <div class="detail-section" *ngIf="ev.userPrompt">
+                    <h5>User Prompt</h5>
+                    <pre class="detail-code">{{ ev.userPrompt }}</pre>
+                  </div>
+                  <div class="detail-section">
+                    <h5>Response</h5>
+                    <pre class="detail-code" [class.awaiting]="!ev.rawResponse">{{ ev.rawResponse || 'Awaiting response...' }}</pre>
+                  </div>
+                </div>
+              </ng-container>
+
+              <!-- ─── Tool Call ─── -->
+              <ng-container *ngIf="ev.type === 'tool_call'">
+                <div class="card-row">
+                  <span class="card-icon">⚡</span>
+                  <div class="card-main">
+                    <div class="card-title-row">
+                      <span class="card-label">{{ ev.tool }}</span>
+                      <span class="card-badge exit" *ngIf="ev.exitCode !== undefined"
+                            [class.exit-ok]="ev.exitCode === 0"
+                            [class.exit-err]="ev.exitCode !== 0">
+                        exit {{ ev.exitCode }}
+                      </span>
+                      <span class="card-badge blocked" *ngIf="ev.blocked">BLOCKED</span>
+                    </div>
+                    <p class="card-preview mono">{{ ev.argsPreview }}</p>
+                    <div class="card-metrics" *ngIf="ev.durationMs !== undefined">
+                      <span class="metric">{{ formatDuration(ev.durationMs) }}</span>
+                    </div>
+                  </div>
+                  <span class="card-status"
+                        [class.done]="!ev.blocked"
+                        [class.error]="ev.blocked">
+                    <span class="status-dot"></span>
+                  </span>
+                </div>
+
+                <!-- Expanded detail -->
+                <div class="card-detail" *ngIf="expandedEventId === ev.id">
+                  <div class="detail-section" *ngIf="ev.argsPreview">
+                    <h5>Arguments</h5>
+                    <pre class="detail-code">{{ ev.argsPreview }}</pre>
+                  </div>
+                  <div class="detail-section" *ngIf="ev.resultPreview">
+                    <h5>Result</h5>
+                    <pre class="detail-code">{{ ev.resultPreview }}</pre>
+                  </div>
+                </div>
+              </ng-container>
+
+              <!-- ─── Step / Error ─── -->
+              <ng-container *ngIf="ev.type === 'step' || ev.type === 'error'">
+                <div class="card-row compact">
+                  <span class="card-icon" [class.error-icon]="ev.type === 'error'">{{ ev.type === 'error' ? '⚠' : '·' }}</span>
+                  <span class="card-message" [class.error-message]="ev.type === 'error'">{{ ev.message }}</span>
+                </div>
+              </ng-container>
+
+            </div>
+          </div>
+        </div>
+      </ng-template>
+
+      <!-- Connector line between groups -->
+      <div class="group-connector" *ngIf="!group.collapsed"></div>
+    </div>
+
+    <!-- Active thinking indicator -->
+    <div class="thinking-indicator" *ngIf="activePhase && !isEmpty">
+      <div class="thinking-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
 
   </div>
+
+  <!-- ── Bottom bar ───────────────────────────────────── -->
+  <footer class="bottom-bar">
+    <div class="bar-left">
+      <span class="connection-indicator" [class.connected]="isConnected">
+        <span class="conn-dot"></span>
+        {{ isConnected ? 'Connected' : 'Disconnected' }}
+      </span>
+    </div>
+    <div class="bar-right">
+      <span class="event-count">{{ live.feed.length }} events</span>
+      <button class="bar-btn" (click)="clearAll()" *ngIf="!isEmpty">Clear</button>
+    </div>
+  </footer>
+
 </section>
