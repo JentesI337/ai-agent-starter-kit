@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for dir in agents contracts handlers interfaces model_routing multi_agency orchestrator prompts routers services skills state)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Read(//c/Users/wisni/code/git/ai-agent-starter-kit/backend/app/**)",
+      "Bash(done)",
+      "Bash(grep -n \"def.*_router\\\\|class.*Router\\\\|@router\" /c/Users/wisni/code/git/ai-agent-starter-kit/backend/app/routers/*.py)",
+      "Bash(wc -l /c/Users/wisni/code/git/ai-agent-starter-kit/backend/app/*.py)",
+      "Bash(git -C /c/Users/wisni/code/git/ai-agent-starter-kit log --oneline -10 backend/.env)",
+      "Bash(git -C /c/Users/wisni/code/git/ai-agent-starter-kit status backend/.env)",
+      "Bash(pip list --outdated)",
+      "Bash(python -m pytest backend/tests/test_tools_command_security.py backend/tests/test_tool_execution_manager.py -x -q)",
+      "Bash(ls -lhS /c/Users/wisni/code/git/ai-agent-starter-kit/backend/app/*.py)",
+      "Bash(wc:*)",
+      "Bash(xargs grep:*)",
+      "Bash(/tmp/api_surface_report.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
+    ]
+  }
+}

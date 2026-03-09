@@ -73,9 +73,21 @@ class ToolArgValidator:
         if name not in args:
             return default, None
         value = args[name]
-        if not isinstance(value, bool):
-            return default, f"argument '{name}' must be a boolean"
-        return value, None
+        if isinstance(value, bool):
+            return value, None
+        if isinstance(value, str):
+            lower = value.strip().lower()
+            if lower in {"true", "1", "yes"}:
+                args[name] = True
+                return True, None
+            if lower in {"false", "0", "no"}:
+                args[name] = False
+                return False, None
+        if isinstance(value, int) and value in (0, 1):
+            coerced = bool(value)
+            args[name] = coerced
+            return coerced, None
+        return default, f"argument '{name}' must be a boolean"
 
     def _optional_int_arg(
         self,
@@ -89,8 +101,18 @@ class ToolArgValidator:
         if name not in args:
             return default, None
         value = args[name]
-        if not isinstance(value, int):
+        if isinstance(value, bool):
+            # bool is a subclass of int; reject it to avoid silent coercion
             return default, f"argument '{name}' must be an integer"
+        if not isinstance(value, int):
+            if isinstance(value, (str, float)):
+                try:
+                    value = int(value)
+                    args[name] = value
+                except (ValueError, TypeError):
+                    return default, f"argument '{name}' must be an integer"
+            else:
+                return default, f"argument '{name}' must be an integer"
         if value < min_value or value > max_value:
             return default, f"argument '{name}' out of range"
         return value, None

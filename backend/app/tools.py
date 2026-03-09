@@ -77,7 +77,7 @@ def find_command_safety_violation(command: str) -> str | None:
         return "empty command is blocked"
 
     for pattern, reason in COMMAND_SAFETY_PATTERNS:
-        if re.search(pattern, lowered, flags=re.IGNORECASE):
+        if re.search(pattern, lowered):
             return reason
 
     semantic_reason = find_semantic_command_safety_violation(command)

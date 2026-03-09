@@ -146,16 +146,26 @@ def test_validate_code_execute_rejects_invalid_language() -> None:
 @pytest.mark.parametrize(
     ("args", "expected"),
     [
-        ({"code": "print('x')", "timeout": "10"}, "argument 'timeout' must be an integer"),
+        # out-of-range and truly-invalid types still rejected
         ({"code": "print('x')", "timeout": 0}, "argument 'timeout' out of range"),
         ({"code": "print('x')", "max_output_chars": 100}, "argument 'max_output_chars' out of range"),
         ({"code": "print('x')", "strategy": "invalid"}, "argument 'strategy' must be one of: process, direct, docker"),
+        ({"code": "print('x')", "timeout": [10]}, "argument 'timeout' must be an integer"),
     ],
 )
 def test_validate_code_execute_rejects_invalid_numeric_and_strategy(args: dict, expected: str) -> None:
     validator = _validator()
 
     assert validator.validate("code_execute", args) == expected
+
+
+def test_validate_code_execute_coerces_string_int() -> None:
+    validator = _validator()
+    args = {"code": "print('x')", "timeout": "10", "max_output_chars": "5000"}
+
+    assert validator.validate("code_execute", args) is None
+    assert args["timeout"] == 10
+    assert args["max_output_chars"] == 5000
 
 
 def test_validate_code_execute_normalizes_language_and_strategy() -> None:
@@ -175,7 +185,13 @@ def test_validate_apply_patch_and_replace_all_type() -> None:
     assert validator.validate("apply_patch", ok_args) is None
     assert ok_args["replace_all"] is False
 
-    bad_args = {"path": "a.txt", "search": "x", "replace": "y", "replace_all": "yes"}
+    # string "yes" is coerced to True
+    coerce_args = {"path": "a.txt", "search": "x", "replace": "y", "replace_all": "yes"}
+    assert validator.validate("apply_patch", coerce_args) is None
+    assert coerce_args["replace_all"] is True
+
+    # unparseable string is rejected
+    bad_args = {"path": "a.txt", "search": "x", "replace": "y", "replace_all": "maybe"}
     assert validator.validate("apply_patch", bad_args) == "argument 'replace_all' must be a boolean"
 
 
@@ -189,7 +205,13 @@ def test_validate_file_search_and_list_code_usages_bounds() -> None:
 def test_validate_grep_search_optional_fields() -> None:
     validator = _validator()
 
-    bad = {"query": "needle", "is_regexp": "yes"}
+    # string "yes" is coerced to True
+    coerce = {"query": "needle", "is_regexp": "yes"}
+    assert validator.validate("grep_search", coerce) is None
+    assert coerce["is_regexp"] is True
+
+    # unparseable string is rejected
+    bad = {"query": "needle", "is_regexp": "maybe"}
     assert validator.validate("grep_search", bad) == "argument 'is_regexp' must be a boolean"
 
     ok = {"query": "needle", "include_pattern": "src/**/*.py", "is_regexp": True, "max_results": 10}

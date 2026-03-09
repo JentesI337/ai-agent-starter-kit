@@ -16,6 +16,7 @@ from app.services.prompt_kernel_builder import PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode
 from app.services.tool_call_gatekeeper import ToolCallGatekeeper, prepare_action_for_execution
 from app.services.tool_outcome_verifier import ToolOutcomeVerifier
+from app.services.tool_registry import ToolRegistry
 from app.services.tool_telemetry import ToolTelemetry
 from app.skills.retrieval import (
     ReliableRetrievalConfig,
@@ -98,23 +99,11 @@ class ToolExecutionManager:
         self,
         *,
         config: ToolExecutionConfig | None = None,
-        registry: object | None = None,
-        gatekeeper: object | None = None,
-        intent_detector: object | None = None,
-        arg_validator: object | None = None,
-        action_parser: object | None = None,
-        action_augmenter: object | None = None,
-        llm_client: object | None = None,
+        registry: ToolRegistry | None = None,
         send_event: Callable[[dict], Awaitable[None]] | None = None,
     ) -> None:
         self._config = config
         self._registry = registry
-        self._gatekeeper = gatekeeper
-        self._intent_detector = intent_detector
-        self._arg_validator = arg_validator
-        self._action_parser = action_parser
-        self._action_augmenter = action_augmenter
-        self._llm_client = llm_client
         self._send_event = send_event
         self._prompt_kernel_builder = PromptKernelBuilder()
         self._outcome_verifier = ToolOutcomeVerifier()
@@ -150,7 +139,7 @@ class ToolExecutionManager:
         except Exception:
             _hook_logger.exception("Hook '%s' raised an exception — isolated", hook_name)
 
-    def update_registry(self, registry: object) -> None:
+    def update_registry(self, registry: ToolRegistry) -> None:
         self._registry = registry
 
     @staticmethod
