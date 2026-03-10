@@ -137,6 +137,37 @@ class ControlSkillsSyncRequest(BaseModel):
     confirm_clean_target: bool = False
 
 
+class ControlSkillGetRequest(BaseModel):
+    name: str
+    skills_dir: str | None = None
+
+class ControlSkillCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    body: str = ""
+    requires_bins: str = ""
+    requires_env: str = ""
+    os: str = "windows,linux,darwin"
+    user_invocable: bool = True
+    disable_model_invocation: bool = False
+    skills_dir: str | None = None
+
+class ControlSkillUpdateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    body: str | None = None
+    requires_bins: str | None = None
+    requires_env: str | None = None
+    os: str | None = None
+    user_invocable: bool | None = None
+    disable_model_invocation: bool | None = None
+    skills_dir: str | None = None
+
+class ControlSkillDeleteRequest(BaseModel):
+    name: str
+    skills_dir: str | None = None
+
+
 class ControlWorkflowsListRequest(BaseModel):
     limit: int = 100
     base_agent_id: str | None = None

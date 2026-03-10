@@ -17,6 +17,10 @@ from app.control_models import (
     ControlSkillsListRequest,
     ControlSkillsPreviewRequest,
     ControlSkillsSyncRequest,
+    ControlSkillGetRequest,
+    ControlSkillCreateRequest,
+    ControlSkillUpdateRequest,
+    ControlSkillDeleteRequest,
 )
 from app.skills.discovery import discover_skills
 from app.skills.eligibility import filter_eligible_skills
@@ -356,3 +360,139 @@ def api_control_skills_sync(request_data: dict) -> dict:
         clean_target=request.clean_target,
         confirm_clean_target=request.confirm_clean_target,
     )
+
+
+def api_control_skill_get(request_data: dict) -> dict:
+    request = ControlSkillGetRequest.model_validate(request_data)
+    resolved_skills_dir = (request.skills_dir or "").strip() or settings.skills_dir
+    skill_dir = Path(resolved_skills_dir) / request.name
+    skill_file = skill_dir / "SKILL.md"
+    if not skill_file.exists():
+        raise HTTPException(status_code=404, detail=f"Skill '{request.name}' not found")
+    content = skill_file.read_text(encoding="utf-8")
+    # Parse frontmatter
+    metadata = {}
+    body = content
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            import yaml
+            try:
+                metadata = yaml.safe_load(parts[1]) or {}
+            except Exception:
+                metadata = {}
+            body = parts[2].strip()
+    return {
+        "schema": "skill.get.v1",
+        "name": request.name,
+        "file_path": str(skill_file),
+        "metadata": metadata,
+        "body": body,
+        "raw": content,
+    }
+
+
+def api_control_skill_create(request_data: dict) -> dict:
+    request = ControlSkillCreateRequest.model_validate(request_data)
+    resolved_skills_dir = (request.skills_dir or "").strip() or settings.skills_dir
+    # Sanitize name
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", request.name).strip("-")
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+    skill_dir = Path(resolved_skills_dir) / safe_name
+    if skill_dir.exists():
+        raise HTTPException(status_code=409, detail=f"Skill '{safe_name}' already exists")
+    # Build SKILL.md content
+    frontmatter_lines = [
+        f"name: {safe_name}",
+        f"description: {request.description}",
+    ]
+    if request.requires_bins:
+        frontmatter_lines.append(f"requires_bins: {request.requires_bins}")
+    if request.requires_env:
+        frontmatter_lines.append(f"requires_env: {request.requires_env}")
+    frontmatter_lines.append(f"os: {request.os}")
+    frontmatter_lines.append(f"user_invocable: {'true' if request.user_invocable else 'false'}")
+    frontmatter_lines.append(f"disable_model_invocation: {'true' if request.disable_model_invocation else 'false'}")
+    frontmatter = "\n".join(frontmatter_lines)
+    body = request.body or f"# {safe_name}\n\n{request.description}\n\n## Instructions\n\n"
+    content = f"---\n{frontmatter}\n---\n\n{body}\n"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+    logger.info("skill_create name=%s dir=%s", safe_name, skill_dir)
+    return {
+        "schema": "skill.create.v1",
+        "ok": True,
+        "name": safe_name,
+        "file_path": str(skill_dir / "SKILL.md"),
+    }
+
+
+def api_control_skill_update(request_data: dict) -> dict:
+    request = ControlSkillUpdateRequest.model_validate(request_data)
+    resolved_skills_dir = (request.skills_dir or "").strip() or settings.skills_dir
+    skill_dir = Path(resolved_skills_dir) / request.name
+    skill_file = skill_dir / "SKILL.md"
+    if not skill_file.exists():
+        raise HTTPException(status_code=404, detail=f"Skill '{request.name}' not found")
+    # Read existing content
+    existing = skill_file.read_text(encoding="utf-8")
+    existing_metadata = {}
+    existing_body = existing
+    if existing.startswith("---"):
+        parts = existing.split("---", 2)
+        if len(parts) >= 3:
+            import yaml
+            try:
+                existing_metadata = yaml.safe_load(parts[1]) or {}
+            except Exception:
+                existing_metadata = {}
+            existing_body = parts[2].strip()
+    # Apply updates
+    if request.description is not None:
+        existing_metadata["description"] = request.description
+    if request.requires_bins is not None:
+        existing_metadata["requires_bins"] = request.requires_bins
+    if request.requires_env is not None:
+        existing_metadata["requires_env"] = request.requires_env
+    if request.os is not None:
+        existing_metadata["os"] = request.os
+    if request.user_invocable is not None:
+        existing_metadata["user_invocable"] = request.user_invocable
+    if request.disable_model_invocation is not None:
+        existing_metadata["disable_model_invocation"] = request.disable_model_invocation
+    body = request.body if request.body is not None else existing_body
+    # Rebuild frontmatter
+    existing_metadata["name"] = request.name
+    frontmatter_lines = []
+    for key in ["name", "description", "requires_bins", "requires_env", "os", "user_invocable", "disable_model_invocation"]:
+        if key in existing_metadata:
+            val = existing_metadata[key]
+            if isinstance(val, bool):
+                val = "true" if val else "false"
+            frontmatter_lines.append(f"{key}: {val}")
+    frontmatter = "\n".join(frontmatter_lines)
+    content = f"---\n{frontmatter}\n---\n\n{body}\n"
+    skill_file.write_text(content, encoding="utf-8")
+    logger.info("skill_update name=%s", request.name)
+    return {
+        "schema": "skill.update.v1",
+        "ok": True,
+        "name": request.name,
+        "file_path": str(skill_file),
+    }
+
+
+def api_control_skill_delete(request_data: dict) -> dict:
+    request = ControlSkillDeleteRequest.model_validate(request_data)
+    resolved_skills_dir = (request.skills_dir or "").strip() or settings.skills_dir
+    skill_dir = Path(resolved_skills_dir) / request.name
+    if not skill_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Skill '{request.name}' not found")
+    shutil.rmtree(skill_dir)
+    logger.info("skill_delete name=%s dir=%s", request.name, skill_dir)
+    return {
+        "schema": "skill.delete.v1",
+        "ok": True,
+        "name": request.name,
+    }

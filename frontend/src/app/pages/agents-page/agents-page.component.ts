@@ -16,6 +16,15 @@ import {
 
 // ── Types ──────────────────────────────────────────
 
+type PageTab = 'agents' | 'tools' | 'skills';
+
+interface ToolCatalogItem {
+  name: string;
+  description?: string;
+  capabilities?: string[];
+  config?: Record<string, unknown>;
+}
+
 interface AgentCard {
   id: string;
   name: string;
@@ -54,6 +63,9 @@ interface SkillItem {
 })
 export class AgentsPageComponent implements OnInit {
 
+  // ── Page-level tab ─────────────────────────────────
+  pageTab: PageTab = 'agents';
+
   // ── Grid state ─────────────────────────────────────
   agents: AgentCard[] = [];
   searchQuery = '';
@@ -64,6 +76,30 @@ export class AgentsPageComponent implements OnInit {
   selectedAgent: AgentCard | null = null;
   detailTab: DetailTab = 'overview';
   detailOpen = false;
+
+  // ── Tools Tab (page-level) ─────────────────────────
+  toolsCatalog: ToolCatalogItem[] = [];
+  toolsCatalogRaw: any = null;
+  toolsTabLoading = false;
+  toolsTabSearch = '';
+  selectedToolItem: ToolCatalogItem | null = null;
+  toolItemConfig: Record<string, unknown> = {};
+  toolItemConfigLoading = false;
+  toolItemConfigMessage = '';
+  securityPatterns: any[] = [];
+  securityPatternsLoading = false;
+  newPatternForm = { pattern: '', action: 'deny', description: '' };
+
+  // ── Skills Tab (page-level) ────────────────────────
+  allSkillsTab: SkillItem[] = [];
+  skillsTabLoading = false;
+  skillsTabMessage = '';
+  selectedSkillTab: SkillItem | null = null;
+  skillDetailContent = '';
+  skillDetailLoading = false;
+  showSkillModal = false;
+  skillEditMode = false;
+  skillForm = { name: '', description: '', body: '', requires_bins: '', requires_env: '', os: 'windows,linux,darwin', user_invocable: true, disable_model_invocation: false };
 
   // ── Config (from unified record constraints) ──────
   configDraft: Record<string, unknown> = {};
@@ -228,6 +264,7 @@ export class AgentsPageComponent implements OnInit {
   @HostListener('document:keydown.escape')
   onEscape(): void {
     if (this.showCreateModal) { this.showCreateModal = false; return; }
+    if (this.showSkillModal) { this.showSkillModal = false; return; }
     if (this.detailOpen) this.closeDetail();
   }
 
@@ -496,6 +533,255 @@ export class AgentsPageComponent implements OnInit {
     this.agentsService.resetAgent(agent.id).subscribe({
       next: () => this.loadAll(),
       error: (err) => alert(`Reset failed: ${err?.error?.detail ?? err.message}`),
+    });
+  }
+
+  // ── Page-level tab switching ─────────────────────
+
+  switchToTools(): void {
+    this.pageTab = 'tools';
+    if (this.toolsCatalog.length === 0) this.loadToolsCatalog();
+  }
+
+  switchToSkills(): void {
+    this.pageTab = 'skills';
+    if (this.allSkillsTab.length === 0) this.loadAllSkills();
+  }
+
+  // ── Tools Tab (page-level) methods ────────────────
+
+  private loadToolsCatalog(): void {
+    this.toolsTabLoading = true;
+    this.agentsService.getToolCatalog().subscribe({
+      next: (res: any) => {
+        this.toolsCatalogRaw = res;
+        // Tools can be strings or objects
+        const rawTools = res.tools ?? [];
+        this.toolsCatalog = rawTools.map((t: any) =>
+          typeof t === 'string' ? { name: t } : { name: t.name ?? t, description: t.description, capabilities: t.capabilities, config: t.config }
+        );
+        this.toolsTabLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.toolsTabLoading = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  get filteredToolsCatalog(): ToolCatalogItem[] {
+    if (!this.toolsTabSearch) return this.toolsCatalog;
+    const q = this.toolsTabSearch.toLowerCase();
+    return this.toolsCatalog.filter(t => t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q));
+  }
+
+  selectToolItem(tool: ToolCatalogItem): void {
+    this.selectedToolItem = tool;
+    this.toolItemConfig = {};
+    this.toolItemConfigMessage = '';
+    this.toolItemConfigLoading = true;
+    this.agentsService.getToolConfig(tool.name).subscribe({
+      next: (res: any) => {
+        this.toolItemConfig = res.config ?? res ?? {};
+        this.toolItemConfigLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.toolItemConfig = {};
+        this.toolItemConfigLoading = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  saveToolConfig(): void {
+    if (!this.selectedToolItem) return;
+    this.agentsService.updateToolConfig(this.selectedToolItem.name, this.toolItemConfig).subscribe({
+      next: () => {
+        this.toolItemConfigMessage = 'Config saved';
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.toolItemConfigMessage = `Error: ${err?.error?.detail ?? err.message}`;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  resetToolItemConfig(): void {
+    if (!this.selectedToolItem) return;
+    this.agentsService.resetToolConfig(this.selectedToolItem.name).subscribe({
+      next: (res: any) => {
+        this.toolItemConfig = res.config ?? {};
+        this.toolItemConfigMessage = 'Reset to defaults';
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.toolItemConfigMessage = `Error: ${err?.error?.detail ?? err.message}`;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  closeToolDetail(): void {
+    this.selectedToolItem = null;
+    this.toolItemConfigMessage = '';
+  }
+
+  loadSecurityPatterns(): void {
+    this.securityPatternsLoading = true;
+    this.agentsService.getSecurityPatterns().subscribe({
+      next: (res: any) => {
+        this.securityPatterns = res.patterns ?? [];
+        this.securityPatternsLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.securityPatternsLoading = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  addSecurityPattern(): void {
+    if (!this.newPatternForm.pattern.trim()) return;
+    this.agentsService.addSecurityPattern(this.newPatternForm).subscribe({
+      next: () => {
+        this.newPatternForm = { pattern: '', action: 'deny', description: '' };
+        this.loadSecurityPatterns();
+      },
+      error: (err) => alert(`Error: ${err?.error?.detail ?? err.message}`),
+    });
+  }
+
+  toolConfigKeys(): string[] {
+    return Object.keys(this.toolItemConfig);
+  }
+
+  // ── Skills Tab (page-level) methods ───────────────
+
+  private loadAllSkills(): void {
+    this.skillsTabLoading = true;
+    this.agentsService.getSkillsList().subscribe({
+      next: (res: any) => {
+        this.allSkillsTab = res.items ?? [];
+        this.skillsTabLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.skillsTabLoading = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  selectSkillTab(skill: SkillItem): void {
+    this.selectedSkillTab = skill;
+    this.skillDetailLoading = true;
+    this.skillDetailContent = '';
+    this.agentsService.getSkill(skill.name).subscribe({
+      next: (res: any) => {
+        this.skillDetailContent = res.body ?? res.raw ?? '';
+        this.skillDetailLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.skillDetailContent = '';
+        this.skillDetailLoading = false;
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  closeSkillDetail(): void {
+    this.selectedSkillTab = null;
+    this.skillDetailContent = '';
+  }
+
+  openCreateSkill(): void {
+    this.skillEditMode = false;
+    this.skillForm = { name: '', description: '', body: '', requires_bins: '', requires_env: '', os: 'windows,linux,darwin', user_invocable: true, disable_model_invocation: false };
+    this.showSkillModal = true;
+  }
+
+  openEditSkill(skill: SkillItem): void {
+    this.skillEditMode = true;
+    this.skillForm = {
+      name: skill.name,
+      description: skill.description || '',
+      body: this.skillDetailContent || '',
+      requires_bins: (skill.metadata?.requires_bins ?? []).join(', '),
+      requires_env: (skill.metadata?.requires_env ?? []).join(', '),
+      os: (skill.metadata?.os ?? ['windows', 'linux', 'darwin']).join(','),
+      user_invocable: skill.user_invocable ?? true,
+      disable_model_invocation: false,
+    };
+    this.showSkillModal = true;
+  }
+
+  submitSkill(): void {
+    if (!this.skillForm.name?.trim()) return;
+    if (this.skillEditMode) {
+      this.agentsService.updateSkill(this.skillForm.name, {
+        description: this.skillForm.description,
+        body: this.skillForm.body,
+        requires_bins: this.skillForm.requires_bins,
+        requires_env: this.skillForm.requires_env,
+        os: this.skillForm.os,
+        user_invocable: this.skillForm.user_invocable,
+        disable_model_invocation: this.skillForm.disable_model_invocation,
+      }).subscribe({
+        next: () => {
+          this.showSkillModal = false;
+          this.skillsTabMessage = 'Skill updated';
+          this.allSkillsTab = [];
+          this.loadAllSkills();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.skillsTabMessage = `Error: ${err?.error?.detail ?? err.message}`;
+          this.cdr.markForCheck();
+        },
+      });
+    } else {
+      this.agentsService.createSkill({
+        name: this.skillForm.name,
+        description: this.skillForm.description,
+        body: this.skillForm.body,
+        requires_bins: this.skillForm.requires_bins,
+        requires_env: this.skillForm.requires_env,
+        os: this.skillForm.os,
+        user_invocable: this.skillForm.user_invocable,
+        disable_model_invocation: this.skillForm.disable_model_invocation,
+      }).subscribe({
+        next: () => {
+          this.showSkillModal = false;
+          this.skillsTabMessage = 'Skill created';
+          this.allSkillsTab = [];
+          this.loadAllSkills();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.skillsTabMessage = `Error: ${err?.error?.detail ?? err.message}`;
+          this.cdr.markForCheck();
+        },
+      });
+    }
+  }
+
+  deleteSkillTab(skill: SkillItem): void {
+    this.agentsService.deleteSkill(skill.name).subscribe({
+      next: () => {
+        this.skillsTabMessage = `Deleted '${skill.name}'`;
+        if (this.selectedSkillTab?.name === skill.name) this.closeSkillDetail();
+        this.allSkillsTab = [];
+        this.loadAllSkills();
+      },
+      error: (err) => {
+        this.skillsTabMessage = `Error: ${err?.error?.detail ?? err.message}`;
+        this.cdr.markForCheck();
+      },
     });
   }
 

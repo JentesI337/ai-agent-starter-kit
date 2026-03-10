@@ -1,11 +1,21 @@
-<section class="agents-shell" [class.detail-active]="detailOpen">
+<!-- ── Page-Level Tabs ───────────────────────────── -->
+<div class="page-tabs">
+  <button class="page-tab" [class.active]="pageTab === 'agents'" (click)="pageTab = 'agents'">Agents</button>
+  <button class="page-tab" [class.active]="pageTab === 'tools'" (click)="switchToTools()">Tools</button>
+  <button class="page-tab" [class.active]="pageTab === 'skills'" (click)="switchToSkills()">Skills</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- ── AGENTS TAB ──────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════ -->
+<section class="agents-shell" [class.detail-active]="detailOpen" *ngIf="pageTab === 'agents'">
 
   <!-- ── Create/Edit Modal ─────────────────────────── -->
   <div class="modal-overlay" *ngIf="showCreateModal" (click)="showCreateModal = false">
     <div class="modal-card" (click)="$event.stopPropagation()">
       <div class="modal-head">
         <h2>{{ editMode ? 'Edit Agent' : 'Create Agent' }}</h2>
-        <button class="modal-close" (click)="showCreateModal = false">✕</button>
+        <button class="modal-close" (click)="showCreateModal = false">&#10005;</button>
       </div>
       <div class="modal-body">
         <div class="mf-group">
@@ -89,7 +99,7 @@
 
     <!-- Loading -->
     <div class="loading" *ngIf="loading">
-      <div class="ld-orb"><div class="orb-ring"></div><span class="orb-icon">◈</span></div>
+      <div class="ld-orb"><div class="orb-ring"></div><span class="orb-icon">&#9672;</span></div>
       <span>Loading agents...</span>
     </div>
 
@@ -137,10 +147,10 @@
 
         <!-- Agent actions -->
         <div class="ac-actions">
-          <button class="ac-btn" (click)="openEdit(agent); $event.stopPropagation()" title="Edit">✎</button>
-          <button class="ac-btn" (click)="openClone(agent); $event.stopPropagation()" title="Clone as custom">⧉</button>
-          <button class="ac-btn danger" *ngIf="agent.isCustom" (click)="deleteAgent(agent); $event.stopPropagation()" title="Delete">✕</button>
-          <button class="ac-btn" *ngIf="agent.origin === 'builtin'" (click)="resetAgent(agent); $event.stopPropagation()" title="Reset to defaults">↺</button>
+          <button class="ac-btn" (click)="openEdit(agent); $event.stopPropagation()" title="Edit">&#9998;</button>
+          <button class="ac-btn" (click)="openClone(agent); $event.stopPropagation()" title="Clone as custom">&#10697;</button>
+          <button class="ac-btn danger" *ngIf="agent.isCustom" (click)="deleteAgent(agent); $event.stopPropagation()" title="Delete">&#10005;</button>
+          <button class="ac-btn" *ngIf="agent.origin === 'builtin'" (click)="resetAgent(agent); $event.stopPropagation()" title="Reset to defaults">&#8634;</button>
         </div>
       </div>
 
@@ -165,7 +175,7 @@
         <span class="dp-origin" [class.builtin]="selectedAgent.origin === 'builtin'"
               [class.custom]="selectedAgent.origin === 'custom'">{{ selectedAgent.origin }}</span>
       </div>
-      <button class="dp-close" (click)="closeDetail()">✕</button>
+      <button class="dp-close" (click)="closeDetail()">&#10005;</button>
     </div>
 
     <!-- Tabs -->
@@ -465,4 +475,275 @@
     </div>
   </div>
 
+</section>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- ── TOOLS TAB (page-level) ──────────────────────── -->
+<!-- ══════════════════════════════════════════════════ -->
+<section class="tools-page" *ngIf="pageTab === 'tools'">
+
+  <div class="tp-shell" [class.detail-active]="!!selectedToolItem">
+
+    <!-- ── Left: Tool Catalog ──────────────────────── -->
+    <div class="tp-list-panel">
+
+      <div class="grid-head">
+        <div class="gh-title">
+          <h1>Tool Catalog</h1>
+          <span class="gh-count">{{ toolsCatalog.length }}</span>
+        </div>
+        <div class="gh-actions">
+          <input class="gh-search" type="text" placeholder="Search tools..."
+                 [(ngModel)]="toolsTabSearch">
+          <button class="btn ghost sm" (click)="loadSecurityPatterns()">Security</button>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div class="loading" *ngIf="toolsTabLoading">
+        <div class="ld-orb"><div class="orb-ring"></div><span class="orb-icon">&#9881;</span></div>
+        <span>Loading tools...</span>
+      </div>
+
+      <!-- Tool Grid -->
+      <div class="tp-grid" *ngIf="!toolsTabLoading">
+        <div class="tp-tile" *ngFor="let tool of filteredToolsCatalog; let i = index"
+             [class.selected]="selectedToolItem?.name === tool.name"
+             [style.animation-delay]="(i * 30) + 'ms'"
+             (click)="selectToolItem(tool)">
+          <div class="tp-tile-head">
+            <span class="tp-tile-icon">&#9881;</span>
+            <span class="tp-tile-name">{{ tool.name }}</span>
+          </div>
+          <p class="tp-tile-desc" *ngIf="tool.description">{{ tool.description }}</p>
+          <div class="tp-tile-caps" *ngIf="tool.capabilities?.length">
+            <span class="tc" *ngFor="let cap of tool.capabilities">{{ cap }}</span>
+          </div>
+        </div>
+        <div class="no-agents" *ngIf="filteredToolsCatalog.length === 0">No tools match your search</div>
+      </div>
+    </div>
+
+    <!-- ── Right: Tool Config Panel ────────────────── -->
+    <div class="tp-detail-panel" *ngIf="selectedToolItem" [class.open]="!!selectedToolItem">
+
+      <div class="dp-head">
+        <div class="dp-info">
+          <h2>{{ selectedToolItem.name }}</h2>
+          <span class="dp-role" *ngIf="selectedToolItem.description">{{ selectedToolItem.description }}</span>
+        </div>
+        <button class="dp-close" (click)="closeToolDetail()">&#10005;</button>
+      </div>
+
+      <div class="dp-body">
+        <div class="config-msg" *ngIf="toolItemConfigMessage">{{ toolItemConfigMessage }}</div>
+
+        <div class="loading sm" *ngIf="toolItemConfigLoading">
+          <div class="ld-spinner"></div> Loading config...
+        </div>
+
+        <div class="config-fields" *ngIf="!toolItemConfigLoading">
+          <div class="cf-field" *ngFor="let key of toolConfigKeys()">
+            <div class="cf-head">
+              <label class="cf-name">{{ key }}</label>
+            </div>
+            <div class="cf-val">
+              <label class="toggle" *ngIf="isBoolean(toolItemConfig[key])">
+                <input type="checkbox" [checked]="toolItemConfig[key]"
+                       (change)="toolItemConfig[key] = !toolItemConfig[key]">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">{{ toolItemConfig[key] ? 'Yes' : 'No' }}</span>
+              </label>
+              <input class="cf-input num" *ngIf="isNumber(toolItemConfig[key])"
+                     type="number" [(ngModel)]="toolItemConfig[key]">
+              <input class="cf-input" *ngIf="!isBoolean(toolItemConfig[key]) && !isNumber(toolItemConfig[key]) && !isArray(toolItemConfig[key])"
+                     type="text" [ngModel]="toolItemConfig[key]"
+                     (ngModelChange)="toolItemConfig[key] = $event">
+            </div>
+          </div>
+          <div class="no-data" *ngIf="toolConfigKeys().length === 0">No configuration available</div>
+        </div>
+
+        <div class="config-actions" *ngIf="!toolItemConfigLoading && toolConfigKeys().length > 0">
+          <button class="btn ghost" (click)="resetToolItemConfig()">Reset</button>
+          <button class="btn primary" (click)="saveToolConfig()">Save Config</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Security Patterns Section ───────────────── -->
+  <div class="security-section" *ngIf="securityPatterns.length > 0 || securityPatternsLoading">
+    <div class="ss-head">
+      <h3 class="ms-title">Security Patterns</h3>
+    </div>
+
+    <div class="loading sm" *ngIf="securityPatternsLoading">
+      <div class="ld-spinner"></div> Loading patterns...
+    </div>
+
+    <div class="ss-body" *ngIf="!securityPatternsLoading">
+      <div class="ss-list">
+        <div class="ss-row" *ngFor="let p of securityPatterns">
+          <code class="ss-pattern">{{ p.pattern }}</code>
+          <span class="sk-badge" [class.ok]="p.action === 'allow'" [class.err]="p.action === 'deny'">{{ p.action }}</span>
+          <span class="ss-desc" *ngIf="p.description">{{ p.description }}</span>
+        </div>
+      </div>
+      <div class="ss-add">
+        <input class="cf-input" type="text" placeholder="Pattern regex..." [(ngModel)]="newPatternForm.pattern">
+        <select class="mf-input" [(ngModel)]="newPatternForm.action" style="width: auto;">
+          <option value="deny">deny</option>
+          <option value="allow">allow</option>
+        </select>
+        <input class="cf-input" type="text" placeholder="Description..." [(ngModel)]="newPatternForm.description">
+        <button class="btn primary sm" (click)="addSecurityPattern()" [disabled]="!newPatternForm.pattern.trim()">Add</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- ── SKILLS TAB (page-level) ─────────────────────── -->
+<!-- ══════════════════════════════════════════════════ -->
+<section class="skills-page" *ngIf="pageTab === 'skills'">
+
+  <!-- ── Skill Create/Edit Modal ───────────────────── -->
+  <div class="modal-overlay" *ngIf="showSkillModal" (click)="showSkillModal = false">
+    <div class="modal-card wide" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <h2>{{ skillEditMode ? 'Edit Skill' : 'Create Skill' }}</h2>
+        <button class="modal-close" (click)="showSkillModal = false">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="mf-group">
+          <label class="mf-label">Name *</label>
+          <input class="mf-input" [(ngModel)]="skillForm.name" placeholder="my-skill-name" [disabled]="skillEditMode">
+        </div>
+        <div class="mf-group">
+          <label class="mf-label">Description</label>
+          <input class="mf-input" [(ngModel)]="skillForm.description" placeholder="What does this skill do?">
+        </div>
+        <div class="mf-row">
+          <div class="mf-group">
+            <label class="mf-label">Requires Bins (CSV)</label>
+            <input class="mf-input" [(ngModel)]="skillForm.requires_bins" placeholder="git, docker">
+          </div>
+          <div class="mf-group">
+            <label class="mf-label">Requires Env (CSV)</label>
+            <input class="mf-input" [(ngModel)]="skillForm.requires_env" placeholder="API_KEY">
+          </div>
+        </div>
+        <div class="mf-row">
+          <div class="mf-group">
+            <label class="mf-label">OS</label>
+            <input class="mf-input" [(ngModel)]="skillForm.os" placeholder="windows,linux,darwin">
+          </div>
+          <div class="mf-group" style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="mf-check">
+              <input type="checkbox" [(ngModel)]="skillForm.user_invocable">
+              <span>User invocable</span>
+            </label>
+            <label class="mf-check">
+              <input type="checkbox" [(ngModel)]="skillForm.disable_model_invocation">
+              <span>Disable model invocation</span>
+            </label>
+          </div>
+        </div>
+        <div class="mf-group">
+          <label class="mf-label">Body (Markdown)</label>
+          <textarea class="mf-input tall" [(ngModel)]="skillForm.body" placeholder="# Skill Title&#10;&#10;## Instructions&#10;&#10;Step-by-step instructions..." rows="12" style="min-height: 200px;"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" (click)="showSkillModal = false">Cancel</button>
+        <button class="btn primary" (click)="submitSkill()" [disabled]="!skillForm.name?.trim()">
+          {{ skillEditMode ? 'Update' : 'Create' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sp-shell" [class.detail-active]="!!selectedSkillTab">
+
+    <!-- ── Left: Skills List ─────────────────────────── -->
+    <div class="sp-list-panel">
+
+      <div class="grid-head">
+        <div class="gh-title">
+          <h1>Skills</h1>
+          <span class="gh-count">{{ allSkillsTab.length }}</span>
+        </div>
+        <div class="gh-actions">
+          <button class="btn primary create-btn" (click)="openCreateSkill()">
+            <span class="plus">+</span> New Skill
+          </button>
+        </div>
+      </div>
+
+      <div class="skills-msg" *ngIf="skillsTabMessage" style="margin: 10px 16px;">{{ skillsTabMessage }}</div>
+
+      <!-- Loading -->
+      <div class="loading" *ngIf="skillsTabLoading">
+        <div class="ld-orb"><div class="orb-ring"></div><span class="orb-icon">&#10022;</span></div>
+        <span>Loading skills...</span>
+      </div>
+
+      <!-- Skills Grid -->
+      <div class="sp-grid" *ngIf="!skillsTabLoading">
+        <div class="sp-card" *ngFor="let s of allSkillsTab; let i = index"
+             [class.eligible]="s.eligible" [class.ineligible]="!s.eligible"
+             [class.selected]="selectedSkillTab?.name === s.name"
+             [style.animation-delay]="(i * 40) + 'ms'"
+             (click)="selectSkillTab(s)">
+          <div class="sk-head">
+            <span class="sk-name">{{ s.name }}</span>
+            <span class="sk-badge" [class.ok]="s.eligible" [class.err]="!s.eligible">
+              {{ s.eligible ? 'eligible' : 'ineligible' }}
+            </span>
+            <span class="sk-badge inv" *ngIf="s.user_invocable">user-invocable</span>
+          </div>
+          <p class="sk-desc" *ngIf="s.description">{{ s.description }}</p>
+          <div class="sk-meta" *ngIf="s.metadata?.requires_bins?.length">
+            <span class="sk-req">BIN: {{ s.metadata.requires_bins.join(', ') }}</span>
+          </div>
+          <div class="sp-card-actions">
+            <button class="ac-btn" (click)="openEditSkill(s); $event.stopPropagation()" title="Edit">&#9998;</button>
+            <button class="ac-btn danger" (click)="deleteSkillTab(s); $event.stopPropagation()" title="Delete">&#10005;</button>
+          </div>
+        </div>
+        <div class="no-agents" *ngIf="allSkillsTab.length === 0">No skills found</div>
+      </div>
+    </div>
+
+    <!-- ── Right: Skill Detail Panel ───────────────── -->
+    <div class="sp-detail-panel" *ngIf="selectedSkillTab" [class.open]="!!selectedSkillTab">
+
+      <div class="dp-head">
+        <div class="dp-info">
+          <h2>{{ selectedSkillTab.name }}</h2>
+          <span class="dp-role" *ngIf="selectedSkillTab.description">{{ selectedSkillTab.description }}</span>
+          <span class="sk-badge" [class.ok]="selectedSkillTab.eligible" [class.err]="!selectedSkillTab.eligible" style="margin-left: 6px;">
+            {{ selectedSkillTab.eligible ? 'eligible' : 'ineligible' }}
+          </span>
+        </div>
+        <button class="dp-close" (click)="closeSkillDetail()">&#10005;</button>
+      </div>
+
+      <div class="dp-body">
+        <div class="loading sm" *ngIf="skillDetailLoading">
+          <div class="ld-spinner"></div> Loading content...
+        </div>
+
+        <div class="skill-content" *ngIf="!skillDetailLoading">
+          <pre class="skill-body">{{ skillDetailContent }}</pre>
+        </div>
+
+        <div class="config-actions" *ngIf="!skillDetailLoading" style="margin-top: 12px;">
+          <button class="btn ghost" (click)="openEditSkill(selectedSkillTab)">Edit</button>
+          <button class="btn ghost danger-text" (click)="deleteSkillTab(selectedSkillTab)">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>

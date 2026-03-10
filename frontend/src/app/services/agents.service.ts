@@ -377,6 +377,48 @@ export class AgentsService {
     return this.http.post<any>(`${this.apiBase}/api/control/skills.sync`, { apply: true });
   }
 
+  getSkill(name: string) {
+    return this.http.post<any>(`${this.apiBase}/api/control/skills.get`, { name });
+  }
+
+  createSkill(data: { name: string; description?: string; body?: string; requires_bins?: string; requires_env?: string; os?: string; user_invocable?: boolean; disable_model_invocation?: boolean }) {
+    return this.http.post<any>(`${this.apiBase}/api/control/skills.create`, data);
+  }
+
+  updateSkill(name: string, data: { description?: string; body?: string; requires_bins?: string; requires_env?: string; os?: string; user_invocable?: boolean; disable_model_invocation?: boolean }) {
+    return this.http.post<any>(`${this.apiBase}/api/control/skills.update`, { name, ...data });
+  }
+
+  deleteSkill(name: string) {
+    return this.http.post<any>(`${this.apiBase}/api/control/skills.delete`, { name });
+  }
+
+  // ── Tool config endpoints ──────────────────────────
+
+  getToolConfigs() {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.config.list`, {});
+  }
+
+  getToolConfig(toolName: string) {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.config.get`, { tool_name: toolName });
+  }
+
+  updateToolConfig(toolName: string, config: Record<string, unknown>) {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.config.update`, { tool_name: toolName, config });
+  }
+
+  resetToolConfig(toolName: string) {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.config.reset`, { tool_name: toolName });
+  }
+
+  getSecurityPatterns() {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.security.patterns`, {});
+  }
+
+  addSecurityPattern(pattern: { pattern: string; action: string; description?: string }) {
+    return this.http.post<any>(`${this.apiBase}/api/control/tools.security.update`, pattern);
+  }
+
   getPendingPolicyApprovals(payload?: { run_id?: string; session_id?: string; limit?: number }) {
     return this.http.post<PolicyApprovalsPendingResponse>(`${this.apiBase}/api/control/policy-approvals.pending`, payload ?? {});
   }

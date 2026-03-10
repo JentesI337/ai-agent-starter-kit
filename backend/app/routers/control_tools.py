@@ -24,6 +24,10 @@ def build_control_tools_router(
     skills_preview_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     skills_check_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     skills_sync_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    skills_get_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
+    skills_create_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
+    skills_update_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
+    skills_delete_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
     context_list_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     context_detail_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     config_health_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
@@ -78,6 +82,34 @@ def build_control_tools_router(
         result = skills_sync_handler(request)
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
+
+    if skills_get_handler is not None:
+        @router.post("/api/control/skills.get")
+        async def control_skills_get(request: JsonDict = Body(...)):
+            result = skills_get_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
+
+    if skills_create_handler is not None:
+        @router.post("/api/control/skills.create")
+        async def control_skills_create(request: JsonDict = Body(...)):
+            result = skills_create_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
+
+    if skills_update_handler is not None:
+        @router.post("/api/control/skills.update")
+        async def control_skills_update(request: JsonDict = Body(...)):
+            result = skills_update_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
+
+    if skills_delete_handler is not None:
+        @router.post("/api/control/skills.delete")
+        async def control_skills_delete(request: JsonDict = Body(...)):
+            result = skills_delete_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
 
     @router.post("/api/control/context.list")
     async def control_context_list(request: JsonDict = Body(...)):
