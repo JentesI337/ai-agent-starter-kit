@@ -44,7 +44,7 @@ export interface WorkflowRunDetail {
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowExecutionService {
-  private readonly apiBase = 'http://localhost:8000';
+  private readonly apiBase = window.location.origin;
   private eventSource: EventSource | null = null;
   private eventsSubject = new Subject<WorkflowStepEvent>();
 
@@ -66,6 +66,7 @@ export class WorkflowExecutionService {
       'workflow_step_completed',
       'workflow_step_failed',
       'workflow_completed',
+      'workflow_failed',
     ];
 
     for (const eventType of eventTypes) {

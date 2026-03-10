@@ -360,6 +360,9 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         steps=resolved_steps,
         tool_policy=resolved_tool_policy,
         allow_subrun_delegation=resolved_allow_subrun_delegation,
+        execution_mode=resolved_execution_mode,
+        workflow_graph=resolved_workflow_graph,
+        triggers=resolved_triggers,
     )
     existing_response = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
     if existing_response is not None:
@@ -437,7 +440,7 @@ async def _execute_workflow_sequential(
         connector_store = get_connector_store()
         credential_store = get_credential_store()
         connector_registry = ConnectorRegistry()
-    except Exception:
+    except (ImportError, RuntimeError):
         pass
 
     engine = WorkflowEngine(
@@ -459,26 +462,35 @@ async def _execute_workflow_sequential(
     _pre_state = _WES(workflow_id=workflow_agent_id, run_id=run_id, session_id=session_id)
 
     if run_store is not None:
-        send_event_fn = run_store.make_send_event(run_id, _pre_state)
+        send_event_fn, state_holder = run_store.make_send_event(run_id)
+        # Point the state holder at _pre_state so intermediate saves persist the live state
+        state_holder[0] = _pre_state
         run_store.save(_pre_state)
     else:
         async def send_event_fn(_event: dict) -> None:
             return None
 
-    execution_state = await engine.execute(
-        graph=graph,
-        run_id=run_id,
-        session_id=session_id,
-        initial_message=request.message,
-        workflow_id=workflow_agent_id,
-        send_event=send_event_fn,
-        runtime=runtime_state.runtime,
-        model=request.model or runtime_state.model,
-        preset=request.preset,
-        tool_policy=normalized_tool_policy,
-        orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
-        orchestrator_api=workflow_orchestrator,
-    )
+    try:
+        execution_state = await engine.execute(
+            graph=graph,
+            run_id=run_id,
+            session_id=session_id,
+            initial_message=request.message,
+            workflow_id=workflow_agent_id,
+            send_event=send_event_fn,
+            runtime=runtime_state.runtime,
+            model=request.model or runtime_state.model,
+            preset=request.preset,
+            tool_policy=normalized_tool_policy,
+            orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+            orchestrator_api=workflow_orchestrator,
+            existing_state=_pre_state,
+        )
+    except Exception:
+        _pre_state.status = "failed"
+        if run_store is not None:
+            run_store.save(_pre_state)
+        raise
 
     # Persist final state
     if run_store is not None:

@@ -46,7 +46,7 @@
     <!-- Workflow Cards -->
     <div class="wf-grid" *ngIf="!loading && workflows.length > 0">
       <div class="wf-card"
-           *ngFor="let wf of filteredWorkflows; let i = index"
+           *ngFor="let wf of filteredWorkflows; let i = index; trackBy: trackById"
            [style.animation-delay]="i * 40 + 'ms'"
            (click)="openEdit(wf)">
         <div class="wf-card-header">
@@ -101,7 +101,7 @@
 
     <div class="wf-grid" *ngIf="!templatesLoading && templates.length > 0">
       <div class="wf-card template-card"
-           *ngFor="let tpl of templates; let i = index"
+           *ngFor="let tpl of templates; let i = index; trackBy: trackById"
            [style.animation-delay]="i * 40 + 'ms'">
         <div class="wf-card-header">
           <div class="wf-card-icon template-icon">{{ templateCategoryIcon(tpl.category) }}</div>
@@ -239,7 +239,7 @@
             </linearGradient>
           </defs>
 
-          <ng-container *ngFor="let ep of edgePaths">
+          <ng-container *ngFor="let ep of edgePaths; trackBy: trackByIndex">
             <path [attr.d]="ep.path"
                   class="conn-path"
                   [class.conn-true]="ep.edge.type === 'true'"
@@ -275,7 +275,7 @@
         </button>
 
         <!-- Nodes -->
-        <div *ngFor="let node of orderedNodes"
+        <div *ngFor="let node of orderedNodes; trackBy: trackById"
              class="canvas-node"
              [class.node-trigger]="node.type === 'trigger'"
              [class.node-step]="node.type === 'step'"
@@ -334,7 +334,7 @@
     </div>
 
     <!-- Right Panel: Properties -->
-    <div class="props-panel" [class.open]="selectedNode || true">
+    <div class="props-panel" [class.open]="!!selectedNode">
 
       <!-- Workflow properties -->
       <section class="props-section">
@@ -481,7 +481,7 @@
         <p class="hint">Configure how this workflow is started.</p>
 
         <div class="trigger-list">
-          <div class="trigger-item" *ngFor="let t of wfTriggers; let i = index">
+          <div class="trigger-item" *ngFor="let t of wfTriggers; let i = index; trackBy: trackByIndex">
             <div class="trigger-header">
               <select class="field-input trigger-type-select" [(ngModel)]="t.type">
                 <option value="manual">Manual</option>
@@ -511,7 +511,7 @@
                 Webhook URL
                 <div class="webhook-url-row">
                   <input class="field-input" type="text" readonly [value]="webhookUrl(editId)" />
-                  <button class="btn-copy" (click)="$event.preventDefault()" title="Copy URL">⧉</button>
+                  <button class="btn-copy" (click)="copyToClipboard(webhookUrl(editId)); $event.preventDefault()" title="Copy URL">⧉</button>
                 </div>
               </label>
               <label class="field-label">
@@ -566,7 +566,7 @@
       <section class="props-section" *ngIf="stepLog.length > 0">
         <h3 class="props-heading">Step Log</h3>
         <div class="step-log">
-          <div class="log-entry" *ngFor="let entry of stepLog"
+          <div class="log-entry" *ngFor="let entry of stepLog; trackBy: trackByIndex"
                [class.log-started]="entry.type === 'workflow_step_started'"
                [class.log-completed]="entry.type === 'workflow_step_completed'"
                [class.log-failed]="entry.type === 'workflow_step_failed'"

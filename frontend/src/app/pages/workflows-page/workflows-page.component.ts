@@ -157,6 +157,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   private nodeCounter = 0;
   private edgeCounter = 0;
+  private agentsSub: Subscription | null = null;
 
   // ── Node palette ───────────────────────────────────
   readonly paletteItems: PaletteItem[] = [
@@ -188,12 +189,13 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.executionSub?.unsubscribe();
+    this.agentsSub?.unsubscribe();
     this.execService.disconnect();
   }
 
   ngOnInit(): void {
     this.loadWorkflows();
-    this.agentsService.getAgents().subscribe({
+    this.agentsSub = this.agentsService.getAgents().subscribe({
       next: (a) => { this.agents = a; this.cdr.markForCheck(); },
     });
   }
@@ -301,8 +303,9 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     const stepMap = new Map<string, CanvasNode>();
     for (let i = 0; i < graph.steps.length; i++) {
       const sd = graph.steps[i];
+      const canvasType = sd.type === 'agent' ? 'step' : sd.type;
       const node = this.makeNode(
-        sd.type as CanvasNode['type'],
+        canvasType as CanvasNode['type'],
         sd.label || sd.id,
         sd.instruction || '',
         400,
@@ -764,7 +767,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
       stepDefs.push({
         id: node.id,
-        type: node.type as WorkflowStepDef['type'],
+        type: (node.type === 'step' ? 'agent' : node.type) as WorkflowStepDef['type'],
         label: node.label,
         instruction: node.instruction,
         agent_id: node.type === 'step' ? node.agentId : undefined,
@@ -994,8 +997,23 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   // ── Helpers ────────────────────────────────────────
 
+  copyToClipboard(text: string): void {
+    navigator.clipboard.writeText(text).then(
+      () => this.flash('Copied to clipboard', 'ok'),
+      () => this.flash('Copy failed', 'err'),
+    );
+  }
+
   agentIcon(id: string): string {
     return this.AGENT_ICONS[id] ?? '◈';
+  }
+
+  trackById(_index: number, item: { id: string }): string {
+    return item.id;
+  }
+
+  trackByIndex(index: number): number {
+    return index;
   }
 
   private parseCsv(val: string): string[] {

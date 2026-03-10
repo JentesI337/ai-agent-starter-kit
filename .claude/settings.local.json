@@ -25,7 +25,9 @@
       "Bash(sed:*)",
       "Bash(python3:*)",
       "Bash(npm install:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(.venv/Scripts/pip.exe install:*)"
     ]
   }
 }

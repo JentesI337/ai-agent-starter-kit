@@ -90,25 +90,41 @@ class WorkflowRunStore:
                 del self._subscribers[run_id]
 
     async def broadcast(self, run_id: str, event: dict[str, Any]) -> None:
-        subs = self._subscribers.get(run_id, [])
+        subs = list(self._subscribers.get(run_id, []))  # snapshot to avoid mutation during iteration
         for q in subs:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 pass
 
-    def make_send_event(self, run_id: str, state: WorkflowExecutionState) -> Any:
-        """Return a send_event callable that broadcasts + persists."""
+    def cleanup_stale_subscribers(self, run_id: str) -> None:
+        """Remove subscriber queues that are full (likely disconnected clients)."""
+        subs = self._subscribers.get(run_id)
+        if not subs:
+            return
+        self._subscribers[run_id] = [q for q in subs if not q.full()]
+        if not self._subscribers[run_id]:
+            del self._subscribers[run_id]
+
+    def make_send_event(self, run_id: str) -> Any:
+        """Return a (send_event, state_holder) tuple.
+
+        The caller must set ``state_holder[0]`` to the actual execution state
+        so that intermediate saves persist the correct object.
+        """
         store = self
+        state_holder: list[WorkflowExecutionState | None] = [None]
 
         async def send_event(event: dict) -> None:
             await store.broadcast(run_id, event)
             # Persist after each step completion
             event_type = event.get("type", "")
             if event_type in ("workflow_step_completed", "workflow_step_failed", "workflow_completed"):
-                store.save(state)
+                current_state = state_holder[0]
+                if current_state is not None:
+                    store.save(current_state)
 
-        return send_event
+        return send_event, state_holder
 
 
 def init_workflow_run_store(*, persist_dir: str | Path) -> WorkflowRunStore:

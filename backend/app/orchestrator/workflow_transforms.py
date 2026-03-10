@@ -3,8 +3,9 @@
 Template syntax:  ``{{step_id.output.field}}``
 Condition syntax: ``step1.output.status == "open" and step2.output.count > 5``
 
-No ``eval()`` or ``exec()`` — templates use regex extraction + dot-path traversal,
-conditions use ``ast`` whitelisting.
+Templates use regex extraction + dot-path traversal.
+Conditions use a recursive AST interpreter over a whitelisted set of node types —
+no ``eval()`` or ``exec()`` is used.
 """
 from __future__ import annotations
 
@@ -26,8 +27,8 @@ _FILTERS: dict[str, Any] = {
     "upper": lambda v: str(v).upper(),
     "lower": lambda v: str(v).lower(),
     "length": lambda v: len(v) if hasattr(v, "__len__") else 0,
-    "first": lambda v: v[0] if isinstance(v, (list, tuple)) and v else v,
-    "last": lambda v: v[-1] if isinstance(v, (list, tuple)) and v else v,
+    "first": lambda v: v[0] if isinstance(v, (list, tuple, str)) and v else v,
+    "last": lambda v: v[-1] if isinstance(v, (list, tuple, str)) and v else v,
     "strip": lambda v: str(v).strip(),
     "json": lambda v: json.dumps(v, default=str),
 }
@@ -172,11 +173,102 @@ def _validate_ast(node: ast.AST) -> None:
         _validate_ast(child)
 
 
+def _interpret(node: ast.AST, namespace: dict[str, Any]) -> Any:
+    """Recursively interpret a whitelisted AST node against *namespace*."""
+    if isinstance(node, ast.Expression):
+        return _interpret(node.body, namespace)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id in namespace:
+            return namespace[node.id]
+        raise ValueError(f"Unknown name: {node.id}")
+    if isinstance(node, ast.Attribute):
+        obj = _interpret(node.value, namespace)
+        if isinstance(obj, dict):
+            return obj.get(node.attr)
+        return getattr(obj, node.attr, None)
+    if isinstance(node, ast.Subscript):
+        obj = _interpret(node.value, namespace)
+        slc = node.slice
+        # Python 3.8 wraps in ast.Index
+        if isinstance(slc, ast.Index):
+            slc = slc.value  # type: ignore[attr-defined]
+        idx = _interpret(slc, namespace)
+        if isinstance(obj, dict):
+            return obj.get(idx)
+        if isinstance(obj, (list, tuple)):
+            return obj[idx] if isinstance(idx, int) and 0 <= idx < len(obj) else None
+        return None
+    if isinstance(node, ast.UnaryOp):
+        operand = _interpret(node.operand, namespace)
+        if isinstance(node.op, ast.Not):
+            return not operand
+        raise ValueError(f"Unsupported unary op: {type(node.op).__name__}")
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            result = True
+            for v in node.values:
+                result = _interpret(v, namespace)
+                if not result:
+                    return result
+            return result
+        if isinstance(node.op, ast.Or):
+            result = False
+            for v in node.values:
+                result = _interpret(v, namespace)
+                if result:
+                    return result
+            return result
+        raise ValueError(f"Unsupported bool op: {type(node.op).__name__}")
+    if isinstance(node, ast.Compare):
+        left = _interpret(node.left, namespace)
+        for op, comparator in zip(node.ops, node.comparators):
+            right = _interpret(comparator, namespace)
+            if isinstance(op, ast.Eq):
+                if not (left == right): return False
+            elif isinstance(op, ast.NotEq):
+                if not (left != right): return False
+            elif isinstance(op, ast.Lt):
+                if not (left < right): return False
+            elif isinstance(op, ast.LtE):
+                if not (left <= right): return False
+            elif isinstance(op, ast.Gt):
+                if not (left > right): return False
+            elif isinstance(op, ast.GtE):
+                if not (left >= right): return False
+            elif isinstance(op, ast.In):
+                if left not in right: return False
+            elif isinstance(op, ast.NotIn):
+                if left in right: return False
+            elif isinstance(op, ast.Is):
+                if left is not right: return False
+            elif isinstance(op, ast.IsNot):
+                if left is right: return False
+            else:
+                raise ValueError(f"Unsupported comparison: {type(op).__name__}")
+            left = right
+        return True
+    if isinstance(node, ast.BinOp):
+        left = _interpret(node.left, namespace)
+        right = _interpret(node.right, namespace)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        raise ValueError(f"Unsupported binary op: {type(node.op).__name__}")
+    raise ValueError(f"Unsupported AST node: {type(node).__name__}")
+
+
 def evaluate_condition(expr: str, context: dict[str, Any]) -> bool:
     """Evaluate a boolean expression against workflow context.
 
     Supports comparisons, ``and``/``or``/``not``, ``in`` checks,
     and dot-path attribute access.  All names are resolved from *context*.
+
+    Uses a recursive AST interpreter — no ``eval()`` or ``exec()``.
 
     Raises ``ValueError`` on unsafe or unparseable expressions.
     """
@@ -193,18 +285,18 @@ def evaluate_condition(expr: str, context: dict[str, Any]) -> bool:
 
     _validate_ast(tree)
 
-    # Build a flat namespace for eval from context
+    # Build a flat namespace from context
     namespace: dict[str, Any] = {}
     for key, value in context.items():
         namespace[key] = value
-        # Also allow direct attribute-style access: step1 -> context["step1"]
         if isinstance(value, dict):
             for k, v in value.items():
                 namespace[f"{key}_{k}"] = v
 
-    code = compile(tree, "<condition>", "eval")
     try:
-        result = eval(code, {"__builtins__": {}}, namespace)  # noqa: S307
+        result = _interpret(tree, namespace)
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Condition evaluation failed: {e}") from e
 

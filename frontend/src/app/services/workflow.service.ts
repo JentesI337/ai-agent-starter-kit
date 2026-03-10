@@ -78,6 +78,7 @@ export interface WorkflowUpdatePayload {
     allow?: string[];
     deny?: string[];
   };
+  allow_subrun_delegation?: boolean;
   triggers?: WorkflowTrigger[];
 }
 
@@ -116,7 +117,7 @@ export interface WorkflowTemplateListResponse {
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowService {
-  private readonly apiBase = 'http://localhost:8000';
+  private readonly apiBase = window.location.origin;
 
   constructor(private readonly http: HttpClient) {}
 

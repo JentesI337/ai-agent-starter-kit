@@ -61,7 +61,7 @@ async def _tick() -> None:
 
     for workflow in deps.custom_agent_store.list():
         triggers = getattr(workflow, "triggers", []) or []
-        for idx, t in enumerate(triggers):
+        for t in triggers:
             t_type = t.get("type") if isinstance(t, dict) else getattr(t, "type", None)
             if t_type != "schedule":
                 continue
@@ -105,7 +105,7 @@ async def _tick() -> None:
             await _execute_scheduled_workflow(workflow, deps)
 
             # Update timestamps
-            new_next = _next_cron_time(cron_expr, now)
+            new_next = _next_cron_time(cron_expr, next_dt)
             _update_trigger_times(
                 t,
                 last_run=now.isoformat(),

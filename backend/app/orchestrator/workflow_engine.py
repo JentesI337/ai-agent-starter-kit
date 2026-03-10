@@ -57,15 +57,22 @@ class WorkflowEngine:
         tool_policy: Any = None,
         orchestrator_agent_ids: list[str] | None = None,
         orchestrator_api: Any = None,
+        existing_state: WorkflowExecutionState | None = None,
     ) -> WorkflowExecutionState:
-        state = WorkflowExecutionState(
-            workflow_id=workflow_id,
-            run_id=run_id,
-            session_id=session_id,
-            status="running",
-            started_at=datetime.now(timezone.utc).isoformat(),
-            context={"input": {"message": initial_message}},
-        )
+        if existing_state is not None:
+            state = existing_state
+            state.status = "running"
+            state.started_at = datetime.now(timezone.utc).isoformat()
+            state.context = {"input": {"message": initial_message}}
+        else:
+            state = WorkflowExecutionState(
+                workflow_id=workflow_id,
+                run_id=run_id,
+                session_id=session_id,
+                status="running",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                context={"input": {"message": initial_message}},
+            )
 
         current_step_id: str | None = graph.entry_step_id
 
@@ -276,7 +283,7 @@ class WorkflowEngine:
         if config is None:
             return StepResult(step_id=step_def.id, status="error", error=f"Connector not found: {connector_id}")
 
-        connector = self._connector_registry.create(config)
+        connector = self._connector_registry.create_connector(config)
         method = step_def.connector_method or ""
         params = resolve_params(step_def.connector_params, state.context)
 
@@ -293,6 +300,9 @@ class WorkflowEngine:
         self, step_def: WorkflowStepDef, state: WorkflowExecutionState
     ) -> StepResult:
         expr = step_def.transform_expr or ""
+        # Auto-wrap bare expressions (without {{...}}) so template resolution works
+        if expr and "{{" not in expr:
+            expr = "{{" + expr + "}}"
         resolved = resolve_templates(expr, state.context)
 
         # Try to parse as JSON for structured output

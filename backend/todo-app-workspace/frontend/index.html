@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .todo-form {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .todo-form input {
+            flex: 1;
+            padding: 10px;
+            font-size: 16px;
+        }
+        .todo-form button {
+            padding: 10px 20px;
+            margin-left: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .todo-list {
+            list-style: none;
+            padding: 0;
+        }
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .todo-item.completed .todo-title {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .todo-title {
+            flex: 1;
+            margin-left: 10px;
+        }
+        .todo-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 5px 10px;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-delete {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn-update {
+            background-color: #28a745;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Todo App</h1>
+    
+    <form class="todo-form" id="todoForm">
+        <input type="text" id="todoInput" placeholder="Enter a new todo" required>
+        <button type="submit">Add Todo</button>
+    </form>
+    
+    <ul class="todo-list" id="todoList"></ul>
+
+    <script>
+        // API endpoint
+        const API_BASE = 'http://localhost:3000/api';
+        
+        // DOM elements
+        const todoForm = document.getElementById('todoForm');
+        const todoInput = document.getElementById('todoInput');
+        const todoList = document.getElementById('todoList');
+        
+        // Load todos on page load
+        document.addEventListener('DOMContentLoaded', loadTodos);
+        
+        // Add todo form submission
+        todoForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = todoInput.value.trim();
+            
+            if (title) {
+                await createTodo(title);
+                todoInput.value = '';
+                loadTodos();
+            }
+        });
+        
+        // Load all todos
+        async function loadTodos() {
+            try {
+                const response = await fetch(`${API_BASE}/todos`);
+                const todos = await response.json();
+                
+                todoList.innerHTML = '';
+                todos.forEach(todo => {
+                    const todoItem = document.createElement('li');
+                    todoItem.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+                    todoItem.dataset.id = todo.id;
+                    
+                    todoItem.innerHTML = `
+                        <input type="checkbox" ${todo.completed ? 'checked' : ''} onchange="toggleTodo(${todo.id}, this.checked)">
+                        <span class="todo-title">${todo.title}</span>
+                        <div class="todo-actions">
+                            <button class="btn btn-update" onclick="deleteTodo(${todo.id})">Delete</button>
+                        </div>
+                    `;
+                    
+                    todoList.appendChild(todoItem);
+                });
+            } catch (error) {
+                console.error('Error loading todos:', error);
+            }
+        }
+        
+        // Create a new todo
+        async function createTodo(title) {
+            try {
+                await fetch(`${API_BASE}/todos`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title })
+                });
+            } catch (error) {
+                console.error('Error creating todo:', error);
+            }
+        }
+        
+        // Toggle todo completion status
+        async function toggleTodo(id, completed) {
+            try {
+                await fetch(`${API_BASE}/todos/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ completed })
+                });
+                loadTodos();
+            } catch (error) {
+                console.error('Error toggling todo:', error);
+            }
+        }
+        
+        // Delete a todo
+        async function deleteTodo(id) {
+            try {
+                await fetch(`${API_BASE}/todos/${id}`, {
+                    method: 'DELETE'
+                });
+                loadTodos();
+            } catch (error) {
+                console.error('Error deleting todo:', error);
+            }
+        }
+    </script>
+</body>
+</html>

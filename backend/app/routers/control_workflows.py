@@ -203,9 +203,8 @@ def build_control_workflows_router(
             "triggers": data.get("triggers", []),
         }
 
-        result = await workflows_create_handler(create_payload, x_idempotency_key)
-        if inspect.isawaitable(result):
-            result = await result
-        return result
+        result = workflows_create_handler(create_payload, x_idempotency_key)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
 
     return router

@@ -61,7 +61,9 @@ def build_webhooks_router() -> APIRouter:
             else getattr(webhook_trigger, "webhook_secret", None)
         )
 
-        if secret and x_webhook_signature:
+        if secret:
+            if not x_webhook_signature:
+                raise HTTPException(status_code=401, detail="Webhook signature required")
             expected = hmac.new(
                 secret.encode(), body, hashlib.sha256
             ).hexdigest()
@@ -87,9 +89,9 @@ def build_webhooks_router() -> APIRouter:
                 request_data=execute_request.model_dump(),
                 idempotency_key_header=None,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("webhook_trigger_execute_failed workflow_id=%s", workflow_id)
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail="Workflow execution failed")
 
         run_id = result.get("runId") or result.get("run_id") or str(uuid.uuid4())
         return {
