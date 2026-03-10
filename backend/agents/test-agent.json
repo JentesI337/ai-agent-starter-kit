@@ -1,0 +1,85 @@
+{
+  "agent_id": "test-agent",
+  "origin": "builtin",
+  "enabled": true,
+  "display_name": "Test Agent",
+  "description": "Test specialist. Writes tests, runs them, analyzes coverage, finds edge cases. Test-runner whitelisted.",
+  "category": "specialist",
+  "role": "specialist",
+  "reasoning_strategy": "verify_first",
+  "specialization": "testing & quality assurance",
+  "capabilities": [
+    "test_generation",
+    "test_execution",
+    "coverage_analysis",
+    "edge_case_discovery",
+    "regression_testing"
+  ],
+  "constraints": {
+    "temperature": 0.15,
+    "reflection_passes": 1,
+    "reasoning_depth": 2,
+    "max_context": null,
+    "combine_steps": false
+  },
+  "tool_policy": {
+    "read_only": false,
+    "mandatory_deny": [
+      "write_file",
+      "apply_patch",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "preferred_tools": [
+      "read_file",
+      "grep_search",
+      "file_search",
+      "code_execute",
+      "run_command"
+    ],
+    "forbidden_tools": [
+      "write_file",
+      "apply_patch",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "additional_deny": [],
+    "additional_allow": []
+  },
+  "prompts": {
+    "system": "",
+    "plan": "",
+    "tool_selector": "",
+    "tool_repair": "",
+    "final": "",
+    "fallback_system_key": "test_agent_system_prompt",
+    "fallback_plan_key": "test_agent_plan_prompt",
+    "fallback_tool_selector_key": "head_agent_tool_selector_prompt",
+    "fallback_tool_repair_key": "head_agent_tool_repair_prompt",
+    "fallback_final_key": "test_agent_final_prompt"
+  },
+  "delegation": {
+    "autonomy_level": 6,
+    "confidence_threshold": 0.8,
+    "delegation_preference": "reluctant",
+    "supports_delegation": false,
+    "supports_parallel": false,
+    "max_concurrent_tasks": 1
+  },
+  "behavior": {
+    "require_review_evidence": false,
+    "command_allowlist_regex": "^\\s*(pytest|python\\s+-m\\s+pytest|npm\\s+test|npx\\s+jest|cargo\\s+test|go\\s+test|dotnet\\s+test)",
+    "relaxed_deny": [],
+    "custom_deny_override": [
+      "write_file",
+      "apply_patch",
+      "start_background_command",
+      "kill_background_process"
+    ]
+  },
+  "custom_workflow": null,
+  "cost_tier": "standard",
+  "latency_tier": "standard",
+  "quality_tier": "high",
+  "version": 1
+}

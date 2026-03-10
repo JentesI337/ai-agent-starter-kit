@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 
-from app.custom_agents import CustomAgentAdapter
+from app.agents.factory_defaults import FACTORY_DEFAULTS
 from app.interfaces import OrchestratorApi
 
 
@@ -15,59 +15,15 @@ class AgentCapabilityMatch:
     score: int
 
 
-DEFAULT_AGENT_CAPABILITIES: dict[str, tuple[str, ...]] = {
-    "head-agent": ("general_reasoning", "coordination", "fallback"),
-    "coder-agent": ("code_reasoning", "code_modification", "command_execution", "tooling"),
-    "review-agent": ("review_analysis", "security_review", "quality_review", "read_only"),
-    "researcher-agent": (
-        "deep_research", "web_research", "analysis", "synthesis", "fact_checking",
-    ),
-    "architect-agent": (
-        "architecture_analysis", "system_design", "trade_off_analysis",
-        "adr_creation", "refactoring_planning", "read_only",
-    ),
-    "test-agent": (
-        "test_generation", "test_execution", "coverage_analysis",
-        "edge_case_discovery", "regression_testing",
-    ),
-    "security-agent": (
-        "security_review", "vulnerability_analysis", "dependency_audit",
-        "secret_detection", "owasp_analysis", "read_only",
-    ),
-    "doc-agent": (
-        "documentation", "api_docs", "readme_generation",
-        "changelog", "architecture_diagrams", "comment_quality",
-    ),
-    "refactor-agent": (
-        "refactoring", "code_smell_detection", "pattern_application",
-        "safe_transformation", "test_validation",
-    ),
-    "devops-agent": (
-        "ci_cd", "containerization", "infrastructure",
-        "deployment", "performance_profiling", "monitoring_setup",
-    ),
-    "fintech-agent": (
-        "fintech_compliance", "payment_flow_analysis", "audit_trail_review",
-        "fraud_detection", "ledger_design", "pci_dss", "psd2", "read_only",
-    ),
-    "healthtech-agent": (
-        "healthtech_compliance", "phi_protection", "hipaa", "gdpr_health",
-        "hl7_fhir", "dicom", "clinical_workflow", "anonymization", "read_only",
-    ),
-    "legaltech-agent": (
-        "legal_compliance", "gdpr", "ccpa", "ai_act", "license_scanning",
-        "dpia", "data_transfer_assessment", "cookie_consent", "read_only",
-    ),
-    "ecommerce-agent": (
-        "ecommerce_design", "catalog_modeling", "checkout_flow",
-        "order_processing", "seo_optimization", "pricing_engine",
-        "inventory_management", "structured_data",
-    ),
-    "industrytech-agent": (
-        "iot_analysis", "mqtt", "opcua", "predictive_maintenance",
-        "digital_twin", "edge_computing", "iec_62443", "time_series",
-    ),
-}
+def _builtin_capabilities() -> dict[str, tuple[str, ...]]:
+    """Derive capability tuples from the factory default definitions."""
+    return {
+        agent_id: tuple(defn.capabilities)
+        for agent_id, defn in FACTORY_DEFAULTS.items()
+    }
+
+
+DEFAULT_AGENT_CAPABILITIES: dict[str, tuple[str, ...]] = _builtin_capabilities()
 
 
 def normalize_agent_id(
@@ -109,6 +65,9 @@ def sync_custom_agents(
     review_agent_id: str,
     effective_orchestrator_agent_ids_fn,
 ) -> None:
+    from app.agent import HeadAgent
+    from app.agents.unified_adapter import UnifiedAgentAdapter
+
     for custom_id in list(components.custom_agent_ids):
         components.agent_registry.pop(custom_id, None)
         components.orchestrator_registry.pop(custom_id, None)
@@ -116,25 +75,38 @@ def sync_custom_agents(
     components.custom_agent_ids = set()
     components.custom_orchestrator_agent_ids = set()
 
-    definitions = components.custom_agent_store.list()
-    for definition in definitions:
-        custom_id = normalize_agent_id_fn(definition.id)
+    store = components.agent_store
+    custom_records = [r for r in store.list_enabled() if r.origin == "custom"]
+    for record in custom_records:
+        custom_id = normalize_agent_id_fn(record.agent_id)
         if not custom_id or custom_id in {primary_agent_id, coder_agent_id, review_agent_id}:
             continue
 
-        base_id = normalize_agent_id_fn(definition.base_agent_id)
-        base_agent = components.agent_registry.get(base_id)
-        if base_agent is None:
-            continue
+        # For custom agents, use the base agent's role for prompt resolution
+        base_agent_id = record.custom_workflow.base_agent_id if record.custom_workflow else "head-agent"
+        delegate = HeadAgent(name=record.display_name, role=base_agent_id)
+        adapter = UnifiedAgentAdapter(record, delegate)
+        # Configure runtime from the base agent if available
+        base_adapter = components.agent_registry.get(base_agent_id)
+        if base_adapter is not None:
+            configure = getattr(base_adapter, "_delegate", None)
+            if configure is not None and hasattr(configure, "_base_url"):
+                try:
+                    delegate.configure_runtime(
+                        base_url=configure._base_url,
+                        model=configure._model,
+                    )
+                except Exception:
+                    pass
 
-        adapter = CustomAgentAdapter(definition=definition, base_agent=base_agent)
         components.agent_registry[custom_id] = adapter
         components.orchestrator_registry[custom_id] = OrchestratorApi(
             agent=adapter,
             state_store=components.state_store,
         )
         components.custom_agent_ids.add(custom_id)
-        if bool(getattr(definition, "allow_subrun_delegation", False)):
+        wf = record.custom_workflow
+        if wf and wf.allow_subrun_delegation:
             components.custom_orchestrator_agent_ids.add(custom_id)
 
     if components.subrun_lane is not None:
@@ -315,9 +287,11 @@ def resolve_agent_capabilities(*, agent_id: str, agent_registry: Mapping[str, ob
     if defaults is not None:
         return defaults
 
+    # Unified adapter: read capabilities from the record
     candidate = agent_registry.get(normalized_agent_id)
-    if isinstance(candidate, CustomAgentAdapter):
-        raw_capabilities = getattr(candidate.definition, "capabilities", ())
+    record = getattr(candidate, "record", None)
+    if record is not None:
+        raw_capabilities = getattr(record, "capabilities", ())
         normalized = tuple(
             str(item).strip().lower()
             for item in (raw_capabilities or ())

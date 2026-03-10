@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
 
 export interface RuntimeStatus {
   runtime: 'local' | 'api';
@@ -124,6 +125,56 @@ export interface CreateCustomAgentPayload {
     allow?: string[];
     deny?: string[];
   };
+}
+
+// ── Unified Agent Store types ──────────────────────
+
+export interface UnifiedAgentRecord {
+  agentId: string;
+  origin: 'builtin' | 'custom';
+  enabled: boolean;
+  displayName: string;
+  description: string;
+  category: 'core' | 'specialist' | 'industry' | 'custom';
+  role: string;
+  reasoningStrategy: string;
+  specialization: string;
+  capabilities: string[];
+  constraints: {
+    temperature: number;
+    reflection_passes: number;
+    reasoning_depth: number;
+    max_context: number | null;
+    combine_steps: boolean;
+  };
+  toolPolicy: {
+    read_only: boolean;
+    mandatory_deny: string[];
+    preferred_tools: string[];
+    forbidden_tools: string[];
+    additional_deny: string[];
+    additional_allow: string[];
+  };
+  prompts: Record<string, string>;
+  delegation: Record<string, unknown>;
+  behavior: Record<string, unknown>;
+  customWorkflow: {
+    base_agent_id: string;
+    workflow_steps: string[];
+    allow_subrun_delegation: boolean;
+    workspace_scope: string | null;
+    skills_scope: string | null;
+    credential_scope: string | null;
+  } | null;
+  costTier: string;
+  latencyTier: string;
+  qualityTier: string;
+  version: number;
+}
+
+export interface AgentManifest {
+  enabled_agents: string[];
+  disabled_agents: string[];
 }
 
 export interface PolicyApprovalRecord {
@@ -344,5 +395,35 @@ export class AgentsService {
     search_query?: string;
   }) {
     return this.http.post<MemoryOverviewResponse>(`${this.apiBase}/api/control/memory.overview`, payload ?? {});
+  }
+
+  // ── Unified Agent Store endpoints ─────────────────
+
+  getAgentsFromStore(): Observable<UnifiedAgentRecord[]> {
+    return this.http.get<UnifiedAgentRecord[]>(`${this.apiBase}/api/agents/store`);
+  }
+
+  patchAgent(agentId: string, patch: Record<string, unknown>): Observable<UnifiedAgentRecord> {
+    return this.http.patch<UnifiedAgentRecord>(`${this.apiBase}/api/agents/${encodeURIComponent(agentId)}`, patch);
+  }
+
+  createUnifiedAgent(data: Record<string, unknown>): Observable<UnifiedAgentRecord> {
+    return this.http.post<UnifiedAgentRecord>(`${this.apiBase}/api/agents`, data);
+  }
+
+  deleteUnifiedAgent(agentId: string): Observable<{ ok: boolean; deletedId: string }> {
+    return this.http.delete<{ ok: boolean; deletedId: string }>(`${this.apiBase}/api/agents/${encodeURIComponent(agentId)}`);
+  }
+
+  resetAgent(agentId: string): Observable<UnifiedAgentRecord> {
+    return this.http.post<UnifiedAgentRecord>(`${this.apiBase}/api/agents/${encodeURIComponent(agentId)}/reset`, {});
+  }
+
+  getManifest(): Observable<AgentManifest> {
+    return this.http.get<AgentManifest>(`${this.apiBase}/api/agents/manifest`);
+  }
+
+  updateManifest(data: Partial<AgentManifest>): Observable<AgentManifest> {
+    return this.http.put<AgentManifest>(`${this.apiBase}/api/agents/manifest`, data);
   }
 }

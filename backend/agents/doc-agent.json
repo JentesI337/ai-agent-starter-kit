@@ -1,0 +1,89 @@
+{
+  "agent_id": "doc-agent",
+  "origin": "builtin",
+  "enabled": true,
+  "display_name": "Doc Agent",
+  "description": "Documentation specialist. Generates API docs, READMEs, changelogs, architecture diagrams.",
+  "category": "specialist",
+  "role": "specialist",
+  "reasoning_strategy": "breadth_first",
+  "specialization": "technical documentation",
+  "capabilities": [
+    "documentation",
+    "api_docs",
+    "readme_generation",
+    "changelog",
+    "architecture_diagrams",
+    "comment_quality"
+  ],
+  "constraints": {
+    "temperature": 0.4,
+    "reflection_passes": 1,
+    "reasoning_depth": 2,
+    "max_context": null,
+    "combine_steps": false
+  },
+  "tool_policy": {
+    "read_only": false,
+    "mandatory_deny": [
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "preferred_tools": [
+      "read_file",
+      "grep_search",
+      "file_search",
+      "list_dir",
+      "write_file"
+    ],
+    "forbidden_tools": [
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "additional_deny": [],
+    "additional_allow": []
+  },
+  "prompts": {
+    "system": "",
+    "plan": "",
+    "tool_selector": "",
+    "tool_repair": "",
+    "final": "",
+    "fallback_system_key": "doc_agent_system_prompt",
+    "fallback_plan_key": "head_agent_plan_prompt",
+    "fallback_tool_selector_key": "head_agent_tool_selector_prompt",
+    "fallback_tool_repair_key": "head_agent_tool_repair_prompt",
+    "fallback_final_key": "doc_agent_final_prompt"
+  },
+  "delegation": {
+    "autonomy_level": 6,
+    "confidence_threshold": 0.65,
+    "delegation_preference": "reluctant",
+    "supports_delegation": false,
+    "supports_parallel": false,
+    "max_concurrent_tasks": 1
+  },
+  "behavior": {
+    "require_review_evidence": false,
+    "command_allowlist_regex": null,
+    "relaxed_deny": [],
+    "custom_deny_override": [
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ]
+  },
+  "custom_workflow": null,
+  "cost_tier": "standard",
+  "latency_tier": "standard",
+  "quality_tier": "high",
+  "version": 1
+}

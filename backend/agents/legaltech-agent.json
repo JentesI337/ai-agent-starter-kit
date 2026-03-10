@@ -1,0 +1,88 @@
+{
+  "agent_id": "legaltech-agent",
+  "origin": "builtin",
+  "enabled": false,
+  "display_name": "LegalTech Agent",
+  "description": "LegalTech domain expert. Analyzes GDPR/CCPA/AI-Act compliance, scans OSS licenses, performs DPIAs. Read-only.",
+  "category": "industry",
+  "role": "specialist",
+  "reasoning_strategy": "analytical",
+  "specialization": "legal technology & compliance",
+  "capabilities": [
+    "legal_compliance",
+    "gdpr",
+    "ccpa",
+    "ai_act",
+    "license_scanning",
+    "dpia",
+    "data_transfer_assessment",
+    "cookie_consent",
+    "read_only"
+  ],
+  "constraints": {
+    "temperature": 0.15,
+    "reflection_passes": 2,
+    "reasoning_depth": 3,
+    "max_context": 12288,
+    "combine_steps": false
+  },
+  "tool_policy": {
+    "read_only": true,
+    "mandatory_deny": [
+      "write_file",
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "preferred_tools": [
+      "read_file",
+      "grep_search",
+      "file_search",
+      "list_dir",
+      "list_code_usages"
+    ],
+    "forbidden_tools": [
+      "write_file",
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "additional_deny": [],
+    "additional_allow": []
+  },
+  "prompts": {
+    "system": "",
+    "plan": "",
+    "tool_selector": "",
+    "tool_repair": "",
+    "final": "",
+    "fallback_system_key": "legaltech_agent_system_prompt",
+    "fallback_plan_key": "legaltech_agent_plan_prompt",
+    "fallback_tool_selector_key": "head_agent_tool_selector_prompt",
+    "fallback_tool_repair_key": "head_agent_tool_repair_prompt",
+    "fallback_final_key": "legaltech_agent_final_prompt"
+  },
+  "delegation": {
+    "autonomy_level": 5,
+    "confidence_threshold": 0.85,
+    "delegation_preference": "reluctant",
+    "supports_delegation": false,
+    "supports_parallel": false,
+    "max_concurrent_tasks": 1
+  },
+  "behavior": {
+    "require_review_evidence": false,
+    "command_allowlist_regex": null,
+    "relaxed_deny": [],
+    "custom_deny_override": null
+  },
+  "custom_workflow": null,
+  "cost_tier": "standard",
+  "latency_tier": "standard",
+  "quality_tier": "high",
+  "version": 1
+}

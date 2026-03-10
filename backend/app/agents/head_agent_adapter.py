@@ -20,6 +20,7 @@ from app.agent import (
     SecurityAgent,
     TestAgent,
 )
+from app.agents.agent_definition import BUILTIN_AGENT_DEFINITIONS
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import AgentInput, CoderAgentOutput, HeadAgentOutput
@@ -104,7 +105,20 @@ class _BaseSpecialistAdapter(AgentContract):
     def _create_delegate(self) -> HeadAgent:
         raise NotImplementedError
 
+    # Adapter role -> definition key (where they differ)
+    _ROLE_TO_DEFINITION_KEY: dict[str, str] = {"coding-agent": "coder-agent"}
+
     def _build_agent_constraints(self) -> AgentConstraints:
+        role = getattr(self, "role", "")
+        lookup_key = self._ROLE_TO_DEFINITION_KEY.get(role, role)
+        defn = BUILTIN_AGENT_DEFINITIONS.get(lookup_key)
+        if defn is not None:
+            return _build_constraints(
+                temperature=defn.constraints.temperature,
+                reflection_passes=defn.constraints.reflection_passes,
+                reasoning_depth=defn.constraints.reasoning_depth,
+                max_context=defn.constraints.max_context,
+            )
         return _build_constraints(temperature=0.3, reflection_passes=0)
 
     # --- AgentContract implementation ---
@@ -175,9 +189,6 @@ class HeadAgentAdapter(_BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return HeadAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(temperature=0.3, reflection_passes=0)
-
 
 class CoderAgentAdapter(_BaseSpecialistAdapter):
     role = "coding-agent"
@@ -189,9 +200,6 @@ class CoderAgentAdapter(_BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return CoderAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(temperature=0.3, reflection_passes=0)
-
 
 class ReviewAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
     role = "review-agent"
@@ -201,9 +209,6 @@ class ReviewAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return ReviewAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(temperature=0.2, reflection_passes=1)
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
@@ -266,14 +271,6 @@ class ResearcherAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter)
     def _create_delegate(self) -> HeadAgent:
         return ResearcherAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.25,
-            reflection_passes=1,
-            reasoning_depth=3,
-            max_context=16384,
-        )
-
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
 
@@ -285,14 +282,6 @@ class ArchitectAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return ArchitectAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.35,
-            reflection_passes=2,
-            reasoning_depth=4,
-            max_context=12288,
-        )
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
@@ -313,13 +302,6 @@ class TestAgentAdapter(_BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return TestAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.15,
-            reflection_passes=1,
-            reasoning_depth=2,
-        )
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []
@@ -347,13 +329,6 @@ class SecurityAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return SecurityAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.1,
-            reflection_passes=2,
-            reasoning_depth=3,
-        )
-
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
 
@@ -365,13 +340,6 @@ class DocAgentAdapter(_BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return DocAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.4,
-            reflection_passes=1,
-            reasoning_depth=2,
-        )
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         # Doc agent can read, write (limited to .md), grep, list — no command/patch
@@ -401,13 +369,6 @@ class RefactorAgentAdapter(_BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return RefactorAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.2,
-            reflection_passes=2,
-            reasoning_depth=3,
-        )
-
 
 class DevOpsAgentAdapter(_BaseSpecialistAdapter):
     """DevOps specialist — CI/CD, containerization, infrastructure.
@@ -420,13 +381,6 @@ class DevOpsAgentAdapter(_BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return DevOpsAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.2,
-            reflection_passes=1,
-            reasoning_depth=2,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -445,14 +399,6 @@ class FinTechAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return FinTechAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.15,
-            reflection_passes=2,
-            reasoning_depth=4,
-            max_context=16384,
-        )
-
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
 
@@ -468,14 +414,6 @@ class HealthTechAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter)
     def _create_delegate(self) -> HeadAgent:
         return HealthTechAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.1,
-            reflection_passes=2,
-            reasoning_depth=4,
-            max_context=16384,
-        )
-
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
 
@@ -490,14 +428,6 @@ class LegalTechAgentAdapter(_ReadOnlyAgentAdapterMixin, _BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return LegalTechAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.15,
-            reflection_passes=2,
-            reasoning_depth=3,
-            max_context=12288,
-        )
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         return self._build_read_only_policy(tool_policy)
@@ -515,13 +445,6 @@ class ECommerceAgentAdapter(_BaseSpecialistAdapter):
     def _create_delegate(self) -> HeadAgent:
         return ECommerceAgent()
 
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.25,
-            reflection_passes=1,
-            reasoning_depth=3,
-        )
-
 
 class IndustryTechAgentAdapter(_BaseSpecialistAdapter):
     """IndustryTech specialist — IoT, MQTT/OPC-UA, predictive maintenance, digital twins.
@@ -536,14 +459,6 @@ class IndustryTechAgentAdapter(_BaseSpecialistAdapter):
 
     def _create_delegate(self) -> HeadAgent:
         return IndustryTechAgent()
-
-    def _build_agent_constraints(self) -> AgentConstraints:
-        return _build_constraints(
-            temperature=0.2,
-            reflection_passes=1,
-            reasoning_depth=3,
-            max_context=16384,
-        )
 
     def normalize_tool_policy(self, tool_policy: ToolPolicyDict | None) -> ToolPolicyDict | None:
         requested_deny: list[str] = []

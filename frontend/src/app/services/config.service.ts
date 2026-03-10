@@ -181,20 +181,24 @@ export class ConfigService {
     return this.http.post<ConfigHealthResponse>(`${this.api}/config.health`, {});
   }
 
-  // ── Agent Configs ──────────────────────────────────
+  // ── Agent Configs (deprecated — use AgentsService.patchAgent instead) ──
 
+  /** @deprecated Use AgentsService.getAgentsFromStore() */
   getAgentConfigs(): Observable<AgentConfigListResponse> {
     return this.http.post<AgentConfigListResponse>(`${this.api}/agents.config.list`, {});
   }
 
+  /** @deprecated Use AgentsService.getAgentsFromStore() */
   getAgentConfig(agentId: string): Observable<AgentConfigGetResponse> {
     return this.http.post<AgentConfigGetResponse>(`${this.api}/agents.config.get`, { agentId });
   }
 
+  /** @deprecated Use AgentsService.patchAgent() */
   updateAgentConfig(agentId: string, updates: Record<string, unknown>): Observable<AgentConfigUpdateResponse> {
     return this.http.post<AgentConfigUpdateResponse>(`${this.api}/agents.config.update`, { agentId, updates });
   }
 
+  /** @deprecated Use AgentsService.resetAgent() */
   resetAgentConfig(agentId: string): Observable<{ schema: string }> {
     return this.http.post<{ schema: string }>(`${this.api}/agents.config.reset`, { agentId });
   }

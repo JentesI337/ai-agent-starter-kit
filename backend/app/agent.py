@@ -304,114 +304,26 @@ class HeadAgent:
         )
 
     def _resolve_prompt_profile(self, role: str) -> PromptProfile:
+        from app.agents.factory_defaults import FACTORY_DEFAULTS
+
         normalized_role = (role or "").strip().lower()
-        if normalized_role == "coding-agent":
+
+        # coding-agent is the adapter role for coder-agent
+        lookup_key = "coder-agent" if normalized_role == "coding-agent" else normalized_role
+        record = FACTORY_DEFAULTS.get(lookup_key)
+
+        if record is not None:
+            ps = record.prompts
             return PromptProfile(
-                system_prompt=settings.coder_agent_system_prompt,
-                plan_prompt=settings.coder_agent_plan_prompt,
-                tool_selector_prompt=settings.coder_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.coder_agent_tool_repair_prompt,
-                final_prompt=settings.coder_agent_final_prompt,
+                system_prompt=ps.system.strip() or getattr(settings, ps.fallback_system_key, ""),
+                plan_prompt=ps.plan.strip() or getattr(settings, ps.fallback_plan_key, ""),
+                tool_selector_prompt=ps.tool_selector.strip() or getattr(settings, ps.fallback_tool_selector_key, ""),
+                tool_repair_prompt=ps.tool_repair.strip() or getattr(settings, ps.fallback_tool_repair_key, ""),
+                final_prompt=ps.final.strip() or getattr(settings, ps.fallback_final_key, ""),
             )
-        if normalized_role == "researcher-agent":
-            return PromptProfile(
-                system_prompt=settings.researcher_agent_system_prompt,
-                plan_prompt=settings.researcher_agent_plan_prompt,
-                tool_selector_prompt=settings.researcher_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.researcher_agent_final_prompt,
-            )
-        if normalized_role == "architect-agent":
-            return PromptProfile(
-                system_prompt=settings.architect_agent_system_prompt,
-                plan_prompt=settings.architect_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.architect_agent_final_prompt,
-            )
-        if normalized_role == "test-agent":
-            return PromptProfile(
-                system_prompt=settings.test_agent_system_prompt,
-                plan_prompt=settings.test_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.test_agent_final_prompt,
-            )
-        if normalized_role == "security-agent":
-            return PromptProfile(
-                system_prompt=settings.security_agent_system_prompt,
-                plan_prompt=settings.head_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.security_agent_final_prompt,
-            )
-        if normalized_role == "doc-agent":
-            return PromptProfile(
-                system_prompt=settings.doc_agent_system_prompt,
-                plan_prompt=settings.head_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.doc_agent_final_prompt,
-            )
-        if normalized_role == "refactor-agent":
-            return PromptProfile(
-                system_prompt=settings.refactor_agent_system_prompt,
-                plan_prompt=settings.head_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.refactor_agent_final_prompt,
-            )
-        if normalized_role == "devops-agent":
-            return PromptProfile(
-                system_prompt=settings.devops_agent_system_prompt,
-                plan_prompt=settings.head_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.devops_agent_final_prompt,
-            )
-        if normalized_role == "fintech-agent":
-            return PromptProfile(
-                system_prompt=settings.fintech_agent_system_prompt,
-                plan_prompt=settings.fintech_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.fintech_agent_final_prompt,
-            )
-        if normalized_role == "healthtech-agent":
-            return PromptProfile(
-                system_prompt=settings.healthtech_agent_system_prompt,
-                plan_prompt=settings.healthtech_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.healthtech_agent_final_prompt,
-            )
-        if normalized_role == "legaltech-agent":
-            return PromptProfile(
-                system_prompt=settings.legaltech_agent_system_prompt,
-                plan_prompt=settings.legaltech_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.legaltech_agent_final_prompt,
-            )
-        if normalized_role == "ecommerce-agent":
-            return PromptProfile(
-                system_prompt=settings.ecommerce_agent_system_prompt,
-                plan_prompt=settings.ecommerce_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.ecommerce_agent_final_prompt,
-            )
-        if normalized_role == "industrytech-agent":
-            return PromptProfile(
-                system_prompt=settings.industrytech_agent_system_prompt,
-                plan_prompt=settings.industrytech_agent_plan_prompt,
-                tool_selector_prompt=settings.head_agent_tool_selector_prompt,
-                tool_repair_prompt=settings.head_agent_tool_repair_prompt,
-                final_prompt=settings.industrytech_agent_final_prompt,
-            )
-        # review-agent intentionally uses head-agent prompts (no dedicated prompts)
-        _KNOWN_FALLBACK_ROLES = {"head-agent", "review-agent"}
-        if normalized_role and normalized_role not in _KNOWN_FALLBACK_ROLES:
+
+        # Unknown role — fall back to head-agent prompts
+        if normalized_role and normalized_role != "head-agent":
             logging.getLogger(__name__).warning(
                 "unknown_agent_role role=%s — falling back to head-agent prompts",
                 normalized_role,

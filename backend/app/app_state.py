@@ -15,7 +15,7 @@ class RuntimeComponents:
     session_query_service: Any
     policy_approval_service: Any
     orchestrator_registry: dict[str, Any]
-    custom_agent_store: Any
+    agent_store: Any
     custom_agent_ids: set[str] = field(default_factory=set)
     custom_orchestrator_agent_ids: set[str] = field(default_factory=set)
     agent: Any | None = None
@@ -24,6 +24,15 @@ class RuntimeComponents:
     model_health_tracker: Any | None = None
     circuit_breaker: Any | None = None
     policy_approval_handler: Any | None = None
+    _custom_agent_store_compat: Any | None = field(default=None, repr=False)
+
+    @property
+    def custom_agent_store(self) -> Any:
+        """Backward-compatible accessor — wraps UnifiedAgentStore."""
+        if self._custom_agent_store_compat is None:
+            from app.agents.agent_store import CustomAgentStoreCompat
+            self._custom_agent_store_compat = CustomAgentStoreCompat(self.agent_store)
+        return self._custom_agent_store_compat
 
 
 @dataclass

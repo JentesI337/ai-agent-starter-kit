@@ -1,0 +1,89 @@
+{
+  "agent_id": "researcher-agent",
+  "origin": "builtin",
+  "enabled": true,
+  "display_name": "Research Agent",
+  "description": "Research specialist. Searches web, reads files, synthesizes findings with source citations. Read-only.",
+  "category": "specialist",
+  "role": "researcher",
+  "reasoning_strategy": "breadth_first",
+  "specialization": "information retrieval & synthesis",
+  "capabilities": [
+    "deep_research",
+    "web_research",
+    "analysis",
+    "synthesis",
+    "fact_checking",
+    "web_retrieval",
+    "knowledge_retrieval",
+    "research",
+    "information_synthesis"
+  ],
+  "constraints": {
+    "temperature": 0.25,
+    "reflection_passes": 1,
+    "reasoning_depth": 3,
+    "max_context": 16384,
+    "combine_steps": false
+  },
+  "tool_policy": {
+    "read_only": true,
+    "mandatory_deny": [
+      "write_file",
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command",
+      "kill_background_process"
+    ],
+    "preferred_tools": [
+      "web_search",
+      "web_fetch",
+      "http_request",
+      "read_file",
+      "grep_search",
+      "file_search",
+      "list_dir"
+    ],
+    "forbidden_tools": [
+      "write_file",
+      "apply_patch",
+      "run_command",
+      "code_execute",
+      "start_background_command"
+    ],
+    "additional_deny": [],
+    "additional_allow": []
+  },
+  "prompts": {
+    "system": "",
+    "plan": "",
+    "tool_selector": "",
+    "tool_repair": "",
+    "final": "",
+    "fallback_system_key": "researcher_agent_system_prompt",
+    "fallback_plan_key": "researcher_agent_plan_prompt",
+    "fallback_tool_selector_key": "researcher_agent_tool_selector_prompt",
+    "fallback_tool_repair_key": "head_agent_tool_repair_prompt",
+    "fallback_final_key": "researcher_agent_final_prompt"
+  },
+  "delegation": {
+    "autonomy_level": 6,
+    "confidence_threshold": 0.6,
+    "delegation_preference": "reluctant",
+    "supports_delegation": false,
+    "supports_parallel": true,
+    "max_concurrent_tasks": 2
+  },
+  "behavior": {
+    "require_review_evidence": false,
+    "command_allowlist_regex": null,
+    "relaxed_deny": [],
+    "custom_deny_override": null
+  },
+  "custom_workflow": null,
+  "cost_tier": "cheap",
+  "latency_tier": "fast",
+  "quality_tier": "standard",
+  "version": 1
+}

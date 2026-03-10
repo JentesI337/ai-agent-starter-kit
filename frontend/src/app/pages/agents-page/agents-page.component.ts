@@ -9,16 +9,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import {
-  AgentDescriptor,
   AgentsService,
-  CustomAgentDefinition,
-  CreateCustomAgentPayload,
+  UnifiedAgentRecord,
   MemoryOverviewResponse,
 } from '../../services/agents.service';
-import {
-  AgentRuntimeConfig,
-  ConfigService,
-} from '../../services/config.service';
 
 // ── Types ──────────────────────────────────────────
 
@@ -30,10 +24,13 @@ interface AgentCard {
   category: 'core' | 'specialist' | 'industry' | 'custom';
   status: string;
   model: string;
+  description: string;
+  enabled: boolean;
+  origin: 'builtin' | 'custom';
   isCustom: boolean;
   toolCount: number;
   tools: string[];
-  custom?: CustomAgentDefinition;
+  record: UnifiedAgentRecord;
 }
 
 type DetailTab = 'overview' | 'config' | 'tools' | 'skills' | 'memory';
@@ -68,8 +65,7 @@ export class AgentsPageComponent implements OnInit {
   detailTab: DetailTab = 'overview';
   detailOpen = false;
 
-  // ── Config ─────────────────────────────────────────
-  agentConfig: AgentRuntimeConfig | null = null;
+  // ── Config (from unified record constraints) ──────
   configDraft: Record<string, unknown> = {};
   configSaving = false;
   configMessage = '';
@@ -92,7 +88,8 @@ export class AgentsPageComponent implements OnInit {
   // ── Create / Edit modal ────────────────────────────
   showCreateModal = false;
   editMode = false;
-  createForm: CreateCustomAgentPayload = this.emptyForm();
+  editingRecord: UnifiedAgentRecord | null = null;
+  createForm = this.emptyForm();
 
   // ── Monitoring schema cache ────────────────────────
   private agentToolsMap = new Map<string, string[]>();
@@ -105,19 +102,8 @@ export class AgentsPageComponent implements OnInit {
     'legaltech-agent': '§', 'ecommerce-agent': '◇', 'industrytech-agent': '⚙',
   };
 
-  private readonly CATEGORIES: Record<string, 'core' | 'specialist' | 'industry'> = {
-    'head-agent': 'core', 'coder-agent': 'core', 'review-agent': 'core',
-    'researcher-agent': 'specialist', 'architect-agent': 'specialist',
-    'test-agent': 'specialist', 'security-agent': 'specialist',
-    'doc-agent': 'specialist', 'refactor-agent': 'specialist', 'devops-agent': 'specialist',
-    'fintech-agent': 'industry', 'healthtech-agent': 'industry',
-    'legaltech-agent': 'industry', 'ecommerce-agent': 'industry',
-    'industrytech-agent': 'industry',
-  };
-
   constructor(
     private readonly agentsService: AgentsService,
-    private readonly configService: ConfigService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -151,60 +137,36 @@ export class AgentsPageComponent implements OnInit {
   }
 
   private loadAgents(): void {
-    let systemAgents: AgentDescriptor[] = [];
-    let customAgents: CustomAgentDefinition[] = [];
-    let loaded = 0;
-
-    const merge = (): void => {
-      if (loaded < 2) return;
-      const cards: AgentCard[] = [];
-
-      for (const a of systemAgents) {
-        const tools = this.agentToolsMap.get(a.id) ?? [];
-        cards.push({
-          id: a.id,
-          name: a.name,
-          role: a.role,
-          icon: this.AGENT_ICONS[a.id] ?? '◈',
-          category: this.CATEGORIES[a.id] ?? 'specialist',
-          status: a.status,
-          model: a.defaultModel,
-          isCustom: false,
-          toolCount: tools.length,
-          tools,
+    this.agentsService.getAgentsFromStore().subscribe({
+      next: (records) => {
+        const cards: AgentCard[] = records.map(r => {
+          const tools = this.agentToolsMap.get(r.agentId) ?? [];
+          return {
+            id: r.agentId,
+            name: r.displayName || r.agentId,
+            role: r.role,
+            icon: this.AGENT_ICONS[r.agentId] ?? (r.origin === 'custom' ? '★' : '◈'),
+            category: r.category,
+            status: r.enabled ? 'ready' : 'disabled',
+            model: '',
+            description: r.description,
+            enabled: r.enabled,
+            origin: r.origin,
+            isCustom: r.origin === 'custom',
+            toolCount: tools.length,
+            tools,
+            record: r,
+          };
         });
-      }
-
-      for (const c of customAgents) {
-        const tools = this.agentToolsMap.get(c.id) ?? [];
-        cards.push({
-          id: c.id,
-          name: c.name,
-          role: c.base_agent_id,
-          icon: '★',
-          category: 'custom',
-          status: 'ready',
-          model: '',
-          isCustom: true,
-          toolCount: tools.length,
-          tools,
-          custom: c,
-        });
-      }
-
-      this.agents = cards;
-      this.loading = false;
-      this.cdr.markForCheck();
-    };
-
-    this.agentsService.getAgents().subscribe({
-      next: (a) => { systemAgents = a; loaded++; merge(); },
-      error: () => { loaded++; merge(); },
-    });
-
-    this.agentsService.getCustomAgents().subscribe({
-      next: (a) => { customAgents = a; loaded++; merge(); },
-      error: () => { loaded++; merge(); },
+        this.agents = cards;
+        this.loading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.agents = [];
+        this.loading = false;
+        this.cdr.markForCheck();
+      },
     });
   }
 
@@ -220,7 +182,8 @@ export class AgentsPageComponent implements OnInit {
       list = list.filter(a =>
         a.name.toLowerCase().includes(q) ||
         a.id.toLowerCase().includes(q) ||
-        a.role.toLowerCase().includes(q),
+        a.role.toLowerCase().includes(q) ||
+        a.description.toLowerCase().includes(q),
       );
     }
     return list;
@@ -240,22 +203,10 @@ export class AgentsPageComponent implements OnInit {
     this.detailTab = 'overview';
     this.configMessage = '';
     this.skillsMessage = '';
-    this.agentConfig = null;
     this.memoryOverview = null;
 
-    // Load config
-    this.configService.getAgentConfig(agent.id).subscribe({
-      next: (res) => {
-        this.agentConfig = res.config;
-        this.configDraft = { ...res.config };
-        this.cdr.markForCheck();
-      },
-      error: () => {
-        this.agentConfig = null;
-        this.configDraft = {};
-        this.cdr.markForCheck();
-      },
-    });
+    // Build config draft from unified record constraints
+    this.configDraft = { ...agent.record.constraints };
 
     // Resolve effective tools
     this.agentEffectiveTools = agent.tools;
@@ -280,17 +231,31 @@ export class AgentsPageComponent implements OnInit {
     if (this.detailOpen) this.closeDetail();
   }
 
+  // ── Enable / Disable ──────────────────────────────
+
+  toggleEnabled(agent: AgentCard, event: Event): void {
+    event.stopPropagation();
+    const newEnabled = !agent.enabled;
+    this.agentsService.patchAgent(agent.id, { enabled: newEnabled }).subscribe({
+      next: () => this.loadAll(),
+      error: (err) => alert(`Toggle failed: ${err?.error?.detail ?? err.message}`),
+    });
+  }
+
   // ── Config Tab ─────────────────────────────────────
 
   saveConfig(): void {
     if (!this.selectedAgent) return;
     this.configSaving = true;
-    const updates = { ...this.configDraft };
-    delete updates['agent_id'];
-    this.configService.updateAgentConfig(this.selectedAgent.id, updates).subscribe({
-      next: (res) => {
+    this.agentsService.patchAgent(this.selectedAgent.id, { constraints: this.configDraft }).subscribe({
+      next: (updated) => {
         this.configSaving = false;
-        this.configMessage = `Saved ${res.changes?.length ?? 0} change(s)`;
+        this.configMessage = 'Config saved';
+        // Update the local record
+        if (this.selectedAgent) {
+          this.selectedAgent.record = updated;
+          this.configDraft = { ...updated.constraints };
+        }
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -303,12 +268,17 @@ export class AgentsPageComponent implements OnInit {
 
   resetConfig(): void {
     if (!this.selectedAgent) return;
+    if (this.selectedAgent.origin !== 'builtin') return;
     this.configSaving = true;
-    this.configService.resetAgentConfig(this.selectedAgent.id).subscribe({
-      next: () => {
+    this.agentsService.resetAgent(this.selectedAgent.id).subscribe({
+      next: (updated) => {
         this.configSaving = false;
-        this.configMessage = 'Reset to defaults';
-        this.selectAgent(this.selectedAgent!);
+        this.configMessage = 'Reset to factory defaults';
+        if (this.selectedAgent) {
+          this.selectedAgent.record = updated;
+          this.configDraft = { ...updated.constraints };
+        }
+        this.cdr.markForCheck();
       },
       error: (err) => {
         this.configSaving = false;
@@ -409,49 +379,74 @@ export class AgentsPageComponent implements OnInit {
   }
 
   isToolMandatoryDeny(tool: string): boolean {
-    const md = (this.agentConfig?.mandatory_deny_tools ?? []) as string[];
-    return md.includes(tool);
+    return (this.selectedAgent?.record.toolPolicy.mandatory_deny ?? []).includes(tool);
   }
 
   // ── Create / Edit ──────────────────────────────────
 
   openCreate(): void {
     this.editMode = false;
+    this.editingRecord = null;
     this.createForm = this.emptyForm();
     this.showCreateModal = true;
   }
 
   openClone(agent: AgentCard): void {
     this.editMode = false;
+    this.editingRecord = null;
+    const r = agent.record;
     this.createForm = {
-      name: `${agent.name} (Clone)`,
-      base_agent_id: agent.isCustom ? (agent.custom?.base_agent_id ?? 'head-agent') : agent.id,
-      workflow_steps: agent.custom?.workflow_steps ?? [],
-      tool_policy: agent.custom?.tool_policy ? { ...agent.custom.tool_policy } : undefined,
+      display_name: `${r.displayName} (Clone)`,
+      description: r.description,
+      base_agent_id: r.customWorkflow?.base_agent_id ?? agent.id,
+      workflow_steps: r.customWorkflow?.workflow_steps ?? [],
+      allow_subrun_delegation: r.customWorkflow?.allow_subrun_delegation ?? false,
+      tool_allow: (r.toolPolicy.additional_allow ?? []).join(', '),
+      tool_deny: (r.toolPolicy.additional_deny ?? []).join(', '),
     };
     this.showCreateModal = true;
   }
 
   openEdit(agent: AgentCard): void {
-    if (!agent.isCustom || !agent.custom) return;
     this.editMode = true;
+    this.editingRecord = agent.record;
+    const r = agent.record;
     this.createForm = {
-      id: agent.custom.id,
-      name: agent.custom.name,
-      description: agent.custom.description,
-      base_agent_id: agent.custom.base_agent_id,
-      workflow_steps: [...agent.custom.workflow_steps],
-      tool_policy: agent.custom.tool_policy ? { ...agent.custom.tool_policy } : undefined,
-      allow_subrun_delegation: agent.custom.allow_subrun_delegation,
+      display_name: r.displayName,
+      description: r.description,
+      base_agent_id: r.customWorkflow?.base_agent_id ?? 'head-agent',
+      workflow_steps: r.customWorkflow?.workflow_steps ?? [],
+      allow_subrun_delegation: r.customWorkflow?.allow_subrun_delegation ?? false,
+      tool_allow: (r.toolPolicy.additional_allow ?? []).join(', '),
+      tool_deny: (r.toolPolicy.additional_deny ?? []).join(', '),
     };
     this.showCreateModal = true;
   }
 
   submitCreate(): void {
-    if (!this.createForm.name?.trim()) return;
+    if (!this.createForm.display_name?.trim()) return;
 
-    if (this.editMode && this.createForm.id) {
-      this.agentsService.updateCustomAgent(this.createForm.id, this.createForm as any).subscribe({
+    const toolAllow = this.createForm.tool_allow.split(',').map(s => s.trim()).filter(Boolean);
+    const toolDeny = this.createForm.tool_deny.split(',').map(s => s.trim()).filter(Boolean);
+
+    if (this.editMode && this.editingRecord) {
+      // Patch existing agent
+      const patch: Record<string, unknown> = {
+        display_name: this.createForm.display_name.trim(),
+        description: this.createForm.description.trim(),
+        tool_policy: {
+          additional_allow: toolAllow,
+          additional_deny: toolDeny,
+        },
+      };
+      if (this.editingRecord.origin === 'custom') {
+        patch['custom_workflow'] = {
+          base_agent_id: this.createForm.base_agent_id,
+          workflow_steps: this.createForm.workflow_steps,
+          allow_subrun_delegation: this.createForm.allow_subrun_delegation,
+        };
+      }
+      this.agentsService.patchAgent(this.editingRecord.agentId, patch).subscribe({
         next: () => {
           this.showCreateModal = false;
           this.loadAll();
@@ -459,7 +454,23 @@ export class AgentsPageComponent implements OnInit {
         error: (err) => alert(`Update failed: ${err?.error?.detail ?? err.message}`),
       });
     } else {
-      this.agentsService.createCustomAgent(this.createForm).subscribe({
+      // Create new custom agent
+      const data: Record<string, unknown> = {
+        display_name: this.createForm.display_name.trim(),
+        description: this.createForm.description.trim(),
+        origin: 'custom',
+        category: 'custom',
+        tool_policy: {
+          additional_allow: toolAllow,
+          additional_deny: toolDeny,
+        },
+        custom_workflow: {
+          base_agent_id: this.createForm.base_agent_id,
+          workflow_steps: this.createForm.workflow_steps,
+          allow_subrun_delegation: this.createForm.allow_subrun_delegation,
+        },
+      };
+      this.agentsService.createUnifiedAgent(data).subscribe({
         next: () => {
           this.showCreateModal = false;
           this.loadAll();
@@ -470,8 +481,8 @@ export class AgentsPageComponent implements OnInit {
   }
 
   deleteAgent(agent: AgentCard): void {
-    if (!agent.isCustom) return;
-    this.agentsService.deleteCustomAgent(agent.id).subscribe({
+    if (agent.origin === 'builtin') return;
+    this.agentsService.deleteUnifiedAgent(agent.id).subscribe({
       next: () => {
         if (this.selectedAgent?.id === agent.id) this.closeDetail();
         this.loadAll();
@@ -480,7 +491,15 @@ export class AgentsPageComponent implements OnInit {
     });
   }
 
-  // ── Workflow steps helpers ─────────────────────────
+  resetAgent(agent: AgentCard): void {
+    if (agent.origin !== 'builtin') return;
+    this.agentsService.resetAgent(agent.id).subscribe({
+      next: () => this.loadAll(),
+      error: (err) => alert(`Reset failed: ${err?.error?.detail ?? err.message}`),
+    });
+  }
+
+  // ── Form helpers ───────────────────────────────────
 
   get workflowStepsText(): string {
     return (this.createForm.workflow_steps ?? []).join('\n');
@@ -490,36 +509,14 @@ export class AgentsPageComponent implements OnInit {
     this.createForm.workflow_steps = val.split('\n').filter(s => s.trim());
   }
 
-  get toolAllowText(): string {
-    return (this.createForm.tool_policy?.allow ?? []).join(', ');
-  }
-
-  set toolAllowText(val: string) {
-    if (!this.createForm.tool_policy) this.createForm.tool_policy = {};
-    this.createForm.tool_policy.allow = val.split(',').map(s => s.trim()).filter(Boolean);
-  }
-
-  get toolDenyText(): string {
-    return (this.createForm.tool_policy?.deny ?? []).join(', ');
-  }
-
-  set toolDenyText(val: string) {
-    if (!this.createForm.tool_policy) this.createForm.tool_policy = {};
-    this.createForm.tool_policy.deny = val.split(',').map(s => s.trim()).filter(Boolean);
-  }
-
   // ── Helpers ────────────────────────────────────────
 
   isBoolean(v: unknown): boolean { return v === true || v === false; }
   isNumber(v: unknown): boolean { return typeof v === 'number'; }
   isArray(v: unknown): boolean { return Array.isArray(v); }
 
-  objectKeys(obj: Record<string, unknown>): string[] {
-    return obj ? Object.keys(obj) : [];
-  }
-
   configKeys(): string[] {
-    return Object.keys(this.configDraft).filter(k => k !== 'agent_id');
+    return Object.keys(this.configDraft);
   }
 
   formatBytes(bytes: number): string {
@@ -528,14 +525,15 @@ export class AgentsPageComponent implements OnInit {
     return (bytes / 1048576).toFixed(1) + ' MB';
   }
 
-  private emptyForm(): CreateCustomAgentPayload {
+  private emptyForm() {
     return {
-      name: '',
+      display_name: '',
       description: '',
       base_agent_id: 'head-agent',
-      workflow_steps: [],
+      workflow_steps: [] as string[],
       allow_subrun_delegation: false,
-      tool_policy: undefined,
+      tool_allow: '',
+      tool_deny: '',
     };
   }
 }

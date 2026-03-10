@@ -7,27 +7,14 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
-from app.agents.head_agent_adapter import (
-    ArchitectAgentAdapter,
-    CoderAgentAdapter,
-    DevOpsAgentAdapter,
-    DocAgentAdapter,
-    ECommerceAgentAdapter,
-    FinTechAgentAdapter,
-    HeadAgentAdapter,
-    HealthTechAgentAdapter,
-    IndustryTechAgentAdapter,
-    LegalTechAgentAdapter,
-    RefactorAgentAdapter,
-    ResearcherAgentAdapter,
-    ReviewAgentAdapter,
-    SecurityAgentAdapter,
-    TestAgentAdapter,
-)
+from app.agent import HeadAgent
+from app.agents.agent_store import UnifiedAgentStore
+from app.agents.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
+from app.agents.unified_adapter import UnifiedAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import resolved_prompt_settings, settings, validate_environment_config
-from app.agents.agent_config_store import init_agent_config_store
+# AgentConfigStore removed — absorbed into UnifiedAgentStore
 from app.config_service import init_config_service
 from app.handlers.agent_config_handlers import (
     handle_agents_config_get,
@@ -60,7 +47,7 @@ from app.tool_modules.tool_config_store import init_tool_config_store
 from app.contracts.agent_contract import AgentContract
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
-from app.custom_agents import CustomAgentStore
+# CustomAgentStore removed — absorbed into UnifiedAgentStore
 from app.policy_store import PolicyStore
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.handlers import (
@@ -150,21 +137,8 @@ logging.basicConfig(
 install_secret_filter()
 logger = logging.getLogger("app.main")
 app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
-PRIMARY_AGENT_ID = "head-agent"
-CODER_AGENT_ID = "coder-agent"
-REVIEW_AGENT_ID = "review-agent"
-RESEARCHER_AGENT_ID = "researcher-agent"
-ARCHITECT_AGENT_ID = "architect-agent"
-TEST_AGENT_ID = "test-agent"
-SECURITY_AGENT_ID = "security-agent"
-DOC_AGENT_ID = "doc-agent"
-REFACTOR_AGENT_ID = "refactor-agent"
-DEVOPS_AGENT_ID = "devops-agent"
-FINTECH_AGENT_ID = "fintech-agent"
-HEALTHTECH_AGENT_ID = "healthtech-agent"
-LEGALTECH_AGENT_ID = "legaltech-agent"
-ECOMMERCE_AGENT_ID = "ecommerce-agent"
-INDUSTRYTECH_AGENT_ID = "industrytech-agent"
+# Manifest path for agent store bootstrap
+_MANIFEST_PATH = Path(__file__).resolve().parent / "agents" / "agents_manifest.json"
 control_plane_state = ControlPlaneState()
 idempotency_mgr = IdempotencyManager(
     ttl_seconds=settings.idempotency_registry_ttl_seconds,
@@ -216,10 +190,8 @@ def _startup_sequence() -> None:
     init_config_service(settings)
     logger.info("config_service_initialized")
 
-    # R2: Initialize AgentConfigStore
-    _agent_cfg_dir = Path(settings.workspace_root) / "agent_configs"
-    init_agent_config_store(persist_dir=_agent_cfg_dir)
-    logger.info("agent_config_store_initialized persist_dir=%s", _agent_cfg_dir)
+    # R2: AgentConfigStore removed — UnifiedAgentStore initialized in _build_runtime_components
+    logger.info("unified_agent_store will be initialized during runtime component build")
 
     # R3: Initialize ToolConfigStore
     _tool_cfg_path = Path(settings.workspace_root) / "tool_configs.json"
@@ -298,23 +270,17 @@ app.router.lifespan_context = build_lifespan_context(
 
 
 def _build_runtime_components() -> RuntimeComponents:
-    base_agent_registry: dict[str, AgentContract] = {
-        PRIMARY_AGENT_ID: HeadAgentAdapter(),
-        CODER_AGENT_ID: CoderAgentAdapter(),
-        REVIEW_AGENT_ID: ReviewAgentAdapter(),
-        RESEARCHER_AGENT_ID: ResearcherAgentAdapter(),
-        ARCHITECT_AGENT_ID: ArchitectAgentAdapter(),
-        TEST_AGENT_ID: TestAgentAdapter(),
-        SECURITY_AGENT_ID: SecurityAgentAdapter(),
-        DOC_AGENT_ID: DocAgentAdapter(),
-        REFACTOR_AGENT_ID: RefactorAgentAdapter(),
-        DEVOPS_AGENT_ID: DevOpsAgentAdapter(),
-        FINTECH_AGENT_ID: FinTechAgentAdapter(),
-        HEALTHTECH_AGENT_ID: HealthTechAgentAdapter(),
-        LEGALTECH_AGENT_ID: LegalTechAgentAdapter(),
-        ECOMMERCE_AGENT_ID: ECommerceAgentAdapter(),
-        INDUSTRYTECH_AGENT_ID: IndustryTechAgentAdapter(),
-    }
+    agent_store = UnifiedAgentStore(
+        persist_dir=Path(settings.workspace_root) / "agents",
+        manifest_path=_MANIFEST_PATH,
+    )
+    base_agent_registry: dict[str, AgentContract] = {}
+    for record in agent_store.list_enabled():
+        if record.origin == "custom":
+            continue  # custom agents are synced separately
+        delegate = HeadAgent(name=record.display_name, role=record.agent_id)
+        base_agent_registry[record.agent_id] = UnifiedAgentAdapter(record, delegate)
+    logger.info("unified_agent_store_initialized agents=%d", len(base_agent_registry))
     runtime = RuntimeManager()
     if settings.orchestrator_state_backend == "sqlite":
         store = SqliteStateStore(persist_dir=settings.orchestrator_state_dir)
@@ -368,7 +334,6 @@ def _build_runtime_components() -> RuntimeComponents:
         )
         for agent_id, agent_instance in base_agent_registry.items()
     }
-    custom_store = CustomAgentStore(persist_dir=settings.custom_agents_dir)
     return RuntimeComponents(
         agent_registry=base_agent_registry,
         runtime_manager=runtime,
@@ -376,7 +341,7 @@ def _build_runtime_components() -> RuntimeComponents:
         session_query_service=query_service,
         policy_approval_service=policy_approval_service,
         orchestrator_registry=orchestrators,
-        custom_agent_store=custom_store,
+        agent_store=agent_store,
         model_health_tracker=health_tracker,
         circuit_breaker=circuit_breaker,
     )
@@ -770,6 +735,7 @@ policy_approval_service = LazyObjectProxy(lambda: _get_runtime_components().poli
 orchestrator_registry: MutableMapping[str, OrchestratorApi] = LazyMappingProxy(
     lambda: _get_runtime_components().orchestrator_registry
 )
+agent_store = LazyObjectProxy(lambda: _get_runtime_components().agent_store)
 custom_agent_store = LazyObjectProxy(lambda: _get_runtime_components().custom_agent_store)
 agent = LazyObjectProxy(lambda: _get_runtime_components().agent)
 orchestrator_api = LazyObjectProxy(lambda: _get_runtime_components().orchestrator_api)
@@ -976,17 +942,28 @@ agent_handlers.configure(
         primary_agent_id=PRIMARY_AGENT_ID,
         coder_agent_id=CODER_AGENT_ID,
         review_agent_id=REVIEW_AGENT_ID,
+        agent_store=agent_store,
     )
 )
 app.include_router(
     build_agents_router(
         agents_list_handler=agent_handlers.api_agents_list,
+        agents_list_enriched_handler=agent_handlers.api_agents_list_enriched,
+        agent_detail_handler=agent_handlers.api_agent_detail,
         presets_list_handler=agent_handlers.api_presets_list,
         custom_agents_list_handler=agent_handlers.api_custom_agents_list,
         custom_agents_create_handler=agent_handlers.api_custom_agents_create,
         custom_agents_update_handler=agent_handlers.api_custom_agents_update,
         custom_agents_delete_handler=agent_handlers.api_custom_agents_delete,
         monitoring_schema_handler=agent_handlers.api_monitoring_schema,
+        # Unified store endpoints
+        agent_patch_handler=agent_handlers.api_agent_patch,
+        agent_create_handler=agent_handlers.api_agent_create,
+        agent_delete_handler=agent_handlers.api_agent_delete,
+        agent_reset_handler=agent_handlers.api_agent_reset,
+        manifest_get_handler=agent_handlers.api_manifest_get,
+        manifest_update_handler=agent_handlers.api_manifest_update,
+        agents_list_unified_handler=agent_handlers.api_agents_list_unified,
     )
 )
 _agent_test_dependencies = AgentTestDependencies(
