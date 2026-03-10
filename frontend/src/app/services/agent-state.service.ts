@@ -164,9 +164,15 @@ export interface DebugSnapshot {
 
 // ── Chat types (kept here so they persist across route changes) ──
 
+export interface VisualizationData {
+  vizType: 'mermaid' | 'image' | 'svg';
+  data: string;
+}
+
 export interface ChatLine {
   role: 'user' | 'agent' | 'system';
   text: string;
+  visualization?: VisualizationData;
   policyAction?: {
     approvalId: string;
     runId: string;

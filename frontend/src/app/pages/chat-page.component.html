@@ -133,7 +133,7 @@
     </div>
 
     <!-- Messages -->
-    <div *ngFor="let line of lines; trackBy: trackLine"
+    <div *ngFor="let line of lines; let i = index; trackBy: trackLine"
          class="msg"
          [class.msg-user]="line.role === 'user'"
          [class.msg-agent]="line.role === 'agent'"
@@ -158,6 +158,19 @@
         <div class="msg-images" *ngIf="getLineImages(line).length > 0">
           <img *ngFor="let imgSrc of getLineImages(line)" [src]="imgSrc" class="chat-img" alt="Agent image" loading="lazy">
         </div>
+
+        <!-- Visualization -->
+        <ng-container *ngIf="line.visualization">
+          <app-mermaid-diagram
+            *ngIf="line.visualization.vizType === 'mermaid'"
+            [code]="line.visualization.data"
+            [diagramId]="'viz-' + i">
+          </app-mermaid-diagram>
+          <div class="viz-image" *ngIf="line.visualization.vizType === 'image'">
+            <img [src]="sanitizeImageData(line.visualization.data)" alt="Visualization" loading="lazy">
+          </div>
+          <div class="viz-svg" *ngIf="line.visualization.vizType === 'svg'" [innerHTML]="sanitizeSvg(line.visualization.data)"></div>
+        </ng-container>
 
         <!-- Inline policy actions -->
         <div class="policy-inline" *ngIf="hasPendingPolicyAction(line)">

@@ -31,6 +31,8 @@ export interface AgentSocketEvent {
   notes?: string;
   stats?: Record<string, unknown>;
   usage?: unknown;
+  viz_type?: string;
+  data?: string;
   approval?: {
     approval_id?: string;
     tool?: string;

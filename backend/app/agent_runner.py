@@ -485,6 +485,16 @@ class AgentRunner:
                                 "step_descriptions": [s.description for s in extracted_plan.steps],
                             },
                         )
+                    # Emit plan visualization if >= 2 steps
+                    if extracted_plan.planning_active and len(extracted_plan.steps) >= 2:
+                        try:
+                            _mermaid_code = plan_tracker_to_mermaid(extracted_plan)
+                            validate_mermaid_node_count(_mermaid_code)
+                            await send_event(build_visualization_event(
+                                "mermaid", _mermaid_code, request_id, session_id, self._agent_name,
+                            ))
+                        except (ValueError, Exception):
+                            pass
 
             # ── FINISH REASON: STOP → done ──
             if stream_result.finish_reason == "stop":
@@ -579,7 +589,18 @@ class AgentRunner:
                             "content": self._build_replan_message(loop_state.plan, failed),
                         })
                     else:
+                        _prev_step_idx = loop_state.plan.current_step_index
                         self._update_plan_progress(loop_state.plan, tool_results)
+                        # Re-emit visualization when step advanced
+                        if loop_state.plan.current_step_index != _prev_step_idx and len(loop_state.plan.steps) >= 2:
+                            try:
+                                _mermaid_code = plan_tracker_to_mermaid(loop_state.plan)
+                                validate_mermaid_node_count(_mermaid_code)
+                                await send_event(build_visualization_event(
+                                    "mermaid", _mermaid_code, request_id, session_id, self._agent_name,
+                                ))
+                            except (ValueError, Exception):
+                                pass
 
                     # Periodic progress injection
                     if loop_state.iteration % settings.runner_planning_progress_interval == 0:

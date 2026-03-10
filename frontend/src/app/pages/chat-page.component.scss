@@ -567,6 +567,33 @@
   }
 }
 
+// Visualization
+.viz-image {
+  margin-top: 8px;
+
+  img {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: var(--r-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}
+
+.viz-svg {
+  margin-top: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-md);
+  padding: 12px;
+  background: var(--c-bg-window);
+
+  ::ng-deep svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
 // Inline policy actions
 .policy-inline {
   margin-top: 8px;

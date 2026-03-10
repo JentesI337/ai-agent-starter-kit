@@ -37,3 +37,19 @@ def test_plan_graph_from_dict_sanitizes_and_limits_steps() -> None:
     assert graph.complexity == "complex"
     assert len(graph.steps) == 1
     assert graph.steps[0].depends_on == []
+
+
+def test_plan_graph_to_mermaid_method() -> None:
+    graph = PlanGraph(
+        goal="Test",
+        complexity="moderate",
+        steps=[
+            PlanStep(step_id="s1", action="Fetch", tool="http_get", depends_on=[], fallback=None, status="completed"),
+            PlanStep(step_id="s2", action="Parse", tool=None, depends_on=["s1"], fallback=None, status="running"),
+        ],
+    )
+    md = graph.to_mermaid()
+    assert "flowchart TD" in md
+    assert "s1 --> s2" in md
+    assert ":::done" in md
+    assert ":::active" in md

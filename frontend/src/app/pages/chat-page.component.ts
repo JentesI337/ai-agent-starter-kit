@@ -10,11 +10,12 @@ import {
   ViewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml, SafeUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
-import { AgentStateService, ChatLine, PolicyApprovalItem } from '../services/agent-state.service';
+import { AgentStateService, ChatLine, PolicyApprovalItem, VisualizationData } from '../services/agent-state.service';
+import { MermaidDiagramComponent } from '../components/mermaid-diagram/mermaid-diagram.component';
 import { MonitoringService } from '../services/monitoring.service';
 import { SecureStorageService } from '../services/secure-storage.service';
 import {
@@ -27,7 +28,7 @@ import {
 @Component({
   selector: 'app-chat-page',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   templateUrl: './chat-page.component.html',
   styleUrl: './chat-page.component.scss',
 })
@@ -264,6 +265,14 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     text = text.replace(/\{"type"\s*:\s*"image"\s*,\s*"format"\s*:\s*"\w+"\s*,\s*"data"\s*:\s*"[A-Za-z0-9+/=\s]+"\s*\}/g, '');
     text = text.replace(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g, '');
     return text.trim();
+  }
+
+  sanitizeSvg(svg: string): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(svg);
+  }
+
+  sanitizeImageData(data: string): SafeUrl {
+    return this.sanitizer.bypassSecurityTrustUrl(data);
   }
 
   // ── Actions ──────────────────────────────────────
@@ -598,6 +607,15 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     if (event.type === 'agent_step' && event.step) {
       this.agentState.pushChatLine({ role: 'system', text: `Step: ${event.step}` });
+      return;
+    }
+
+    if (event.type === 'visualization') {
+      const vizType = event.viz_type as 'mermaid' | 'image' | 'svg';
+      const data = event.data;
+      if (vizType && data) {
+        this.agentState.pushChatLine({ role: 'agent', text: '', visualization: { vizType, data } });
+      }
       return;
     }
 

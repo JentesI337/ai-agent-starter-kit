@@ -90,9 +90,9 @@ def _make_graph() -> PlanGraph:
         goal="Test",
         complexity="moderate",
         steps=[
-            GraphStep(step_id="s1", action="Fetch data", tool="http_get", depends_on=[], status="completed"),
-            GraphStep(step_id="s2", action="Parse data", tool=None, depends_on=["s1"], status="running"),
-            GraphStep(step_id="s3", action="Store result", tool="write_file", depends_on=["s2"]),
+            GraphStep(step_id="s1", action="Fetch data", tool="http_get", depends_on=[], fallback=None, status="completed"),
+            GraphStep(step_id="s2", action="Parse data", tool=None, depends_on=["s1"], fallback=None, status="running"),
+            GraphStep(step_id="s3", action="Store result", tool="write_file", depends_on=["s2"], fallback=None),
         ],
     )
 
