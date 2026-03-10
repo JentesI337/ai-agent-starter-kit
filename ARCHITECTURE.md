@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — AI Agent Starter Kit
 
-> **Version:** 1.4 · **Stand:** 2026-03-06  
+> **Version:** 1.5 · **Stand:** 2026-03-10  
 > **Scope:** Vollständiges Backend-Architektur-Dokument — Design, Reasoning Pipeline, Orchestration Pipeline, Multi-Agency-Subsystem, 15-Agenten-Ökosystem, alle Subsysteme.
 
 ---
@@ -114,23 +114,22 @@ backend/app/
 ├── app_setup.py                # build_fastapi_app(), configure_cors(), build_lifespan_context()
 ├── app_state.py                # ControlPlaneState, LazyMappingProxy, RuntimeComponents
 ├── config.py                   # Settings(BaseModel) — ~230 konfigurierbare Felder
-├── agent.py                    # HeadAgent (~2900 Zeilen) — Reasoning Pipeline
+├── agent.py                    # HeadAgent (~1919 Zeilen) — Reasoning Pipeline
+├── agent_runner.py             # AgentRunner (~1341 Zeilen) — Continuous Streaming Tool Loop
 ├── ws_handler.py               # WebSocket Handler (~1400 Zeilen)
 ├── llm_client.py               # LlmClient — OpenAI/Ollama Dual-Mode
 │
-├── agents/                     # Spezialisierte Sub-Agents
-│   ├── planner_agent.py        # PlannerAgent (max_context=4096, temp=0.2, depth=2)
-│   ├── synthesizer_agent.py    # SynthesizerAgent (max_context=8192, temp=0.3, reflection=1)
-│   ├── tool_selector_agent.py  # ToolSelectorAgent (max_context=4096, temp=0.1)
-│   ├── tool_selector_legacy.py # LegacyRunnerBinding — WeakMethod Rückwärtskompatibilität
-│   ├── importantPattern.md     # Agent-Architektur-Pattern Dokumentation
-│   └── head_agent_adapter.py   # 15 AgentContract-Adapter (_BaseSpecialistAdapter, _ReadOnlyAgentAdapterMixin)
+├── agents/                     # Agent-Definitionen (UnifiedAgentRecord-basiert)
+│   ├── unified_agent_record.py # UnifiedAgentRecord (Pydantic) — Single Model für alle Agents
+│   ├── factory_defaults.py     # 15 builtin AgentRecords mit ConstraintSpec
+│   ├── unified_adapter.py      # UnifiedAgentAdapter — AgentContract-Bridge
+│   ├── agent_store.py          # AgentStore — Builtin + Custom Agent Registry
+│   └── agents_manifest.json    # Agent-Manifest (IDs, Metadaten)
 │
 ├── contracts/                  # Protocol-basierte Interfaces
 │   ├── agent_contract.py       # AgentContract ABC + AgentConstraints
-│   ├── schemas.py              # PlannerInput/Output, ToolSelector*, Synthesizer*
-│   ├── tool_protocol.py        # ToolProvider Protocol (14 Methoden)
-│   └── tool_selector_runtime.py # ToolSelectorRuntime Protocol
+│   ├── schemas.py              # Shared Contract Schemas
+│   └── tool_protocol.py        # ToolProvider Protocol (14 Methoden)
 │
 ├── interfaces/                 # Orchestration-Interfaces
 │   ├── orchestrator_api.py     # OrchestratorApi (PipelineRunner + SessionLaneManager)
@@ -155,7 +154,7 @@ backend/app/
 │
 ├── services/                   # 60+ Business-Services
 │   ├── reflection_service.py   # ReflectionService — LLM-basierte Qualitätsbewertung
-│   ├── verification_service.py # VerificationService — Plan/Tool/Final Verifikation
+│   ├── verification_service.py # VerificationService — Final Verifikation (verify_final)
 │   ├── action_parser.py        # ActionParser — JSON-Reparatur, Truncation Recovery
 │   ├── prompt_kernel_builder.py# PromptKernelBuilder — Deterministic Prompt Assembly
 │   ├── tool_execution_manager.py # ToolExecutionManager — ~50 Dependency Injection Points
@@ -217,8 +216,7 @@ backend/app/
 ├── state/                      # Persistence Layer
 │   ├── state_store.py          # SqliteStateStore + StateStore Protocol
 │   ├── task_graph.py           # TaskGraph, TaskNode, TaskStatus
-│   ├── snapshots.py            # Run-Snapshot Serialisierung + Restore
-│   └── context_reducer.py      # ContextReducer — Budget-basierte Kontext-Komprimierung
+│   └── snapshots.py            # Run-Snapshot Serialisierung + Restore
 │
 ├── skills/                     # Skills Engine
 │   ├── service.py              # SkillsService — Discovery + Caching + Snapshot
@@ -384,8 +382,8 @@ def configure_cors(*, app, settings):
 
 ```python
 class HeadAgent:
-    def __init__(self, name, role, client, memory, tools, model_registry, context_reducer,
-                 spawn_subrun_handler, policy_approval_handler): ...
+    def __init__(self, name, role, client, memory, tools, model_registry,
+                 spawn_subrun_handler, policy_approval_handler, agent_record): ...
 ```
 
 **15 registrierte Agenten:**
@@ -444,21 +442,34 @@ _BaseSpecialistAdapter(AgentContract) ← Gemeinsames Scaffold:
 | `memory` | `MemoryStore` | Session-Memory (JSONL) |
 | `tools` | `ToolProvider` Protocol | Tooling (AgentTooling) |
 | `model_registry` | `ModelRegistry` | Modell-Profile |
-| `context_reducer` | `ContextReducer` | Budget-basierte Kontext-Komprimierung |
 | `spawn_subrun_handler` | `Callable` | Subrun-Delegation |
 | `policy_approval_handler` | `Callable` | Human-in-the-Loop |
+| `agent_record` | `UnifiedAgentRecord` | Agent-Konfiguration (Constraints, Tools, Capabilities) |
 
-**Intern erzeugte Sub-Agents:**
+**Intern erzeugter AgentRunner:**
 
 ```python
 def _build_sub_agents(self):
-    self.planner_agent = PlannerAgent(client, system_prompt, failure_retriever)
-    self.tool_selector_agent = ToolSelectorAgent(runtime=_HeadToolSelectorRuntime(self))
-    self.synthesizer_agent = SynthesizerAgent(client, agent_name, emit_lifecycle_fn,
-                                              system_prompt, temperature_resolver, prompt_ab_registry)
-    self.plan_step_executor = PlannerStepExecutor(execute_fn=self._execute_planner_step)
-    self.tool_step_executor = ToolStepExecutor(execute_fn=self._execute_tool_step)
-    self.synthesize_step_executor = SynthesizeStepExecutor(execute_fn=self._execute_synthesize_step)
+    system_prompt = build_unified_system_prompt(
+        role=self.role,
+        tool_hints=self.prompt_profile.tool_selector_prompt,
+        final_instructions=self.prompt_profile.final_prompt,
+        platform_summary=..., agent_roster=..., capability_section=...,
+    )
+    self._agent_runner = AgentRunner(
+        client=self.client, memory=self.memory,
+        tool_registry=self.tool_registry,
+        tool_execution_manager=self._tool_execution_manager,
+        system_prompt=system_prompt,
+        execute_tool_fn=self._runner_execute_tool,
+        allowed_tools_resolver=self._resolve_effective_allowed_tools,
+        reflection_service=self._reflection_service,
+        verification_service=self._verification,
+        reply_shaper=self._reply_shaper,
+        max_reflections=self._agent_record.constraints.reflection_passes
+            if self._agent_record else None,
+        # ... 10+ weitere Dependency-Injection-Punkte
+    )
 ```
 
 **Intern erzeugte Services:**
@@ -470,8 +481,9 @@ def _build_sub_agents(self):
 | `ActionParser` | Multi-Stage JSON Recovery |
 | `ActionAugmenter` | Intent-gesteuerte Argument-Erweiterung |
 | `AmbiguityDetector` | Minimal: nur Empty + Pronoun |
-| `ReplyShaper` | Token-Entfernung, Deduplizierung |
-| `VerificationService` | Plan/Tool/Final Coverage-Prüfung |
+| `ReplyShaper` | Deduplizierung, Tool-Marker-Entfernung, Suppression |
+| `VerificationService` | Final Verifikation (nur `verify_final`) |
+| `CompactionService` | LLM-basierte Kontext-Komprimierung (ersetzt ContextReducer) |
 | `ReflectionService` (optional) | LLM-basierte Qualitätsbewertung |
 | `ToolExecutionManager` | Zentraler Tool-Dispatcher |
 | `ToolArgValidator` | Argument-Validierung + Command-Policy |
@@ -481,258 +493,146 @@ def _build_sub_agents(self):
 | `ToolTelemetry` | Span-Tracking + Per-Tool-Statistiken |
 | `LearningLoop` | Tool-Outcome-Feedback (Selector, KB, Patterns) |
 
-### 5.2 Die 11-Phasen Reasoning Pipeline (`run()`)
+### 5.2 Continuous Streaming Tool Loop (`AgentRunner`)
 
-Die `run()` Methode implementiert eine **deterministische 11-Phasen-Pipeline**, die über Lifecycle-Events getrieben wird. Es gibt keine LLM-gesteuerte Entscheidung über den Pipeline-Ablauf — jede Phase folgt deterministisch auf die vorherige.
+> **Neu in v1.5.** Ersetzt die alte 11-Phasen-Pipeline (Planner → ToolSelector → Synthesizer) durch einen **kontinuierlichen Streaming-Loop**. Das LLM entscheidet autonom, wann Tools verwendet und wann direkt geantwortet wird. Aktiviert via `USE_CONTINUOUS_LOOP=true`.
+
+**Implementierung:** `agent_runner.py` (~1341 Zeilen), Typen in `agent_runner_types.py`.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                          HeadAgent.run()                                 │
+│                        AgentRunner.run()                                  │
 │                                                                          │
-│  Phase 1   INIT             Reconfiguration-Guard, ContextVars, emit     │
-│     │                       run_started                                  │
+│  PRE-LOOP     INIT            Guardrails, MCP-Init, Tool-Resolution,     │
+│     │                         Memory-Add, Orphan-Repair,                 │
+│     │                         _build_initial_messages()                   │
 │     ▼                                                                    │
-│  Phase 2   GUARDRAILS       Input-Validierung (message, session_id,      │
-│     │                       model, tool_policy), emit guardrails_passed  │
+│  CONTINUOUS   STREAMING LOOP  while not budget_exhausted:                │
+│  LOOP            │              stream_chat_with_tools() → StreamResult   │
+│     │            │                                                       │
+│     │            ├── finish_reason == "stop"                              │
+│     │            │     → LLM hat geantwortet → EXIT LOOP                 │
+│     │            │                                                       │
+│     │            ├── finish_reason == "tool_calls"                        │
+│     │            │     → Blocked-Tool-Check (allowed_tools)              │
+│     │            │     → Policy-Approval-Check                           │
+│     │            │     → Tool-Ausführung via execute_tool_fn             │
+│     │            │     → Tool-Ergebnisse an Messages anhängen            │
+│     │            │     → Continue Loop                                   │
+│     │            │                                                       │
+│     │            ├── Tool-Loop-Detection (_detect_tool_loop)             │
+│     │            │     Identische/Ping-Pong-Calls × 3 → Warning inject  │
+│     │            │                                                       │
+│     │            └── Steer-Interrupt-Check → Early Exit                  │
 │     ▼                                                                    │
-│  Phase 3   TOOL RESOLUTION  MCP-Tools registrieren, Tool-Policy          │
-│     │                       auflösen (6-Layer), Toolchain prüfen         │
+│  POST-LOOP    QUALITY GATES   Reflection (max_reflections per Agent),    │
+│     │                         Evidence Gates (Implementation/Orchestr.), │
+│     │                         Reply Shaping, Final Verification          │
 │     ▼                                                                    │
-│  Phase 4   MEMORY & CONTEXT Memory-Add, Orphan-Repair, LTM-Context,      │
-│     │                       ContextReducer.reduce(budget=plan)           │
-│     ▼                                                                    │
-│  Phase 5   AMBIGUITY GATE   AmbiguityDetector → Early-Return mit         │
-│     │                       Rückfrage oder proceed                       │
-│     ▼                                                                    │
-│  Phase 6   PLANNING         PlannerAgent.execute() → LLM-Plan,           │
-│     │                       Plan-Verifikation (strukturell+semantisch)   │
-│     ▼                                                                    │
-│  Phase 7   TOOL LOOP        ToolSelectorAgent → ToolExecutionManager     │
-│     │                       → Replan bei empty/error/partial_error/      │
-│     │                       all_suspicious/invalidated                   │
-│     │                       (max 3 Zyklen: regular + empty + error)      │
-│     ▼                                                                    │
-│  Phase 8   TOOL RESULT      Tool-Result-Verifikation, Blocked-Handling,  │
-│     │      VALIDATION       Steer-Interrupt, Web-Research-Fallback       │
-│     ▼                                                                    │
-│  Phase 9   SYNTHESIS        ContextReducer.reduce(budget=final),         │
-│     │                       SynthesizerAgent.execute() → LLM-Synthese    │
-│     ▼                                                                    │
-│  Phase 10  REFLECTION +     ReflectionService.reflect() → Quality Score, │
-│     │      EVIDENCE GATES   Retry bei should_retry, Evidence-Gates       │
-│     │                       (Implementation/Orchestration), ReplyShaper  │
-│     ▼                                                                    │
-│  Phase 11  FINALIZATION     Final-Verifikation, Memory-Persist,          │
-│                             Session-Distillation, Hooks(agent_end),      │
-│                             Counter-Release, emit run_completed          │
+│  FINALIZE     PERSIST         Memory-Persist, Session-Distillation       │
+│                               (LTM), Lifecycle Events                    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Phase 1: INIT
+#### PRE-LOOP: Init
 
 ```python
-if self._reconfiguring:
-    raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert.")
-self._active_run_count += 1
-# ContextVars setzen: send_event, session_id, request_id
-await self._emit_lifecycle(send_event, stage="run_started", ...)
+async def run(self, user_message, send_event, session_id, request_id,
+              model=None, tool_policy=None, should_steer_interrupt=None) -> str:
+    # 1. Guardrails (via guardrail_validator callback)
+    # 2. MCP-Init (via mcp_initializer callback)
+    # 3. Tool-Resolution: allowed_tools_resolver(tool_policy) → set[str]
+    # 4. Memory: memory.add(), repair_orphaned_tool_calls()
+    # 5. Messages: _build_initial_messages(memory_items, user_message)
+    # 6. Tool-Definitionen: tool_registry.build_function_calling_tools(allowed_tools)
 ```
 
-- **Reconfiguration Guard:** `_reconfiguring`-Flag verhindert gleichzeitigen `configure_runtime()`-Aufruf
-- **Run Counter:** `_active_run_count` tracked parallele Runs (H-6 Concurrency-Safety)
-
-#### Phase 2: GUARDRAILS
+#### CONTINUOUS LOOP
 
 ```python
-self._validate_guardrails(user_message, session_id, model)
-self._validate_tool_policy(tool_policy)
-await self._emit_lifecycle(send_event, stage="guardrails_passed", ...)
-```
+loop_state = LoopState()
+while not loop_state.budget_exhausted:
+    loop_state.iteration += 1
+    if loop_state.iteration > self._max_iterations: break    # Safety
+    if elapsed > self._time_budget_seconds: break            # Time budget
+    if should_steer_interrupt and should_steer_interrupt(): break  # Steer
 
-- Input-Länge (`max_user_message_length`), Session-ID-Format, Model-Existenz
-- Tool-Policy-Struktur validieren
-
-#### Phase 3: TOOL RESOLUTION
-
-```python
-await self._ensure_mcp_tools_registered(send_event, request_id, session_id)
-effective_allowed_tools = self._resolve_effective_allowed_tools(tool_policy)
-toolchain_ok, toolchain_details = self.tools.check_toolchain()
-```
-
-- **MCP-Integration:** Bei `mcp_enabled=True` registriert `McpBridge` externe Tool-Server dynamisch
-- **6-Layer Tool-Policy-Resolution** (siehe Abschnitt 10)
-- **Toolchain-Check:** Prüft ob Workspace-Pfad und Shell verfügbar sind
-
-#### Phase 4: MEMORY & CONTEXT
-
-```python
-self.memory.add(session_id, "user", user_message)
-repaired_orphans = self.memory.repair_orphaned_tool_calls(session_id)
-sanitized_items = self.memory.sanitize_session_history(session_id)
-
-memory_items = self.memory.get_items(session_id)
-memory_lines = [f"{item.role}: {item.content}" for item in memory_items]
-ltm_context = self._build_long_term_memory_context(user_message)
-
-plan_context = self.context_reducer.reduce(
-    budget_tokens=budgets["plan"],
-    user_message=user_message,
-    memory_lines=memory_lines,
-    tool_outputs=[],
-    snapshot_lines=[ltm_context] if ltm_context else None,
-)
-```
-
-- **Orphan-Repair:** Tool-Calls ohne Tool-Response bekommen `[orphaned]`-Marker
-- **Sanitization:** Ungültige History-Einträge entfernen
-- **Token-Budget:** `_step_budgets(max_context)` teilt das Kontext-Budget auf:
-  - Plan: 25% (`max(256, int(budget * 0.25))`)
-  - Tool: 30% (`max(256, int(budget * 0.30))`)
-  - Final: 45% (`max(512, int(budget * 0.45))`)
-- **Long-Term Memory:** `FailureRetriever` holt relevante Past-Failures für den Planner
-
-#### Phase 5: AMBIGUITY GATE
-
-```python
-if settings.clarification_protocol_enabled and effective_prompt_mode != "subagent":
-    ambiguity = self._ambiguity_detector.assess(user_message, plan_context.rendered)
-    threshold = settings.clarification_confidence_threshold  # Default: 0.5
-    if ambiguity.is_ambiguous and ambiguity.confidence < threshold:
-        if ambiguity.default_interpretation:
-            # → proceed with default
-        else:
-            # → Early-Return: clarification_needed Event an Client
-            return clarification_text
-```
-
-- **Intentional minimal:** Nur `empty` und `bare pronoun` Fälle sind ambiguous
-- **Subagent-Mode:** Kein Clarification-Gate (Subruns dürfen nicht den User fragen)
-
-#### Phase 6: PLANNING
-
-```python
-plan_text = await self.plan_step_executor.execute(
-    PlannerInput(user_message, reduced_context, prompt_mode), model
-)
-plan_verification = self._verification.verify_plan(user_message, plan_text)
-semantic_plan_verification = self._verification.verify_plan_semantically(user_message, plan_text)
-self.memory.add(session_id, "plan", plan_text)
-```
-
-- **PlannerAgent Constraints:** `max_context=4096`, `temperature=0.2`, `reasoning_depth=2`
-- **Failure-Retriever:** Injiziert Past-Failure-Kontext wenn `failure_context_enabled=True`
-- **Structured Planning:** Optional (`structured_planning_enabled`) → `PlanGraph` mit `as_plan_text()`
-- **Verifikation:**
-  - Strukturell: `verify_plan()` — Leer-Check, Länge, Coverage
-  - Semantisch: `verify_plan_semantically()` — Keyword-Overlap User→Plan
-
-#### Phase 7: TOOL LOOP
-
-```python
-max_replan_iterations = settings.run_max_replan_iterations           # Default: 1
-max_empty_tool_replan = settings.run_empty_tool_replan_max_attempts  # Default: 1
-max_error_tool_replan = settings.run_error_tool_replan_max_attempts  # Default: 1
-total_replan_cycles = max_replan + max_empty + max_error             # Default: 3
-
-for iteration in range(total_replan_cycles):
-    tool_context = self.context_reducer.reduce(budget_tokens=budgets["tool"], ...)
-    tool_results = await self.tool_step_executor.execute(
-        ToolSelectorInput(user_message, plan_text, reduced_context, prompt_mode),
-        session_id, request_id, send_event, model, effective_allowed_tools, steer_interrupt
+    result: StreamResult = await client.stream_chat_with_tools(
+        messages=messages, tools=tool_definitions, model=model
     )
-    tool_results_state = self._classify_tool_results_state(tool_results)
-    # "usable" | "blocked" | "steer_interrupted" → break
-    # "empty" → empty_replan  |  "error_only" → error_replan  |  "timeout_error" → break
-    # "partial_error" → error_replan  |  "all_suspicious" → error_replan
-    replan_reason = self._resolve_replan_reason(...)
-    if replan_reason is None: break
-    plan_text = await self.plan_step_executor.execute(replan_input, model)  # Re-Plan
+
+    if result.finish_reason == "stop":
+        final_text = result.text
+        break
+
+    if result.finish_reason == "tool_calls":
+        for tool_call in result.tool_calls:
+            if tool_call.name not in effective_allowed_tools:
+                # → Blocked-Fehlermeldung als Tool-Result
+            elif requires_policy_approval(tool_call):
+                # → Policy-Approval-Flow
+            else:
+                tool_result = await execute_tool_fn(tool_call.name, tool_call.arguments, ...)
+            messages.append(tool_result_message)
 ```
 
-**Tool-Result-States:**
+**Safety-Mechanismen:**
+- `runner_max_iterations` (Default aus Settings) — Maximale Loop-Iterationen
+- `runner_time_budget_seconds` — Maximale Laufzeit
+- `runner_max_tool_calls` — Maximale Tool-Aufrufe insgesamt
+- `_detect_tool_loop()` — Erkennt identische Wiederholungen (Threshold=3) und Ping-Pong-Muster
 
-| State | Bedeutung | Aktion |
-|-------|-----------|--------|
-| `usable` | Mind. 1 Tool-OK, kein reiner Fehler | → Weiter zu Synthesis |
-| `blocked` | Tool benötigt Policy-Approval | → Early Return mit Blocked-Message |
-| `steer_interrupted` | Neuere Nachricht in Inbox | → Early Return mit Interrupt-Message |
-| `empty` | Kein Tool ausgewählt | → Replan (max `run_empty_tool_replan_max_attempts`) |
-| `error_only` | Nur Fehler, kein OK | → Replan (max `run_error_tool_replan_max_attempts`) |
-| `partial_error` | Mix aus OK + ERROR Results | → Replan (max `run_error_tool_replan_max_attempts`) |
-| `all_suspicious` | Nur leere/Placeholder-Ergebnisse | → Replan (max `run_error_tool_replan_max_attempts`) |
-| `timeout_error` | Tool-Timeout | → Kein Replan, sofort weiter |
+**Kontext-Management:**
+- `_compact_messages()` — Kürzt alte Tool-Results wenn Messages zu groß werden
+- `CompactionService` — LLM-basierte Zusammenfassung älterer Konversationsabschnitte (Fallback: einfache Truncation)
 
-**Root-Cause Replan:** Bei `plan_root_cause_replan_enabled=True` wird der Replan-Prompt mit Fehleranalyse angereichert.
-
-#### Phase 8: TOOL RESULT VALIDATION
+#### POST-LOOP: Quality Gates
 
 ```python
-tool_result_verification = self._verification.verify_tool_result(plan_text, tool_results)
-# Blocked → Early Return mit blocked-Nachricht
-# Steer Interrupted → Early Return mit Interrupt-Nachricht
-# Web Research ohne Web-Fetch → Fallback-Reply
-# Tool-Result-Context-Guard → PII-Redaktion + Truncation bei Überschreitung
-```
-
-- **Context Guard:** `enforce_tool_result_context_budget()` begrenzt Tool-Output-Größe relativ zum Context-Window
-- **PII-Redaktion:** 6 Regex-Pattern (API-Keys, AWS-Keys, E-Mail, US-Telefon, SSN, IPv4) werden vor Truncation entfernt. Bei geändertem Output wird die Reason `"pii_redacted"` gesetzt.
-
-#### Phase 9: SYNTHESIS
-
-```python
-synthesis_task_type = self._resolve_synthesis_task_type(user_message, tool_results)
-# → "hard_research" | "research" | "implementation" | "orchestration" | "general" | "trivial"
-
-final_context = self.context_reducer.reduce(budget_tokens=budgets["final"], ...)
-final_text = await self.synthesize_step_executor.execute(
-    SynthesizerInput(user_message, plan_text, tool_results, reduced_context,
-                     prompt_mode, task_type=synthesis_task_type),
-    session_id, request_id, send_event, model
-)
-```
-
-- **SynthesizerAgent Constraints:** `max_context=8192`, `temperature=0.3`, `reflection_passes=1`
-- **Dynamic Temperature:** `DynamicTemperatureResolver` passt Temperatur an Task-Type an:
-  ```
-  hard_research: 0.1  |  research: 0.15  |  implementation: 0.15
-  orchestration: 0.2  |  general: 0.3    |  trivial: 0.4
-  ```
-- **Prompt-A/B-Testing:** `PromptAbRegistry` kann alternative Prompts für Synthese bereitstellen
-- **Task-Type-Erkennung:**
-  - `hard_research` → Bestimmte Research-Pattern im User-Message
-  - `orchestration` → `spawned_subrun_id=` in Tool-Results
-  - `implementation` → implement/fix/refactor/test Keywords
-  - `research` → Web-Research oder `source_url` in Results
-
-#### Phase 10: REFLECTION + EVIDENCE GATES
-
-```python
-# Reflection Loop
-for reflection_pass in range(reflection_passes):
-    verdict = await self._reflection_service.reflect(
-        user_message, plan_text, tool_results, final_answer=final_text,
-        model, task_type=synthesis_task_type
+# Reflection (per-Agent konfigurierbar)
+max_passes = self._max_reflections or settings.runner_reflection_max_passes
+for pass_idx in range(max_passes):
+    verdict = await reflection_service.reflect(
+        user_message=user_message, plan_text="",
+        tool_results=all_tool_results, final_answer=final_text,
+        model=model, task_type=task_type
     )
-    # verdict.score, .goal_alignment, .completeness, .factual_grounding
     if not verdict.should_retry: break
-    # → Re-Synthesize mit Reflection-Feedback
-    final_text = await self.synthesize_step_executor.execute(
-        SynthesizerInput(..., tool_results + "\n[REFLECTION FEEDBACK]\n" + feedback, ...),
-        session_id, request_id, send_event, model
-    )
+    # → Re-Stream mit Reflection-Feedback
 
-# Implementation Evidence Gate
-if self._requires_implementation_evidence(...) and not self._has_implementation_evidence(tool_results):
+# Evidence Gates
+if requires_implementation_evidence and not has_implementation_evidence(tool_results):
     final_text = "I could not complete the implementation..."
-
-# Orchestration Evidence Gate
-if synthesis_task_type == "orchestration" and not self._has_orchestration_evidence(tool_results):
+if task_type == "orchestration" and not has_orchestration_evidence(tool_results):
     final_text = "The delegated subrun did not complete successfully..."
 
-# Reply Shaping
-shape_result = self._shape_final_response(final_text, tool_results)
-final_text = shape_result.text
+# Reply Shaping + Final Verification
+shape_result = reply_shaper.shape(raw_response=final_text, tool_results=..., ...)
+final_verification = verification_service.verify_final(user_message=..., final_text=...)
+```
+
+**Budget Exhaustion Fallback:** Wenn `max_iterations` erreicht wird, erzwingt `_handle_budget_exhaustion()` eine finale Antwort via separaten LLM-Call mit gesammeltem Kontext.
+
+#### FINALIZE
+
+```python
+memory.add(session_id, "assistant", final_text)
+await send_event({"type": "final", "agent": agent_name, "message": final_text})
+# Session-Distillation: LLM extrahiert Fakten für LongTermMemoryStore
+# Failure Journal: Bei Exceptions → FailureEntry in LTM
+```
+
+#### build_unified_system_prompt()
+
+Erzeugt einen einzigen System-Prompt (kein separater Plan/Tool/Synthese-Prompt mehr):
+
+```python
+def build_unified_system_prompt(*, role, tool_hints, final_instructions,
+    guardrails="", platform_summary="", current_datetime="",
+    reasoning_hint="", agent_roster="", capability_section="") -> str:
+    # Sections: Identity → DateTime → Working Style → Capabilities →
+    # Agent Roster → Web Search Guidelines → Tool Guidelines →
+    # Answer Guidelines → Platform → Safety → Reasoning
 ```
 
 **ReflectionService** — LLM-basierte Qualitätsbewertung:
@@ -747,86 +647,74 @@ final_text = shape_result.text
 ```python
 _REFLECTION_THRESHOLDS_BY_TASK_TYPE = {
     "hard_research": 0.75,  "research": 0.70,  "implementation": 0.65,
-    "orchestration": 0.60,  "general": 0.55,    "trivial": 0.40,
+    "orchestration": 0.60,  "orchestration_failed": 0.55,
+    "orchestration_pending": 0.55,  "general": 0.35,  "trivial": 0.40,
 }
 ```
+
+**Reflection-Passes** sind jetzt **per-Agent konfigurierbar** über `UnifiedAgentRecord.constraints.reflection_passes` → `AgentRunner._max_reflections`, Fallback auf `settings.runner_reflection_max_passes`.
 
 **Evidence Gates** verhindern Halluzination bei Code-/Orchestration-Aufgaben:
 - **Implementation:** Prüft ob `write_file`, `apply_patch`, `run_command` oder `code_execute` erfolgreich war
 - **Orchestration:** Prüft ob `spawn_subrun` mit `terminal_reason=subrun-complete` vorhanden
 
-#### Phase 11: FINALIZATION
+### 5.3 UnifiedAgentRecord & Constraints
+
+> **Neu in v1.5.** Ersetzt die separaten `PlannerAgent`, `ToolSelectorAgent`, `SynthesizerAgent` Sub-Agents durch ein einheitliches `UnifiedAgentRecord`-Modell.
+
+15 Agent-Typen werden über `UnifiedAgentRecord` (Pydantic-Modell in `agents/unified_agent_record.py`) konfiguriert:
 
 ```python
-final_verification = self._verification.verify_final(user_message, final_text)
-if not final_verification.ok:
-    final_text = "No output generated."
+class UnifiedAgentRecord(BaseModel):
+    agent_id: str
+    origin: Literal["builtin", "custom"]
+    display_name: str
+    category: Literal["core", "specialist", "industry", "custom"]
+    role: str
+    reasoning_strategy: str        # "plan_execute" | "breadth_first" | "depth_first" | "verify_first"
+    specialization: str
+    capabilities: list[str]
+    constraints: ConstraintSpec
+    tool_policy: ToolPolicySpec
+    prompts: PromptSpec
+    delegation: DelegationSpec
+    behavior: BehaviorFlags
 
-self.memory.add(session_id, "assistant", final_text)
-await send_event({"type": "final", "agent": self.name, "message": final_text})
-await self._emit_lifecycle(send_event, stage="run_completed", ...)
-status = "completed"
-return final_text
+class ConstraintSpec(BaseModel):
+    temperature: float = 0.3       # 0.0–2.0
+    reflection_passes: int = 0     # → AgentRunner._max_reflections
+    reasoning_depth: int = 2       # → ModelRouter Scoring
+    max_context: int | None = None # ≥ 256
+    combine_steps: bool = False
 
-# finally-Block:
-# → Session-Distillation (LLM-gestützte Wissensdestillation für LTM)
-# → Hooks: agent_end
-# → ContextVars Reset
-# → _active_run_count -= 1
+class ToolPolicySpec(BaseModel):
+    read_only: bool = False
+    mandatory_deny: list[str]      # Immer verbotene Tools
+    preferred_tools: list[str]     # Bevorzugte Tools
+    forbidden_tools: list[str]     # Zusätzlich verbotene Tools
 ```
 
-- **Session-Distillation:** `_distill_session_knowledge()` — LLM extrahiert episodische + semantische Fakten aus dem Run und speichert sie in `LongTermMemoryStore`
-- **Failure Journal:** Bei Exceptions wird `FailureEntry` in LTM geschrieben
+**15 builtin Agents** (definiert in `agents/factory_defaults.py`):
 
-### 5.3 Sub-Agents
+| Agent-ID | Kategorie | Temp | Reflection | Reasoning | Read-Only |
+|----------|-----------|------|------------|-----------|-----------|
+| `head-agent` | core | 0.3 | 0 | 2 | Nein |
+| `coder-agent` | core | 0.3 | 0 | 2 | Nein |
+| `review-agent` | core | 0.2 | 1 | 2 | Ja |
+| `researcher-agent` | specialist | 0.25 | 0 | 2 | Ja |
+| `architect-agent` | specialist | 0.35 | 2 | 4 | Ja |
+| `test-agent` | specialist | 0.15 | 0 | 2 | Teilweise |
+| `security-agent` | specialist | 0.1 | 0 | 2 | Teilweise |
+| `doc-agent` | specialist | 0.4 | 0 | 2 | Teilweise |
+| `refactor-agent` | specialist | 0.2 | 0 | 2 | Nein |
+| `devops-agent` | specialist | 0.2 | 0 | 2 | Nein |
+| `fintech-agent` | industry | 0.15 | 0 | 4 | Ja |
+| `healthtech-agent` | industry | 0.1 | 0 | 4 | Ja |
+| `legaltech-agent` | industry | 0.15 | 0 | 3 | Ja |
+| `ecommerce-agent` | industry | 0.25 | 0 | 2 | Nein |
+| `industrytech-agent` | industry | 0.2 | 0 | 2 | Teilweise |
 
-Spezialisierte Agents mit eigenen `AgentConstraints`:
-
-| Agent | max_context | temperature | reasoning_depth | reflection_passes | combine_steps |
-|-------|------------|-------------|----------------|-------------------|---------------|
-| `PlannerAgent` | 4096 | 0.2 | 2 | 0 | False |
-| `ToolSelectorAgent` | 4096 | 0.1 | — | — | — |
-| `SynthesizerAgent` | 8192 | 0.3 | — | 1 | — |
-
-**PlannerAgent:**
-- System-Prompt: `head_agent_plan_prompt` (mit optionalem LTM-Failure-Kontext)
-- Structured Planning: Optional `PlanGraph` mit Steps
-- Hard-Research-Detection: Erkennt tiefgreifende Research-Anfragen
-
-**ToolSelectorAgent:**
-- Delegiert an `ToolSelectorRuntime` Protocol
-- `_HeadToolSelectorRuntime` bindet sich an `HeadAgent._execute_tools()`
-- Legacy-Binding: `LegacyRunnerBinding` mit `WeakMethod` für Rückwärtskompatibilität
-
-**SynthesizerAgent:**
-- Dynamische Temperatur via `DynamicTemperatureResolver`
-- Prompt-Varianten via `PromptAbRegistry`
-- Reflection-Passes: 1 (Standard) — Synthesis wird nach Reflection-Feedback wiederholt
-
-### 5.4 Step Executors
-
-Frozen-Dataclass-Wrappers, die Pipeline-Steps typsicher kapseln:
-
-```python
-@dataclass(frozen=True)
-class PlannerStepExecutor:
-    execute_fn: Callable[..., Awaitable[str]]
-    async def execute(self, payload: PlannerInput, model: str | None) -> str:
-        return await self.execute_fn(payload, model)
-
-@dataclass(frozen=True)
-class ToolStepExecutor:
-    execute_fn: Callable[..., Awaitable[str]]
-    async def execute(self, payload, session_id, request_id, send_event, model,
-                      allowed_tools, should_steer_interrupt) -> str:
-        return await self.execute_fn(payload, session_id, request_id, ...)
-
-@dataclass(frozen=True)
-class SynthesizeStepExecutor:
-    execute_fn: Callable[..., Awaitable[str]]
-    async def execute(self, payload, session_id, request_id, send_event, model) -> str:
-        return await self.execute_fn(payload, session_id, request_id, ...)
-```
+**AgentStore** (`agents/agent_store.py`) verwaltet builtin + custom Agents und stellt die Registry bereit.
 
 ---
 
@@ -1406,33 +1294,30 @@ class PromptKernel:
     rendered: str                # Finaler Prompt-Text
 ```
 
-### 8.4 ContextReducer
+### 8.4 CompactionService
 
-Budget-basierte Kontext-Komprimierung:
+> **Neu in v1.5.** Ersetzt die entfernte `ContextReducer`-Klasse (`state/context_reducer.py`).
+
+LLM-basierte Kontext-Komprimierung mit progressiver Fallback-Chain:
 
 ```python
-class ContextReducer:
-    def reduce(self, *, budget_tokens, user_message, memory_lines,
-               tool_outputs, snapshot_lines=None) -> ReducedContext:
-        budget = max(128, budget_tokens)
-        tool_budget = max(32, int(budget * 0.40))     # 40% für Tools
-        memory_budget = max(32, int(budget * 0.30))   # 30% für Memory
-        snapshot_budget = max(16, int(budget * 0.10)) # 10% für Snapshots
-        # Task: 20%
-        # Identifier Preservation: UUIDs, Pfade, Hashes bleiben intakt
-        # Sensitive Data Redaction: Bearer, API-Keys, Passwords → [REDACTED]
+class CompactionService:
+    """Summarises old conversation segments to keep context within budget."""
+    # Verwendet von AgentRunner._compact_messages()
+
+    # Fallback-Chain:
+    # 1. LLM-basierte Zusammenfassung (beste Qualität)
+    # 2. Text-basierte Extraktion (Headings + Identifiers)
+    # 3. Einfache Truncation (Fallback)
 ```
 
-**Sensitive Patterns (automatisch redacted):**
-```python
-_SENSITIVE_PATTERNS = [
-    (r"Bearer\s+[...]{12,}", r"\1[REDACTED]"),
-    (r"api_?key[...]{8,}", r"\1[REDACTED]"),
-    (r"Authorization:\s*[...]{8,}", r"\1[REDACTED]"),
-    (r"-----BEGIN.*KEY-----", "[REDACTED_PRIVATE_KEY]"),
-    (r"password[...]{6,}", r"\1[REDACTED]"),
-]
-```
+**Konfiguration (über Settings):**
+- `runner_compaction_enabled` — Komprimierung aktivieren
+- `runner_compaction_tail_keep` — Anzahl neuester Messages die nicht komprimiert werden
+
+**Identifier-Erhaltung:** UUIDs, Hashes, Dateipfade, URLs werden bei der Zusammenfassung erhalten (via `IDENTIFIER_RE` Regex).
+
+**Trigger:** Komprimierung wird ausgelöst wenn die geschätzte Token-Nutzung `COMPACTION_TRIGGER_RATIO` (85%) des Context-Windows überschreitet.
 
 ### 8.5 ReflectionService
 
@@ -1466,20 +1351,21 @@ def _sanitize_for_prompt(text, max_chars):
 
 ### 8.6 VerificationService
 
-Deterministische Qualitätsprüfung (ohne LLM):
+Deterministische Qualitätsprüfung der finalen Antwort (ohne LLM):
 
 ```python
 class VerificationService:
-    def verify_plan(self, *, user_message, plan_text) -> VerificationResult: ...
-    def verify_plan_semantically(self, *, user_message, plan_text) -> VerificationResult: ...
-    def verify_tool_result(self, *, plan_text, tool_results) -> VerificationResult: ...
     def verify_final(self, *, user_message, final_text) -> VerificationResult: ...
 ```
 
-**Plan-Coverage-Prüfung:**
+> **v1.5:** `verify_plan()`, `verify_plan_semantically()` und `verify_tool_result()` wurden entfernt (Relikte der alten 3-Phasen-Pipeline). Nur `verify_final()` bleibt — prüft ob die finale Antwort leer oder zu kurz ist.
+
 ```python
-plan_coverage_warn_threshold = 0.15   # Warnung bei <15% Keyword-Overlap
-plan_coverage_fail_threshold = 0.0    # Fail bei 0% (deaktiviert per Default)
+@dataclass(frozen=True)
+class VerificationResult:
+    status: str       # "ok" | "warning" | "failed"
+    reason: str       # "final_acceptable" | "final_too_short" | "empty_final"
+    details: dict
 ```
 
 ### 8.7 ReplyShaper
@@ -1492,13 +1378,15 @@ class ReplyShaper:
         # Entfernt [TOOL_CALL]...[/TOOL_CALL] Blöcke
         # Entfernt {tool => ...} Pattern
         # Komprimiert übermäßige Newlines
-    
-    def shape(self, raw_response, tool_results, user_message, *,
+
+    def shape(self, raw_response, tool_results, *,
               final_text, tool_markers) -> ReplyShapeResult:
-        # Erkennt NO_REPLY, ANNOUNCE_SKIP Tokens → Suppression
-        # Dedupliziert wiederholte Zeilen
+        # Dedupliziert wiederholte Tool-Confirmations
         # Entfernt Tool-Marker-Leaks
+        # Leere Texte nach Shaping → suppression_reason="empty_after_shaping"
 ```
+
+> **v1.5:** `NO_REPLY`/`ANNOUNCE_SKIP` Token-Stripping und `user_message`-Parameter wurden entfernt (Relikte der alten Synthesizer-Phase).
 
 ### 8.8 DynamicTemperatureResolver
 
@@ -2108,57 +1996,29 @@ class ToolProvider(Protocol):
         # Wird vor run_command genutzt um fehlende Tools frühzeitig zu erkennen
 ```
 
-### 13.3 ToolSelectorRuntime Protocol
+### 13.3 Agent Schemas (`contracts/schemas.py`)
 
 ```python
-class ToolSelectorRuntime(Protocol):
-    async def run_tools(
-        self, *, payload: ToolSelectorInput, session_id, request_id, send_event,
-        model, allowed_tools, should_steer_interrupt
-    ) -> str: ...
-```
-
-### 13.4 Pipeline Schemas
-
-```python
-# Input/Output-Contracts für jeden Pipeline-Step:
-
-@dataclass(frozen=True)
-class PlannerInput:
+class AgentInput(BaseModel):
     user_message: str
-    reduced_context: str
-    prompt_mode: str
+    session_id: str
+    request_id: str
+    model: str | None = None
+    tool_policy: ToolPolicyDict | None = None
 
-@dataclass(frozen=True)
-class PlannerOutput:
-    plan_text: str
+HeadAgentInput = AgentInput
+CoderAgentInput = AgentInput
 
-@dataclass(frozen=True)
-class ToolSelectorInput:
-    user_message: str
-    plan_text: str
-    reduced_context: str
-    prompt_mode: str
+class HeadAgentOutput(BaseModel):
+    final_text: str
 
-@dataclass(frozen=True)
-class ToolSelectorOutput:
-    tool_results: str
-
-@dataclass(frozen=True)
-class SynthesizerInput:
-    user_message: str
-    plan_text: str
-    tool_results: str
-    reduced_context: str
-    prompt_mode: str
-    task_type: str
-
-@dataclass(frozen=True)
-class SynthesizerOutput:
+class CoderAgentOutput(BaseModel):
     final_text: str
 ```
 
-### 13.5 RequestContext
+> **v1.5:** Die alten Pipeline-Schemas (`PlannerInput/Output`, `ToolSelectorInput/Output`, `SynthesizerInput/Output`) und das `ToolSelectorRuntime` Protocol wurden entfernt. Die Continuous-Loop-Architektur nutzt direkte Parameter statt typisierter Schema-Objekte.
+
+### 13.4 RequestContext
 
 ```python
 @dataclass(frozen=True)
@@ -2555,7 +2415,7 @@ self._long_term_memory.add_failure(FailureEntry(
 | **Steer** | Interrupt eines laufenden Runs durch neuere Nachricht |
 | **PromptKernel** | Deterministisch assemblierter Prompt mit Hash-Fingerprint |
 | **ToolProvider** | Protocol-Interface für Tool-Implementierungen |
-| **ContextReducer** | Budget-basierte Kontext-Komprimierung |
+| **CompactionService** | LLM-basierte Kontext-Komprimierung (ersetzt ContextReducer) |
 | **ModelRouteDecision** | Ergebnis des Model-Routings (primary + fallbacks + scores) |
 | **FallbackStateMachine** | State-Machine für Modell-Failover (INIT→SELECT→EXECUTE→SUCCESS/FAILURE) |
 | **HookContract** | Konfigurierbare Extension-Points (timeout, failure_policy) |

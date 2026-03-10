@@ -21,7 +21,9 @@
       "Bash(python:*)",
       "Bash(npx ng:*)",
       "Bash(ls:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(sed:*)",
+      "Bash(python3:*)"
     ]
   }
 }
