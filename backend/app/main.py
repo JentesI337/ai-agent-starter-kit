@@ -276,7 +276,7 @@ def _build_runtime_components() -> RuntimeComponents:
     for record in agent_store.list_enabled():
         if record.origin == "custom":
             continue  # custom agents are synced separately
-        delegate = HeadAgent(name=record.display_name, role=record.agent_id)
+        delegate = HeadAgent(name=record.display_name, role=record.agent_id, agent_record=record)
         base_agent_registry[record.agent_id] = UnifiedAgentAdapter(record, delegate)
     logger.info("unified_agent_store_initialized agents=%d", len(base_agent_registry))
 

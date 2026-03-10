@@ -84,7 +84,7 @@ def sync_custom_agents(
 
         # For custom agents, use the base agent's role for prompt resolution
         base_agent_id = record.custom_workflow.base_agent_id if record.custom_workflow else "head-agent"
-        delegate = HeadAgent(name=record.display_name, role=base_agent_id)
+        delegate = HeadAgent(name=record.display_name, role=base_agent_id, agent_record=record)
         adapter = UnifiedAgentAdapter(record, delegate)
         # Configure runtime from the base agent if available
         base_adapter = components.agent_registry.get(base_agent_id)

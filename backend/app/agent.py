@@ -99,9 +99,11 @@ class HeadAgent:
         context_reducer: ContextReducer | None = None,
         spawn_subrun_handler: SpawnSubrunHandler | None = None,
         policy_approval_handler: PolicyApprovalHandler | None = None,
+        agent_record: "UnifiedAgentRecord | None" = None,
     ):
         self.name = name or settings.agent_name
         self.role = role
+        self._agent_record = agent_record or self._resolve_agent_record(role)
         self.prompt_profile = self._resolve_prompt_profile(role)
         self.client = client or LlmClient(
             base_url=settings.llm_base_url,
@@ -219,6 +221,20 @@ class HeadAgent:
             self._hooks.append(hook)
 
     def _build_sub_agents(self) -> None:
+        capability_section = ""
+        if self._agent_record is not None:
+            from app.agent_runner import build_capability_section
+
+            capability_section = build_capability_section(
+                specialization=self._agent_record.specialization,
+                capabilities=self._agent_record.capabilities,
+                preferred_tools=self._agent_record.tool_policy.preferred_tools,
+                forbidden_tools=self._agent_record.tool_policy.forbidden_tools,
+                mandatory_deny=self._agent_record.tool_policy.mandatory_deny,
+                read_only=self._agent_record.tool_policy.read_only,
+                reasoning_strategy=self._agent_record.reasoning_strategy,
+            )
+
         system_prompt = build_unified_system_prompt(
             role=self.role,
             plan_prompt=self.prompt_profile.plan_prompt,
@@ -226,6 +242,7 @@ class HeadAgent:
             final_instructions=self.prompt_profile.final_prompt,
             platform_summary=self._tool_execution_manager._platform_summary,
             agent_roster=self._agent_roster,
+            capability_section=capability_section,
         )
         self._agent_runner = AgentRunner(
             client=self.client,
@@ -304,6 +321,14 @@ class HeadAgent:
             selected_count=0,
             truncated=False,
         )
+
+    @staticmethod
+    def _resolve_agent_record(role: str):
+        from app.agents.factory_defaults import FACTORY_DEFAULTS
+
+        normalized = (role or "").strip().lower()
+        lookup_key = "coder-agent" if normalized == "coding-agent" else normalized
+        return FACTORY_DEFAULTS.get(lookup_key)
 
     def _resolve_prompt_profile(self, role: str) -> PromptProfile:
         from app.agents.factory_defaults import FACTORY_DEFAULTS

@@ -55,6 +55,55 @@ def _format_current_datetime() -> str:
     return now.strftime(f"%A, %d %B %Y, %H:%M {tz_label}")
 
 
+_REASONING_STRATEGY_HINTS: dict[str, str] = {
+    "depth_first": "Explore one path deeply before considering alternatives.",
+    "breadth_first": "Survey multiple options before committing to a path.",
+    "plan_execute": "Create a plan first, then execute step by step.",
+    "verify_first": "Verify assumptions and evidence before drawing conclusions.",
+    "analytical": "Apply structured analytical frameworks to decompose the problem.",
+}
+
+
+def build_capability_section(
+    *,
+    specialization: str = "",
+    capabilities: list[str] | None = None,
+    preferred_tools: list[str] | None = None,
+    forbidden_tools: list[str] | None = None,
+    mandatory_deny: list[str] | None = None,
+    read_only: bool = False,
+    reasoning_strategy: str = "",
+) -> str:
+    """Build a concise '## Your capabilities and tools' section for an agent's system prompt."""
+    lines: list[str] = ["## Your capabilities and tools\n"]
+
+    if read_only:
+        lines.append("**Access mode: READ-ONLY** — you cannot modify files or execute commands.\n")
+
+    if specialization and specialization.strip():
+        lines.append(f"**Specialization:** {specialization.strip()}")
+
+    if capabilities:
+        lines.append(f"**Capabilities:** {', '.join(capabilities)}")
+
+    if preferred_tools:
+        lines.append(f"**Preferred tools:** {', '.join(preferred_tools)}")
+
+    unavailable = sorted(set((forbidden_tools or []) + (mandatory_deny or [])))
+    if unavailable:
+        lines.append(f"**Unavailable tools:** {', '.join(unavailable)}")
+
+    if reasoning_strategy and reasoning_strategy.strip():
+        hint = _REASONING_STRATEGY_HINTS.get(reasoning_strategy, "")
+        hint_suffix = f" — {hint}" if hint else ""
+        lines.append(f"**Reasoning approach:** {reasoning_strategy}{hint_suffix}")
+
+    # Only return content if we added something beyond the header
+    if len(lines) <= 1:
+        return ""
+    return "\n".join(lines)
+
+
 def build_unified_system_prompt(
     *,
     role: str,
@@ -67,6 +116,7 @@ def build_unified_system_prompt(
     current_datetime: str = "",
     reasoning_hint: str = "",
     agent_roster: str = "",
+    capability_section: str = "",
 ) -> str:
     """Merge the 3 phase-specific prompts into a single unified system prompt.
 
@@ -93,6 +143,10 @@ def build_unified_system_prompt(
         "whether you need more tools or can answer.\n"
         "- Think step-by-step but do NOT announce your plan to the user unless asked.\n"
     )
+
+    # 3.5 Agent-specific capabilities and tools
+    if capability_section and capability_section.strip():
+        sections.append(capability_section.strip() + "\n")
 
     # 4. Available specialist agents (delegation roster)
     if agent_roster and agent_roster.strip():
