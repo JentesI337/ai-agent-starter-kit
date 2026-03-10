@@ -160,6 +160,8 @@ TOOL_PROFILES: dict[str, frozenset[str] | None] = {
         "dependency_tree",
         "secrets_scan",
         "security_check",
+        "api_call",
+        "api_list_connectors",
     }),
     # Code-editing profile – enables write/execute but not web.
     "coding": frozenset({
@@ -197,6 +199,9 @@ TOOL_PROFILES: dict[str, frozenset[str] | None] = {
         "dependency_tree",
         "secrets_scan",
         "security_check",
+        "api_call",
+        "api_list_connectors",
+        "api_auth",
     }),
     # All available tools — resolves to None (no restriction) so that
     # dynamically registered tools (MCP, plugins) are automatically

@@ -9,6 +9,7 @@ export const routes: Routes = [
 	{ path: 'agents', loadComponent: () => import('./pages/agents-page/agents-page.component').then(m => m.AgentsPageComponent) },
 	{ path: 'settings', loadComponent: () => import('./pages/settings-page/settings-page.component').then(m => m.SettingsPageComponent) },
 	{ path: 'workflows', loadComponent: () => import('./pages/workflows-page/workflows-page.component').then(m => m.WorkflowsPageComponent) },
+	{ path: 'integrations', loadComponent: () => import('./pages/integrations-page/integrations-page.component').then(m => m.IntegrationsPageComponent) },
 	{ path: 'architecture', loadComponent: () => import('./pages/architecture-page/architecture-page.component').then(m => m.ArchitecturePageComponent) },
 	{ path: '**', redirectTo: '' },
 ];

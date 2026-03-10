@@ -1,0 +1,201 @@
+<div class="integrations-page">
+	<!-- Header -->
+	<div class="page-header">
+		<div class="header-left">
+			<h1>Integrations</h1>
+			<span class="connector-count">{{ connectors.length }} connector{{ connectors.length !== 1 ? 's' : '' }}</span>
+		</div>
+		<button class="btn btn-primary" (click)="openCreateModal()">+ Add Connector</button>
+	</div>
+
+	<!-- Connector Type Cards -->
+	<div class="type-cards">
+		<div class="type-card" *ngFor="let t of connectorTypes" (click)="openCreateModal(t)">
+			<span class="type-icon">{{ t.icon }}</span>
+			<span class="type-label">{{ t.label }}</span>
+		</div>
+	</div>
+
+	<!-- Loading -->
+	<div class="loading-state" *ngIf="loading">
+		<div class="spinner"></div>
+		<span>Loading connectors...</span>
+	</div>
+
+	<!-- Connector List -->
+	<div class="grid-shell" *ngIf="!loading">
+		<div class="connector-grid">
+			<div class="empty-state" *ngIf="connectors.length === 0">
+				<p>No connectors configured yet.</p>
+				<p>Click a service above or "Add Connector" to get started.</p>
+			</div>
+
+			<div
+				class="connector-card"
+				*ngFor="let c of connectors"
+				[class.selected]="selectedConnector?.connector_id === c.connector_id"
+				(click)="selectConnector(c)"
+			>
+				<div class="card-header">
+					<span class="card-icon">{{ getTypeIcon(c.connector_type) }}</span>
+					<div class="card-info">
+						<span class="card-name">{{ c.display_name }}</span>
+						<span class="card-type">{{ getTypeLabel(c.connector_type) }}</span>
+					</div>
+					<span class="status-dot" [class.connected]="c.has_credentials"></span>
+				</div>
+				<div class="card-url">{{ c.base_url }}</div>
+				<div class="card-meta">
+					<span class="meta-badge">{{ c.auth_type }}</span>
+					<span class="meta-methods">{{ c.available_methods?.length || 0 }} methods</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Detail Panel -->
+		<div class="detail-panel" *ngIf="selectedConnector" [class.open]="selectedConnector">
+			<div class="detail-header">
+				<div class="detail-title">
+					<span class="detail-icon">{{ getTypeIcon(selectedConnector.connector_type) }}</span>
+					<h2>{{ selectedConnector.display_name }}</h2>
+				</div>
+				<button class="btn-close" (click)="closeDetail()">×</button>
+			</div>
+
+			<div class="detail-body">
+				<div class="detail-section">
+					<h3>Configuration</h3>
+					<div class="field-group">
+						<label>ID</label>
+						<span class="field-value">{{ selectedConnector.connector_id }}</span>
+					</div>
+					<div class="field-group">
+						<label>Type</label>
+						<span class="field-value">{{ getTypeLabel(selectedConnector.connector_type) }}</span>
+					</div>
+					<div class="field-group">
+						<label>Base URL</label>
+						<span class="field-value mono">{{ selectedConnector.base_url }}</span>
+					</div>
+					<div class="field-group">
+						<label>Auth Type</label>
+						<span class="field-value">{{ selectedConnector.auth_type }}</span>
+					</div>
+					<div class="field-group">
+						<label>Timeout</label>
+						<span class="field-value">{{ selectedConnector.timeout_seconds }}s</span>
+					</div>
+					<div class="field-group">
+						<label>Rate Limit</label>
+						<span class="field-value">{{ selectedConnector.rate_limit_rps }} req/s (burst {{ selectedConnector.rate_limit_burst }})</span>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<h3>Credentials</h3>
+					<div class="credential-status" [class.has-creds]="selectedConnector.has_credentials">
+						<span class="cred-dot"></span>
+						{{ selectedConnector.has_credentials ? 'Configured' : 'Not configured' }}
+					</div>
+					<div class="auth-actions">
+						<button
+							class="btn btn-secondary"
+							*ngIf="selectedConnector.auth_type === 'oauth2_pkce'"
+							(click)="startOAuth(selectedConnector.connector_id)"
+							[disabled]="oauthPolling"
+						>
+							{{ oauthPolling ? 'Waiting for auth...' : 'Connect with OAuth' }}
+						</button>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<h3>Available Methods</h3>
+					<div class="methods-list">
+						<div class="method-item" *ngFor="let m of selectedConnector.available_methods">
+							<span class="method-name">{{ m.name }}</span>
+							<span class="method-desc">{{ m.description }}</span>
+						</div>
+						<div class="empty-methods" *ngIf="!selectedConnector.available_methods?.length">
+							No methods available
+						</div>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<h3>Test Connection</h3>
+					<button
+						class="btn btn-secondary"
+						(click)="testConnection(selectedConnector.connector_id)"
+						[disabled]="testLoading"
+					>
+						{{ testLoading ? 'Testing...' : 'Test Connection' }}
+					</button>
+					<div class="test-result" *ngIf="testResult">
+						<div class="test-status" [class.success]="testResult.ok" [class.failure]="!testResult.ok">
+							{{ testResult.ok ? 'Success' : 'Failed' }}
+							<span class="test-latency" *ngIf="testResult.latency_ms"> ({{ testResult.latency_ms }}ms)</span>
+						</div>
+						<div class="test-error" *ngIf="testResult.error">{{ testResult.error }}</div>
+					</div>
+				</div>
+
+				<div class="detail-actions">
+					<button class="btn btn-danger" (click)="deleteConnector(selectedConnector.connector_id)">
+						Delete Connector
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Create Modal -->
+	<div class="modal-backdrop" *ngIf="showCreateModal" (click)="closeCreateModal()">
+		<div class="modal" (click)="$event.stopPropagation()">
+			<div class="modal-header">
+				<h2>Add Connector</h2>
+				<button class="btn-close" (click)="closeCreateModal()">×</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group">
+					<label>Connector Type</label>
+					<select [(ngModel)]="newConnector.connector_type" (ngModelChange)="onTypeChange()">
+						<option *ngFor="let t of connectorTypes" [value]="t.type">{{ t.label }}</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label>Connector ID</label>
+					<input type="text" [(ngModel)]="newConnector.connector_id" placeholder="my-github" />
+				</div>
+				<div class="form-group">
+					<label>Display Name</label>
+					<input type="text" [(ngModel)]="newConnector.display_name" placeholder="My GitHub" />
+				</div>
+				<div class="form-group">
+					<label>Base URL</label>
+					<input type="text" [(ngModel)]="newConnector.base_url" placeholder="https://api.example.com" />
+				</div>
+				<div class="form-group">
+					<label>Auth Type</label>
+					<select [(ngModel)]="newConnector.auth_type">
+						<option *ngFor="let a of getAuthTypes()" [value]="a">{{ a }}</option>
+					</select>
+				</div>
+				<div class="form-group" *ngIf="newConnector.auth_type === 'api_key' || newConnector.auth_type === 'bearer'">
+					<label>API Key / Token</label>
+					<input type="password" [(ngModel)]="newConnector.api_key" placeholder="Enter API key or token" />
+				</div>
+				<div class="form-group" *ngIf="newConnector.auth_type === 'oauth2_pkce'">
+					<label>OAuth2 Client ID</label>
+					<input type="text" [(ngModel)]="newConnector.oauth2_client_id" placeholder="Client ID" />
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="btn btn-ghost" (click)="closeCreateModal()">Cancel</button>
+				<button class="btn btn-primary" (click)="createConnector()" [disabled]="!newConnector.connector_id || !newConnector.display_name">
+					Create
+				</button>
+			</div>
+		</div>
+	</div>
+</div>

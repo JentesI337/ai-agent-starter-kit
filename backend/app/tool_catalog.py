@@ -30,6 +30,10 @@ TOOL_NAMES: tuple[str, ...] = (
     "spawn_subrun",
     "create_workflow",
     "delete_workflow",
+    # API connector tools
+    "api_call",
+    "api_list_connectors",
+    "api_auth",
     # DevOps tools
     "git_log",
     "git_diff",
@@ -79,6 +83,11 @@ _ALL_DEVOPS_TOOLS: frozenset[str] = (
     _GIT_TOOLS | _TESTING_TOOLS | _LINT_TOOLS | _DEPENDENCY_TOOLS | _SECURITY_TOOLS | _DEBUG_TOOLS
 )
 
+# API connector tools — feature-gated
+_API_CONNECTOR_TOOLS: frozenset[str] = frozenset({
+    "api_call", "api_list_connectors", "api_auth",
+})
+
 
 def _build_active_tool_set() -> set[str]:
     """Return the set of tool names filtered by feature toggles."""
@@ -103,6 +112,8 @@ def _build_active_tool_set() -> set[str]:
             active -= _SECURITY_TOOLS
         if not settings.devops_debug_tools_enabled:
             active -= _DEBUG_TOOLS
+    if not settings.api_connectors_enabled:
+        active -= _API_CONNECTOR_TOOLS
     return active
 
 
@@ -148,6 +159,13 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "browserevaluatejs": "browser_evaluate_js",
     "browser_js": "browser_evaluate_js",
     "browser_eval": "browser_evaluate_js",
+    # API connector aliases
+    "apicall": "api_call",
+    "api_request": "api_call",
+    "list_connectors": "api_list_connectors",
+    "apilistconnectors": "api_list_connectors",
+    "apiauth": "api_auth",
+    "api_authenticate": "api_auth",
     # DevOps aliases
     "gitlog": "git_log",
     "git_history": "git_log",

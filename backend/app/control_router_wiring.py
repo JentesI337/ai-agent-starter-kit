@@ -6,6 +6,7 @@ from app.routers import (
     build_control_agent_config_router,
     build_control_config_router,
     build_control_execution_config_router,
+    build_control_integrations_router,
     build_control_policy_approvals_router,
     build_control_runs_router,
     build_control_sessions_router,
@@ -79,6 +80,16 @@ def include_control_routers(
     tools_config_reset_handler=None,
     tools_security_patterns_handler=None,
     tools_security_update_handler=None,
+    # Integration handlers
+    integrations_connectors_list_handler=None,
+    integrations_connectors_get_handler=None,
+    integrations_connectors_create_handler=None,
+    integrations_connectors_update_handler=None,
+    integrations_connectors_delete_handler=None,
+    integrations_connectors_test_handler=None,
+    integrations_oauth_start_handler=None,
+    integrations_oauth_callback_handler=None,
+    integrations_oauth_status_handler=None,
 ) -> None:
     app.include_router(
         build_control_runs_router(
@@ -218,5 +229,32 @@ def include_control_routers(
                 execution_config_update_handler=execution_config_update_handler or handle_execution_config_update,
                 execution_loop_detection_get_handler=execution_loop_detection_get_handler or handle_execution_loop_detection_get,
                 execution_loop_detection_update_handler=execution_loop_detection_update_handler or handle_execution_loop_detection_update,
+            )
+        )
+
+    # R5: Integrations router
+    if integrations_connectors_list_handler is not None:
+        from app.handlers.integration_handlers import (
+            handle_connectors_list,
+            handle_connectors_get,
+            handle_connectors_create,
+            handle_connectors_update,
+            handle_connectors_delete,
+            handle_connectors_test,
+            handle_oauth_start,
+            handle_oauth_callback,
+            handle_oauth_status,
+        )
+        app.include_router(
+            build_control_integrations_router(
+                connectors_list_handler=integrations_connectors_list_handler or handle_connectors_list,
+                connectors_get_handler=integrations_connectors_get_handler or handle_connectors_get,
+                connectors_create_handler=integrations_connectors_create_handler or handle_connectors_create,
+                connectors_update_handler=integrations_connectors_update_handler or handle_connectors_update,
+                connectors_delete_handler=integrations_connectors_delete_handler or handle_connectors_delete,
+                connectors_test_handler=integrations_connectors_test_handler or handle_connectors_test,
+                oauth_start_handler=integrations_oauth_start_handler or handle_oauth_start,
+                oauth_callback_handler=integrations_oauth_callback_handler or handle_oauth_callback,
+                oauth_status_handler=integrations_oauth_status_handler or handle_oauth_status,
             )
         )

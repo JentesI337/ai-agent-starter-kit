@@ -356,6 +356,10 @@ class SkillsSection(BaseModel):
     skills_dir: str = ""
 
 
+class IntegrationsSection(BaseModel):
+    api_connectors_enabled: bool = False
+
+
 class InfraSection(BaseModel):
     orchestrator_state_dir: str = ""
     orchestrator_state_backend: str = "file"
@@ -417,6 +421,7 @@ SECTION_REGISTRY: dict[str, type[BaseModel]] = {
     "tool_loop": ToolLoopSection,
     "runner": RunnerSection,
     "skills": SkillsSection,
+    "integrations": IntegrationsSection,
     "infra": InfraSection,
     "model_health": ModelHealthSection,
 }

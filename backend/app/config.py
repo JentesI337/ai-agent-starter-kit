@@ -1532,6 +1532,9 @@ class Settings(BaseModel):
     # Reasoning quality: reflection tool retry
     runner_reflection_tool_retry_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_TOOL_RETRY_ENABLED", False)
 
+    # API connectors
+    api_connectors_enabled: bool = _parse_bool_env("API_CONNECTORS_ENABLED", False)
+
     # DevOps tools
     devops_tools_enabled: bool = _parse_bool_env("DEVOPS_TOOLS_ENABLED", True)
     devops_git_tools_enabled: bool = _parse_bool_env("DEVOPS_GIT_TOOLS_ENABLED", True)

@@ -43,6 +43,10 @@ from app.handlers.tool_config_handlers import (
     handle_tools_security_update,
 )
 from app.tool_modules.tool_config_store import init_tool_config_store
+from app.connectors.connector_store import init_connector_store
+from app.connectors.credential_store import init_credential_store
+from app.connectors.registry import ConnectorRegistry
+from app.handlers import integration_handlers
 from app.contracts.agent_contract import AgentContract
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
@@ -193,6 +197,19 @@ def _startup_sequence() -> None:
     _tool_cfg_path = Path(settings.workspace_root) / "tool_configs.json"
     init_tool_config_store(persist_path=_tool_cfg_path)
     logger.info("tool_config_store_initialized persist_path=%s", _tool_cfg_path)
+
+    # R4: Initialize ConnectorStore and CredentialStore
+    _connector_cfg_path = Path(settings.workspace_root) / "connectors.json"
+    _connector_cred_path = Path(settings.workspace_root) / "connector_credentials.json"
+    _connector_store = init_connector_store(persist_path=_connector_cfg_path)
+    _credential_store = init_credential_store(persist_path=_connector_cred_path)
+    _connector_registry = ConnectorRegistry()
+    integration_handlers.configure(
+        connector_store=_connector_store,
+        credential_store=_credential_store,
+        connector_registry=_connector_registry,
+    )
+    logger.info("connector_stores_initialized")
 
     config_validation = validate_environment_config(settings)
     if not bool(config_validation.get("is_valid", True)):
@@ -1048,6 +1065,15 @@ include_control_routers(
     tools_config_reset_handler=handle_tools_config_reset,
     tools_security_patterns_handler=handle_tools_security_patterns,
     tools_security_update_handler=handle_tools_security_update,
+    integrations_connectors_list_handler=integration_handlers.handle_connectors_list,
+    integrations_connectors_get_handler=integration_handlers.handle_connectors_get,
+    integrations_connectors_create_handler=integration_handlers.handle_connectors_create,
+    integrations_connectors_update_handler=integration_handlers.handle_connectors_update,
+    integrations_connectors_delete_handler=integration_handlers.handle_connectors_delete,
+    integrations_connectors_test_handler=integration_handlers.handle_connectors_test,
+    integrations_oauth_start_handler=integration_handlers.handle_oauth_start,
+    integrations_oauth_callback_handler=integration_handlers.handle_oauth_callback,
+    integrations_oauth_status_handler=integration_handlers.handle_oauth_status,
 )
 app.include_router(
     build_runtime_debug_router(
