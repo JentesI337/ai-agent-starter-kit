@@ -58,9 +58,7 @@ export class DebugDashboardComponent implements OnInit, OnDestroy {
       this.agentState.connected$.subscribe(c => this.isConnected = c)
     );
 
-    if (!this.isConnected) {
-      this.socket.connect('ws://localhost:8000/ws/agent');
-    }
+    // Socket connection is handled by root App component — no connect() here
   }
 
   ngOnDestroy(): void {

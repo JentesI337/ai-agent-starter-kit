@@ -127,7 +127,7 @@ export class DebugPageComponent implements OnInit, OnDestroy {
     this.subs.add(this.agentState.connected$.subscribe(c => { this.isConnected = c; this.cdr.markForCheck(); }));
     this.subs.add(this.agentState.approvals$.subscribe(a => { this.pendingApprovals = a; this.cdr.markForCheck(); }));
 
-    if (!this.isConnected) this.socket.connect('ws://localhost:8000/ws/agent');
+    // Socket connection is handled by root App component — no connect() here
   }
 
   ngOnDestroy(): void { this.subs.unsubscribe(); }

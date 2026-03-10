@@ -276,4 +276,4 @@ class MemoryStore:
     @staticmethod
     def _hash_session_id(session_id: str) -> str:
         """SEC (MEM-03): Hash session ID for filenames to prevent enumeration."""
-        return hashlib.sha256(session_id.encode()).hexdigest()[:16]
+        return hashlib.sha256(session_id.encode()).hexdigest()

@@ -23,7 +23,7 @@ def test_memory_store_add_is_thread_safe(tmp_path) -> None:
     assert len(items) == workers * per_worker
 
     # SEC (MEM-03): Filename is now a hash of the session_id
-    hashed_name = hashlib.sha256(session_id.encode()).hexdigest()[:16]
+    hashed_name = hashlib.sha256(session_id.encode()).hexdigest()
     persisted_file = tmp_path / f"{hashed_name}.jsonl"
     assert persisted_file.exists()
     lines = [line for line in persisted_file.read_text(encoding="utf-8").splitlines() if line.strip()]

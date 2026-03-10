@@ -164,7 +164,9 @@ class HeadAgent:
         self._mcp_initialized = False
         self._mcp_init_lock = asyncio.Lock()
         self._configure_lock = asyncio.Lock()  # H-6: guards configure_runtime vs concurrent run()
-        self._run_lock = asyncio.Lock()  # H-6: protects _active_run_count
+        self._run_lock = asyncio.Lock()  # H-6: protects _active_run_count (async contexts)
+        import threading as _threading
+        self._configure_sync_lock = _threading.Lock()  # H-6: protects counter check in sync configure_runtime
         self._reconfiguring = False
         self._active_run_count = 0  # H-6: tracks concurrently executing run() calls
         self._background_tasks: set[asyncio.Task] = set()  # keeps bg tasks alive (prevents GC)
@@ -363,13 +365,14 @@ class HeadAgent:
         )
 
     def configure_runtime(self, base_url: str, model: str) -> None:
-        # H-6: guard — reject reconfiguration while run() calls are in flight
-        if self._active_run_count > 0:
-            raise RuntimeError(
-                f"configure_runtime() abgewiesen: {self._active_run_count} aktive(r) "
-                "run()-Aufruf/Aufrufe. Bitte warten und erneut versuchen."
-            )
-        self._reconfiguring = True
+        # H-6: acquire threading lock to prevent TOCTOU race with run()
+        with self._configure_sync_lock:
+            if self._active_run_count > 0:
+                raise RuntimeError(
+                    f"configure_runtime() abgewiesen: {self._active_run_count} aktive(r) "
+                    "run()-Aufruf/Aufrufe. Bitte warten und erneut versuchen."
+                )
+            self._reconfiguring = True
         try:
             self.client = LlmClient(
                 base_url=base_url,
@@ -399,7 +402,8 @@ class HeadAgent:
                 reasoning_hint=self.prompt_profile.system_prompt,
             )
         finally:
-            self._reconfiguring = False
+            with self._configure_sync_lock:
+                self._reconfiguring = False
 
     def set_spawn_subrun_handler(self, handler: SpawnSubrunHandler | None) -> None:
         self._spawn_subrun_handler = handler
@@ -489,7 +493,7 @@ class HeadAgent:
     ) -> str:
         self._refresh_long_term_memory_store()
         # H-6: guard — refuse to start if configure_runtime() is mid-flight
-        async with self._run_lock:
+        with self._configure_sync_lock:
             if self._reconfiguring:
                 raise RuntimeError("run() abgewiesen: Agent wird gerade rekonfiguriert. Bitte erneut versuchen.")
             self._active_run_count += 1
@@ -534,7 +538,7 @@ class HeadAgent:
             )
             raise
         finally:
-            async with self._run_lock:
+            with self._configure_sync_lock:
                 self._active_run_count -= 1
             with contextlib.suppress(Exception):
                 await self._invoke_hooks(

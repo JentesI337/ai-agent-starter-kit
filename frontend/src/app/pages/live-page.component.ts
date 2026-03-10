@@ -65,7 +65,7 @@ export class LivePageComponent implements OnInit, OnDestroy, AfterViewChecked {
   ) {}
 
   ngOnInit(): void {
-    this.socket.connect('ws://localhost:8000/ws/agent');
+    // Socket connection is handled by root App component — no connect() here
     this.agentState.init();
     this.live.init();
 

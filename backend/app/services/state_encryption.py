@@ -48,8 +48,15 @@ def _load_encryption_key() -> bytes:
         "Encrypted state will NOT survive restart. "
         "Set STATE_ENCRYPTION_KEY to a 64-char hex string in .env"
     )
-    if os.getenv("REQUIRE_PERSISTENT_ENCRYPTION", "").lower() in ("1", "true", "yes"):
-        raise RuntimeError("STATE_ENCRYPTION_KEY is required but not set")
+    _app_env = os.getenv("APP_ENV", "development").strip().lower()
+    if (
+        _app_env == "production"
+        or os.getenv("REQUIRE_PERSISTENT_ENCRYPTION", "").lower() in ("1", "true", "yes")
+    ):
+        raise RuntimeError(
+            "STATE_ENCRYPTION_KEY is required in production mode but not set. "
+            "Set STATE_ENCRYPTION_KEY to a 64-char hex string in .env"
+        )
     return secrets.token_bytes(32)
 
 
@@ -84,7 +91,7 @@ def encrypt_state(plaintext: str) -> str:
     # Fallback: XOR obfuscation + HMAC integrity (not cryptographically strong)
     key_stream = _derive_key_stream(len(data))
     obfuscated = bytes(a ^ b for a, b in zip(data, key_stream, strict=False))
-    mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()[:16]
+    mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()
     encoded = base64.b64encode(obfuscated).decode("ascii")
     return f"{_OBFUSCATED_PREFIX}{mac}:{encoded}"
 
@@ -112,7 +119,7 @@ def decrypt_state(ciphertext: str) -> str:
         mac, encoded = remainder.split(":", 1)
         obfuscated = base64.b64decode(encoded)
         # Verify HMAC integrity
-        expected_mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()[:16]
+        expected_mac = hmac.new(_ENCRYPTION_KEY, obfuscated, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(mac, expected_mac):
             raise ValueError("State integrity check failed — data may have been tampered with")
         key_stream = _derive_key_stream(len(obfuscated))

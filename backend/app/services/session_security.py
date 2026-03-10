@@ -27,6 +27,12 @@ else:
         "Sessions will be invalidated on restart. "
         "Set SESSION_SIGNING_KEY in .env for persistent sessions."
     )
+    _app_env = os.getenv("APP_ENV", "development").strip().lower()
+    if _app_env == "production":
+        raise RuntimeError(
+            "SESSION_SIGNING_KEY is required in production mode but not set. "
+            "Set SESSION_SIGNING_KEY in .env for persistent sessions."
+        )
     _SESSION_SIGNING_KEY = secrets.token_bytes(32)
 
 

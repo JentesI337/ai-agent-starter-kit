@@ -180,10 +180,16 @@ def _interpret(node: ast.AST, namespace: dict[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
+        # SEC: block dunder name access to prevent sandbox escape
+        if node.id.startswith('_'):
+            raise ValueError(f"Access to private/dunder names not allowed: {node.id}")
         if node.id in namespace:
             return namespace[node.id]
         raise ValueError(f"Unknown name: {node.id}")
     if isinstance(node, ast.Attribute):
+        # SEC: block dunder/private attribute access to prevent sandbox escape
+        if node.attr.startswith('_'):
+            raise ValueError(f"Access to private/dunder attributes not allowed: {node.attr}")
         obj = _interpret(node.value, namespace)
         if isinstance(obj, dict):
             return obj.get(node.attr)

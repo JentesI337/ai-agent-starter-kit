@@ -227,7 +227,7 @@ class TestMEM03SessionIdHashing:
         session_id = "my-secret-session"
         store.add(session_id, "user", "hello")
 
-        expected_hash = hashlib.sha256(session_id.encode()).hexdigest()[:16]
+        expected_hash = hashlib.sha256(session_id.encode()).hexdigest()
         files = list(tmp_path.glob("*.jsonl"))
         assert len(files) == 1
         assert files[0].stem == expected_hash
@@ -265,7 +265,7 @@ class TestMEM03SessionIdHashing:
         # Trigger rewrite (via repair)
         store.sanitize_session_history(session_id)
 
-        expected_hash = hashlib.sha256(session_id.encode()).hexdigest()[:16]
+        expected_hash = hashlib.sha256(session_id.encode()).hexdigest()
         files = list(tmp_path.glob("*.jsonl"))
         assert all(f.stem == expected_hash for f in files)
 

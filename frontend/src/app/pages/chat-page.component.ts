@@ -93,7 +93,7 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
   ) {}
 
   ngOnInit(): void {
-    this.socketService.connect(this.wsUrl);
+    // Socket connection is handled by root App component — no connect() here
     this.agentState.init();
 
     this.secureStorage.getItem('preferredRuntime').then(persistedRuntime => {
