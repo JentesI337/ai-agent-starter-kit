@@ -1,0 +1,20 @@
+{
+  "id": "content-pipeline",
+  "name": "Content Creation Pipeline",
+  "description": "Research a topic, draft content, review for quality, and produce a final document.",
+  "category": "content",
+  "required_connectors": [],
+  "step_count": 4,
+  "execution_mode": "sequential",
+  "base_agent_id": "head-agent",
+  "steps": [
+    "Research the given topic thoroughly. Search for relevant information, recent developments, and key data points.",
+    "Draft the content based on the research. Create a well-structured document with an introduction, main sections, and conclusion.",
+    "Review the draft for quality. Check for accuracy, clarity, grammar, and completeness. Suggest improvements.",
+    "Produce the final version incorporating review feedback. Ensure the content is polished and ready for publication."
+  ],
+  "triggers": [
+    {"type": "manual"},
+    {"type": "chat_command", "command_name": "content"}
+  ]
+}

@@ -39,6 +39,9 @@ TOOL_NAMES: tuple[str, ...] = (
     "transcribe_audio",
     "generate_image",
     "export_pdf",
+    # Workflow tools
+    "build_workflow",
+    "explore_connector",
     # DevOps tools
     "git_log",
     "git_diff",

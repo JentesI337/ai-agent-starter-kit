@@ -1,0 +1,19 @@
+{
+  "id": "daily-digest",
+  "name": "Daily Project Digest",
+  "description": "Generate a daily summary of project activity: recent commits, open issues, and pending pull requests.",
+  "category": "reporting",
+  "required_connectors": [],
+  "step_count": 3,
+  "execution_mode": "sequential",
+  "base_agent_id": "head-agent",
+  "steps": [
+    "Gather recent project activity. Check for recent commits, new issues, and pull request updates from the last 24 hours.",
+    "Analyze the gathered data. Identify key themes, blockers, and items that need attention.",
+    "Compose a concise daily digest report. Include sections for: highlights, new issues, PR updates, and action items."
+  ],
+  "triggers": [
+    {"type": "schedule", "cron_expression": "0 9 * * 1-5"},
+    {"type": "chat_command", "command_name": "digest"}
+  ]
+}

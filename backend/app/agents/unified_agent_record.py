@@ -5,7 +5,7 @@ and ``AgentRuntimeConfig`` with one serializable Pydantic model.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -81,11 +81,25 @@ class BehaviorFlags(BaseModel):
     custom_deny_override: list[str] | None = None
 
 
+class WorkflowTrigger(BaseModel):
+    """Trigger configuration for a workflow."""
+
+    type: Literal["manual", "schedule", "webhook", "chat_command"] = "manual"
+    cron_expression: str | None = None
+    webhook_secret: str | None = None
+    command_name: str | None = None
+    last_run_at: str | None = None
+    next_run_at: str | None = None
+
+
 class CustomWorkflow(BaseModel):
     """Workflow definition for custom (user-created) agents."""
 
     base_agent_id: str = Field(default="head-agent", min_length=1, max_length=80)
     workflow_steps: list[str] = Field(default_factory=list)
+    execution_mode: Literal["parallel", "sequential"] = "parallel"
+    workflow_graph: dict[str, Any] | None = None
+    triggers: list[WorkflowTrigger] = Field(default_factory=list)
     allow_subrun_delegation: bool = False
     workspace_scope: str | None = Field(default=None, max_length=120)
     skills_scope: str | None = Field(default=None, max_length=120)

@@ -19,6 +19,7 @@ from app.control_models import (
 )
 from app.errors import GuardrailViolation
 from app.handlers.tools_handlers import normalize_tool_policy_payload
+from app.orchestrator.workflow_models import WorkflowGraphDef
 from app.services.request_normalization import normalize_idempotency_key
 
 
@@ -194,6 +195,8 @@ def _list_workflows_minimal(*, limit: int, base_agent_id: str | None = None) -> 
                 "name": definition.name,
                 "base_agent_id": base_id,
                 "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
+                "execution_mode": getattr(definition, "execution_mode", "parallel"),
+                "triggers": getattr(definition, "triggers", []) or [],
                 "version": _get_workflow_version(definition.id),
                 "steps": steps,
                 "step_count": len(steps),
@@ -221,6 +224,9 @@ def _get_workflow_minimal(*, workflow_id: str) -> dict:
             "description": definition.description,
             "base_agent_id": deps.normalize_agent_id(definition.base_agent_id),
             "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
+            "execution_mode": getattr(definition, "execution_mode", "parallel"),
+            "workflow_graph": getattr(definition, "workflow_graph", None),
+            "triggers": getattr(definition, "triggers", []) or [],
             "version": _get_workflow_version(definition.id),
             "steps": steps,
             "step_count": len(steps),
@@ -260,6 +266,12 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
     if existing is not None:
         return existing
 
+    execution_mode = (getattr(request, "execution_mode", None) or "parallel").strip().lower()
+    if execution_mode not in ("parallel", "sequential"):
+        execution_mode = "parallel"
+    workflow_graph = getattr(request, "workflow_graph", None)
+    triggers = getattr(request, "triggers", None) or []
+
     created = deps.custom_agent_store.upsert(
         SimpleNamespace(
             id=workflow_id,
@@ -267,8 +279,11 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
             description=description,
             base_agent_id=normalized_base_agent,
             workflow_steps=steps,
+            execution_mode=execution_mode,
+            workflow_graph=workflow_graph,
             tool_policy=normalized_tool_policy,
             allow_subrun_delegation=bool(request.allow_subrun_delegation),
+            triggers=triggers,
         ),
         id_factory=lambda base_name: f"workflow-{base_name}-{str(uuid.uuid4())[:8]}",
     )
@@ -284,6 +299,9 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
             "description": created.description,
             "base_agent_id": deps.normalize_agent_id(created.base_agent_id),
             "allow_subrun_delegation": bool(getattr(created, "allow_subrun_delegation", False)),
+            "execution_mode": getattr(created, "execution_mode", "parallel"),
+            "workflow_graph": getattr(created, "workflow_graph", None),
+            "triggers": getattr(created, "triggers", []) or [],
             "version": _get_workflow_version(created.id),
             "steps": list(created.workflow_steps or []),
             "step_count": len(created.workflow_steps or []),
@@ -326,6 +344,12 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
     resolved_tool_policy = existing.tool_policy if request.tool_policy is None else normalize_tool_policy_payload(request.tool_policy)
     resolved_allow_subrun_delegation = bool(getattr(existing, "allow_subrun_delegation", False)) if request.allow_subrun_delegation is None else bool(request.allow_subrun_delegation)
 
+    resolved_execution_mode = getattr(existing, "execution_mode", "parallel") if getattr(request, "execution_mode", None) is None else (request.execution_mode or "parallel").strip().lower()
+    if resolved_execution_mode not in ("parallel", "sequential"):
+        resolved_execution_mode = "parallel"
+    resolved_workflow_graph = getattr(existing, "workflow_graph", None) if getattr(request, "workflow_graph", None) is None else request.workflow_graph
+    resolved_triggers = getattr(existing, "triggers", []) if getattr(request, "triggers", None) is None else (request.triggers or [])
+
     idempotency_key = normalize_idempotency_key(request.idempotency_key)
     fingerprint = deps.build_workflow_create_fingerprint(
         operation="update",
@@ -348,8 +372,11 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
             description=resolved_description,
             base_agent_id=normalized_base_agent,
             workflow_steps=resolved_steps,
+            execution_mode=resolved_execution_mode,
+            workflow_graph=resolved_workflow_graph,
             tool_policy=resolved_tool_policy,
             allow_subrun_delegation=resolved_allow_subrun_delegation,
+            triggers=resolved_triggers,
         )
     )
     deps.sync_custom_agents()
@@ -364,6 +391,9 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
             "description": updated.description,
             "base_agent_id": deps.normalize_agent_id(updated.base_agent_id),
             "allow_subrun_delegation": bool(getattr(updated, "allow_subrun_delegation", False)),
+            "execution_mode": getattr(updated, "execution_mode", "parallel"),
+            "workflow_graph": getattr(updated, "workflow_graph", None),
+            "triggers": getattr(updated, "triggers", []) or [],
             "version": next_version,
             "steps": list(updated.workflow_steps or []),
             "step_count": len(updated.workflow_steps or []),
@@ -374,6 +404,121 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         },
     }
     _register_idempotent_workflow(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+    return response
+
+
+async def _execute_workflow_sequential(
+    *,
+    request: ControlWorkflowsExecuteRequest,
+    workflow: Any,
+    workflow_agent_id: str,
+    session_id: str,
+    run_id: str,
+    graph: WorkflowGraphDef,
+    deps: WorkflowHandlerDependencies,
+    normalized_tool_policy: Any,
+    idempotency_key: str | None,
+    fingerprint: str,
+) -> dict:
+    """Execute a workflow with sequential step-by-step processing."""
+    from app.orchestrator.workflow_engine import WorkflowEngine
+
+    runtime_state = deps.runtime_manager.get_state()
+    _, _, workflow_orchestrator = deps.resolve_agent(workflow_agent_id)
+
+    # Get connector services if available
+    connector_store = None
+    credential_store = None
+    connector_registry = None
+    try:
+        from app.connectors.connector_store import get_connector_store
+        from app.connectors.credential_store import get_credential_store
+        from app.connectors.registry import ConnectorRegistry
+        connector_store = get_connector_store()
+        credential_store = get_credential_store()
+        connector_registry = ConnectorRegistry()
+    except Exception:
+        pass
+
+    engine = WorkflowEngine(
+        subrun_lane=deps.subrun_lane,
+        connector_store=connector_store,
+        credential_store=credential_store,
+        connector_registry=connector_registry,
+    )
+
+    # Try to use the run store for persistence + SSE broadcasting
+    try:
+        from app.services.workflow_run_store import get_workflow_run_store
+        run_store = get_workflow_run_store()
+    except Exception:
+        run_store = None
+
+    # Pre-create execution state so run_store can reference it for persistence
+    from app.orchestrator.workflow_models import WorkflowExecutionState as _WES
+    _pre_state = _WES(workflow_id=workflow_agent_id, run_id=run_id, session_id=session_id)
+
+    if run_store is not None:
+        send_event_fn = run_store.make_send_event(run_id, _pre_state)
+        run_store.save(_pre_state)
+    else:
+        async def send_event_fn(_event: dict) -> None:
+            return None
+
+    execution_state = await engine.execute(
+        graph=graph,
+        run_id=run_id,
+        session_id=session_id,
+        initial_message=request.message,
+        workflow_id=workflow_agent_id,
+        send_event=send_event_fn,
+        runtime=runtime_state.runtime,
+        model=request.model or runtime_state.model,
+        preset=request.preset,
+        tool_policy=normalized_tool_policy,
+        orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
+        orchestrator_api=workflow_orchestrator,
+    )
+
+    # Persist final state
+    if run_store is not None:
+        run_store.save(execution_state)
+
+    step_summaries = []
+    for step_id, result in execution_state.step_results.items():
+        step_summaries.append({
+            "step_id": step_id,
+            "status": result.status,
+            "duration_ms": result.duration_ms,
+            "output_preview": str(result.output)[:200] if result.output is not None else "",
+        })
+
+    response = {
+        "schema": "workflows.execute.v2",
+        "status": "completed" if execution_state.status == "completed" else "failed",
+        "runId": run_id,
+        "sessionId": session_id,
+        "workflow": {
+            "id": workflow_agent_id,
+            "name": workflow.name,
+            "base_agent_id": deps.normalize_agent_id(workflow.base_agent_id),
+            "execution_mode": "sequential",
+            "version": _get_workflow_version(workflow_agent_id),
+        },
+        "execution": {
+            "engine": "workflow.sequential.v1",
+            "mode": "sequential_pipeline",
+            "status": execution_state.status,
+            "steps": step_summaries,
+            "started_at": execution_state.started_at,
+            "completed_at": execution_state.completed_at,
+        },
+        "idempotency": {
+            "key": idempotency_key,
+            "reused": False,
+        },
+    }
+    _register_idempotent_workflow_execute(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
     return response
 
 
@@ -406,6 +551,29 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         return existing
 
     session_id = request.session_id or str(uuid.uuid4())
+
+    # Branch: sequential execution with workflow graph
+    execution_mode = getattr(workflow, "execution_mode", "parallel")
+    raw_graph = getattr(workflow, "workflow_graph", None)
+    if execution_mode == "sequential" and raw_graph is not None:
+        try:
+            graph = WorkflowGraphDef.model_validate(raw_graph) if isinstance(raw_graph, dict) else raw_graph
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+        run_id = str(uuid.uuid4())
+        return await _execute_workflow_sequential(
+            request=request,
+            workflow=workflow,
+            workflow_agent_id=workflow_agent_id,
+            session_id=session_id,
+            run_id=run_id,
+            graph=graph,
+            deps=deps,
+            normalized_tool_policy=normalized_tool_policy,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+        )
+
     run_id = deps.start_run_background(
         agent_id=workflow_agent_id,
         message=request.message,

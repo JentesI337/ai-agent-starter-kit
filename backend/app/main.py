@@ -43,8 +43,8 @@ from app.handlers.tool_config_handlers import (
     handle_tools_security_update,
 )
 from app.tool_modules.tool_config_store import init_tool_config_store
-from app.connectors.connector_store import init_connector_store
-from app.connectors.credential_store import init_credential_store
+from app.connectors.connector_store import get_connector_store, init_connector_store
+from app.connectors.credential_store import get_credential_store, init_credential_store
 from app.connectors.registry import ConnectorRegistry
 from app.handlers import integration_handlers
 from app.contracts.agent_contract import AgentContract
@@ -199,6 +199,12 @@ def _startup_sequence() -> None:
     init_tool_config_store(persist_path=_tool_cfg_path)
     logger.info("tool_config_store_initialized persist_path=%s", _tool_cfg_path)
 
+    # R3b: Initialize WorkflowRunStore
+    from app.services.workflow_run_store import init_workflow_run_store
+    _workflow_runs_dir = Path(settings.workspace_root) / "workflow_runs"
+    init_workflow_run_store(persist_dir=_workflow_runs_dir)
+    logger.info("workflow_run_store_initialized persist_dir=%s", _workflow_runs_dir)
+
     # R4: Initialize ConnectorStore and CredentialStore
     _connector_cfg_path = Path(settings.workspace_root) / "connectors.json"
     _connector_cred_path = Path(settings.workspace_root) / "connector_credentials.json"
@@ -230,8 +236,19 @@ def _startup_sequence() -> None:
         ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
 
+    # Start workflow scheduler for cron-based triggers
+    from app.services.workflow_scheduler import start_workflow_scheduler
+    try:
+        start_workflow_scheduler()
+    except Exception:
+        logger.warning("workflow_scheduler_start_failed", exc_info=True)
+
 
 def _shutdown_sequence() -> None:
+    # Stop workflow scheduler
+    from app.services.workflow_scheduler import stop_workflow_scheduler
+    stop_workflow_scheduler()
+
     # Persist model health snapshots before shutdown
     try:
         _rc = _get_runtime_components()
@@ -431,6 +448,21 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             _tools.set_repl_manager(repl_manager)
         if _tools is not None and hasattr(_tools, "set_browser_pool") and browser_pool is not None:
             _tools.set_browser_pool(browser_pool)
+
+    # Wire connector services to agent tooling (enables api_call, api_list_connectors, api_auth)
+    if settings.api_connectors_enabled:
+        try:
+            _cs = get_connector_store()
+            _crs = get_credential_store()
+            _cr = ConnectorRegistry()
+            for _agent in components.agent_registry.values():
+                _delegate = getattr(_agent, "_delegate", _agent)
+                _tools = getattr(_delegate, "tools", None)
+                if _tools is not None and hasattr(_tools, "set_connector_services"):
+                    _tools.set_connector_services(_cs, _crs, _cr)
+            logger.info("connector_services_wired_to_agents")
+        except Exception:
+            logger.warning("connector_services_wiring_failed", exc_info=True)
 
     components.agent = components.agent_registry[PRIMARY_AGENT_ID]
     components.orchestrator_api = components.orchestrator_registry[PRIMARY_AGENT_ID]
@@ -1159,3 +1191,7 @@ app.include_router(build_policies_router(policy_store=_policy_store))
 
 # --- File Uploads ---
 app.include_router(build_uploads_router())
+
+# --- Webhook Triggers ---
+from app.routers.webhooks import build_webhooks_router
+app.include_router(build_webhooks_router())

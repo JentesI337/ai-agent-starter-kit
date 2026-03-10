@@ -1,0 +1,18 @@
+{
+  "id": "github-pr-review",
+  "name": "GitHub PR Review Pipeline",
+  "description": "Automatically review pull requests: analyze code changes, check for security issues, and post a summary comment.",
+  "category": "development",
+  "required_connectors": ["github"],
+  "step_count": 3,
+  "execution_mode": "sequential",
+  "base_agent_id": "head-agent",
+  "steps": [
+    "Analyze the pull request changes. Read the diff and understand what was modified, added, or removed.",
+    "Perform a security review of the changes. Check for potential vulnerabilities, exposed secrets, or unsafe patterns.",
+    "Write a comprehensive review summary. Include code quality observations, security findings, and suggestions for improvement."
+  ],
+  "triggers": [
+    {"type": "webhook", "webhook_secret": null}
+  ]
+}

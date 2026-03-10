@@ -793,6 +793,58 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             capabilities=("workflow_management",),
         ),
         # ------------------------------------------------------------------
+        # build_workflow (NL → workflow)
+        # ------------------------------------------------------------------
+        "build_workflow": ToolSpec(
+            name="build_workflow",
+            required_args=("name", "steps_description"),
+            optional_args=("description", "execution_mode"),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Create a workflow from a natural language description. Each line in steps_description becomes a workflow step.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 1, "description": "Workflow name."},
+                    "description": {"type": "string", "description": "Optional description of the workflow."},
+                    "steps_description": {
+                        "type": "string", "minLength": 1,
+                        "description": "Multi-line description of steps. Each line becomes a step.",
+                    },
+                    "execution_mode": {
+                        "type": "string", "enum": ["parallel", "sequential"],
+                        "description": "Execution mode. Defaults to sequential.",
+                    },
+                },
+                "required": ["name", "steps_description"],
+                "additionalProperties": False,
+            },
+            capabilities=("workflow_management",),
+        ),
+        # ------------------------------------------------------------------
+        # explore_connector
+        # ------------------------------------------------------------------
+        "explore_connector": ToolSpec(
+            name="explore_connector",
+            required_args=("connector_id",),
+            optional_args=(),
+            timeout_seconds=10.0,
+            max_retries=0,
+            description="List all available methods and parameters for a configured API connector.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "connector_id": {
+                        "type": "string", "minLength": 1,
+                        "description": "The connector ID to explore (e.g. 'my-github').",
+                    },
+                },
+                "required": ["connector_id"],
+                "additionalProperties": False,
+            },
+            capabilities=("api_integration",),
+        ),
+        # ------------------------------------------------------------------
         # code_reset
         # ------------------------------------------------------------------
         "code_reset": ToolSpec(

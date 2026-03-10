@@ -183,8 +183,11 @@ class ControlWorkflowsCreateRequest(BaseModel):
     description: str = ""
     base_agent_id: str = PRIMARY_AGENT_ID
     steps: list[str] = Field(default_factory=list)
+    execution_mode: str | None = None
+    workflow_graph: dict | None = None
     tool_policy: ToolPolicyPayload | None = None
     allow_subrun_delegation: bool = False
+    triggers: list[dict] | None = None
     idempotency_key: str | None = None
 
 
@@ -194,8 +197,11 @@ class ControlWorkflowsUpdateRequest(BaseModel):
     description: str | None = None
     base_agent_id: str | None = None
     steps: list[str] | None = None
+    execution_mode: str | None = None
+    workflow_graph: dict | None = None
     tool_policy: ToolPolicyPayload | None = None
     allow_subrun_delegation: bool | None = None
+    triggers: list[dict] | None = None
     idempotency_key: str | None = None
 
 

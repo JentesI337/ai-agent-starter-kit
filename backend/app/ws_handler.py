@@ -377,11 +377,99 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             details={"error": str(exc), "error_category": classify_error(exc)},
         )
 
+    async def _try_run_command(content: str, session_id: str, request_id: str) -> bool:
+        """Detect ``/run <name> [message]`` and execute the matching workflow.
+
+        Returns *True* if a workflow was triggered (caller should skip normal
+        agent routing), *False* otherwise.
+        """
+        import re as _re
+
+        m = _re.match(r"^/run\s+(\S+)(?:\s+(.*))?$", content, _re.DOTALL)
+        if not m:
+            return False
+
+        command_name = m.group(1).strip()
+        extra_message = (m.group(2) or "").strip()
+
+        try:
+            from app.handlers import workflow_handlers
+            wf_deps = workflow_handlers._require_deps()
+        except RuntimeError:
+            await send_event({"type": "status", "message": "Workflow system not ready."})
+            return True
+
+        wf_deps.sync_custom_agents()
+
+        # Match by command_name trigger, workflow id, or display name
+        target = None
+        for item in wf_deps.custom_agent_store.list():
+            triggers = getattr(item, "triggers", []) or []
+            for t in triggers:
+                t_type = t.get("type") if isinstance(t, dict) else getattr(t, "type", None)
+                cmd = t.get("command_name") if isinstance(t, dict) else getattr(t, "command_name", None)
+                if t_type == "chat_command" and cmd and cmd.lower() == command_name.lower():
+                    target = item
+                    break
+            if target:
+                break
+            norm = wf_deps.normalize_agent_id(item.id)
+            if norm == wf_deps.normalize_agent_id(command_name):
+                target = item
+                break
+            display = getattr(item, "display_name", "") or ""
+            if display.lower() == command_name.lower():
+                target = item
+                break
+
+        if target is None:
+            await send_event({"type": "status", "message": f"No workflow found matching '{command_name}'."})
+            return True
+
+        # Execute the workflow
+        from app.control_models import ControlWorkflowsExecuteRequest
+        execute_request = ControlWorkflowsExecuteRequest(
+            workflow_id=target.id,
+            message=extra_message or f"Triggered via /run {command_name}",
+        )
+
+        await send_event({
+            "type": "status",
+            "message": f"Running workflow '{getattr(target, 'display_name', target.id)}'...",
+        })
+
+        try:
+            result = await workflow_handlers.api_control_workflows_execute(
+                request_data=execute_request.model_dump(),
+                idempotency_key_header=None,
+            )
+            run_id = result.get("runId") or result.get("run_id") or ""
+            await send_event({
+                "type": "workflow_triggered",
+                "workflow_id": target.id,
+                "run_id": run_id,
+                "message": f"Workflow '{getattr(target, 'display_name', target.id)}' started (run {run_id}).",
+            })
+        except Exception as exc:
+            await send_event({
+                "type": "error",
+                "message": f"Workflow execution failed: {exc}",
+            })
+
+        return True
+
     async def execute_user_message_job(job: dict[str, Any]) -> None:
         request_id = str(job.get("request_id") or "")
         session_id = str(job.get("session_id") or connection_session_id)
         used_session_ids.add(session_id)
         content = str(job.get("content") or "")
+
+        # --- Chat Command Trigger: /run <workflow> [message] ---
+        if content.startswith("/run "):
+            handled = await _try_run_command(content, session_id, request_id)
+            if handled:
+                return
+
         model = job.get("model")
         requested_agent_id = str(job.get("requested_agent_id") or deps.primary_agent_id)
         tool_policy = job.get("tool_policy")

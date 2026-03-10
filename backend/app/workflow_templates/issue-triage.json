@@ -1,0 +1,19 @@
+{
+  "id": "issue-triage",
+  "name": "Issue Triage & Classification",
+  "description": "Classify incoming issues by type and priority, assign to the appropriate team, and add labels.",
+  "category": "project-management",
+  "required_connectors": [],
+  "step_count": 3,
+  "execution_mode": "sequential",
+  "base_agent_id": "head-agent",
+  "steps": [
+    "Read and classify the issue. Determine if it is a bug, feature request, question, or documentation issue. Assess priority (critical, high, medium, low).",
+    "Based on the classification, determine which team or person should handle this issue. Consider the affected area of the codebase.",
+    "Summarize the triage decision: classification, priority, suggested assignee, and recommended labels."
+  ],
+  "triggers": [
+    {"type": "webhook", "webhook_secret": null},
+    {"type": "chat_command", "command_name": "triage"}
+  ]
+}
