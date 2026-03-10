@@ -952,7 +952,9 @@ class Settings(BaseModel):
     )
 
     workspace_root: str = _resolve_workspace_root(os.getenv("WORKSPACE_ROOT"))
-    memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "30"))
+    memory_max_items: int = int(os.getenv("MEMORY_MAX_ITEMS", "50"))
+    memory_include_turn_summaries: bool = _parse_bool_env("MEMORY_INCLUDE_TURN_SUMMARIES", True)
+    memory_turn_summary_max_chars: int = int(os.getenv("MEMORY_TURN_SUMMARY_MAX_CHARS", "300"))
     memory_persist_dir: str = _resolve_path_from_workspace(
         os.getenv("MEMORY_PERSIST_DIR"),
         workspace_root,
@@ -1284,7 +1286,9 @@ class Settings(BaseModel):
     plan_max_steps: int = max(1, min(20, int(os.getenv("PLAN_MAX_STEPS", "7"))))
     plan_root_cause_replan_enabled: bool = _parse_bool_env("PLAN_ROOT_CAUSE_REPLAN_ENABLED", True)
     long_term_memory_enabled: bool = _parse_bool_env("LONG_TERM_MEMORY_ENABLED", True)
+    long_term_memory_fts_enabled: bool = _parse_bool_env("LONG_TERM_MEMORY_FTS_ENABLED", True)
     session_distillation_enabled: bool = _parse_bool_env("SESSION_DISTILLATION_ENABLED", True)
+    distillation_enhanced: bool = _parse_bool_env("DISTILLATION_ENHANCED", True)
     failure_journal_enabled: bool = _parse_bool_env("FAILURE_JOURNAL_ENABLED", True)
     long_term_memory_db_path: str = _resolve_path_from_workspace(
         os.getenv("LONG_TERM_MEMORY_DB_PATH"),
@@ -1512,6 +1516,9 @@ class Settings(BaseModel):
     runner_compaction_tail_keep: int = int(os.getenv("RUNNER_COMPACTION_TAIL_KEEP", "4"))
     runner_compaction_context_window: int = int(os.getenv("RUNNER_COMPACTION_CONTEXT_WINDOW", "200000"))
     runner_tool_result_max_chars: int = int(os.getenv("RUNNER_TOOL_RESULT_MAX_CHARS", "5000"))
+    runner_compaction_text_fallback_chars: int = int(os.getenv("RUNNER_COMPACTION_TEXT_FALLBACK_CHARS", "300"))
+    runner_compaction_tool_render_head_chars: int = int(os.getenv("RUNNER_COMPACTION_TOOL_RENDER_HEAD_CHARS", "800"))
+    runner_compaction_tool_render_tail_chars: int = int(os.getenv("RUNNER_COMPACTION_TOOL_RENDER_TAIL_CHARS", "300"))
     # Post-loop
     runner_reflection_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_ENABLED", True)
     runner_reflection_max_passes: int = int(os.getenv("RUNNER_REFLECTION_MAX_PASSES", "1"))

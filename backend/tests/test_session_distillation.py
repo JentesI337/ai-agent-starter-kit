@@ -85,5 +85,6 @@ def test_session_distillation_persists_episodic_and_semantic(monkeypatch, tmp_pa
     assert semantic_row is not None
     assert semantic_row[0] == "user.prefers.concise"
     assert semantic_row[1] == "true"
-    assert float(semantic_row[2]) == 0.7
+    # Confidence is now dynamic based on tool success rate (0.5-0.9 range)
+    assert 0.5 <= float(semantic_row[2]) <= 0.9
     assert "sess-distill-1" in str(semantic_row[3])

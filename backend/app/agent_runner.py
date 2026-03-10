@@ -525,6 +525,11 @@ class AgentRunner:
                     })
                     all_tool_results.append(result)
 
+                # 3b. Store turn summary in memory for cross-session context
+                if settings.memory_include_turn_summaries:
+                    turn_summary = self._build_turn_summary(tool_results, loop_state.iteration)
+                    self.memory.add(session_id, "turn_summary", turn_summary)
+
                 # 4. Update loop state
                 loop_state.total_tool_calls += len(tool_results)
 
@@ -721,12 +726,18 @@ class AgentRunner:
             _model = model
             _sid = session_id
 
+            # Build plan text from PlanTracker if available
+            _plan_text = ""
+            if loop_state.plan.planning_active and loop_state.plan.steps:
+                step_lines = [f"{s.index}. {s.description} [{s.status}]" for s in loop_state.plan.steps]
+                _plan_text = "\n".join(step_lines)
+
             async def _distill_bg() -> None:
                 try:
                     await self._distill_fn(
                         session_id=_sid,
                         user_message=_user,
-                        plan_text="",
+                        plan_text=_plan_text,
                         tool_results=_tool_str,
                         final_text=_final,
                         model=_model,
@@ -791,12 +802,33 @@ class AgentRunner:
             content = getattr(item, "content", None)
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
+            elif role == "turn_summary" and content and settings.memory_include_turn_summaries:
+                messages.append({"role": "user", "content": f"[Previous tool context] {content}"})
 
         # 3. Current user message (skip if it was already the last item added)
         if not messages or messages[-1].get("content") != user_message:
             messages.append({"role": "user", "content": user_message})
 
         return messages
+
+    # ──────────────────────────────────────────────────────────────────
+    # Turn summary builder
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_turn_summary(tool_results: list[ToolResult], iteration: int) -> str:
+        """Build a compact summary of a tool execution batch for memory persistence."""
+        max_chars = settings.memory_turn_summary_max_chars
+        tool_names = [tr.tool_name for tr in tool_results]
+        ok = sum(1 for tr in tool_results if not tr.is_error)
+        err = sum(1 for tr in tool_results if tr.is_error)
+        snippets: list[str] = []
+        for tr in tool_results:
+            prefix = "[ERR] " if tr.is_error else ""
+            snippets.append(f"{prefix}{tr.tool_name}: {tr.content[:80]}")
+        snippet_text = "; ".join(snippets)
+        summary = f"[Turn {iteration}] Tools: {', '.join(tool_names)} ({ok} ok, {err} err). {snippet_text}"
+        return summary[:max_chars]
 
     # ──────────────────────────────────────────────────────────────────
     # Tool execution

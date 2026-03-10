@@ -427,7 +427,10 @@ class HeadAgent:
             return
 
         try:
-            self._long_term_memory = LongTermMemoryStore(configured_path)
+            self._long_term_memory = LongTermMemoryStore(
+                configured_path,
+                fts_enabled=settings.long_term_memory_fts_enabled,
+            )
             self._reflection_feedback_store = ReflectionFeedbackStore(configured_path)
             self._failure_retriever = FailureRetriever(self._long_term_memory)
             self._long_term_memory_db_path = configured_path
@@ -450,20 +453,20 @@ class HeadAgent:
             similar_failures = []
         if similar_failures:
             failure_lines: list[str] = [
-                f"- Task: {failure.task_description[:100]} "
-                f"→ Error: {failure.root_cause[:100]} "
-                f"→ Fix: {failure.solution[:100]}"
+                f"- Task: {failure.task_description[:200]} "
+                f"→ Error: {failure.root_cause[:200]} "
+                f"→ Fix: {failure.solution[:200]}"
                 for failure in similar_failures
             ]
             sections.append("[Past failures with similar tasks]\n" + "\n".join(failure_lines))
 
         try:
-            semantic_facts = self._long_term_memory.get_all_semantic()
+            semantic_facts = self._long_term_memory.search_semantic(user_message, limit=10)
         except Exception:
             semantic_facts = []
         if semantic_facts:
             preference_lines = [f"- {item.key}: {item.value}" for item in semantic_facts[:10]]
-            sections.append("[Known user preferences]\n" + "\n".join(preference_lines))
+            sections.append("[Relevant knowledge]\n" + "\n".join(preference_lines))
 
         return "\n\n".join(sections).strip()
 
@@ -561,16 +564,24 @@ class HeadAgent:
         if not (final_text or "").strip() or len((final_text or "").strip()) < 10:
             return
 
+        # Truncation limits: enhanced mode gives the LLM more material
+        if settings.distillation_enhanced:
+            user_limit, plan_limit, tool_limit, final_limit = 1000, 800, 1500, 1500
+        else:
+            user_limit, plan_limit, tool_limit, final_limit = 500, 300, 300, 500
+
         prompt_parts = [
             "Summarize this interaction in 2-3 sentences.\n"
             "Extract key facts about the user's preferences/project.\n"
-            'Return JSON: {"summary": "...", "key_facts": [{"key": "...", "value": "..."}], "tags": ["..."]}\n\n'
-            f"User: {user_message[:500]}",
+            "Extract key actions that were performed (tool calls, file operations, etc.).\n"
+            'Return JSON: {"summary": "...", "key_facts": [{"key": "...", "value": "..."}], '
+            '"key_actions": ["action1", "action2"], "tags": ["..."]}\n\n'
+            f"User: {user_message[:user_limit]}",
         ]
         if (plan_text or "").strip():
-            prompt_parts.append(f"Plan: {plan_text[:300]}")
-        prompt_parts.append(f"Tools: {(tool_results or '')[:300]}")
-        prompt_parts.append(f"Result: {final_text[:500]}")
+            prompt_parts.append(f"Plan: {plan_text[:plan_limit]}")
+        prompt_parts.append(f"Tools: {(tool_results or '')[:tool_limit]}")
+        prompt_parts.append(f"Result: {final_text[:final_limit]}")
         distillation_prompt = "\n".join(prompt_parts)
         raw = await self.client.complete_chat(
             "You distill knowledge.",
@@ -600,14 +611,29 @@ class HeadAgent:
         tags_raw = parsed.get("tags", [])
         tags = [str(tag).strip() for tag in tags_raw if str(tag).strip()] if isinstance(tags_raw, list) else []
 
+        # Extract key_actions from LLM response
+        key_actions_raw = parsed.get("key_actions", [])
+        key_actions = (
+            [str(a).strip() for a in key_actions_raw if str(a).strip()]
+            if isinstance(key_actions_raw, list)
+            else []
+        )
+
         if summary:
             self._long_term_memory.add_episodic(
                 session_id=session_id,
                 summary=summary,
-                key_actions=[],
+                key_actions=key_actions,
                 outcome="success",
                 tags=tags,
             )
+
+        # Confidence scoring based on tool success rate
+        tool_results_str = tool_results or ""
+        tool_count = max(1, tool_results_str.count("["))
+        error_count = tool_results_str.count("[ERROR]")
+        success_rate = 1.0 - (error_count / tool_count)
+        base_confidence = 0.5 + (success_rate * 0.4)  # range: 0.5 to 0.9
 
         key_facts = parsed.get("key_facts", [])
         if not isinstance(key_facts, list):
@@ -622,7 +648,7 @@ class HeadAgent:
             self._long_term_memory.add_semantic(
                 key=key,
                 value=value,
-                confidence=0.7,
+                confidence=round(base_confidence, 2),
                 source_sessions=[session_id],
             )
 

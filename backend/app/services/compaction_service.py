@@ -153,19 +153,27 @@ class CompactionService:
 
     def _text_fallback_summary(self, messages: list[dict]) -> str:
         """Extract key information without LLM — simple but preserves identifiers."""
+        fallback_chars = settings.runner_compaction_text_fallback_chars
         parts: list[str] = []
         for msg in messages:
             role = msg.get("role", "unknown")
             content = str(msg.get("content") or "")
             if not content.strip():
                 continue
-            # Keep first 150 chars + all identifiers
-            head = content[:150].strip()
             ids = set(IDENTIFIER_RE.findall(content))
             id_line = ""
             if ids:
                 id_line = f"\n  [identifiers: {', '.join(sorted(ids)[:10])}]"
-            parts.append(f"- {role}: {head}...{id_line}")
+            # Tool messages: preserve tool metadata
+            if role == "tool":
+                tool_id = msg.get("tool_call_id", "?")
+                is_error = "[ERROR]" in content or "error" in content[:200].lower()
+                status = "ERR" if is_error else "OK"
+                head = content[:fallback_chars].strip()
+                parts.append(f"- tool[{tool_id}] [{status}]: {head}...{id_line}")
+            else:
+                head = content[:fallback_chars].strip()
+                parts.append(f"- {role}: {head}...{id_line}")
         return "\n".join(parts) or "(No summarisable content)"
 
     # ── Helpers ───────────────────────────────────────────────────────
@@ -173,14 +181,17 @@ class CompactionService:
     @staticmethod
     def _render_messages(messages: list[dict]) -> str:
         """Render messages to a text block for the summariser."""
+        head_chars = settings.runner_compaction_tool_render_head_chars
+        tail_chars = settings.runner_compaction_tool_render_tail_chars
+        threshold = head_chars + tail_chars
         lines: list[str] = []
         for msg in messages:
             role = msg.get("role", "unknown")
             content = msg.get("content") or ""
             if role == "tool":
                 # Truncate very large tool results to avoid blowing up the summary call
-                if len(content) > 1000:
-                    content = content[:500] + "\n...(truncated)...\n" + content[-200:]
+                if len(content) > threshold:
+                    content = content[:head_chars] + "\n...(truncated)...\n" + content[-tail_chars:]
                 lines.append(f"[tool result] {content}")
             else:
                 lines.append(f"[{role}] {content}")
