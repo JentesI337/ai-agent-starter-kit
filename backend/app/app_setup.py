@@ -53,6 +53,9 @@ class _RequestSizeLimitMiddleware(BaseHTTPMiddleware):
     MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
 
     async def dispatch(self, request: Request, call_next):
+        # Exempt file upload endpoint from the default size limit
+        if request.url.path == "/api/uploads":
+            return await call_next(request)
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > self.MAX_BODY_SIZE:
             return JSONResponse(

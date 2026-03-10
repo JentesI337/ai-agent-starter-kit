@@ -291,6 +291,24 @@ class ReplSection(BaseModel):
     repl_sandbox_dir: str = ""
 
 
+class MultimodalSection(BaseModel):
+    multimodal_tools_enabled: bool = False
+    multimodal_pdf_enabled: bool = True
+    multimodal_audio_enabled: bool = True
+    multimodal_audio_provider: str = "openai"
+    multimodal_audio_model: str = "whisper-1"
+    multimodal_audio_base_url: str = "https://api.openai.com/v1"
+    multimodal_audio_api_key: str = ""
+    multimodal_audio_max_duration_seconds: int = 600
+    multimodal_image_gen_enabled: bool = True
+    multimodal_image_gen_provider: str = "openai"
+    multimodal_image_gen_model: str = "dall-e-3"
+    multimodal_image_gen_base_url: str = "https://api.openai.com/v1"
+    multimodal_image_gen_api_key: str = ""
+    multimodal_image_gen_default_size: str = "1024x1024"
+    multimodal_upload_max_bytes: int = 20 * 1024 * 1024
+
+
 class VisionWebSection(BaseModel):
     vision_enabled: bool = False
     vision_provider: str = "auto"
@@ -417,6 +435,7 @@ SECTION_REGISTRY: dict[str, type[BaseModel]] = {
     "subrun": SubrunSection,
     "browser": BrowserSection,
     "repl": ReplSection,
+    "multimodal": MultimodalSection,
     "vision_web": VisionWebSection,
     "tool_loop": ToolLoopSection,
     "runner": RunnerSection,
@@ -447,4 +466,6 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset({
     "llm_api_key",
     "vision_api_key",
     "web_search_api_key",
+    "multimodal_audio_api_key",
+    "multimodal_image_gen_api_key",
 })

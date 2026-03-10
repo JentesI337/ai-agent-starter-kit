@@ -18,12 +18,20 @@ import { AgentStateService, ChatLine, PolicyApprovalItem, VisualizationData } fr
 import { MermaidDiagramComponent } from '../components/mermaid-diagram/mermaid-diagram.component';
 import { MonitoringService } from '../services/monitoring.service';
 import { SecureStorageService } from '../services/secure-storage.service';
+import { UploadResult, UploadService } from '../services/upload.service';
 import {
   AgentDescriptor,
   AgentsService,
   MonitoringSchema,
   PresetDescriptor,
 } from '../services/agents.service';
+
+interface PendingFile {
+  file: File;
+  status: 'uploading' | 'done' | 'error';
+  result?: UploadResult;
+  error?: string;
+}
 
 @Component({
   selector: 'app-chat-page',
@@ -62,6 +70,10 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
   settingsOpen = false;
   shouldScroll = false;
 
+  // File upload state
+  pendingFiles: PendingFile[] = [];
+  isDragOver = false;
+
   private readonly subscriptions = new Subscription();
   private readonly wsUrl = 'ws://localhost:8000/ws/agent';
   private readonly policyApprovalBusy = new Set<string>();
@@ -77,6 +89,7 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     private readonly cdr: ChangeDetectorRef,
     private readonly secureStorage: SecureStorageService,
     private readonly sanitizer: DomSanitizer,
+    private readonly uploadService: UploadService,
   ) {}
 
   ngOnInit(): void {
@@ -283,10 +296,27 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
       return;
     }
 
-    const content = this.input.trim();
-    if (!content) return;
+    // Build file references from pending uploads
+    const fileRefs: string[] = [];
+    const completedFiles = this.pendingFiles.filter(f => f.status === 'done' && f.result);
+    for (const pf of completedFiles) {
+      const mime = pf.result!.mime_type;
+      const path = pf.result!.path;
+      if (mime.startsWith('application/pdf')) {
+        fileRefs.push(`[Attached PDF: ${path}]`);
+      } else if (mime.startsWith('audio/')) {
+        fileRefs.push(`[Attached audio: ${path}]`);
+      } else if (mime.startsWith('image/')) {
+        fileRefs.push(`[Attached image: ${path}]`);
+      }
+    }
+
+    const rawContent = this.input.trim();
+    const content = fileRefs.length > 0 ? fileRefs.join('\n') + '\n' + rawContent : rawContent;
+    if (!content.trim()) return;
 
     this.agentState.pushChatLine({ role: 'user', text: content });
+    this.pendingFiles = [];
 
     try {
       const toolPolicy = this.buildToolPolicyPayload();
@@ -403,6 +433,71 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.monitoringService.pushLifecycle('frontend_session_reset', 'Session reset by user', {
       previousSessionId: previousSessionId || '(none)',
     });
+  }
+
+  @HostListener('dragover', ['$event'])
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = true;
+  }
+
+  @HostListener('dragleave', ['$event'])
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = false;
+  }
+
+  @HostListener('drop', ['$event'])
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = false;
+    const files = event.dataTransfer?.files;
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        this.handleFileAdd(files[i]);
+      }
+    }
+  }
+
+  handleFileInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files) {
+      for (let i = 0; i < input.files.length; i++) {
+        this.handleFileAdd(input.files[i]);
+      }
+      input.value = '';
+    }
+  }
+
+  handleFileAdd(file: File): void {
+    const allowedTypes = ['application/pdf', 'audio/', 'image/'];
+    const mime = file.type || '';
+    if (!allowedTypes.some(t => mime.startsWith(t))) {
+      this.agentState.pushChatLine({ role: 'system', text: `Unsupported file type: ${mime || 'unknown'}` });
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      this.agentState.pushChatLine({ role: 'system', text: `File too large: ${(file.size / 1024 / 1024).toFixed(1)} MB (max 20 MB)` });
+      return;
+    }
+    const entry: PendingFile = { file, status: 'uploading' };
+    this.pendingFiles.push(entry);
+    this.uploadService.uploadFile(file).then(result => {
+      entry.status = 'done';
+      entry.result = result;
+      this.cdr.markForCheck();
+    }).catch(err => {
+      entry.status = 'error';
+      entry.error = err.message;
+      this.cdr.markForCheck();
+    });
+  }
+
+  removePendingFile(index: number): void {
+    this.pendingFiles.splice(index, 1);
   }
 
   @HostListener('document:keydown.escape')

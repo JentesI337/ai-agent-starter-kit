@@ -34,6 +34,11 @@ TOOL_NAMES: tuple[str, ...] = (
     "api_call",
     "api_list_connectors",
     "api_auth",
+    # Multimodal tools
+    "parse_pdf",
+    "transcribe_audio",
+    "generate_image",
+    "export_pdf",
     # DevOps tools
     "git_log",
     "git_diff",
@@ -83,6 +88,11 @@ _ALL_DEVOPS_TOOLS: frozenset[str] = (
     _GIT_TOOLS | _TESTING_TOOLS | _LINT_TOOLS | _DEPENDENCY_TOOLS | _SECURITY_TOOLS | _DEBUG_TOOLS
 )
 
+# Multimodal tools — feature-gated
+_MULTIMODAL_TOOLS: frozenset[str] = frozenset({
+    "parse_pdf", "transcribe_audio", "generate_image", "export_pdf",
+})
+
 # API connector tools — feature-gated
 _API_CONNECTOR_TOOLS: frozenset[str] = frozenset({
     "api_call", "api_list_connectors", "api_auth",
@@ -114,6 +124,8 @@ def _build_active_tool_set() -> set[str]:
             active -= _DEBUG_TOOLS
     if not settings.api_connectors_enabled:
         active -= _API_CONNECTOR_TOOLS
+    if not settings.multimodal_tools_enabled:
+        active -= _MULTIMODAL_TOOLS
     return active
 
 
@@ -189,4 +201,15 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "parse_stacktrace": "parse_errors",
     "secretsscan": "secrets_scan",
     "securitycheck": "security_check",
+    # Multimodal aliases
+    "parsepdf": "parse_pdf",
+    "pdf_parse": "parse_pdf",
+    "read_pdf": "parse_pdf",
+    "transcribeaudio": "transcribe_audio",
+    "speech_to_text": "transcribe_audio",
+    "generateimage": "generate_image",
+    "create_image": "generate_image",
+    "dall_e": "generate_image",
+    "exportpdf": "export_pdf",
+    "markdown_to_pdf": "export_pdf",
 }

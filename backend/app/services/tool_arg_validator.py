@@ -36,6 +36,11 @@ class ToolArgValidator:
             "spawn_subrun": self._validate_spawn_subrun_args,
             "create_workflow": self._validate_create_workflow_args,
             "delete_workflow": self._validate_delete_workflow_args,
+            # Multimodal tools
+            "parse_pdf": self._validate_parse_pdf_args,
+            "transcribe_audio": self._validate_transcribe_audio_args,
+            "generate_image": self._validate_generate_image_args,
+            "export_pdf": self._validate_export_pdf_args,
             # DevOps tools
             "git_log": self._validate_git_log_args,
             "git_diff": self._validate_git_diff_args,
@@ -606,6 +611,54 @@ class ToolArgValidator:
             if err:
                 return err
             normalized_args["session_id"] = session_id
+        return None
+
+    # ------------------------------------------------------------------
+    # Multimodal tool validators
+    # ------------------------------------------------------------------
+
+    def _validate_parse_pdf_args(self, normalized_args: dict[str, object]) -> str | None:
+        path, err = self._require_str_arg(normalized_args, "path", max_len=400)
+        if err:
+            return err
+        if path is not None and "\x00" in path:
+            return "path is not plausible"
+        normalized_args["path"] = path
+        return None
+
+    def _validate_transcribe_audio_args(self, normalized_args: dict[str, object]) -> str | None:
+        path, err = self._require_str_arg(normalized_args, "path", max_len=400)
+        if err:
+            return err
+        if path is not None and "\x00" in path:
+            return "path is not plausible"
+        normalized_args["path"] = path
+        return None
+
+    def _validate_generate_image_args(self, normalized_args: dict[str, object]) -> str | None:
+        prompt, err = self._require_str_arg(normalized_args, "prompt", max_len=1000)
+        if err:
+            return err
+        normalized_args["prompt"] = prompt
+        if "size" in normalized_args:
+            size, err = self._require_str_arg(normalized_args, "size", max_len=20)
+            if err:
+                return err
+            normalized_args["size"] = size
+        return None
+
+    def _validate_export_pdf_args(self, normalized_args: dict[str, object]) -> str | None:
+        content, err = self._require_str_arg(normalized_args, "content", non_empty=True, max_len=200000)
+        if err:
+            return err
+        normalized_args["content"] = content
+        if "path" in normalized_args:
+            path, err = self._require_str_arg(normalized_args, "path", max_len=400)
+            if err:
+                return err
+            if path is not None and "\x00" in path:
+                return "path is not plausible"
+            normalized_args["path"] = path
         return None
 
     # ------------------------------------------------------------------

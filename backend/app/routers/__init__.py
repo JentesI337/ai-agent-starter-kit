@@ -13,9 +13,11 @@ from app.routers.policies import build_policies_router
 from app.routers.run_api import build_run_api_router
 from app.routers.runtime_debug import build_runtime_debug_router
 from app.routers.subruns import build_subruns_router
+from app.routers.uploads import build_uploads_router
 from app.routers.ws_agent_router import build_ws_agent_router
 
 __all__ = [
+    "build_uploads_router",
     "build_agents_router",
     "build_control_agent_config_router",
     "build_control_config_router",

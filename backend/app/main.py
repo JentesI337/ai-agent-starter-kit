@@ -69,6 +69,7 @@ from app.routers import (
     build_run_api_router,
     build_runtime_debug_router,
     build_subruns_router,
+    build_uploads_router,
     build_ws_agent_router,
 )
 from app.routers.run_api import RunApiRouterHandlers
@@ -1155,3 +1156,6 @@ app.include_router(build_ws_agent_router(dependencies=ws_handler_dependencies))
 # --- Policy CRUD ---
 _policy_store = PolicyStore(persist_dir=settings.policies_dir)
 app.include_router(build_policies_router(policy_store=_policy_store))
+
+# --- File Uploads ---
+app.include_router(build_uploads_router())

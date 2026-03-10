@@ -24,7 +24,8 @@
       "Bash(curl:*)",
       "Bash(sed:*)",
       "Bash(python3:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

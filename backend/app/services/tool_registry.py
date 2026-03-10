@@ -603,6 +603,111 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("vision", "image_analysis", "ocr", "ui_testing"),
         ),
+        "parse_pdf": ToolSpec(
+            name="parse_pdf",
+            required_args=("path",),
+            optional_args=(),
+            timeout_seconds=30.0,
+            max_retries=0,
+            description=(
+                "Parse a PDF file and extract text, tables, and metadata. "
+                "Returns structured content including markdown-formatted tables."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Path to the PDF file (relative to workspace or absolute)",
+                    },
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+            capabilities=("pdf_parsing", "document_analysis", "table_extraction"),
+        ),
+        "transcribe_audio": ToolSpec(
+            name="transcribe_audio",
+            required_args=("path",),
+            optional_args=(),
+            timeout_seconds=120.0,
+            max_retries=0,
+            description=(
+                "Transcribe an audio file to text with timestamps. "
+                "Supports common audio formats. Max 20 MB, 10 min duration."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Path to the audio file (relative to workspace or absolute)",
+                    },
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+            capabilities=("audio_transcription", "speech_to_text"),
+        ),
+        "generate_image": ToolSpec(
+            name="generate_image",
+            required_args=("prompt",),
+            optional_args=("size",),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description=(
+                "Generate an image from a text prompt using DALL-E or StabilityAI. "
+                "Returns a JSON object with base64-encoded image data."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000,
+                        "description": "Text description of the image to generate",
+                    },
+                    "size": {
+                        "type": "string",
+                        "description": "Image size (e.g. '1024x1024', '512x512'). Defaults to config.",
+                    },
+                },
+                "required": ["prompt"],
+                "additionalProperties": False,
+            },
+            capabilities=("image_generation", "creative"),
+        ),
+        "export_pdf": ToolSpec(
+            name="export_pdf",
+            required_args=("content",),
+            optional_args=("path",),
+            timeout_seconds=30.0,
+            max_retries=0,
+            description=(
+                "Export markdown content to a PDF file. "
+                "Supports tables, code blocks, and basic formatting."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Markdown content to convert to PDF",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Output PDF path (relative to workspace). Defaults to 'export.pdf'.",
+                    },
+                },
+                "required": ["content"],
+                "additionalProperties": False,
+            },
+            capabilities=("pdf_generation", "document_export"),
+        ),
         "spawn_subrun": ToolSpec(
             name="spawn_subrun",
             required_args=("message",),

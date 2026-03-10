@@ -741,15 +741,118 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+// ── Drop Overlay ──────────────────────────────────
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 22, 22, 0.75);
+  backdrop-filter: blur(4px);
+  border: 3px dashed var(--c-accent);
+  border-radius: var(--r-xl);
+  animation: overlay-in 0.15s ease;
+}
+
+.drop-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--c-accent);
+  letter-spacing: 0.5px;
+}
+
+// ── File Attachments ──────────────────────────────
+.file-attachments {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  width: 100%;
+}
+
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-full);
+  font-size: 0.7rem;
+  background: var(--c-accent-dim);
+  border: 1px solid var(--c-accent-border);
+  color: var(--c-accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  &.uploading { opacity: 0.6; }
+  &.error {
+    border-color: var(--c-red);
+    color: var(--c-red);
+    background: rgba(255, 85, 85, 0.1);
+  }
+}
+
+.fc-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.fc-status {
+  font-size: 0.62rem;
+  color: var(--c-text-muted);
+}
+
+.fc-err { color: var(--c-red); }
+
+.fc-remove {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--c-text-muted);
+  padding: 0 2px;
+
+  &:hover { color: var(--c-text); }
+}
+
 // ── Composer ───────────────────────────────────────
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 14px;
   border-top: 1px solid var(--c-border);
   background: var(--c-bg-window);
   flex-shrink: 0;
+}
+
+.comp-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.comp-attach {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--c-text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t), color var(--t);
+
+  &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); color: var(--c-text); }
+  &:disabled { opacity: 0.25; cursor: not-allowed; }
 }
 
 .comp-input {
