@@ -22,7 +22,6 @@ def _make_runner(**overrides) -> AgentRunner:
         memory=MagicMock(),
         tool_registry=MagicMock(),
         tool_execution_manager=MagicMock(),
-        context_reducer=MagicMock(),
         system_prompt="You are a test agent.",
         execute_tool_fn=AsyncMock(return_value="tool result"),
         allowed_tools_resolver=MagicMock(return_value={"read_file", "run_command"}),
@@ -50,7 +49,6 @@ class TestBuildUnifiedSystemPrompt:
     def test_minimal(self):
         prompt = build_unified_system_prompt(
             role="test-agent",
-            plan_prompt="plan",
             tool_hints="hints",
             final_instructions="answer rules",
         )
@@ -61,7 +59,6 @@ class TestBuildUnifiedSystemPrompt:
     def test_empty_optional_sections(self):
         prompt = build_unified_system_prompt(
             role="test",
-            plan_prompt="",
             tool_hints="",
             final_instructions="",
         )
@@ -72,19 +69,15 @@ class TestBuildUnifiedSystemPrompt:
     def test_includes_platform_and_skills(self):
         prompt = build_unified_system_prompt(
             role="r",
-            plan_prompt="p",
             tool_hints="t",
             final_instructions="f",
             platform_summary="Linux x86_64",
-            skills_prompt="skill_A: does X",
         )
         assert "Linux x86_64" in prompt
-        assert "skill_A" in prompt
 
     def test_includes_guardrails(self):
         prompt = build_unified_system_prompt(
             role="r",
-            plan_prompt="p",
             tool_hints="t",
             final_instructions="f",
             guardrails="Never access /etc/shadow",

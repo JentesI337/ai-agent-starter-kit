@@ -619,13 +619,13 @@ def test_hook_agent_end_is_called_on_run_completion() -> None:
     assert any(name == "agent_end" and payload.get("status") == "completed" for name, payload in captured)
 
 
-def test_reply_shaping_suppresses_no_reply_token() -> None:
+def test_reply_shaping_suppresses_empty_after_shaping() -> None:
     agent = HeadAgent()
 
-    shaped = agent._shape_final_response("NO_REPLY", tool_results="[read_file]\ncontent")
+    shaped = agent._shape_final_response("", tool_results="[read_file]\ncontent")
 
     assert shaped.suppressed is True
-    assert shaped.reason == "no_reply_token"
+    assert shaped.reason == "empty_after_shaping"
     assert shaped.text == ""
 
 

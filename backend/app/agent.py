@@ -46,7 +46,6 @@ from app.services.tool_retry_strategy import ToolRetryStrategy
 from app.services.verification_service import VerificationService
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
-from app.state.context_reducer import ContextReducer
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tool_policy import ToolPolicyDict
 from app.tools import AgentTooling, find_command_safety_violation
@@ -96,7 +95,6 @@ class HeadAgent:
         memory: MemoryStore | None = None,
         tools: ToolProvider | None = None,
         model_registry: ModelRegistry | None = None,
-        context_reducer: ContextReducer | None = None,
         spawn_subrun_handler: SpawnSubrunHandler | None = None,
         policy_approval_handler: PolicyApprovalHandler | None = None,
         agent_record: "UnifiedAgentRecord | None" = None,
@@ -126,7 +124,6 @@ class HeadAgent:
             command_timeout_seconds=settings.command_timeout_seconds,
         )
         self.model_registry = model_registry or ModelRegistry()
-        self.context_reducer = context_reducer or ContextReducer()
         self.prompt_kernel_builder = PromptKernelBuilder()
         self._spawn_subrun_handler = spawn_subrun_handler
         self._policy_approval_handler = policy_approval_handler
@@ -237,7 +234,6 @@ class HeadAgent:
 
         system_prompt = build_unified_system_prompt(
             role=self.role,
-            plan_prompt=self.prompt_profile.plan_prompt,
             tool_hints=self.prompt_profile.tool_selector_prompt,
             final_instructions=self.prompt_profile.final_prompt,
             platform_summary=self._tool_execution_manager._platform_summary,
@@ -249,7 +245,6 @@ class HeadAgent:
             memory=self.memory,
             tool_registry=self.tool_registry,
             tool_execution_manager=self._tool_execution_manager,
-            context_reducer=self.context_reducer,
             system_prompt=system_prompt,
             execute_tool_fn=self._runner_execute_tool,
             allowed_tools_resolver=self._resolve_effective_allowed_tools,
@@ -266,6 +261,7 @@ class HeadAgent:
             long_term_context_fn=self._build_long_term_memory_context,
             policy_approval_fn=self._request_policy_override,
             debug_checkpoint_fn=self._debug_checkpoint,
+            max_reflections=self._agent_record.constraints.reflection_passes if self._agent_record else None,
         )
 
     @staticmethod
@@ -391,7 +387,6 @@ class HeadAgent:
             self._agent_runner._reflection_service = self._reflection_service
             self._agent_runner.system_prompt = build_unified_system_prompt(
                 role=self.role,
-                plan_prompt=self.prompt_profile.plan_prompt,
                 tool_hints=self.prompt_profile.tool_selector_prompt,
                 final_instructions=self.prompt_profile.final_prompt,
                 platform_summary=self._tool_execution_manager._platform_summary,
@@ -566,15 +561,17 @@ class HeadAgent:
         if not (final_text or "").strip() or len((final_text or "").strip()) < 10:
             return
 
-        distillation_prompt = (
+        prompt_parts = [
             "Summarize this interaction in 2-3 sentences.\n"
             "Extract key facts about the user's preferences/project.\n"
             'Return JSON: {"summary": "...", "key_facts": [{"key": "...", "value": "..."}], "tags": ["..."]}\n\n'
-            f"User: {user_message[:500]}\n"
-            f"Plan: {plan_text[:300]}\n"
-            f"Tools: {(tool_results or '')[:300]}\n"
-            f"Result: {final_text[:500]}"
-        )
+            f"User: {user_message[:500]}",
+        ]
+        if (plan_text or "").strip():
+            prompt_parts.append(f"Plan: {plan_text[:300]}")
+        prompt_parts.append(f"Tools: {(tool_results or '')[:300]}")
+        prompt_parts.append(f"Result: {final_text[:500]}")
+        distillation_prompt = "\n".join(prompt_parts)
         raw = await self.client.complete_chat(
             "You distill knowledge.",
             distillation_prompt,
@@ -968,7 +965,6 @@ class HeadAgent:
             approve_blocked_process_tools_if_needed=_approve_blocked_process_tools_if_needed_proxy,
             validate_actions=self._validate_actions,
             augment_actions_if_needed=_augment_actions_if_needed_proxy,
-            encode_blocked_tool_result=self._encode_blocked_tool_result,
             normalize_tool_name=self._normalize_tool_name,
             evaluate_action=self._evaluate_action,
             build_execution_policy=self._build_execution_policy,
@@ -1024,9 +1020,6 @@ class HeadAgent:
             session_id=session_id,
             details=payload,
         )
-
-    def _encode_blocked_tool_result(self, *, blocked_with_reason: str, message: str) -> str:
-        return f"__BLOCKED_WITH_REASON__:{json.dumps({'blocked_with_reason': blocked_with_reason, 'message': message}, ensure_ascii=False)}"
 
     def _parse_blocked_tool_result(self, tool_results: str | None) -> dict | None:
         if not tool_results:

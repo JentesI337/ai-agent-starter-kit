@@ -22,7 +22,6 @@ def _make_runner(**overrides) -> AgentRunner:
         memory=MagicMock(),
         tool_registry=MagicMock(),
         tool_execution_manager=MagicMock(),
-        context_reducer=MagicMock(),
         system_prompt="test",
         execute_tool_fn=AsyncMock(return_value="ok"),
         allowed_tools_resolver=MagicMock(return_value={"read_file"}),
@@ -49,17 +48,11 @@ class TestReplyShaping:
         assert "[TOOL_CALL]" not in result
         assert "[/TOOL_CALL]" not in result
 
-    def test_no_reply_token_removed(self):
+    def test_empty_text_suppressed(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=[])
-        result = runner._shape_final_response("NO_REPLY some text", [])
-        assert "NO_REPLY" not in result
-
-    def test_announce_skip_token_removed(self):
-        runner = _make_runner(reply_shaper=ReplyShaper())
-        runner.tool_registry.keys = MagicMock(return_value=[])
-        result = runner._shape_final_response("ANNOUNCE_SKIP done", [])
-        assert "ANNOUNCE_SKIP" not in result
+        result = runner._shape_final_response("", [])
+        assert "suppressed" in result.lower() or result == ""
 
     def test_duplicate_tool_confirmations_deduped(self):
         runner = _make_runner(reply_shaper=ReplyShaper())

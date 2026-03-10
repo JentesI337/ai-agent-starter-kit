@@ -46,20 +46,12 @@ class ReplyShaper:
         self,
         raw_response: str | None = None,
         tool_results: str | None = None,
-        user_message: str | None = None,
         *,
         final_text: str | None = None,
         tool_markers: set[str] | None = None,
     ) -> ReplyShapeResult:
-        _ = user_message
         source_text = final_text if final_text is not None else raw_response
         text = (source_text or "").strip()
-        removed_tokens: list[str] = []
-
-        for token in ("NO_REPLY", "ANNOUNCE_SKIP"):
-            if token in text:
-                removed_tokens.append(token)
-                text = text.replace(token, "")
 
         text = self.sanitize(text)
 
@@ -112,21 +104,16 @@ class ReplyShaper:
                     was_suppressed=True,
                     suppression_reason="irrelevant_ack_after_tools",
                     dedup_lines_removed=deduped_lines,
-                    removed_tokens=removed_tokens,
+                    removed_tokens=[],
                 )
 
         if not text:
-            reason = "empty_after_shaping"
-            if "NO_REPLY" in removed_tokens:
-                reason = "no_reply_token"
-            elif "ANNOUNCE_SKIP" in removed_tokens:
-                reason = "announce_skip_token"
             return ReplyShapeResult(
                 text="",
                 was_suppressed=True,
-                suppression_reason=reason,
+                suppression_reason="empty_after_shaping",
                 dedup_lines_removed=deduped_lines,
-                removed_tokens=removed_tokens,
+                removed_tokens=[],
             )
 
         return ReplyShapeResult(
@@ -134,7 +121,7 @@ class ReplyShaper:
             was_suppressed=False,
             suppression_reason=None,
             dedup_lines_removed=deduped_lines,
-            removed_tokens=removed_tokens,
+            removed_tokens=[],
         )
 
     def validate_section_contract(

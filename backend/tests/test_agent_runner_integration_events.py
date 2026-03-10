@@ -20,7 +20,6 @@ def _make_runner(**overrides) -> AgentRunner:
         memory=MagicMock(),
         tool_registry=MagicMock(),
         tool_execution_manager=MagicMock(),
-        context_reducer=MagicMock(),
         system_prompt="You are a test agent.",
         execute_tool_fn=AsyncMock(return_value="ok"),
         allowed_tools_resolver=MagicMock(return_value={"read_file"}),

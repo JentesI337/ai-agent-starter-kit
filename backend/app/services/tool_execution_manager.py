@@ -104,7 +104,6 @@ class ToolExecutionManager:
     ) -> None:
         self._config = config
         self._registry = registry
-        self._send_event = send_event
         self._prompt_kernel_builder = PromptKernelBuilder()
         self._outcome_verifier = ToolOutcomeVerifier()
         self._telemetry = ToolTelemetry()
@@ -321,7 +320,6 @@ class ToolExecutionManager:
         approve_blocked_process_tools_if_needed: Callable[..., Awaitable[set[str]]],
         validate_actions: Callable[[list[dict], set[str]], tuple[list[dict], int]],
         augment_actions_if_needed: Callable[..., Awaitable[list[dict]]],
-        encode_blocked_tool_result: Callable[..., str],
         normalize_tool_name: Callable[[str], str],
         evaluate_action: Callable[[str, dict, set[str]], tuple[dict, str | None]],
         build_execution_policy: Callable[[str], object],
@@ -516,7 +514,6 @@ class ToolExecutionManager:
             augment_actions_if_needed=augment_actions_if_needed,
             emit_lifecycle=emit_lifecycle,
             emit_tool_selection_empty=emit_tool_selection_empty,
-            encode_blocked_tool_result=encode_blocked_tool_result,
         )
         if blocked_result is not None:
             return blocked_result
@@ -750,25 +747,6 @@ class ToolExecutionManager:
         )
         return kernel.rendered
 
-    def _build_tool_selection_prompt(
-        self,
-        *,
-        allowed_tools: set[str],
-        memory_context: str,
-        user_message: str,
-        plan_text: str,
-        prompt_mode: str = "minimal",
-        platform_summary: str = "",
-    ) -> str:
-        return self.build_tool_selector_prompt(
-            allowed_tools=allowed_tools,
-            memory_context=memory_context,
-            user_message=user_message,
-            plan_text=plan_text,
-            prompt_mode=prompt_mode,
-            platform_summary=platform_summary,
-        )
-
     def build_loop_gatekeeper(self, config: ToolExecutionConfig) -> ToolCallGatekeeper:
         return ToolCallGatekeeper(
             warn_threshold=config.loop_warn_threshold,
@@ -874,21 +852,6 @@ class ToolExecutionManager:
 
         return actions
 
-    async def _validate_and_filter(self, **kwargs) -> tuple[list[dict], set[str], int, str | None]:
-        return await self.apply_action_pipeline(**kwargs)
-
-    async def _handle_augmentation(self, **kwargs) -> list[dict]:
-        augment_fn = kwargs.pop("augment_actions_if_needed")
-        return await augment_fn(**kwargs)
-
-    def _check_loop_conditions(self, *, elapsed_seconds: float, total_calls: int, config: ToolExecutionConfig) -> bool:
-        if total_calls >= config.call_cap:
-            return True
-        return elapsed_seconds >= config.time_cap_seconds
-
-    async def _execute_action_batch(self, **kwargs) -> str:
-        return await self.run_tool_loop(**kwargs)
-
     async def apply_action_pipeline(
         self,
         *,
@@ -903,7 +866,6 @@ class ToolExecutionManager:
         augment_actions_if_needed: Callable[..., Awaitable[list[dict]]],
         emit_lifecycle: Callable[[str, dict | None], Awaitable[None]],
         emit_tool_selection_empty: Callable[[str, dict | None], Awaitable[None]],
-        encode_blocked_tool_result: Callable[..., str],
     ) -> tuple[list[dict], set[str], int, str | None]:
         updated_allowed_tools = await approve_blocked_process_tools_if_needed(
             actions=actions,
@@ -1020,7 +982,7 @@ class ToolExecutionManager:
 
             if read_only_actions:
                 gated_read_only_actions: list[dict] = []
-                for ro_action in read_only_actions:
+                for ro_idx, ro_action in enumerate(read_only_actions):
                     ro_prep = prepare_action_for_execution(
                         action=ro_action,
                         allowed_tools=effective_allowed_tools,
@@ -1033,7 +995,7 @@ class ToolExecutionManager:
                         results.append(f"[{ro_tool}] REJECTED: {ro_prep.error}")
                         continue
                     sig = loop_gatekeeper.build_signature(tool=ro_tool, args=ro_prep.normalized_args)
-                    pre = loop_gatekeeper.before_tool_call(tool=ro_tool, signature=sig, index=0)
+                    pre = loop_gatekeeper.before_tool_call(tool=ro_tool, signature=sig, index=ro_idx)
                     for stage, details in pre.lifecycle_events:
                         await emit_lifecycle(stage, details)
                     if pre.blocked:

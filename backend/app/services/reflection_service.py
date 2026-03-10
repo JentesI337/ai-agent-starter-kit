@@ -117,16 +117,18 @@ class ReflectionService:
     ) -> str:
         safe_tool_results = self._sanitize_for_prompt(tool_results, self.tool_results_max_chars)
         safe_plan = self._sanitize_for_prompt(plan_text, self.plan_max_chars)
-        return (
+        parts = [
             "Evaluate this response. Return JSON with these fields:\n"
             '{"goal_alignment": 0.0-1.0, "completeness": 0.0-1.0, '
             '"factual_grounding": 0.0-1.0, "issues": ["..."], '
             '"suggested_fix": "..." or null}\n\n'
-            f"User question: {user_message}\n"
-            f"Plan: {safe_plan}\n"
-            f"Tool outputs: {safe_tool_results}\n"
-            f"Final answer: {final_answer}"
-        )
+            f"User question: {user_message}",
+        ]
+        if safe_plan:
+            parts.append(f"Plan: {safe_plan}")
+        parts.append(f"Tool outputs: {safe_tool_results}")
+        parts.append(f"Final answer: {final_answer}")
+        return "\n".join(parts)
 
     @staticmethod
     def _clamp_score(value: object) -> float:

@@ -381,25 +381,6 @@ class LongTermMemoryStore:
                     tags TEXT
                 );
 
-                CREATE TABLE IF NOT EXISTS reflection_feedback (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    request_id TEXT NOT NULL,
-                    task_type TEXT NOT NULL,
-                    score REAL NOT NULL,
-                    goal_alignment REAL,
-                    completeness REAL,
-                    factual_grounding REAL,
-                    issues TEXT,
-                    suggested_fix TEXT,
-                    model_id TEXT,
-                    prompt_variant TEXT,
-                    retry_triggered INTEGER,
-                    timestamp TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_rf_task_type ON reflection_feedback(task_type);
-                CREATE INDEX IF NOT EXISTS idx_rf_model ON reflection_feedback(model_id);
                 """
             )
             connection.commit()

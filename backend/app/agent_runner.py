@@ -24,7 +24,6 @@ from app.memory import MemoryStore
 from app.services.compaction_service import CompactionService
 from app.services.tool_execution_manager import ToolExecutionManager
 from app.services.tool_registry import ToolRegistry
-from app.state.context_reducer import ContextReducer
 from app.tool_policy import ToolPolicyDict
 
 _IMPLEMENTATION_RE = re.compile(
@@ -107,11 +106,9 @@ def build_capability_section(
 def build_unified_system_prompt(
     *,
     role: str,
-    plan_prompt: str,
     tool_hints: str,
     final_instructions: str,
     guardrails: str = "",
-    skills_prompt: str = "",
     platform_summary: str = "",
     current_datetime: str = "",
     reasoning_hint: str = "",
@@ -126,7 +123,7 @@ def build_unified_system_prompt(
     """
     sections: list[str] = []
 
-    # 1. Identity & role (extracted from plan_prompt preamble)
+    # 1. Identity & role
     sections.append(f"You are {role}, an autonomous AI assistant with access to tools.\n")
 
     # 2. Current date & time
@@ -182,11 +179,7 @@ def build_unified_system_prompt(
     if platform_summary and platform_summary.strip():
         sections.append(f"## Environment\n{platform_summary.strip()}\n")
 
-    # 8. Skills
-    if skills_prompt and skills_prompt.strip():
-        sections.append(f"## Active skills\n{skills_prompt.strip()}\n")
-
-    # 9. Guardrails & safety
+    # 8. Guardrails & safety
     if guardrails and guardrails.strip():
         sections.append(f"## Safety rules\n{guardrails.strip()}\n")
 
@@ -212,7 +205,6 @@ class AgentRunner:
         memory: MemoryStore,
         tool_registry: ToolRegistry,
         tool_execution_manager: ToolExecutionManager,
-        context_reducer: ContextReducer,
         system_prompt: str,
         execute_tool_fn: Callable[..., Awaitable[str]],
         allowed_tools_resolver: Callable[[ToolPolicyDict | None], set[str]],
@@ -229,12 +221,12 @@ class AgentRunner:
         long_term_context_fn: Callable[[str], str] | None = None,
         policy_approval_fn: Callable[..., Awaitable[bool]] | None = None,
         debug_checkpoint_fn: Callable[..., Awaitable[None]] | None = None,
+        max_reflections: int | None = None,
     ):
         self.client = client
         self.memory = memory
         self.tool_registry = tool_registry
         self._tool_execution_manager = tool_execution_manager
-        self.context_reducer = context_reducer
         self.system_prompt = system_prompt
         self._execute_tool_fn = execute_tool_fn
         self._allowed_tools_resolver = allowed_tools_resolver
@@ -251,6 +243,7 @@ class AgentRunner:
         self._long_term_context_fn = long_term_context_fn
         self._policy_approval_fn = policy_approval_fn
         self._debug_checkpoint_fn = debug_checkpoint_fn
+        self._max_reflections = max_reflections
         self._compaction_service = CompactionService(client)
 
         # Loop limits from settings
@@ -1242,7 +1235,7 @@ class AgentRunner:
         with reflection feedback is made (without tools).
         """
         tool_results_str = self._tool_results_to_string(tool_results)
-        max_passes = max(0, settings.runner_reflection_max_passes)
+        max_passes = max(0, self._max_reflections if self._max_reflections is not None else settings.runner_reflection_max_passes)
 
         for reflection_pass in range(max_passes):
             try:
