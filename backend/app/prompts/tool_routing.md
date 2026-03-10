@@ -254,6 +254,98 @@ Always verify version numbers against the project's lockfile or `package.json`.
 
 ---
 
+## browser_open
+
+**When to use:**
+- Navigate to a URL and retrieve the page title and visible text content
+- Start an interactive browsing session on a website
+- Verify that a web page loads correctly
+
+**When NOT to use:**
+- You only need the raw HTML or a static fetch → use `web_fetch`
+- You need to search the web for a URL first → use `web_search`
+
+**Output note:** Returns page title and extracted text. The browser session persists across calls — subsequent `browser_click`, `browser_type`, etc. operate on the same page.
+
+**Caution:** Only publicly accessible or localhost URLs are allowed. Internal/private IP ranges are blocked (SSRF protection).
+
+---
+
+## browser_click
+
+**When to use:**
+- Click a button, link, or interactive element on the current browser page
+- Navigate through multi-step web workflows (e.g. pagination, form submission)
+
+**When NOT to use:**
+- No browser session is open → call `browser_open` first
+- You need to type into a field → use `browser_type`
+
+**Output note:** Accepts a CSS selector to identify the target element.
+
+---
+
+## browser_type
+
+**When to use:**
+- Type text into an input field, textarea, or contenteditable element
+- Fill in form fields (login forms, search boxes, etc.)
+
+**When NOT to use:**
+- Clicking a button or link → use `browser_click`
+- No browser session is open → call `browser_open` first
+
+**Output note:** Accepts a CSS selector and the text to type.
+
+---
+
+## browser_screenshot
+
+**When to use:**
+- Capture a visual snapshot of the current browser page
+- Debug layout or rendering issues
+- Verify visual state after interactions
+
+**When NOT to use:**
+- You only need text content → use `browser_read_dom`
+- Analyzing a local image file → use `analyze_image`
+
+**Output note:** Returns a base64-encoded PNG image.
+
+---
+
+## browser_read_dom
+
+**When to use:**
+- Extract structured content from the current page: text, links, forms, tables
+- Get a clean representation of page content for analysis
+- Understand page structure (available links, form fields, navigation)
+
+**When NOT to use:**
+- You need a visual snapshot → use `browser_screenshot`
+- You haven't opened a page yet → call `browser_open` first
+
+**Output note:** Returns structured data (text blocks, link URLs, form fields) from the live DOM.
+
+---
+
+## browser_evaluate_js
+
+**When to use:**
+- Execute custom JavaScript in the browser page context
+- Extract data not available through other browser tools
+- Interact with page APIs or manipulate the DOM programmatically
+
+**When NOT to use:**
+- Simple clicks or typing → use `browser_click` / `browser_type`
+- Reading page content → try `browser_read_dom` first
+
+**Output note:** Returns the serialized result of the JS expression.
+
+**Caution:** Avoid executing untrusted or user-supplied JavaScript. Keep scripts focused and minimal.
+
+---
+
 ## spawn_subrun
 
 **When to use:**
@@ -296,6 +388,12 @@ The following aliases are accepted — they map to the canonical tool name:
 | `webfetch` | `web_fetch` |
 | `httprequest`, `http_request_tool` | `http_request` |
 | `analyzeimage`, `vision`, `image_analysis` | `analyze_image` |
+| `browseropen`, `open_browser` | `browser_open` |
+| `browserclick` | `browser_click` |
+| `browsertype` | `browser_type` |
+| `browserscreenshot`, `screenshot` | `browser_screenshot` |
+| `browserreaddom`, `browser_dom` | `browser_read_dom` |
+| `browserevaluatejs`, `browser_js`, `browser_eval` | `browser_evaluate_js` |
 | `spawnsubrun` | `spawn_subrun` |
 
 Always prefer the canonical name in your tool calls.
@@ -311,6 +409,8 @@ Always prefer the canonical name in your tool calls.
 | `grep_search` no matches | Try simpler pattern; check for aliases; do NOT assume code is absent |
 | `write_file` / `apply_patch` error | Read current file state; resolve conflict; retry |
 | `web_search` / `web_fetch` fails | State failure explicitly; do NOT substitute model knowledge |
+| `browser_open` timeout / error | Check URL is valid and publicly accessible; report the specific error |
+| `browser_click` / `browser_type` selector not found | Use `browser_read_dom` to inspect available elements; adjust selector |
 | `spawn_subrun` empty result | Report sub-agent produced no output; do NOT invent result |
 | Any tool: empty output | State "tool returned empty output"; do NOT infer from model knowledge |
 
@@ -336,4 +436,10 @@ Always prefer the canonical name in your tool calls.
 | Fetch a specific URL | `web_fetch` |
 | Call a REST API | `http_request` |
 | Analyze an image | `analyze_image` |
+| Open a web page interactively | `browser_open` |
+| Click a button or link on a page | `browser_click` |
+| Fill in a form field | `browser_type` |
+| Take a screenshot of a page | `browser_screenshot` |
+| Read page content (text, links, forms) | `browser_read_dom` |
+| Run JavaScript on a page | `browser_evaluate_js` |
 | Delegate a complex sub-task | `spawn_subrun` |
