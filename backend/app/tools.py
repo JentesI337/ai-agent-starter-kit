@@ -29,6 +29,7 @@ from app.services.vector_store import VectorStore, VectorStoreError
 from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
+from app.tools_devops import DevOpsToolMixin
 from app.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,
@@ -116,7 +117,7 @@ def find_semantic_command_safety_violation(command: str) -> str | None:
     return None
 
 
-class AgentTooling:
+class AgentTooling(DevOpsToolMixin):
     def __init__(self, workspace_root: str, command_timeout_seconds: int = 60):
         self.workspace_root = Path(workspace_root).resolve()
         self.command_timeout_seconds = command_timeout_seconds

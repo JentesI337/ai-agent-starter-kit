@@ -1531,6 +1531,15 @@ class Settings(BaseModel):
     # Reasoning quality: reflection tool retry
     runner_reflection_tool_retry_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_TOOL_RETRY_ENABLED", False)
 
+    # DevOps tools
+    devops_tools_enabled: bool = _parse_bool_env("DEVOPS_TOOLS_ENABLED", True)
+    devops_git_tools_enabled: bool = _parse_bool_env("DEVOPS_GIT_TOOLS_ENABLED", True)
+    devops_testing_tools_enabled: bool = _parse_bool_env("DEVOPS_TESTING_TOOLS_ENABLED", True)
+    devops_lint_tools_enabled: bool = _parse_bool_env("DEVOPS_LINT_TOOLS_ENABLED", True)
+    devops_dependency_tools_enabled: bool = _parse_bool_env("DEVOPS_DEPENDENCY_TOOLS_ENABLED", True)
+    devops_security_tools_enabled: bool = _parse_bool_env("DEVOPS_SECURITY_TOOLS_ENABLED", True)
+    devops_debug_tools_enabled: bool = _parse_bool_env("DEVOPS_DEBUG_TOOLS_ENABLED", True)
+
     @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
     @classmethod
     def _validate_reflection_score_range(cls, value: object, info: ValidationInfo) -> float:

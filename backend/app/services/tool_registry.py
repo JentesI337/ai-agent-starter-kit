@@ -862,6 +862,281 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("rag", "knowledge_retrieval"),
         ),
+        # ── DevOps: Git tools ────────────────────────────────────────
+        "git_log": ToolSpec(
+            name="git_log",
+            required_args=(),
+            optional_args=("path", "max_count", "author", "since", "format"),
+            timeout_seconds=15.0,
+            max_retries=1,
+            description="Show git commit history with optional file, author, and date filters. Returns structured output.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Filter history to a specific file or directory"},
+                    "max_count": {"type": "integer", "default": 20, "maximum": 100, "description": "Number of commits to return"},
+                    "author": {"type": "string", "description": "Filter by author name or email"},
+                    "since": {"type": "string", "description": "Date filter like '2 weeks ago' or '2024-01-01'"},
+                    "format": {"type": "string", "enum": ["oneline", "short", "full"], "default": "short"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("git_inspection", "code_inspection", "knowledge_retrieval"),
+        ),
+        "git_diff": ToolSpec(
+            name="git_diff",
+            required_args=(),
+            optional_args=("target", "base", "stat_only"),
+            timeout_seconds=15.0,
+            max_retries=1,
+            description="Show the diff between git refs, or working tree changes. Returns unified diff output.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "File path, commit hash, or ref like HEAD~3"},
+                    "base": {"type": "string", "description": "Base ref to compare against (default: working tree)"},
+                    "stat_only": {"type": "boolean", "default": False, "description": "Show only file change stats"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("git_inspection", "code_inspection", "knowledge_retrieval"),
+        ),
+        "git_blame": ToolSpec(
+            name="git_blame",
+            required_args=("path",),
+            optional_args=("start_line", "end_line"),
+            timeout_seconds=15.0,
+            max_retries=1,
+            description="Show line-level git authorship for a file, with optional line range.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "minLength": 1, "description": "File path to blame"},
+                    "start_line": {"type": "integer", "description": "Start line number"},
+                    "end_line": {"type": "integer", "description": "End line number"},
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+            capabilities=("git_inspection", "code_inspection", "knowledge_retrieval"),
+        ),
+        "git_show": ToolSpec(
+            name="git_show",
+            required_args=("ref",),
+            optional_args=("stat_only",),
+            timeout_seconds=15.0,
+            max_retries=1,
+            description="Show the details and diff of a specific git commit.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "minLength": 1, "description": "Commit hash or ref to inspect"},
+                    "stat_only": {"type": "boolean", "default": False, "description": "Show only stat summary"},
+                },
+                "required": ["ref"],
+                "additionalProperties": False,
+            },
+            capabilities=("git_inspection", "code_inspection", "knowledge_retrieval"),
+        ),
+        "git_stash": ToolSpec(
+            name="git_stash",
+            required_args=("action",),
+            optional_args=("message",),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Manage git stash: save, pop, list, or drop stashed changes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["save", "pop", "list", "drop"]},
+                    "message": {"type": "string", "description": "Stash message (for save action)"},
+                },
+                "required": ["action"],
+                "additionalProperties": False,
+            },
+            capabilities=("git_inspection", "code_modification"),
+        ),
+        # ── DevOps: Testing tools ────────────────────────────────────
+        "run_tests": ToolSpec(
+            name="run_tests",
+            required_args=(),
+            optional_args=("runner", "path", "filter", "verbose"),
+            timeout_seconds=120.0,
+            max_retries=0,
+            description=(
+                "Run test suite with structured output. Auto-detects pytest, jest, mocha, go test, "
+                "or cargo test. Returns pass/fail counts, failed test names, and error messages."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "runner": {"type": "string", "enum": ["auto", "pytest", "jest", "mocha", "go", "cargo"], "default": "auto"},
+                    "path": {"type": "string", "description": "Specific test file or directory"},
+                    "filter": {"type": "string", "description": "Test name pattern (-k for pytest, --testNamePattern for jest)"},
+                    "verbose": {"type": "boolean", "default": False},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("build_and_test", "code_inspection", "command_execution"),
+        ),
+        "test_coverage": ToolSpec(
+            name="test_coverage",
+            required_args=(),
+            optional_args=("runner", "path"),
+            timeout_seconds=180.0,
+            max_retries=0,
+            description="Run tests with coverage collection. Returns overall and per-file coverage percentages.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "runner": {"type": "string", "enum": ["auto", "pytest", "jest"], "default": "auto"},
+                    "path": {"type": "string", "description": "File or directory to measure coverage for"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("build_and_test", "code_inspection"),
+        ),
+        # ── DevOps: Linting tools ────────────────────────────────────
+        "lint_check": ToolSpec(
+            name="lint_check",
+            required_args=(),
+            optional_args=("tool", "path", "fix"),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description=(
+                "Run linter or type checker with structured diagnostics. Auto-detects eslint, ruff, "
+                "mypy, pyright, tsc, or flake8. Returns file, line, severity, message, and rule for each issue."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tool": {"type": "string", "enum": ["auto", "eslint", "ruff", "flake8", "mypy", "pyright", "tsc"], "default": "auto"},
+                    "path": {"type": "string", "description": "File or directory to lint"},
+                    "fix": {"type": "boolean", "default": False, "description": "Auto-fix issues where supported"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("code_inspection", "static_analysis", "build_and_test"),
+        ),
+        # ── DevOps: Dependency tools ─────────────────────────────────
+        "dependency_audit": ToolSpec(
+            name="dependency_audit",
+            required_args=(),
+            optional_args=("manager", "severity"),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description="Check for known vulnerabilities in project dependencies using npm audit or pip-audit.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "manager": {"type": "string", "enum": ["auto", "npm", "pip"], "default": "auto"},
+                    "severity": {"type": "string", "enum": ["low", "moderate", "high", "critical"], "default": "moderate"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("security_analysis", "dependency_management"),
+        ),
+        "dependency_outdated": ToolSpec(
+            name="dependency_outdated",
+            required_args=(),
+            optional_args=("manager",),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description="List outdated packages with current vs latest versions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "manager": {"type": "string", "enum": ["auto", "npm", "pip"], "default": "auto"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("dependency_management", "code_inspection"),
+        ),
+        "dependency_tree": ToolSpec(
+            name="dependency_tree",
+            required_args=(),
+            optional_args=("manager", "package"),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description="Show the dependency tree, optionally for a specific package.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "manager": {"type": "string", "enum": ["auto", "npm", "pip"], "default": "auto"},
+                    "package": {"type": "string", "description": "Show tree for a specific package"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("dependency_management", "code_inspection"),
+        ),
+        # ── DevOps: Debug tools ──────────────────────────────────────
+        "parse_errors": ToolSpec(
+            name="parse_errors",
+            required_args=("error_text",),
+            optional_args=("language",),
+            timeout_seconds=5.0,
+            max_retries=0,
+            description=(
+                "Parse error output or stack traces into structured format: error type, message, "
+                "file locations, call chain. Supports Python, JavaScript/Node, Go, and Rust."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "error_text": {"type": "string", "minLength": 1, "description": "Raw error/stacktrace text to parse"},
+                    "language": {"type": "string", "enum": ["auto", "python", "javascript", "go", "rust"], "default": "auto"},
+                },
+                "required": ["error_text"],
+                "additionalProperties": False,
+            },
+            capabilities=("debugging", "code_inspection", "static_analysis"),
+        ),
+        # ── DevOps: Security tools ───────────────────────────────────
+        "secrets_scan": ToolSpec(
+            name="secrets_scan",
+            required_args=(),
+            optional_args=("path", "tool"),
+            timeout_seconds=120.0,
+            max_retries=0,
+            description="Scan for hardcoded secrets and credentials. Uses gitleaks if available, falls back to built-in regex patterns.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File or directory to scan (default: workspace root)"},
+                    "tool": {"type": "string", "enum": ["auto", "gitleaks", "builtin"], "default": "auto"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("security_analysis", "code_inspection"),
+        ),
+        "security_check": ToolSpec(
+            name="security_check",
+            required_args=(),
+            optional_args=("tool", "path", "severity"),
+            timeout_seconds=180.0,
+            max_retries=0,
+            description="Run lightweight SAST analysis using bandit (Python) or semgrep (general). Returns structured security findings.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tool": {"type": "string", "enum": ["auto", "bandit", "semgrep"], "default": "auto"},
+                    "path": {"type": "string", "description": "File or directory to analyze"},
+                    "severity": {"type": "string", "enum": ["low", "medium", "high"], "description": "Minimum severity to report"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("security_analysis", "static_analysis", "code_inspection"),
+        ),
     }
 
 

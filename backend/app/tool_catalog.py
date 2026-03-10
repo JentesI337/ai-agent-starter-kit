@@ -33,6 +33,21 @@ TOOL_NAMES: tuple[str, ...] = (
     "spawn_subrun",
     "create_workflow",
     "delete_workflow",
+    # DevOps tools
+    "git_log",
+    "git_diff",
+    "git_blame",
+    "git_show",
+    "git_stash",
+    "run_tests",
+    "lint_check",
+    "test_coverage",
+    "dependency_audit",
+    "dependency_outdated",
+    "dependency_tree",
+    "parse_errors",
+    "secrets_scan",
+    "security_check",
 )
 
 # Feature-gated tool groups — removed from the active set when disabled.
@@ -47,6 +62,29 @@ _REPL_TOOLS: frozenset[str] = frozenset({
     "code_execute", "code_reset",
 })
 
+# DevOps tool groups — feature-gated per category
+_GIT_TOOLS: frozenset[str] = frozenset({
+    "git_log", "git_diff", "git_blame", "git_show", "git_stash",
+})
+_TESTING_TOOLS: frozenset[str] = frozenset({
+    "run_tests", "test_coverage",
+})
+_LINT_TOOLS: frozenset[str] = frozenset({
+    "lint_check",
+})
+_DEPENDENCY_TOOLS: frozenset[str] = frozenset({
+    "dependency_audit", "dependency_outdated", "dependency_tree",
+})
+_SECURITY_TOOLS: frozenset[str] = frozenset({
+    "secrets_scan", "security_check",
+})
+_DEBUG_TOOLS: frozenset[str] = frozenset({
+    "parse_errors",
+})
+_ALL_DEVOPS_TOOLS: frozenset[str] = (
+    _GIT_TOOLS | _TESTING_TOOLS | _LINT_TOOLS | _DEPENDENCY_TOOLS | _SECURITY_TOOLS | _DEBUG_TOOLS
+)
+
 
 def _build_active_tool_set() -> set[str]:
     """Return the set of tool names filtered by feature toggles."""
@@ -57,6 +95,22 @@ def _build_active_tool_set() -> set[str]:
         active -= _RAG_TOOLS
     if not settings.repl_enabled:
         active -= _REPL_TOOLS
+    # DevOps tools: master gate + per-category gates
+    if not settings.devops_tools_enabled:
+        active -= _ALL_DEVOPS_TOOLS
+    else:
+        if not settings.devops_git_tools_enabled:
+            active -= _GIT_TOOLS
+        if not settings.devops_testing_tools_enabled:
+            active -= _TESTING_TOOLS
+        if not settings.devops_lint_tools_enabled:
+            active -= _LINT_TOOLS
+        if not settings.devops_dependency_tools_enabled:
+            active -= _DEPENDENCY_TOOLS
+        if not settings.devops_security_tools_enabled:
+            active -= _SECURITY_TOOLS
+        if not settings.devops_debug_tools_enabled:
+            active -= _DEBUG_TOOLS
     return active
 
 
@@ -108,4 +162,27 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "rag_search": "rag_query",
     "ragcollections": "rag_collections",
     "rag_list": "rag_collections",
+    # DevOps aliases
+    "gitlog": "git_log",
+    "git_history": "git_log",
+    "gitdiff": "git_diff",
+    "gitblame": "git_blame",
+    "gitshow": "git_show",
+    "gitstash": "git_stash",
+    "runtests": "run_tests",
+    "test": "run_tests",
+    "lintcheck": "lint_check",
+    "lint": "lint_check",
+    "testcoverage": "test_coverage",
+    "coverage": "test_coverage",
+    "dependencyaudit": "dependency_audit",
+    "dep_audit": "dependency_audit",
+    "dependencyoutdated": "dependency_outdated",
+    "dep_outdated": "dependency_outdated",
+    "dependencytree": "dependency_tree",
+    "dep_tree": "dependency_tree",
+    "parseerrors": "parse_errors",
+    "parse_stacktrace": "parse_errors",
+    "secretsscan": "secrets_scan",
+    "securitycheck": "security_check",
 }

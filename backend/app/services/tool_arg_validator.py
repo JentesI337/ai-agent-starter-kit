@@ -39,6 +39,21 @@ class ToolArgValidator:
             "spawn_subrun": self._validate_spawn_subrun_args,
             "create_workflow": self._validate_create_workflow_args,
             "delete_workflow": self._validate_delete_workflow_args,
+            # DevOps tools
+            "git_log": self._validate_git_log_args,
+            "git_diff": self._validate_git_diff_args,
+            "git_blame": self._validate_git_blame_args,
+            "git_show": self._validate_git_show_args,
+            "git_stash": self._validate_git_stash_args,
+            "run_tests": self._validate_run_tests_args,
+            "lint_check": self._validate_lint_check_args,
+            "test_coverage": self._validate_test_coverage_args,
+            "dependency_audit": self._validate_dependency_audit_args,
+            "dependency_outdated": self._validate_dependency_manager_args,
+            "dependency_tree": self._validate_dependency_tree_args,
+            "parse_errors": self._validate_parse_errors_args,
+            "secrets_scan": self._validate_secrets_scan_args,
+            "security_check": self._validate_security_check_args,
         }
 
     def has_validator(self, tool_name: str) -> bool:
@@ -634,4 +649,204 @@ class ToolArgValidator:
             if err:
                 return err
             normalized_args["collection"] = collection
+        return None
+
+    # ------------------------------------------------------------------
+    # DevOps tool validators
+    # ------------------------------------------------------------------
+
+    def _validate_optional_path(self, normalized_args: dict[str, object]) -> str | None:
+        if "path" in normalized_args:
+            path_value, err = self._require_str_arg(normalized_args, "path", max_len=400)
+            if err:
+                return err
+            if path_value is not None and "\x00" in path_value:
+                return "path is not plausible"
+            normalized_args["path"] = path_value
+        return None
+
+    def _validate_optional_enum(
+        self, normalized_args: dict[str, object], name: str, valid: set[str], default: str,
+    ) -> str | None:
+        if name not in normalized_args:
+            normalized_args[name] = default
+            return None
+        value, err = self._require_str_arg(normalized_args, name, max_len=32)
+        if err:
+            return err
+        normalized_value = (value or "").strip().lower()
+        if normalized_value not in valid:
+            return f"argument '{name}' must be one of: {', '.join(sorted(valid))}"
+        normalized_args[name] = normalized_value
+        return None
+
+    def _validate_git_log_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_path(normalized_args)
+        if err:
+            return err
+        max_count, err = self._optional_int_arg(normalized_args, "max_count", default=20, min_value=1, max_value=100)
+        if err:
+            return err
+        normalized_args["max_count"] = max_count
+        if "author" in normalized_args:
+            author, err = self._require_str_arg(normalized_args, "author", max_len=200)
+            if err:
+                return err
+            normalized_args["author"] = author
+        if "since" in normalized_args:
+            since, err = self._require_str_arg(normalized_args, "since", max_len=100)
+            if err:
+                return err
+            normalized_args["since"] = since
+        return self._validate_optional_enum(
+            normalized_args, "format", {"oneline", "short", "full"}, "short",
+        )
+
+    def _validate_git_diff_args(self, normalized_args: dict[str, object]) -> str | None:
+        if "target" in normalized_args:
+            target, err = self._require_str_arg(normalized_args, "target", max_len=400)
+            if err:
+                return err
+            normalized_args["target"] = target
+        if "base" in normalized_args:
+            base, err = self._require_str_arg(normalized_args, "base", max_len=400)
+            if err:
+                return err
+            normalized_args["base"] = base
+        _, err = self._require_bool_arg(normalized_args, "stat_only", default=False)
+        return err
+
+    def _validate_git_blame_args(self, normalized_args: dict[str, object]) -> str | None:
+        path, err = self._require_str_arg(normalized_args, "path", max_len=400)
+        if err:
+            return err
+        if path is not None and "\x00" in path:
+            return "path is not plausible"
+        normalized_args["path"] = path
+        if "start_line" in normalized_args:
+            _, err = self._optional_int_arg(normalized_args, "start_line", default=1, min_value=1, max_value=999999)
+            if err:
+                return err
+        if "end_line" in normalized_args:
+            _, err = self._optional_int_arg(normalized_args, "end_line", default=999999, min_value=1, max_value=999999)
+            if err:
+                return err
+        return None
+
+    def _validate_git_show_args(self, normalized_args: dict[str, object]) -> str | None:
+        ref, err = self._require_str_arg(normalized_args, "ref", max_len=200)
+        if err:
+            return err
+        normalized_args["ref"] = ref
+        _, err = self._require_bool_arg(normalized_args, "stat_only", default=False)
+        return err
+
+    def _validate_git_stash_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "action", {"save", "pop", "list", "drop"}, "save",
+        )
+        if err:
+            return err
+        if "message" in normalized_args:
+            message, err = self._require_str_arg(normalized_args, "message", max_len=200)
+            if err:
+                return err
+            normalized_args["message"] = message
+        return None
+
+    def _validate_run_tests_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "runner", {"auto", "pytest", "jest", "mocha", "go", "cargo"}, "auto",
+        )
+        if err:
+            return err
+        err = self._validate_optional_path(normalized_args)
+        if err:
+            return err
+        if "filter" in normalized_args:
+            filt, err = self._require_str_arg(normalized_args, "filter", max_len=300)
+            if err:
+                return err
+            normalized_args["filter"] = filt
+        _, err = self._require_bool_arg(normalized_args, "verbose", default=False)
+        return err
+
+    def _validate_lint_check_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "tool", {"auto", "eslint", "ruff", "flake8", "mypy", "pyright", "tsc"}, "auto",
+        )
+        if err:
+            return err
+        err = self._validate_optional_path(normalized_args)
+        if err:
+            return err
+        _, err = self._require_bool_arg(normalized_args, "fix", default=False)
+        return err
+
+    def _validate_test_coverage_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "runner", {"auto", "pytest", "jest"}, "auto",
+        )
+        if err:
+            return err
+        return self._validate_optional_path(normalized_args)
+
+    def _validate_dependency_audit_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "manager", {"auto", "npm", "pip"}, "auto",
+        )
+        if err:
+            return err
+        return self._validate_optional_enum(
+            normalized_args, "severity", {"low", "moderate", "high", "critical"}, "moderate",
+        )
+
+    def _validate_dependency_manager_args(self, normalized_args: dict[str, object]) -> str | None:
+        return self._validate_optional_enum(
+            normalized_args, "manager", {"auto", "npm", "pip"}, "auto",
+        )
+
+    def _validate_dependency_tree_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "manager", {"auto", "npm", "pip"}, "auto",
+        )
+        if err:
+            return err
+        if "package" in normalized_args:
+            pkg, err = self._require_str_arg(normalized_args, "package", max_len=200)
+            if err:
+                return err
+            normalized_args["package"] = pkg
+        return None
+
+    def _validate_parse_errors_args(self, normalized_args: dict[str, object]) -> str | None:
+        error_text, err = self._require_str_arg(normalized_args, "error_text", max_len=50000)
+        if err:
+            return err
+        normalized_args["error_text"] = error_text
+        return self._validate_optional_enum(
+            normalized_args, "language", {"auto", "python", "javascript", "go", "rust"}, "auto",
+        )
+
+    def _validate_secrets_scan_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_path(normalized_args)
+        if err:
+            return err
+        return self._validate_optional_enum(
+            normalized_args, "tool", {"auto", "gitleaks", "builtin"}, "auto",
+        )
+
+    def _validate_security_check_args(self, normalized_args: dict[str, object]) -> str | None:
+        err = self._validate_optional_enum(
+            normalized_args, "tool", {"auto", "bandit", "semgrep"}, "auto",
+        )
+        if err:
+            return err
+        err = self._validate_optional_path(normalized_args)
+        if err:
+            return err
+        if "severity" in normalized_args:
+            return self._validate_optional_enum(
+                normalized_args, "severity", {"low", "medium", "high"}, "low",
+            )
         return None
