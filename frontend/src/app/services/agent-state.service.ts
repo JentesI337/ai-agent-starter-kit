@@ -895,7 +895,28 @@ export class AgentStateService implements OnDestroy {
         break;
       }
 
-      case 'llm_call_completed':
+      case 'llm_call_completed': {
+        const llmDetails = details;
+        const newCall: LlmCallRecord = {
+          phase: (llmDetails['phase'] as PipelinePhase) ?? d.currentPhase ?? 'agent_loop',
+          systemPrompt: (llmDetails['system_prompt_preview'] as string) ?? '',
+          userPrompt: (llmDetails['prompt_preview'] as string) ?? '',
+          rawResponse: (llmDetails['response_text'] as string) ?? '',
+          parsedOutput: '',
+          model: (llmDetails['model'] as string) ?? '',
+          temperature: 0,
+          latencyMs: (llmDetails['latency_ms'] as number) ?? 0,
+          tokensEst: ((llmDetails['input_tokens'] as number) ?? 0) + ((llmDetails['output_tokens'] as number) ?? 0),
+          timestamp: event.ts ?? new Date().toISOString(),
+        };
+        next = {
+          ...next,
+          ...this.activatePhasePartial(d, 'agent_loop'),
+          llmCalls: [...d.llmCalls, newCall],
+        };
+        break;
+      }
+
       case 'loop_iteration_started':
         next = { ...next, ...this.activatePhasePartial(d, 'agent_loop') };
         break;
@@ -954,6 +975,16 @@ export class AgentStateService implements OnDestroy {
 
       case 'reply_shaping_started':
         next = { ...next, ...this.activatePhasePartial(d, 'reply_shaping') };
+        break;
+
+      case 'reply_shaping_skipped':
+        next = {
+          ...next,
+          phaseStates: new Map(d.phaseStates)
+            .set('reply_shaping', 'skipped')
+            .set('response', 'active'),
+          currentPhase: 'response' as PipelinePhase,
+        };
         break;
 
       case 'reply_shaping_completed':

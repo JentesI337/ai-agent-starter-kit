@@ -1,0 +1,15 @@
+{
+  "id": "list-workflows",
+  "name": "List Workflows",
+  "description": "List all available workflows",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "return str(workflow_manager.list_workflows())"
+  ],
+  "tool_policy": null,
+  "allow_subrun_delegation": false,
+  "capabilities": [],
+  "workspace_scope": null,
+  "skills_scope": null,
+  "credential_scope": null
+}

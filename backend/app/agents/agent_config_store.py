@@ -8,27 +8,30 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.agent_config_schema import AgentRuntimeConfig
+from app.agents.agent_definition import BUILTIN_AGENT_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
-# Builtin defaults extracted from all 15 adapter classes
-BUILTIN_AGENT_DEFAULTS: dict[str, dict[str, Any]] = {
-    "head-agent": {"temperature": 0.3, "reflection_passes": 0, "reasoning_depth": 2, "read_only": False},
-    "coder-agent": {"temperature": 0.3, "reflection_passes": 0, "reasoning_depth": 2, "read_only": False},
-    "review-agent": {"temperature": 0.2, "reflection_passes": 1, "reasoning_depth": 2, "read_only": True},
-    "researcher-agent": {"temperature": 0.25, "reflection_passes": 1, "reasoning_depth": 3, "max_context": 16384, "read_only": True},
-    "architect-agent": {"temperature": 0.35, "reflection_passes": 2, "reasoning_depth": 4, "max_context": 12288, "read_only": True},
-    "test-agent": {"temperature": 0.15, "reflection_passes": 1, "reasoning_depth": 2, "read_only": False},
-    "security-agent": {"temperature": 0.1, "reflection_passes": 2, "reasoning_depth": 3, "read_only": True},
-    "doc-agent": {"temperature": 0.4, "reflection_passes": 1, "reasoning_depth": 2, "read_only": False},
-    "refactor-agent": {"temperature": 0.2, "reflection_passes": 2, "reasoning_depth": 3, "read_only": False},
-    "devops-agent": {"temperature": 0.2, "reflection_passes": 1, "reasoning_depth": 2, "read_only": False},
-    "fintech-agent": {"temperature": 0.15, "reflection_passes": 2, "reasoning_depth": 4, "max_context": 16384, "read_only": True},
-    "healthtech-agent": {"temperature": 0.1, "reflection_passes": 2, "reasoning_depth": 4, "max_context": 16384, "read_only": True},
-    "legaltech-agent": {"temperature": 0.15, "reflection_passes": 2, "reasoning_depth": 3, "max_context": 12288, "read_only": True},
-    "ecommerce-agent": {"temperature": 0.25, "reflection_passes": 1, "reasoning_depth": 2, "read_only": False},
-    "industrytech-agent": {"temperature": 0.2, "reflection_passes": 1, "reasoning_depth": 2, "read_only": False},
-}
+
+def _builtin_defaults() -> dict[str, dict[str, Any]]:
+    """Derive builtin defaults from the canonical agent definitions."""
+    result: dict[str, dict[str, Any]] = {}
+    for agent_id, defn in BUILTIN_AGENT_DEFINITIONS.items():
+        entry: dict[str, Any] = {
+            "temperature": defn.constraints.temperature,
+            "reflection_passes": defn.constraints.reflection_passes,
+            "reasoning_depth": defn.constraints.reasoning_depth,
+            "read_only": defn.tool_policy.read_only,
+        }
+        if defn.constraints.max_context is not None:
+            entry["max_context"] = defn.constraints.max_context
+        if defn.tool_policy.mandatory_deny:
+            entry["mandatory_deny_tools"] = list(defn.tool_policy.mandatory_deny)
+        result[agent_id] = entry
+    return result
+
+
+BUILTIN_AGENT_DEFAULTS: dict[str, dict[str, Any]] = _builtin_defaults()
 
 
 class AgentConfigStore:

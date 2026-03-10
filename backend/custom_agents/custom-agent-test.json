@@ -1,0 +1,17 @@
+{
+  "id": "custom-agent-test",
+  "name": "custom-agent-test",
+  "description": "Ein benutzerdefinierter Testagent für spezielle Aufgaben",
+  "base_agent_id": "head-agent",
+  "workflow_steps": [
+    "Initiale Konfiguration",
+    "Datenverarbeitung",
+    "Ergebnisausgabe"
+  ],
+  "tool_policy": null,
+  "allow_subrun_delegation": false,
+  "capabilities": [],
+  "workspace_scope": null,
+  "skills_scope": null,
+  "credential_scope": null
+}

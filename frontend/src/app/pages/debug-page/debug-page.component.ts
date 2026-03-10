@@ -15,12 +15,18 @@ import {
   AgentStateService,
   DebugEvent,
   DebugState,
+  GuardrailCheck,
   LlmCallRecord,
   PhaseState,
   PipelinePhase,
   PolicyApprovalItem,
   ReflectionVerdict,
+  RequestEnvelope,
+  RoutingDecision,
   ToolExecutionRecord,
+  ToolPolicyInfo,
+  ToolchainInfo,
+  McpToolsInfo,
 } from '../../services/agent-state.service';
 
 interface PhaseNode {
@@ -55,6 +61,14 @@ export class DebugPageComponent implements OnInit, OnDestroy {
   requestId: string | null = null;
   totalDurationMs = 0;
 
+  // Run metadata
+  requestEnvelope: RequestEnvelope | null = null;
+  routingDecision: RoutingDecision | null = null;
+  guardrailChecks: GuardrailCheck[] = [];
+  toolPolicy: ToolPolicyInfo | null = null;
+  toolchainInfo: ToolchainInfo | null = null;
+  mcpToolsInfo: McpToolsInfo | null = null;
+
   activeBreakpoints = new Set<PipelinePhase>();
   isConnected = false;
   pendingApprovals: PolicyApprovalItem[] = [];
@@ -63,6 +77,7 @@ export class DebugPageComponent implements OnInit, OnDestroy {
   eventLogOpen = false;
   filterText = '';
   inspectorOpen = false;
+  summaryOpen = true;
 
   readonly phases: PhaseNode[] = [
     { id: 'routing',        label: 'Routing',          short: 'Route',   icon: '◈', hasLlm: false },
@@ -98,6 +113,12 @@ export class DebugPageComponent implements OnInit, OnDestroy {
         this.eventLog = snap.eventLog;
         this.requestId = snap.requestId;
         this.totalDurationMs = snap.totalDurationMs;
+        this.requestEnvelope = snap.requestEnvelope;
+        this.routingDecision = snap.routingDecision;
+        this.guardrailChecks = snap.guardrailChecks;
+        this.toolPolicy = snap.toolPolicy;
+        this.toolchainInfo = snap.toolchainInfo;
+        this.mcpToolsInfo = snap.mcpToolsInfo;
         if (snap.selectedPhase && !this.inspectorOpen) this.inspectorOpen = true;
         this.cdr.markForCheck();
       }),
@@ -161,6 +182,18 @@ export class DebugPageComponent implements OnInit, OnDestroy {
     return this.llmCalls.filter(c => c.phase === this.selectedPhase);
   }
 
+  get hasRunData(): boolean {
+    return this.eventLog.length > 0 || this.debugState !== 'idle';
+  }
+
+  get totalTokens(): number {
+    return this.llmCalls.reduce((sum, c) => sum + (c.tokensEst || 0), 0);
+  }
+
+  get totalLlmLatency(): number {
+    return this.llmCalls.reduce((sum, c) => sum + (c.latencyMs || 0), 0);
+  }
+
   callContent(call: LlmCallRecord): string {
     switch (this.activeTab) {
       case 'system': return call.systemPrompt;
@@ -174,15 +207,20 @@ export class DebugPageComponent implements OnInit, OnDestroy {
     return this.llmCalls.filter(c => c.phase === id).length;
   }
 
+  toolCount(id: PipelinePhase): number {
+    if (id !== 'agent_loop') return 0;
+    return this.toolExecutions.length;
+  }
+
   phaseDur(id: PipelinePhase): number | null {
     const M: Record<string, [string, string]> = {
-      routing: ['run_started', 'guardrails_passed'],
-      guardrails: ['run_started', 'guardrails_passed'],
-      context: ['memory_updated', 'planning_started'],
-      agent_loop: ['planning_started', 'reflection_completed'],
+      routing: ['run_started', 'request_dispatched'],
+      guardrails: ['request_dispatched', 'guardrails_passed'],
+      context: ['guardrails_passed', 'loop_iteration_started'],
+      agent_loop: ['loop_iteration_started', 'llm_call_completed'],
       reflection: ['reflection_completed', 'reflection_completed'],
       reply_shaping: ['reply_shaping_started', 'reply_shaping_completed'],
-      response: ['reply_shaping_completed', 'run_completed'],
+      response: ['reply_shaping_completed', 'request_completed'],
     };
     const p = M[id];
     if (!p) return null;

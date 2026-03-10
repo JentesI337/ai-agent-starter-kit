@@ -246,6 +246,7 @@ class HeadAgent:
             distill_fn=self._distill_session_knowledge,
             long_term_context_fn=self._build_long_term_memory_context,
             policy_approval_fn=self._request_policy_override,
+            debug_checkpoint_fn=self._debug_checkpoint,
         )
 
     @staticmethod
@@ -1872,18 +1873,21 @@ class HeadAgent:
         session_id: str,
     ) -> None:
         """Cooperative pause point. Blocks only when a breakpoint is set or the user requested pause."""
-        if not self._debug_mode_active or not settings.debug_mode:
+        if not self._debug_mode_active:
             return
         if phase not in self._debug_breakpoints and self._debug_continue_event.is_set():
             return
 
         self._debug_continue_event.clear()
-        await self._emit_lifecycle(
-            send_event,
-            "debug_breakpoint_hit",
-            request_id,
-            session_id,
-            details={"phase": phase, "breakpoint_id": f"bp-{phase}"},
+        # Send breakpoint hit directly (bypass debug_ gate in _emit_lifecycle)
+        await send_event(
+            build_lifecycle_event(
+                request_id=request_id,
+                session_id=session_id,
+                stage="debug_breakpoint_hit",
+                details={"phase": phase, "breakpoint_id": f"bp-{phase}"},
+                agent=self.name,
+            )
         )
         try:
             await asyncio.wait_for(self._debug_continue_event.wait(), timeout=300.0)

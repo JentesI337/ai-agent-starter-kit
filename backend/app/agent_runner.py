@@ -169,6 +169,7 @@ class AgentRunner:
         distill_fn: Callable[..., Awaitable[None]] | None = None,
         long_term_context_fn: Callable[[str], str] | None = None,
         policy_approval_fn: Callable[..., Awaitable[bool]] | None = None,
+        debug_checkpoint_fn: Callable[..., Awaitable[None]] | None = None,
     ):
         self.client = client
         self.memory = memory
@@ -190,6 +191,7 @@ class AgentRunner:
         self._distill_fn = distill_fn
         self._long_term_context_fn = long_term_context_fn
         self._policy_approval_fn = policy_approval_fn
+        self._debug_checkpoint_fn = debug_checkpoint_fn
         self._compaction_service = CompactionService(client)
 
         # Loop limits from settings
@@ -229,6 +231,10 @@ class AgentRunner:
                 details={"model": model or self.client.model},
             )
 
+        # Debug checkpoint: guardrails
+        if self._debug_checkpoint_fn:
+            await self._debug_checkpoint_fn("guardrails", send_event, request_id, session_id)
+
         # Guardrails
         if self._guardrail_validator:
             self._guardrail_validator(user_message, session_id, model)
@@ -248,6 +254,10 @@ class AgentRunner:
                 request_id=request_id,
                 session_id=session_id,
             )
+
+        # Debug checkpoint: context
+        if self._debug_checkpoint_fn:
+            await self._debug_checkpoint_fn("context", send_event, request_id, session_id)
 
         # Resolve allowed tools
         effective_allowed_tools = self._allowed_tools_resolver(tool_policy)
@@ -314,6 +324,10 @@ class AgentRunner:
             if should_steer_interrupt and should_steer_interrupt():
                 loop_state.steer_interrupted = True
                 break
+
+            # Debug checkpoint: agent_loop (before each LLM call)
+            if self._debug_checkpoint_fn:
+                await self._debug_checkpoint_fn("agent_loop", send_event, request_id, session_id)
 
             # ── LLM CALL ──
             # Proactive compaction: summarise before hitting context limit
@@ -519,6 +533,10 @@ class AgentRunner:
             final_text, all_tool_results, user_message, send_event, request_id, session_id,
         )
 
+        # Debug checkpoint: reflection
+        if self._debug_checkpoint_fn:
+            await self._debug_checkpoint_fn("reflection", send_event, request_id, session_id)
+
         # 2. Reflection (before shaping — reflection sees unshaped text)
         if (
             self._reflection_service
@@ -546,8 +564,12 @@ class AgentRunner:
                     details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
                 )
 
+        # Debug checkpoint: reply_shaping
+        if self._debug_checkpoint_fn:
+            await self._debug_checkpoint_fn("reply_shaping", send_event, request_id, session_id)
+
         # 3. Reply shaping
-        final_text = self._shape_final_response(
+        final_text = await self._shape_final_response(
             final_text, all_tool_results, send_event, request_id, session_id,
         )
 
@@ -1086,7 +1108,7 @@ class AgentRunner:
     # Reply shaping
     # ──────────────────────────────────────────────────────────────────
 
-    def _shape_final_response(
+    async def _shape_final_response(
         self,
         final_text: str,
         tool_results: list[ToolResult],
@@ -1096,7 +1118,19 @@ class AgentRunner:
     ) -> str:
         """Shape the final response using ReplyShaper (sanitize + deduplicate)."""
         if not self._reply_shaper:
+            if self._emit_lifecycle and send_event:
+                await self._emit_lifecycle(
+                    send_event, stage="reply_shaping_skipped",
+                    request_id=request_id, session_id=session_id,
+                    details={"reason": "no_reply_shaper"},
+                )
             return final_text
+
+        if self._emit_lifecycle and send_event:
+            await self._emit_lifecycle(
+                send_event, stage="reply_shaping_started",
+                request_id=request_id, session_id=session_id,
+            )
 
         tool_results_str = self._tool_results_to_string(tool_results)
         tool_markers: set[str] = set()
@@ -1109,10 +1143,22 @@ class AgentRunner:
             tool_markers=tool_markers,
         )
 
+        shaped_text = shape_result.text
         if shape_result.was_suppressed:
-            return shape_result.text or f"Reply suppressed: {shape_result.suppression_reason or 'suppressed'}"
+            shaped_text = shape_result.text or f"Reply suppressed: {shape_result.suppression_reason or 'suppressed'}"
 
-        return shape_result.text
+        if self._emit_lifecycle and send_event:
+            await self._emit_lifecycle(
+                send_event, stage="reply_shaping_completed",
+                request_id=request_id, session_id=session_id,
+                details={
+                    "was_suppressed": shape_result.was_suppressed,
+                    "input_chars": len(final_text),
+                    "output_chars": len(shaped_text),
+                },
+            )
+
+        return shaped_text
 
     # ──────────────────────────────────────────────────────────────────
     # Reflection loop

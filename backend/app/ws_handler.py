@@ -698,7 +698,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 # Debug control messages — handled before the standard type dispatch
                 _debug_types = {"debug_continue", "debug_pause", "debug_set_breakpoints", "debug_play"}
                 if inbound_type in _debug_types:
-                    _agent = deps.agent
+                    # Resolve to the underlying HeadAgent (adapters delegate to _delegate)
+                    _agent = getattr(deps.agent, "_delegate", deps.agent)
                     if inbound_type == "debug_continue":
                         if hasattr(_agent, "_debug_continue_event"):
                             _agent._debug_continue_event.set()  # type: ignore[union-attr]
@@ -706,23 +707,23 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                         if hasattr(_agent, "_debug_continue_event"):
                             _agent._debug_continue_event.clear()  # type: ignore[union-attr]
                     elif inbound_type == "debug_play":
-                        if hasattr(_agent, "_debug_breakpoints"):
-                            _agent._debug_breakpoints.clear()  # type: ignore[union-attr]
+                        # Resume execution without clearing breakpoints
                         if hasattr(_agent, "_debug_continue_event"):
                             _agent._debug_continue_event.set()  # type: ignore[union-attr]
-                        if hasattr(_agent, "_debug_mode_active"):
-                            _agent._debug_mode_active = False  # type: ignore[union-attr]
                     elif inbound_type == "debug_set_breakpoints":
                         envelope = WsInboundEnvelope.model_validate_json(raw)
                         bp_list: list[str] = envelope.breakpoints or []
                         _valid_phases = {
+                            "routing",
                             "guardrails",
                             "context",
+                            "agent_loop",
                             "planning",
                             "tool_selection",
                             "synthesis",
                             "reflection",
                             "reply_shaping",
+                            "response",
                         }
                         if hasattr(_agent, "_debug_breakpoints"):
                             _agent._debug_breakpoints = set(bp_list) & _valid_phases  # type: ignore[union-attr]

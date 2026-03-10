@@ -9,6 +9,9 @@
         <button class="t-btn t-continue" (click)="onContinue()" [disabled]="debugState !== 'paused'" title="Continue (F8)">⏭</button>
       </div>
       <span class="state-pill" [attr.data-state]="debugState">{{ debugState }}</span>
+      @if (requestId) {
+        <span class="req-id" title="Request ID">{{ requestId }}</span>
+      }
     </div>
     <div class="toolbar-r">
       @if (activeBreakpoints.size > 0) {
@@ -16,6 +19,15 @@
       }
       @if (totalDurationMs > 0) {
         <span class="dur-pill">{{ fmtDur(totalDurationMs) }}</span>
+      }
+      @if (llmCalls.length > 0) {
+        <span class="stat-pill">{{ llmCalls.length }} LLM</span>
+      }
+      @if (toolExecutions.length > 0) {
+        <span class="stat-pill tool">{{ toolExecutions.length }} Tools</span>
+      }
+      @if (totalTokens > 0) {
+        <span class="stat-pill tok">~{{ totalTokens }} tok</span>
       }
       <span class="conn-pill" [class.on]="isConnected">
         <span class="c-dot"></span>{{ isConnected ? 'Connected' : 'Disconnected' }}
@@ -66,7 +78,10 @@
           <span class="n-lbl">{{ phase.short }}</span>
           @if (phaseDur(phase.id); as d) { <span class="n-dur">{{ fmtDur(d) }}</span> }
           @if (phase.hasLlm && llmCount(phase.id) > 0) {
-            <span class="n-llm">{{ llmCount(phase.id) }}</span>
+            <span class="n-llm">{{ llmCount(phase.id) }} LLM</span>
+          }
+          @if (toolCount(phase.id) > 0) {
+            <span class="n-tool-count">{{ toolCount(phase.id) }} tools</span>
           }
         </div>
         @if (!last) {
@@ -91,11 +106,256 @@
         </div>
         <h2>Pipeline Debugger</h2>
         <p>Send a message to trace through each pipeline phase</p>
-        <p class="hint">Right-click nodes to set breakpoints</p>
+        <p class="hint">Right-click pipeline nodes to set breakpoints</p>
       </div>
     }
 
-    <!-- Inspector Panel -->
+    <!-- ── Run Summary Dashboard ──────────────────── -->
+    @if (hasRunData) {
+      <div class="summary" [class.collapsed]="!summaryOpen">
+        <div class="sum-head" (click)="summaryOpen = !summaryOpen">
+          <span class="sum-title">Run Summary</span>
+          <span class="sum-arrow">{{ summaryOpen ? '▾' : '▸' }}</span>
+        </div>
+
+        @if (summaryOpen) {
+          <div class="sum-body">
+
+            <!-- Request Info -->
+            @if (requestEnvelope) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Request</h4>
+                <div class="sum-grid">
+                  <div class="sum-kv">
+                    <span class="kv-k">Agent</span>
+                    <span class="kv-v agent">{{ requestEnvelope.agentOverride || '(default)' }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">Model</span>
+                    <span class="kv-v mono">{{ requestEnvelope.modelOverride || '(default)' }}</span>
+                  </div>
+                  @if (requestEnvelope.preset) {
+                    <div class="sum-kv">
+                      <span class="kv-k">Preset</span>
+                      <span class="kv-v">{{ requestEnvelope.preset }}</span>
+                    </div>
+                  }
+                  <div class="sum-kv">
+                    <span class="kv-k">Content</span>
+                    <span class="kv-v mono">{{ requestEnvelope.contentLength }} chars</span>
+                  </div>
+                  @if (requestEnvelope.sessionId) {
+                    <div class="sum-kv">
+                      <span class="kv-k">Session</span>
+                      <span class="kv-v mono truncate">{{ requestEnvelope.sessionId }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Routing Decision -->
+            @if (routingDecision) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Routing</h4>
+                <div class="sum-grid">
+                  <div class="sum-kv">
+                    <span class="kv-k">Method</span>
+                    <span class="kv-v badge" [attr.data-method]="routingDecision.routingMethod">{{ routingDecision.routingMethod }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">Effective Agent</span>
+                    <span class="kv-v agent">{{ routingDecision.effectiveAgentId }}</span>
+                  </div>
+                  @if (routingDecision.routingReason) {
+                    <div class="sum-kv wide">
+                      <span class="kv-k">Reason</span>
+                      <span class="kv-v">{{ routingDecision.routingReason }}</span>
+                    </div>
+                  }
+                  @if (routingDecision.routingCapabilities.length > 0) {
+                    <div class="sum-kv wide">
+                      <span class="kv-k">Capabilities</span>
+                      <span class="kv-v caps">
+                        @for (cap of routingDecision.routingCapabilities; track cap) {
+                          <span class="cap-chip">{{ cap }}</span>
+                        }
+                      </span>
+                    </div>
+                  }
+                  @if (routingDecision.routingMatches.length > 0) {
+                    <div class="sum-kv wide">
+                      <span class="kv-k">Matches</span>
+                      <div class="match-list">
+                        @for (m of routingDecision.routingMatches; track m.agentId) {
+                          <span class="match-item" [class.selected]="m.agentId === routingDecision.effectiveAgentId">
+                            {{ m.agentId }} <span class="match-score">{{ (m.score * 100).toFixed(0) }}%</span>
+                          </span>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Guardrails -->
+            @if (guardrailChecks.length > 0) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Guardrails</h4>
+                <div class="guard-list">
+                  @for (g of guardrailChecks; track g.name) {
+                    <div class="guard-item" [class.pass]="g.passed" [class.fail]="!g.passed">
+                      <span class="guard-icon">{{ g.passed ? '✓' : '✕' }}</span>
+                      <span class="guard-name">{{ g.name }}</span>
+                      <span class="guard-val">{{ g.actualValue }}</span>
+                      @if (g.limit !== undefined) {
+                        <span class="guard-limit">/ {{ g.limit }}</span>
+                      }
+                      @if (g.reason) {
+                        <span class="guard-reason">{{ g.reason }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Tool Policy -->
+            @if (toolPolicy) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Tool Policy</h4>
+                <div class="sum-grid">
+                  <div class="sum-kv">
+                    <span class="kv-k">Type</span>
+                    <span class="kv-v mono">{{ toolPolicy.policyType }}</span>
+                  </div>
+                  @if (toolPolicy.allowedTools.length > 0) {
+                    <div class="sum-kv wide">
+                      <span class="kv-k">Allowed</span>
+                      <span class="kv-v caps">
+                        @for (t of toolPolicy.allowedTools; track t) {
+                          <span class="cap-chip allow">{{ t }}</span>
+                        }
+                      </span>
+                    </div>
+                  }
+                  @if (toolPolicy.deniedTools.length > 0) {
+                    <div class="sum-kv wide">
+                      <span class="kv-k">Denied</span>
+                      <span class="kv-v caps">
+                        @for (t of toolPolicy.deniedTools; track t) {
+                          <span class="cap-chip deny">{{ t }}</span>
+                        }
+                      </span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Toolchain & MCP -->
+            @if (toolchainInfo || mcpToolsInfo) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Toolchain</h4>
+                <div class="sum-grid">
+                  @if (toolchainInfo) {
+                    <div class="sum-kv">
+                      <span class="kv-k">Tools</span>
+                      <span class="kv-v mono">{{ toolchainInfo.toolCount }}</span>
+                    </div>
+                    @if (toolchainInfo.issues > 0) {
+                      <div class="sum-kv">
+                        <span class="kv-k">Issues</span>
+                        <span class="kv-v err">{{ toolchainInfo.issues }}</span>
+                      </div>
+                    }
+                  }
+                  @if (mcpToolsInfo) {
+                    <div class="sum-kv">
+                      <span class="kv-k">MCP Tools</span>
+                      <span class="kv-v mono">{{ mcpToolsInfo.toolCount }}</span>
+                    </div>
+                    @if (mcpToolsInfo.error) {
+                      <div class="sum-kv wide">
+                        <span class="kv-k">MCP Error</span>
+                        <span class="kv-v err">{{ mcpToolsInfo.error }}</span>
+                      </div>
+                    }
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Execution Stats -->
+            @if (llmCalls.length > 0 || toolExecutions.length > 0) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Execution</h4>
+                <div class="sum-grid">
+                  <div class="sum-kv">
+                    <span class="kv-k">LLM Calls</span>
+                    <span class="kv-v mono">{{ llmCalls.length }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">Tool Calls</span>
+                    <span class="kv-v mono">{{ toolExecutions.length }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">Total Tokens</span>
+                    <span class="kv-v mono">~{{ totalTokens }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">LLM Latency</span>
+                    <span class="kv-v mono">{{ fmtDur(totalLlmLatency) }}</span>
+                  </div>
+                  <div class="sum-kv">
+                    <span class="kv-k">Total Duration</span>
+                    <span class="kv-v mono">{{ fmtDur(totalDurationMs) }}</span>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <!-- Reflection -->
+            @if (reflectionVerdict) {
+              <div class="sum-section">
+                <h4 class="sum-section-title">Reflection</h4>
+                <div class="refl">
+                  @for (s of [
+                    { l: 'Goal Alignment', v: reflectionVerdict.goalAlignment },
+                    { l: 'Completeness', v: reflectionVerdict.completeness },
+                    { l: 'Factual Grounding', v: reflectionVerdict.factualGrounding }
+                  ]; track s.l) {
+                    <div class="score-row">
+                      <span class="s-label">{{ s.l }}</span>
+                      <div class="s-track"><div class="s-fill" [style.width.%]="s.v * 100"
+                        [class.good]="s.v >= 0.6" [class.warn]="s.v >= 0.4 && s.v < 0.6" [class.bad]="s.v < 0.4"></div></div>
+                      <span class="s-val">{{ (s.v * 100).toFixed(0) }}%</span>
+                    </div>
+                  }
+                  <div class="verdict-row">
+                    <span class="v-badge" [class.pass]="!reflectionVerdict.shouldRetry" [class.retry]="reflectionVerdict.shouldRetry">
+                      {{ reflectionVerdict.shouldRetry ? 'Retry' : 'Pass' }}
+                    </span>
+                    <span class="v-detail">{{ reflectionVerdict.score.toFixed(2) }} / {{ reflectionVerdict.threshold.toFixed(2) }}</span>
+                  </div>
+                  @if (reflectionVerdict.issues.length > 0) {
+                    <div class="issues">
+                      @for (issue of reflectionVerdict.issues; track $index) {
+                        <span class="issue">{{ issue }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Inspector Panel (phase detail) -->
     @if (inspectorOpen && selectedPhase) {
       <div class="inspector">
 
@@ -104,6 +364,9 @@
           <span class="insp-icon">{{ selectedNode?.icon }}</span>
           <span class="insp-name">{{ selectedNode?.label }}</span>
           <span class="insp-state" [attr.data-state]="ps(selectedPhase)">{{ ps(selectedPhase) }}</span>
+          @if (phaseDur(selectedPhase); as d) {
+            <span class="insp-dur">{{ fmtDur(d) }}</span>
+          }
           <button class="insp-close" (click)="inspectorOpen = false">✕</button>
         </div>
 
@@ -128,9 +391,10 @@
 
           <!-- Prompt / Response tabs -->
           @if (activeTab === 'system' || activeTab === 'user' || activeTab === 'response') {
-            @for (call of selectedLlmCalls; track call.timestamp) {
+            @for (call of selectedLlmCalls; track call.timestamp; let idx = $index) {
               <div class="llm-card">
                 <div class="llm-meta">
+                  <span class="llm-iter">{{ idx + 1 }}</span>
                   <span class="llm-model">{{ call.model }}</span>
                   @if (call.latencyMs) { <span class="llm-lat">{{ fmtDur(call.latencyMs) }}</span> }
                   @if (call.tokensEst) { <span class="llm-tok">~{{ call.tokensEst }} tok</span> }
@@ -144,9 +408,10 @@
 
           <!-- Tools tab -->
           @if (activeTab === 'tools') {
-            @for (t of toolExecutions; track t.timestamp) {
+            @for (t of toolExecutions; track t.timestamp; let idx = $index) {
               <div class="tool-card" [class.blocked]="t.blocked">
                 <div class="tool-head">
+                  <span class="tool-idx">{{ idx + 1 }}</span>
                   <span class="tool-name">{{ t.tool }}</span>
                   <span class="tool-dur">{{ fmtDur(t.durationMs) }}</span>
                   <span class="tool-status" [class.ok]="t.exitCode === 0" [class.err]="t.exitCode !== 0">
@@ -154,7 +419,7 @@
                   </span>
                 </div>
                 <pre class="code-block sm">{{ t.args | json }}</pre>
-                @if (t.resultPreview) { <pre class="code-block sm">{{ t.resultPreview }}</pre> }
+                @if (t.resultPreview) { <pre class="code-block sm result">{{ t.resultPreview }}</pre> }
               </div>
             }
             @if (toolExecutions.length === 0) { <div class="no-data">No tool executions</div> }

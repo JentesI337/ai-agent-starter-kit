@@ -95,7 +95,7 @@ export class LiveService implements OnDestroy {
     'tool_started', 'tool_completed', 'tool_blocked', 'tool_failed',
     'tool_selection_completed', 'tool_selection_started',
     'reflection_completed', 'reflection_skipped', 'reflection_failed',
-    'reply_shaping_started', 'reply_shaping_completed',
+    'reply_shaping_started', 'reply_shaping_skipped', 'reply_shaping_completed',
     'verification_final',
     'runner_started', 'runner_completed',
     'request_completed', 'request_cancelled', 'request_failed',
