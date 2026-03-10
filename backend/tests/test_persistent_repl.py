@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import platform
 import pytest
 
 from app.services.persistent_repl import PersistentRepl, ReplResult
 from app.services.repl_session_manager import ReplSessionManager
+
+_has_pandas = False
+try:
+    import pandas
+    _has_pandas = True
+except ImportError:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -441,3 +449,98 @@ async def test_code_reset_disabled(tmp_path, monkeypatch):
     tooling = AgentTooling(workspace_root=str(tmp_path))
     result = await tooling.code_reset()
     assert "not enabled" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Expression display (Gap 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_expression_display(tmp_path):
+    """Single expressions display their result (like IPython)."""
+    repl = PersistentRepl("test-session", sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r = await repl.execute("2 + 3")
+        assert "5" in r.stdout
+    finally:
+        await repl.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _has_pandas, reason="pandas not installed")
+async def test_dataframe_rendering(tmp_path):
+    """DataFrames render with column headers."""
+    repl = PersistentRepl("test-session", sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r = await repl.execute("import pandas as pd; pd.DataFrame({'a':[1],'b':[2]})")
+        assert "a" in r.stdout
+        assert "b" in r.stdout
+    finally:
+        await repl.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Memory limit (Gap 3) — Unix only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Memory limits not enforced on Windows")
+async def test_memory_limit_unix(tmp_path):
+    """Allocating more than max_memory_mb triggers MemoryError or crash."""
+    repl = PersistentRepl("test-session", max_memory_mb=64, sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r = await repl.execute("x = bytearray(200 * 1024 * 1024)")
+        # Should get MemoryError in stderr or process crash (auto-restart)
+        assert "MemoryError" in r.stderr or r.exit_code != 0 or r.timed_out
+    finally:
+        await repl.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Package management (Gap 5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_install_and_import(tmp_path):
+    """install() installs a package and it can be imported."""
+    repl = PersistentRepl("test-session", sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r1 = await repl.execute("print(install('six'))")
+        assert "Installed" in r1.stdout
+
+        r2 = await repl.execute("import six; print(six.__version__)")
+        assert r2.exit_code == 0
+        assert r2.stderr.strip() == "" or "six" not in r2.stderr
+    finally:
+        await repl.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_pip_install_syntax(tmp_path):
+    """!pip install syntax works."""
+    repl = PersistentRepl("test-session", sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r = await repl.execute("!pip install six")
+        assert "Installed" in r.stdout
+    finally:
+        await repl.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_install_rejects_flags(tmp_path):
+    """Flags starting with - are skipped."""
+    repl = PersistentRepl("test-session", sandbox_base=str(tmp_path))
+    await repl.start()
+    try:
+        r = await repl.execute("print(install('--pre', 'six'))")
+        assert "Skipped" in r.stdout
+    finally:
+        await repl.shutdown()

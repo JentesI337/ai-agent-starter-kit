@@ -114,6 +114,12 @@ class PlanGraph:
         for step in self.steps:
             step.depends_on = [dep for dep in step.depends_on if dep in known_ids and dep != step.step_id]
 
+    def to_mermaid(self) -> str:
+        """Render this plan graph as a Mermaid flowchart string."""
+        from app.services.visualization import plan_graph_to_mermaid
+
+        return plan_graph_to_mermaid(self)
+
     def as_plan_text(self) -> str:
         lines = [f"Goal: {self.goal}", f"Complexity: {self.complexity}"]
         if self.clarification_needed:

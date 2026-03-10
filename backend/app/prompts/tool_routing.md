@@ -117,6 +117,47 @@ ONLY reference PIDs, ports, paths, usernames, or process names that appear
 
 ---
 
+## code_execute
+
+**When to use:**
+- Run Python code with persistent state — variables, imports, and function definitions survive across calls
+- Data analysis, calculations, transformations, and exploratory work
+- Generate visualizations (matplotlib plots are returned as base64 PNG images)
+- Test code snippets interactively before writing to files
+
+**When NOT to use:**
+- Shell commands, build tools, or system diagnostics → use `run_command`
+- Creating or editing project files → use `write_file` / `apply_patch`
+- Long-running servers or background tasks → use `start_background_command`
+- Non-Python code that needs persistent state (not supported)
+
+**Output note:** Returns stdout, stderr, and images (base64-encoded PNGs from matplotlib).
+Single expressions display their result automatically (like IPython).
+DataFrames render as markdown tables.
+
+**Caution:** State persists across calls within the same `session_id`.
+Use `code_reset` to clear state if the session becomes corrupted.
+Use separate `session_id` values for independent workstreams.
+
+---
+
+## code_reset
+
+**When to use:**
+- Clear all persistent REPL state (variables, imports, functions) for a session
+- Recover from a corrupted or timed-out session
+- Start fresh without leftover state from previous executions
+
+**When NOT to use:**
+- When you want to keep existing state → just call `code_execute` again
+- When you need to reset a non-Python session (only Python REPL is persistent)
+
+**Output note:** Returns confirmation that the session was reset.
+
+**Caution:** This is irreversible — all session state is lost.
+
+---
+
 ## start_background_command
 
 **When to use:**
@@ -394,6 +435,8 @@ The following aliases are accepted — they map to the canonical tool name:
 | `browserscreenshot`, `screenshot` | `browser_screenshot` |
 | `browserreaddom`, `browser_dom` | `browser_read_dom` |
 | `browserevaluatejs`, `browser_js`, `browser_eval` | `browser_evaluate_js` |
+| `codeexecute`, `code_interpreter` | `code_execute` |
+| `codereset`, `code_interpreter_reset` | `code_reset` |
 | `spawnsubrun` | `spawn_subrun` |
 
 Always prefer the canonical name in your tool calls.
@@ -411,6 +454,7 @@ Always prefer the canonical name in your tool calls.
 | `web_search` / `web_fetch` fails | State failure explicitly; do NOT substitute model knowledge |
 | `browser_open` timeout / error | Check URL is valid and publicly accessible; report the specific error |
 | `browser_click` / `browser_type` selector not found | Use `browser_read_dom` to inspect available elements; adjust selector |
+| `code_execute` timeout | Session killed, auto-restarts; use `code_reset` if state corrupt |
 | `spawn_subrun` empty result | Report sub-agent produced no output; do NOT invent result |
 | Any tool: empty output | State "tool returned empty output"; do NOT infer from model knowledge |
 
@@ -442,4 +486,6 @@ Always prefer the canonical name in your tool calls.
 | Take a screenshot of a page | `browser_screenshot` |
 | Read page content (text, links, forms) | `browser_read_dom` |
 | Run JavaScript on a page | `browser_evaluate_js` |
+| Run Python with persistent state | `code_execute` |
+| Clear REPL session | `code_reset` |
 | Delegate a complex sub-task | `spawn_subrun` |

@@ -188,7 +188,7 @@ Framework für externe API-Anbindungen mit vorgefertigten Connectoren und der M�
 
 ### Dos
 - Connector-Interface definieren: `connect()`, `call(method, params)`, `disconnect()`
-- Vorgefertigte Connectoren: GitHub API, Jira, Slack (Webhook), REST (generisch)
+- Vorgefertigte Connectoren: GitHub API, Jira, Slack (Webhook), Google, X, REST (generisch)
 - OAuth2 Authorization Code Flow mit PKCE für Web-APIs
 - Credential-Store (verschlüsselt, AES-256-GCM — bestehende `StateEncryption` nutzen)
 - Tools: `api_call(connector, method, params)`, `api_list_connectors()`, `api_auth(connector)`

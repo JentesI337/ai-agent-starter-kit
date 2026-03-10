@@ -291,17 +291,6 @@ class ReplSection(BaseModel):
     repl_sandbox_dir: str = ""
 
 
-class RagSection(BaseModel):
-    rag_enabled: bool = False
-    rag_embedding_provider: str = "ollama"
-    rag_embedding_model: str = "nomic-embed-text"
-    rag_embedding_base_url: str = "http://localhost:11434"
-    rag_embedding_api_key: str = ""
-    rag_persist_dir: str = "./chroma_data"
-    rag_max_chunks_per_collection: int = 10000
-    rag_default_top_k: int = 5
-
-
 class VisionWebSection(BaseModel):
     vision_enabled: bool = False
     vision_provider: str = "auto"
@@ -424,7 +413,6 @@ SECTION_REGISTRY: dict[str, type[BaseModel]] = {
     "subrun": SubrunSection,
     "browser": BrowserSection,
     "repl": ReplSection,
-    "rag": RagSection,
     "vision_web": VisionWebSection,
     "tool_loop": ToolLoopSection,
     "runner": RunnerSection,
@@ -452,7 +440,6 @@ def field_to_section(field_name: str) -> str | None:
 SENSITIVE_FIELDS: frozenset[str] = frozenset({
     "api_auth_token",
     "llm_api_key",
-    "rag_embedding_api_key",
     "vision_api_key",
     "web_search_api_key",
 })

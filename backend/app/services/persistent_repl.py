@@ -25,11 +25,61 @@ _IS_WINDOWS = platform.system() == "Windows"
 # JSON commands from stdin and writes length-prefixed JSON results to stdout.
 # This avoids all interactive-prompt noise from ``python -i``.
 _DRIVER_SCRIPT = r'''
-import sys, os, json, traceback, io, struct
+import sys, os, json, traceback, io, struct, subprocess
 
 os.environ["MPLBACKEND"] = "Agg"
 _IMG_DIR = os.environ.get("_REPL_IMG_DIR", "")
+_INSTALL_DIR = os.environ.get("_REPL_INSTALL_DIR", "")
 _GLOBALS = {"__builtins__": __builtins__, "__name__": "__main__"}
+
+# --- Memory limit (Unix only) ---
+import platform as _platform
+_MAX_MEM = int(os.environ.get("_REPL_MAX_MEMORY_BYTES", "0"))
+if _MAX_MEM > 0 and _platform.system() != "Windows":
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (_MAX_MEM, _MAX_MEM))
+    except (ImportError, ValueError, OSError):
+        pass
+
+# --- Pandas display config ---
+try:
+    import pandas as _pd
+    _pd.set_option("display.max_columns", 50)
+    _pd.set_option("display.width", 120)
+    _pd.set_option("display.max_rows", 60)
+except ImportError:
+    pass
+
+# --- Package installation ---
+def _install_package(*packages):
+    if not _INSTALL_DIR:
+        return "Install directory not configured"
+    results = []
+    for pkg in packages:
+        if pkg.startswith("-"):
+            results.append(f"Skipped flag: {pkg}")
+            continue
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--target", _INSTALL_DIR,
+                 "--no-input", "--disable-pip-version-check", pkg],
+                capture_output=True, text=True, timeout=120,
+            )
+            if proc.returncode == 0:
+                # Ensure install dir is on sys.path for immediate import
+                if _INSTALL_DIR not in sys.path:
+                    sys.path.insert(0, _INSTALL_DIR)
+                results.append(f"Installed {pkg}")
+            else:
+                results.append(f"Failed to install {pkg}: {proc.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            results.append(f"Timeout installing {pkg}")
+        except Exception as e:
+            results.append(f"Error installing {pkg}: {e}")
+    return "; ".join(results)
+
+_GLOBALS["install"] = _install_package
 
 def _read_msg():
     raw = sys.stdin.buffer.read(4)
@@ -50,14 +100,40 @@ while True:
     if code is None:
         break
 
+    # --- Handle !pip install syntax ---
+    _stripped = code.strip()
+    if _stripped.startswith("!pip install ") or _stripped.startswith("!pip3 install "):
+        _parts = _stripped.split()[2:]  # skip "!pip" "install"
+        _pkgs = [p for p in _parts if not p.startswith("-")]
+        _flags = [p for p in _parts if p.startswith("-")]
+        _all = _flags + _pkgs
+        _result = _install_package(*_all)
+        _write_msg({"stdout": _result + "\n", "stderr": "", "images": []})
+        continue
+
     cap_out = io.StringIO()
     cap_err = io.StringIO()
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = cap_out, cap_err
     images = []
     try:
-        compiled = compile(code, "<repl>", "exec")
-        exec(compiled, _GLOBALS)
+        # Try eval first (single expressions display their result)
+        try:
+            compiled = compile(code, "<repl>", "eval")
+            result = eval(compiled, _GLOBALS)
+            if result is not None:
+                _GLOBALS["_"] = result
+                try:
+                    import pandas as _pd
+                    if isinstance(result, _pd.DataFrame):
+                        cap_out.write((result.to_markdown() if hasattr(result, "to_markdown") else result.to_string()) + "\n")
+                    else:
+                        cap_out.write(repr(result) + "\n")
+                except ImportError:
+                    cap_out.write(repr(result) + "\n")
+        except SyntaxError:
+            compiled = compile(code, "<repl>", "exec")
+            exec(compiled, _GLOBALS)
     except SystemExit:
         pass
     except BaseException:
@@ -145,11 +221,18 @@ class PersistentRepl:
         self._driver_path = self._sandbox_dir / "_repl_driver.py"
         self._driver_path.write_text(_DRIVER_SCRIPT, encoding="utf-8")
 
+        # Package install directory (isolated to sandbox)
+        self._install_dir = self._sandbox_dir / "site-packages"
+        self._install_dir.mkdir(exist_ok=True)
+
         env = os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONUNBUFFERED"] = "1"
         env["MPLBACKEND"] = "Agg"
         env["_REPL_IMG_DIR"] = str(self._img_dir)
+        env["_REPL_MAX_MEMORY_BYTES"] = str(self.max_memory_mb * 1024 * 1024)
+        env["_REPL_INSTALL_DIR"] = str(self._install_dir)
+        env["PYTHONPATH"] = str(self._install_dir) + os.pathsep + env.get("PYTHONPATH", "")
 
         if not _IS_WINDOWS:
             env["HOME"] = str(self._sandbox_dir)

@@ -325,12 +325,14 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
         "code_execute": ToolSpec(
             name="code_execute",
             required_args=("code",),
-            optional_args=("language", "timeout", "max_output_chars", "strategy"),
+            optional_args=("language", "timeout", "max_output_chars", "strategy", "persistent", "session_id"),
             timeout_seconds=45.0,
             max_retries=0,
             description=(
                 "Execute code in a sandboxed environment. "
-                "Supports python and javascript with timeout and output limits."
+                "Supports python and javascript with timeout and output limits. "
+                "Python code runs in a persistent REPL by default — variables, imports, "
+                "and function definitions survive across calls. Use session_id for separate state contexts."
             ),
             parameters={
                 "type": "object",
@@ -340,6 +342,15 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                     "timeout": {"type": "integer", "minimum": 1, "maximum": 60},
                     "max_output_chars": {"type": "integer", "minimum": 500, "maximum": 20000},
                     "strategy": {"type": "string", "enum": ["process", "direct", "docker"]},
+                    "persistent": {
+                        "type": "boolean",
+                        "description": "Use persistent REPL where state survives across calls (default true)",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Session ID for separate state contexts (default: 'default')",
+                    },
                 },
                 "required": ["code"],
                 "additionalProperties": False,
@@ -806,61 +817,6 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "additionalProperties": False,
             },
             capabilities=("browser_automation", "code_execution"),
-        ),
-        # ------------------------------------------------------------------
-        # RAG Tools
-        # ------------------------------------------------------------------
-        "rag_ingest": ToolSpec(
-            name="rag_ingest",
-            required_args=("path",),
-            optional_args=("collection",),
-            timeout_seconds=60.0,
-            max_retries=0,
-            description="Ingest a file into the RAG vector store.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "minLength": 1},
-                    "collection": {"type": "string", "minLength": 1},
-                },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
-            capabilities=("rag", "knowledge_retrieval"),
-        ),
-        "rag_query": ToolSpec(
-            name="rag_query",
-            required_args=("question",),
-            optional_args=("top_k", "collection"),
-            timeout_seconds=30.0,
-            max_retries=0,
-            description="Query the RAG vector store for relevant chunks.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string", "minLength": 1},
-                    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
-                    "collection": {"type": "string", "minLength": 1},
-                },
-                "required": ["question"],
-                "additionalProperties": False,
-            },
-            capabilities=("rag", "knowledge_retrieval"),
-        ),
-        "rag_collections": ToolSpec(
-            name="rag_collections",
-            required_args=(),
-            optional_args=(),
-            timeout_seconds=10.0,
-            max_retries=0,
-            description="List all RAG collections with their document counts.",
-            parameters={
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": False,
-            },
-            capabilities=("rag", "knowledge_retrieval"),
         ),
         # ── DevOps: Git tools ────────────────────────────────────────
         "git_log": ToolSpec(

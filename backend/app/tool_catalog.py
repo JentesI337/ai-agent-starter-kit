@@ -27,9 +27,6 @@ TOOL_NAMES: tuple[str, ...] = (
     "browser_screenshot",
     "browser_read_dom",
     "browser_evaluate_js",
-    "rag_ingest",
-    "rag_query",
-    "rag_collections",
     "spawn_subrun",
     "create_workflow",
     "delete_workflow",
@@ -54,9 +51,6 @@ TOOL_NAMES: tuple[str, ...] = (
 _BROWSER_TOOLS: frozenset[str] = frozenset({
     "browser_open", "browser_click", "browser_type",
     "browser_screenshot", "browser_read_dom", "browser_evaluate_js",
-})
-_RAG_TOOLS: frozenset[str] = frozenset({
-    "rag_ingest", "rag_query", "rag_collections",
 })
 _REPL_TOOLS: frozenset[str] = frozenset({
     "code_execute", "code_reset",
@@ -91,8 +85,6 @@ def _build_active_tool_set() -> set[str]:
     active = set(TOOL_NAMES)
     if not settings.browser_enabled:
         active -= _BROWSER_TOOLS
-    if not settings.rag_enabled:
-        active -= _RAG_TOOLS
     if not settings.repl_enabled:
         active -= _REPL_TOOLS
     # DevOps tools: master gate + per-category gates
@@ -156,12 +148,6 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "browserevaluatejs": "browser_evaluate_js",
     "browser_js": "browser_evaluate_js",
     "browser_eval": "browser_evaluate_js",
-    "ragingest": "rag_ingest",
-    "ingest": "rag_ingest",
-    "ragquery": "rag_query",
-    "rag_search": "rag_query",
-    "ragcollections": "rag_collections",
-    "rag_list": "rag_collections",
     # DevOps aliases
     "gitlog": "git_log",
     "git_history": "git_log",

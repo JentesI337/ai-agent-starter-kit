@@ -201,48 +201,6 @@
       }
     },
     {
-      "id": 13,
-      "name": "tool_rag_ingest",
-      "phase": "tool-execution",
-      "category": "tool-rag",
-      "description": "Agent must ingest a document into the RAG engine",
-      "prompt": "Ingeste die Datei backend/app/config.py in die RAG-Engine (Collection: 'test_v4'). Bestätige wie viele Chunks erstellt wurden.",
-      "timeout": 420,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "response_min_length": 20,
-        "response_contains_any": ["ingest", "Ingest", "Chunk", "chunk", "Collection", "collection", "erstellt", "indexed", "gespeichert"]
-      }
-    },
-    {
-      "id": 14,
-      "name": "tool_rag_query",
-      "phase": "tool-execution",
-      "category": "tool-rag",
-      "description": "Agent must query the RAG engine for semantically relevant results",
-      "prompt": "Frage die RAG-Engine (Collection 'test_v4'): 'Welche LLM-Konfigurationsoptionen gibt es?' Zeig mir die Ergebnisse mit Relevanz-Scores.",
-      "timeout": 300,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "response_min_length": 30,
-        "response_contains_any": ["RAG", "rag", "Ergebnis", "result", "Score", "score", "Relevanz", "relevant", "LLM", "model", "config"]
-      }
-    },
-    {
-      "id": 15,
-      "name": "tool_rag_collections",
-      "phase": "tool-execution",
-      "category": "tool-rag",
-      "description": "Agent must list and manage RAG collections",
-      "prompt": "Liste alle vorhandenen RAG-Collections auf. Gibt es eine Collection 'test_v4'? Wie viele Dokumente enthält sie?",
-      "timeout": 300,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "response_min_length": 20,
-        "response_contains_any": ["Collection", "collection", "test_v4", "Dokument", "document", "Liste", "list"]
-      }
-    },
-    {
       "id": 16,
       "name": "tool_repl_stateful_execution",
       "phase": "tool-execution",
@@ -629,7 +587,7 @@
         "response_contains_any": ["Agent", "agent", "Architektur", "architecture", "System", "system", "Pipeline"]
       },
       "tool_policy_override": {
-        "deny": ["run_command", "start_background_command", "write_file", "read_file", "apply_patch", "code_execute", "spawn_subrun", "web_fetch", "list_directory", "search_files", "grep_search", "browser_open", "rag_query"]
+        "deny": ["run_command", "start_background_command", "write_file", "read_file", "apply_patch", "code_execute", "spawn_subrun", "web_fetch", "list_directory", "search_files", "grep_search", "browser_open"]
       }
     },
     {
@@ -898,53 +856,6 @@
         "stages_absent": ["tool_selection_empty"],
         "response_min_length": 50,
         "response_contains_any": ["browser_*", "Wildcard", "wildcard", "deny", "Deny", "blockiert", "blocked", "Policy", "policy", "browser_open", "browser_click"]
-      }
-    },
-
-
-    {"_comment": "═══ Sprint-1 RAG Edge Cases (S61-S63) ═══"},
-
-    {
-      "id": 61,
-      "name": "rag_duplicate_ingestion",
-      "phase": "tool-execution",
-      "category": "sprint1-rag",
-      "description": "Re-ingesting the same file must replace old chunks, not duplicate them",
-      "prompt": "Ingeste backend/app/config.py zweimal hintereinander in die RAG-Engine (Collection 'test_dup'). Werden die Chunks beim zweiten Mal ersetzt oder dupliziert? Prüfe die Collection-Stats.",
-      "timeout": 420,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "response_min_length": 30,
-        "response_contains_any": ["Duplikat", "duplicate", "ersetzt", "replaced", "überschrieben", "overwrite", "Chunk", "chunk", "Collection", "collection"]
-      }
-    },
-    {
-      "id": 62,
-      "name": "rag_unsupported_filetype",
-      "phase": "tool-execution",
-      "category": "sprint1-rag",
-      "description": "RAG ingest must reject unsupported binary file types with clear error",
-      "prompt": "Versuche eine .exe oder .zip Datei mit rag_ingest zu ingesten. Was passiert? Welche Dateitypen werden unterstützt?",
-      "timeout": 300,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "response_min_length": 30,
-        "response_contains_any": ["nicht unterstützt", "unsupported", "Dateityp", "file type", "Fehler", "error", ".md", ".py", ".txt", ".pdf", "erlaubt", "allowed"]
-      }
-    },
-    {
-      "id": 63,
-      "name": "rag_collection_limit",
-      "phase": "tool-execution",
-      "category": "sprint1-rag",
-      "description": "RAG must enforce max 10.000 chunks per collection limit",
-      "prompt": "Lies backend/app/services/vector_store.py und erkläre wie das Chunks-pro-Collection-Limit (max 10.000) durchgesetzt wird. Was passiert wenn das Limit erreicht ist?",
-      "timeout": 300,
-      "expect": {
-        "stages_present": ["planning_completed", "request_completed"],
-        "stages_absent": ["tool_selection_empty"],
-        "response_min_length": 50,
-        "response_contains_any": ["10000", "10.000", "Limit", "limit", "max", "Max", "Chunk", "chunk", "Collection", "CollectionFull", "Fehler", "error"]
       }
     }
   ]

@@ -17,6 +17,7 @@ import os
 from typing import Any
 
 from app.agent_runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
+from app.services.visualization import build_visualization_event, plan_tracker_to_mermaid, validate_mermaid_node_count
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient

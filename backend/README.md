@@ -199,7 +199,7 @@ Available endpoints:
 - Memory context per session (`session_id`) with rolling window, persisted in `MEMORY_PERSIST_DIR`.
 - Persisted session files are automatically trimmed to `MEMORY_MAX_ITEMS` entries.
 - External run state persistence in `ORCHESTRATOR_STATE_DIR` with per-run JSON and summary snapshots.
-- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `code_execute`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`, `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_fill`, `browser_evaluate`, `browser_close`, `rag_ingest`, `rag_query`, `rag_collections`.
+- Tooling: `list_dir`, `read_file`, `write_file`, `run_command`, `code_execute`, `apply_patch`, `file_search`, `grep_search`, `list_code_usages`, `get_changed_files`, `start_background_command`, `get_background_output`, `kill_background_process`, `web_fetch`, `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_fill`, `browser_evaluate`, `browser_close`.
 - `code_execute` runs Python/JavaScript snippets with timeout, output limits, temporary jail execution, network disabled by default, and policy checks for obvious filesystem escape patterns.
 - Execution model: Plan -> Execute tools -> Review/final response.
 - Guardrails: empty/oversized input and invalid model/session values are blocked and returned as `error` events.
@@ -244,31 +244,6 @@ playwright install chromium
 ```
 
 Tools: `browser_navigate`, `browser_screenshot`, `browser_click`, `browser_fill`, `browser_evaluate`, `browser_close`
-
-### RAG Engine (ChromaDB + Embeddings)
-
-Document ingestion, chunking, vector storage, and semantic retrieval.
-
-```
-RAG_ENABLED=false              # default: false
-RAG_EMBEDDING_PROVIDER=ollama  # ollama | openai
-RAG_EMBEDDING_MODEL=nomic-embed-text
-RAG_EMBEDDING_BASE_URL=http://localhost:11434
-RAG_EMBEDDING_API_KEY=
-RAG_PERSIST_DIR=rag_store
-RAG_MAX_CHUNKS_PER_COLLECTION=10000
-RAG_DEFAULT_TOP_K=5
-```
-
-Additional setup:
-
-```bash
-pip install chromadb
-# Optional for PDF ingestion:
-pip install pymupdf
-```
-
-Tools: `rag_ingest`, `rag_query`, `rag_collections`
 
 ## Custom Flows (Create, Select, Run)
 

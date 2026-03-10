@@ -30,8 +30,6 @@ BUILTIN_TOOL_DEFAULTS: dict[str, dict[str, Any]] = {
     "http_request": {"timeout_seconds": 30, "enabled": True},
     "code_execute": {"timeout_seconds": 60, "enabled": True},
     "browser_open": {"timeout_seconds": 30, "enabled": True},
-    "rag_ingest": {"timeout_seconds": 60, "enabled": True},
-    "rag_query": {"timeout_seconds": 30, "enabled": True},
 }
 
 

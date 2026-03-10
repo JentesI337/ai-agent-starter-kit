@@ -110,8 +110,6 @@ from app.services.circuit_breaker import CircuitBreakerConfig, CircuitBreakerReg
 from app.services.idempotency_manager import IdempotencyManager
 from app.services.repl_session_manager import ReplSessionManager
 from app.services.browser_pool import BrowserPool
-from app.services.embedding_service import EmbeddingService
-from app.services.vector_store import VectorStore
 from app.services.log_secret_filter import install_secret_filter
 from app.services.model_health_tracker import ModelHealthTracker
 from app.services.request_normalization import normalize_preset
@@ -247,17 +245,6 @@ def _shutdown_sequence() -> None:
                 loop.run_until_complete(_browser_pool.shutdown())
         except Exception:
             logger.debug("browser_pool_shutdown_error", exc_info=True)
-    # Shutdown embedding service
-    if _embedding_service is not None:
-        import asyncio as _aio3
-        try:
-            loop = _aio3.get_event_loop()
-            if loop.is_running():
-                loop.create_task(_embedding_service.close())
-            else:
-                loop.run_until_complete(_embedding_service.close())
-        except Exception:
-            logger.debug("embedding_service_shutdown_error", exc_info=True)
     run_shutdown_sequence(active_run_tasks=control_plane_state.active_run_tasks, logger=logger)
 
 
@@ -374,15 +361,11 @@ def _build_runtime_components() -> RuntimeComponents:
 # Module-level reference for shutdown cleanup
 _repl_session_manager: ReplSessionManager | None = None
 _browser_pool: BrowserPool | None = None
-_embedding_service: EmbeddingService | None = None
-_vector_store: VectorStore | None = None
 
 
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
     global _repl_session_manager  # noqa: PLW0603
     global _browser_pool  # noqa: PLW0603
-    global _embedding_service  # noqa: PLW0603
-    global _vector_store  # noqa: PLW0603
     _sync_custom_agents(components)
 
     # Create ReplSessionManager if persistent REPL is enabled
@@ -418,40 +401,6 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             settings.browser_context_ttl_seconds,
         )
 
-    # Create RAG services if enabled
-    embedding_service: EmbeddingService | None = None
-    vector_store: VectorStore | None = None
-    if settings.rag_enabled:
-        embedding_service = EmbeddingService(
-            provider=settings.rag_embedding_provider,
-            model=settings.rag_embedding_model,
-            base_url=settings.rag_embedding_base_url,
-            api_key=settings.rag_embedding_api_key or None,
-        )
-        _embedding_service = embedding_service
-        vector_store = VectorStore(
-            persist_dir=settings.rag_persist_dir,
-            max_chunks_per_collection=settings.rag_max_chunks_per_collection,
-        )
-        _vector_store = vector_store
-        logger.info(
-            "rag_services_created provider=%s model=%s persist_dir=%s",
-            settings.rag_embedding_provider,
-            settings.rag_embedding_model,
-            settings.rag_persist_dir,
-        )
-
-        # Health-checks for RAG subsystem
-        _rag_persist = Path(settings.rag_persist_dir)
-        try:
-            _rag_persist.mkdir(parents=True, exist_ok=True)
-            _probe = _rag_persist / ".write_probe"
-            _probe.write_text("ok", encoding="utf-8")
-            _probe.unlink()
-            logger.info("rag_health_check persist_dir=%s writable=true", _rag_persist)
-        except OSError as _exc:
-            logger.warning("rag_health_check persist_dir=%s writable=false error=%s", _rag_persist, _exc)
-
     for _agent in components.agent_registry.values():
         _delegate = getattr(_agent, "_delegate", _agent)
         _tools = getattr(_delegate, "tools", None)
@@ -464,8 +413,6 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
             _tools.set_repl_manager(repl_manager)
         if _tools is not None and hasattr(_tools, "set_browser_pool") and browser_pool is not None:
             _tools.set_browser_pool(browser_pool)
-        if _tools is not None and hasattr(_tools, "set_rag_services") and embedding_service is not None and vector_store is not None:
-            _tools.set_rag_services(embedding_service, vector_store)
 
     components.agent = components.agent_registry[PRIMARY_AGENT_ID]
     components.orchestrator_api = components.orchestrator_registry[PRIMARY_AGENT_ID]

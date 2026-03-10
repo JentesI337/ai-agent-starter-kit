@@ -23,9 +23,6 @@ from app.errors import ToolExecutionError
 from app.services.code_sandbox import CodeSandbox
 from app.services.repl_session_manager import ReplSessionManager
 from app.services.browser_pool import BrowserPool, validate_browser_url
-from app.services.document_chunker import DocumentChunker
-from app.services.embedding_service import EmbeddingService
-from app.services.vector_store import VectorStore, VectorStoreError
 from app.services.vision_service import VisionService
 from app.services.web_search import WebSearchService
 from app.tool_catalog import TOOL_NAMES
@@ -140,9 +137,6 @@ class AgentTooling(DevOpsToolMixin):
         self._sync_custom_agents_fn: object | None = None
         self._repl_manager: ReplSessionManager | None = None
         self._browser_pool: BrowserPool | None = None
-        self._embedding_service: EmbeddingService | None = None
-        self._vector_store: VectorStore | None = None
-        self._document_chunker: DocumentChunker = DocumentChunker()
 
     def set_custom_agent_store(self, store: object, sync_fn: object) -> None:
         self._custom_agent_store = store
@@ -153,10 +147,6 @@ class AgentTooling(DevOpsToolMixin):
 
     def set_browser_pool(self, pool: BrowserPool) -> None:
         self._browser_pool = pool
-
-    def set_rag_services(self, embedding: EmbeddingService, store: VectorStore) -> None:
-        self._embedding_service = embedding
-        self._vector_store = store
 
     def list_dir(self, path: str | None = None) -> str:
         target = self._resolve_workspace_path(path or ".")
@@ -1092,71 +1082,6 @@ class AgentTooling(DevOpsToolMixin):
         if len(output) > 50_000:
             output = output[:50_000] + "\n... [output truncated]"
         return output
-
-    # ------------------------------------------------------------------
-    # RAG tools
-    # ------------------------------------------------------------------
-
-    def _require_rag(self) -> tuple[EmbeddingService, VectorStore]:
-        if not settings.rag_enabled:
-            raise ToolExecutionError("RAG is disabled (set RAG_ENABLED=true)")
-        if self._embedding_service is None or self._vector_store is None:
-            raise ToolExecutionError("RAG services not initialised")
-        return self._embedding_service, self._vector_store
-
-    async def rag_ingest(self, path: str, collection: str | None = None) -> str:
-        """Ingest a file into the RAG vector store."""
-        embedding_svc, store = self._require_rag()
-        target = self._resolve_workspace_path(path)
-        if not target.is_file():
-            raise ToolExecutionError(f"File not found: {path}")
-
-        collection_name = collection or "default"
-        chunks = self._document_chunker.chunk_file(str(target), chunk_size=512, overlap=64)
-        if not chunks:
-            return f"No chunks generated from {path}"
-
-        texts = [c.text for c in chunks]
-        vectors = await embedding_svc.embed_batch(texts)
-
-        metadatas = [
-            {"source": c.source, "chunk_index": c.chunk_index, **({"page": c.page} if c.page else {}), **c.metadata}
-            for c in chunks
-        ]
-
-        added = store.add(collection_name, texts, vectors, metadatas=metadatas)
-        return f"Ingested {added} chunks from {path} into collection '{collection_name}'"
-
-    async def rag_query(self, question: str, top_k: int | None = None, collection: str | None = None) -> str:
-        """Query the RAG vector store for relevant chunks."""
-        embedding_svc, store = self._require_rag()
-        collection_name = collection or "default"
-        k = top_k or settings.rag_default_top_k
-
-        query_vec = await embedding_svc.embed(question)
-        try:
-            results = store.query(collection_name, query_vec, top_k=k)
-        except VectorStoreError as exc:
-            raise ToolExecutionError(str(exc)) from exc
-
-        if not results:
-            return f"No results found in collection '{collection_name}'"
-
-        output_parts: list[str] = []
-        for i, r in enumerate(results, 1):
-            output_parts.append(
-                f"[{i}] (score: {r.score:.3f}, source: {r.source})\n{r.text}"
-            )
-        return "\n\n".join(output_parts)
-
-    def rag_collections(self) -> str:
-        """List all RAG collections with their document counts."""
-        _, store = self._require_rag()
-        stats = store.list_collections()
-        if not stats:
-            return "No collections found"
-        lines = [f"- {s.name}: {s.count} chunks" for s in stats]
-        return "\n".join(lines)
 
     def _build_command_allowlist(self) -> set[str]:
         values: list[str] = []

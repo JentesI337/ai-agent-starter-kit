@@ -1502,18 +1502,6 @@ class Settings(BaseModel):
     browser_max_page_text_chars: int = max(1000, min(int(os.getenv("BROWSER_MAX_PAGE_TEXT_CHARS", "5000")), 50_000))
 
     # ------------------------------------------------------------------
-    # RAG Engine
-    # ------------------------------------------------------------------
-    rag_enabled: bool = _parse_bool_env("RAG_ENABLED", False)
-    rag_embedding_provider: str = os.getenv("RAG_EMBEDDING_PROVIDER", "ollama")
-    rag_embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "nomic-embed-text")
-    rag_embedding_base_url: str = os.getenv("RAG_EMBEDDING_BASE_URL", "http://localhost:11434")
-    rag_embedding_api_key: str = os.getenv("RAG_EMBEDDING_API_KEY", "")
-    rag_persist_dir: str = os.getenv("RAG_PERSIST_DIR", "./chroma_data")
-    rag_max_chunks_per_collection: int = max(100, min(int(os.getenv("RAG_MAX_CHUNKS_PER_COLLECTION", "10000")), 100_000))
-    rag_default_top_k: int = max(1, min(int(os.getenv("RAG_DEFAULT_TOP_K", "5")), 50))
-
-    # ------------------------------------------------------------------
     # AgentRunner — Continuous Streaming Tool Loop
     # ------------------------------------------------------------------
     # Loop limits
