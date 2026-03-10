@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
 from threading import Lock
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
@@ -16,7 +17,6 @@ from app.control_models import (
     ControlWorkflowsListRequest,
     ControlWorkflowsUpdateRequest,
 )
-from app.custom_agents import CustomAgentCreateRequest, CustomAgentDefinition
 from app.errors import GuardrailViolation
 from app.handlers.tools_handlers import normalize_tool_policy_payload
 from app.services.request_normalization import normalize_idempotency_key
@@ -87,7 +87,7 @@ def _delete_workflow_version(workflow_id: str) -> None:
         deps.workflow_version_registry.pop(normalized, None)
 
 
-def _find_workflow_or_404(workflow_id: str) -> CustomAgentDefinition:
+def _find_workflow_or_404(workflow_id: str) -> Any:
     deps = _require_deps()
     target = deps.normalize_agent_id(workflow_id)
     match = next((item for item in deps.custom_agent_store.list() if deps.normalize_agent_id(item.id) == target), None)
@@ -261,7 +261,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         return existing
 
     created = deps.custom_agent_store.upsert(
-        CustomAgentCreateRequest(
+        SimpleNamespace(
             id=workflow_id,
             name=name,
             description=description,
@@ -342,7 +342,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         return existing_response
 
     updated = deps.custom_agent_store.upsert(
-        CustomAgentCreateRequest(
+        SimpleNamespace(
             id=workflow_id,
             name=resolved_name,
             description=resolved_description,

@@ -14,7 +14,6 @@ from app.agents.unified_adapter import UnifiedAgentAdapter
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import resolved_prompt_settings, settings, validate_environment_config
-# AgentConfigStore removed — absorbed into UnifiedAgentStore
 from app.config_service import init_config_service
 from app.handlers.agent_config_handlers import (
     handle_agents_config_get,
@@ -47,7 +46,6 @@ from app.tool_modules.tool_config_store import init_tool_config_store
 from app.contracts.agent_contract import AgentContract
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
-# CustomAgentStore removed — absorbed into UnifiedAgentStore
 from app.policy_store import PolicyStore
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.handlers import (
@@ -281,6 +279,32 @@ def _build_runtime_components() -> RuntimeComponents:
         delegate = HeadAgent(name=record.display_name, role=record.agent_id)
         base_agent_registry[record.agent_id] = UnifiedAgentAdapter(record, delegate)
     logger.info("unified_agent_store_initialized agents=%d", len(base_agent_registry))
+
+    # Build agent roster string for system prompt injection
+    roster_lines: list[str] = []
+    for record in agent_store.list_enabled():
+        if record.origin == "custom":
+            continue
+        desc = record.description or record.specialization or record.display_name
+        caps = ", ".join(record.capabilities[:5]) if record.capabilities else ""
+        line = f"- **{record.display_name}** (`{record.agent_id}`): {desc}"
+        if caps:
+            line += f" | Capabilities: {caps}"
+        roster_lines.append(line)
+
+    if roster_lines:
+        agent_roster = (
+            "You can delegate tasks to specialist agents using the `spawn_subrun` tool.\n"
+            "Choose the right agent based on the task — don't do everything yourself.\n\n"
+            + "\n".join(roster_lines)
+            + "\n\nTo delegate, use `spawn_subrun` with the agent's ID as `agent_id` "
+            "and a fully self-contained prompt describing the task."
+        )
+        for adapter in base_agent_registry.values():
+            if hasattr(adapter, "_delegate"):
+                adapter._delegate._agent_roster = agent_roster
+                adapter._delegate._build_sub_agents()
+
     runtime = RuntimeManager()
     if settings.orchestrator_state_backend == "sqlite":
         store = SqliteStateStore(persist_dir=settings.orchestrator_state_dir)

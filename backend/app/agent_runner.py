@@ -66,6 +66,7 @@ def build_unified_system_prompt(
     platform_summary: str = "",
     current_datetime: str = "",
     reasoning_hint: str = "",
+    agent_roster: str = "",
 ) -> str:
     """Merge the 3 phase-specific prompts into a single unified system prompt.
 
@@ -93,7 +94,11 @@ def build_unified_system_prompt(
         "- Think step-by-step but do NOT announce your plan to the user unless asked.\n"
     )
 
-    # 4. When to search the web
+    # 4. Available specialist agents (delegation roster)
+    if agent_roster and agent_roster.strip():
+        sections.append(f"## Available specialist agents\n{agent_roster.strip()}\n")
+
+    # 5. When to search the web
     sections.append(
         "## When to search the web\n"
         "Use `web_search` BEFORE answering when the user's question involves:\n"

@@ -128,6 +128,7 @@ class HeadAgent:
         self.prompt_kernel_builder = PromptKernelBuilder()
         self._spawn_subrun_handler = spawn_subrun_handler
         self._policy_approval_handler = policy_approval_handler
+        self._agent_roster: str = ""
         self.skills_service = SkillsService(
             SkillsRuntimeConfig(
                 enabled=settings.skills_engine_enabled,
@@ -224,6 +225,7 @@ class HeadAgent:
             tool_hints=self.prompt_profile.tool_selector_prompt,
             final_instructions=self.prompt_profile.final_prompt,
             platform_summary=self._tool_execution_manager._platform_summary,
+            agent_roster=self._agent_roster,
         )
         self._agent_runner = AgentRunner(
             client=self.client,
@@ -368,6 +370,7 @@ class HeadAgent:
                 tool_hints=self.prompt_profile.tool_selector_prompt,
                 final_instructions=self.prompt_profile.final_prompt,
                 platform_summary=self._tool_execution_manager._platform_summary,
+                agent_roster=self._agent_roster,
             )
         finally:
             self._reconfiguring = False
@@ -1896,100 +1899,3 @@ class HeadAgent:
                     )
 
 
-class CoderAgent(HeadAgent):
-    def __init__(self):
-        super().__init__(name=settings.coder_agent_name, role="coding-agent")
-
-
-class ReviewAgent(HeadAgent):
-    def __init__(self):
-        super().__init__(name=settings.review_agent_name, role="review-agent")
-
-
-class ResearcherAgent(HeadAgent):
-    """Research specialist — breadth-first, fact-oriented, read-only."""
-
-    def __init__(self):
-        super().__init__(name=settings.researcher_agent_name, role="researcher-agent")
-
-
-class ArchitectAgent(HeadAgent):
-    """Architecture specialist — plan-execute, ADR-oriented, read-only."""
-
-    def __init__(self):
-        super().__init__(name=settings.architect_agent_name, role="architect-agent")
-
-
-class TestAgent(HeadAgent):
-    """Test specialist — verify-first, deterministic, test-runner focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.test_agent_name, role="test-agent")
-
-
-class SecurityAgent(HeadAgent):
-    """Security reviewer — depth-first, deterministic, read-only."""
-
-    def __init__(self):
-        super().__init__(name=settings.security_agent_name, role="security-agent")
-
-
-class DocAgent(HeadAgent):
-    """Documentation specialist — breadth-first, creative writing, markdown-focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.doc_agent_name, role="doc-agent")
-
-
-class RefactorAgent(HeadAgent):
-    """Refactoring specialist — plan-execute, safe-transformation focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.refactor_agent_name, role="refactor-agent")
-
-
-class DevOpsAgent(HeadAgent):
-    """DevOps specialist — plan-execute, infrastructure and CI/CD focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.devops_agent_name, role="devops-agent")
-
-
-# ---------------------------------------------------------------------------
-# Industry Expert Agents
-# ---------------------------------------------------------------------------
-
-
-class FinTechAgent(HeadAgent):
-    """FinTech specialist — compliance-aware, payment-flow, audit-trail focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.fintech_agent_name, role="fintech-agent")
-
-
-class HealthTechAgent(HeadAgent):
-    """HealthTech specialist — HIPAA/DSGVO, HL7 FHIR, clinical-workflow focused."""
-
-    def __init__(self):
-        super().__init__(name=settings.healthtech_agent_name, role="healthtech-agent")
-
-
-class LegalTechAgent(HeadAgent):
-    """LegalTech specialist — DSGVO/CCPA/AI-Act, license-scanning, compliance analysis."""
-
-    def __init__(self):
-        super().__init__(name=settings.legaltech_agent_name, role="legaltech-agent")
-
-
-class ECommerceAgent(HeadAgent):
-    """E-Commerce specialist — catalog modeling, checkout flows, order processing."""
-
-    def __init__(self):
-        super().__init__(name=settings.ecommerce_agent_name, role="ecommerce-agent")
-
-
-class IndustryTechAgent(HeadAgent):
-    """IndustryTech specialist — IoT protocols, predictive maintenance, digital twins."""
-
-    def __init__(self):
-        super().__init__(name=settings.industrytech_agent_name, role="industrytech-agent")

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.agent import CoderAgent, HeadAgent
+from app.agent import HeadAgent
 from app.config import settings
 from app.errors import ToolExecutionError
 
@@ -438,7 +438,7 @@ def test_is_file_creation_task_requires_explicit_file_phrase() -> None:
 
 
 def test_augment_actions_followup_uses_prompt_profile_tool_selector_prompt(monkeypatch) -> None:
-    agent = CoderAgent()
+    agent = HeadAgent(name=settings.coder_agent_name, role="coding-agent")
     monkeypatch.setattr(settings, "agent_tool_selector_prompt", "GLOBAL_SENTINEL_PROMPT_SHOULD_NOT_BE_USED")
     captured_system_prompts: list[str] = []
 
@@ -1557,7 +1557,7 @@ def test_execute_tools_emits_tool_selection_empty_for_ambiguous_input(monkeypatc
 
 def test_head_and_coder_agents_use_distinct_prompt_profiles() -> None:
     head = HeadAgent()
-    coder = CoderAgent()
+    coder = HeadAgent(name=settings.coder_agent_name, role="coding-agent")
 
     assert head.role == "head-agent"
     assert coder.role == "coding-agent"

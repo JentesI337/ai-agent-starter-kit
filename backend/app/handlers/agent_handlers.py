@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.agents.unified_agent_record import UnifiedAgentRecord
-from app.custom_agents import CustomAgentCreateRequest, CustomAgentDefinition
 from app.orchestrator.events import LifecycleStage
 from app.services import PRESET_TOOL_POLICIES
 
@@ -152,17 +152,17 @@ def api_presets_list() -> list[dict]:
     return items
 
 
-def api_custom_agents_list() -> list[CustomAgentDefinition]:
+def api_custom_agents_list() -> list:
     deps = _require_deps()
     return deps.custom_agent_store.list()
 
 
-def api_custom_agents_create(request_data: dict) -> CustomAgentDefinition:
+def api_custom_agents_create(request_data: dict) -> Any:
     deps = _require_deps()
-    request = CustomAgentCreateRequest.model_validate(request_data)
-    base_agent_id = deps.normalize_agent_id(request.base_agent_id)
+    request = SimpleNamespace(**request_data)
+    base_agent_id = deps.normalize_agent_id(getattr(request, "base_agent_id", "head-agent"))
     if base_agent_id not in deps.agent_registry:
-        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {base_agent_id}")
 
     created = deps.custom_agent_store.upsert(
         request,
@@ -186,7 +186,7 @@ def api_custom_agents_delete(agent_id: str) -> dict:
     return {"ok": True, "deletedId": normalized}
 
 
-def api_custom_agents_update(agent_id: str, patch_data: dict) -> CustomAgentDefinition:
+def api_custom_agents_update(agent_id: str, patch_data: dict) -> Any:
     deps = _require_deps()
     normalized = deps.normalize_agent_id(agent_id)
     existing = deps.custom_agent_store.get(normalized)
@@ -199,9 +199,10 @@ def api_custom_agents_update(agent_id: str, patch_data: dict) -> CustomAgentDefi
             merged[key] = value
     merged["id"] = normalized  # keep original id
 
-    request = CustomAgentCreateRequest.model_validate(merged)
-    if request.base_agent_id and deps.normalize_agent_id(request.base_agent_id) not in deps.agent_registry:
-        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
+    request = SimpleNamespace(**merged)
+    base_agent_id = getattr(request, "base_agent_id", "")
+    if base_agent_id and deps.normalize_agent_id(base_agent_id) not in deps.agent_registry:
+        raise HTTPException(status_code=400, detail=f"Unsupported base agent: {base_agent_id}")
 
     updated = deps.custom_agent_store.upsert(request)
     deps.sync_custom_agents()

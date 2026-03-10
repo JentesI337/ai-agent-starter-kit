@@ -1250,9 +1250,9 @@ class AgentTooling:
         if len(workflow_steps) > 20:
             raise ToolExecutionError("Maximum 20 workflow steps allowed.")
 
-        from app.custom_agents import CustomAgentCreateRequest
+        from types import SimpleNamespace
 
-        request = CustomAgentCreateRequest(
+        request = SimpleNamespace(
             name=name,
             description=description,
             base_agent_id=base_agent_id,
