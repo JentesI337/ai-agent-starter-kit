@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 import os
 from typing import Any
 
-from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
+from app.agent_runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient
@@ -139,6 +139,14 @@ def build_unified_system_prompt(
         "- You may use multiple tools in sequence; after each tool result decide "
         "whether you need more tools or can answer.\n"
         "- Think step-by-step but do NOT announce your plan to the user unless asked.\n"
+        "- For complex multi-step tasks, begin with an internal plan block:\n"
+        "  <plan>\n"
+        "  1. [Step description] -> [expected tool(s)]\n"
+        "  2. [Step description] -> [expected tool(s)]\n"
+        "  </plan>\n"
+        "- The <plan> block is for system tracking only — omit it from your final answer.\n"
+        "- For simple questions, skip the plan entirely.\n"
+        "- If a step fails, reconsider your approach before continuing.\n"
     )
 
     # 3.5 Agent-specific capabilities and tools
@@ -350,6 +358,15 @@ class AgentRunner:
             tool_definitions = None
 
         # ═══════════════════════════════════════════
+        # PLANNING HINT (Point A)
+        # ═══════════════════════════════════════════
+
+        _planning_requested = False
+        if settings.runner_planning_enabled and self._needs_planning(user_message):
+            messages[-1]["content"] += "\n\n[SYSTEM HINT: This is a complex task. Start with a <plan> block.]"
+            _planning_requested = True
+
+        # ═══════════════════════════════════════════
         # CONTINUOUS LOOP
         # ═══════════════════════════════════════════
 
@@ -446,9 +463,29 @@ class AgentRunner:
                     },
                 )
 
+            # ── PLAN EXTRACTION (Point B) ──
+            if _planning_requested and loop_state.iteration == 1 and stream_result.text:
+                extracted_plan = self._extract_plan(stream_result.text)
+                if extracted_plan.planning_active:
+                    loop_state.plan = extracted_plan
+                    if self._emit_lifecycle:
+                        await self._emit_lifecycle(
+                            send_event,
+                            stage="plan_extracted",
+                            request_id=request_id,
+                            session_id=session_id,
+                            details={
+                                "steps": len(extracted_plan.steps),
+                                "step_descriptions": [s.description for s in extracted_plan.steps],
+                            },
+                        )
+
             # ── FINISH REASON: STOP → done ──
             if stream_result.finish_reason == "stop":
                 final_text = stream_result.text
+                # Strip plan block from final output
+                if loop_state.plan.planning_active:
+                    final_text = self._strip_plan_from_text(final_text)
                 break
 
             # ── FINISH REASON: TOOL_CALLS → execute tools ──
@@ -519,6 +556,26 @@ class AgentRunner:
                         ),
                     })
                     continue
+
+                # 7. Plan progress tracking (Point C)
+                if loop_state.plan.planning_active:
+                    failed = [r for r in tool_results if r.is_error]
+                    if failed and loop_state.plan.replan_count < settings.runner_planning_max_replans:
+                        loop_state.plan.fail_current()
+                        loop_state.plan.replan_count += 1
+                        messages.append({
+                            "role": "user",
+                            "content": self._build_replan_message(loop_state.plan, failed),
+                        })
+                    else:
+                        self._update_plan_progress(loop_state.plan, tool_results)
+
+                    # Periodic progress injection
+                    if loop_state.iteration % settings.runner_planning_progress_interval == 0:
+                        messages.append({
+                            "role": "user",
+                            "content": self._build_progress_context(loop_state.plan),
+                        })
 
                 # CONTINUE → next LLM call with tool results
                 continue
@@ -605,6 +662,8 @@ class AgentRunner:
                 request_id=request_id,
                 session_id=session_id,
                 messages=messages,
+                tool_definitions=tool_definitions,
+                effective_allowed_tools=effective_allowed_tools,
             )
         elif self._reflection_service and settings.runner_reflection_enabled:
             if self._emit_lifecycle:
@@ -690,6 +749,9 @@ class AgentRunner:
                     "loop_detected": loop_state.loop_detected,
                     "budget_exhausted": loop_state.budget_exhausted,
                     "steer_interrupted": loop_state.steer_interrupted,
+                    "plan_steps": len(loop_state.plan.steps),
+                    "plan_completed": sum(1 for s in loop_state.plan.steps if s.status == "completed"),
+                    "replan_count": loop_state.plan.replan_count,
                 },
             )
 
@@ -842,12 +904,15 @@ class AgentRunner:
 
             # Truncate large results
             if len(result_text) > self._tool_result_max_chars:
-                half = self._tool_result_max_chars // 2
-                result_text = (
-                    result_text[:half]
-                    + "\n\n... (truncated) ...\n\n"
-                    + result_text[-half:]
-                )
+                if settings.runner_smart_summarization_enabled:
+                    result_text = self._smart_summarize_tool_result(tool_name, result_text)
+                else:
+                    half = self._tool_result_max_chars // 2
+                    result_text = (
+                        result_text[:half]
+                        + "\n\n... (truncated) ...\n\n"
+                        + result_text[-half:]
+                    )
 
             # Result event
             await send_event({
@@ -868,6 +933,97 @@ class AgentRunner:
             ))
 
         return results
+
+    # ──────────────────────────────────────────────────────────────────
+    # Smart tool result summarization
+    # ──────────────────────────────────────────────────────────────────
+
+    def _smart_summarize_tool_result(self, tool_name: str, result_text: str) -> str:
+        """Summarize a large tool result using per-tool-type strategies.
+
+        Preserves the most useful parts of the output depending on the tool type,
+        rather than blindly cutting at the midpoint.
+        """
+        lines = result_text.splitlines()
+        total_lines = len(lines)
+        budget = self._tool_result_max_chars
+
+        if tool_name in ("read_file", "read_file_content"):
+            # File reads: head lines (declarations/imports) + tail lines (recent context)
+            head_n, tail_n = 40, 20
+            head = "\n".join(lines[:head_n])
+            tail = "\n".join(lines[-tail_n:])
+            summary = (
+                f"{head}\n\n... ({total_lines} total lines, showing first {head_n} + last {tail_n}) ...\n\n{tail}"
+            )
+        elif tool_name in ("run_command", "code_execute"):
+            # Command output: errors typically at end, so tail-heavy
+            head_n, tail_n = 10, 40
+            head = "\n".join(lines[:head_n])
+            tail = "\n".join(lines[-tail_n:])
+            summary = (
+                f"{head}\n\n... ({total_lines} total lines, showing first {head_n} + last {tail_n}) ...\n\n{tail}"
+            )
+        elif tool_name in ("web_search", "web_fetch"):
+            # Web results: keep URLs, headings, and numbered items
+            important_lines: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if any(marker in stripped for marker in ("http://", "https://", "://", "##", "#")):
+                    important_lines.append(line)
+                elif re.match(r"^\d+[\.\)]\s", stripped):
+                    important_lines.append(line)
+                elif stripped.startswith(("-", "*")) and len(stripped) > 3:
+                    important_lines.append(line)
+            if important_lines:
+                extracted = "\n".join(important_lines)
+                if len(extracted) <= budget:
+                    summary = f"(Extracted {len(important_lines)} key lines from {total_lines} total)\n{extracted}"
+                else:
+                    summary = f"(Extracted key lines, truncated from {total_lines} total)\n{extracted[:budget]}"
+            else:
+                # Fallback to head/tail
+                half = budget // 2
+                summary = result_text[:half] + f"\n\n... ({total_lines} lines truncated) ...\n\n" + result_text[-half:]
+        elif tool_name in ("list_directory", "list_files"):
+            # Directory listings: head + tail
+            head_n, tail_n = 50, 20
+            head = "\n".join(lines[:head_n])
+            tail = "\n".join(lines[-tail_n:])
+            summary = (
+                f"{head}\n\n... ({total_lines} total entries, showing first {head_n} + last {tail_n}) ...\n\n{tail}"
+            )
+        else:
+            # Default strategy: extract lines with identifiers/errors + head/tail
+            priority_lines: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                lowered = stripped.lower()
+                if any(kw in lowered for kw in ("error", "exception", "warning", "fail", "traceback")):
+                    priority_lines.append(line)
+                elif re.match(r"^(def |class |function |import |from |export )", stripped):
+                    priority_lines.append(line)
+            head_n = 15
+            tail_n = 15
+            head = "\n".join(lines[:head_n])
+            tail = "\n".join(lines[-tail_n:])
+            priority_section = ""
+            if priority_lines:
+                priority_text = "\n".join(priority_lines[:20])
+                priority_section = f"\n\n[Key lines]\n{priority_text}"
+            summary = (
+                f"{head}\n\n... ({total_lines} total lines) ...{priority_section}\n\n{tail}"
+            )
+
+        # Final budget enforcement
+        if len(summary) > budget:
+            half = budget // 2
+            summary = summary[:half] + "\n\n... (truncated) ...\n\n" + summary[-half:]
+        return summary
 
     # ──────────────────────────────────────────────────────────────────
     # Loop detection
@@ -915,6 +1071,113 @@ class AgentRunner:
                 return True
 
         return False
+
+    # ──────────────────────────────────────────────────────────────────
+    # Planning helpers
+    # ──────────────────────────────────────────────────────────────────
+
+    _COMPLEXITY_KEYWORDS = frozenset({
+        "implement", "refactor", "debug", "configure", "migrate", "deploy",
+        "optimize", "investigate", "analyse", "analyze", "integrate", "build",
+        "create", "design", "restructure", "convert", "upgrade",
+    })
+
+    _PLAN_BLOCK_RE = re.compile(r"<plan>\s*(.*?)\s*</plan>", re.DOTALL | re.IGNORECASE)
+    _PLAN_STEP_RE = re.compile(r"(\d+)\.\s*(.+?)(?:\s*->\s*(.+))?$", re.MULTILINE)
+
+    def _needs_planning(self, user_message: str) -> bool:
+        """Fast heuristic: does this message warrant a structured plan?
+
+        Returns True when 2+ complexity signals are present.
+        """
+        msg = (user_message or "").strip()
+        if not msg:
+            return False
+
+        signals = 0
+
+        # Signal 1: 3+ sentences
+        sentence_count = len(re.findall(r"[.!?]\s", msg)) + (1 if msg else 0)
+        if sentence_count >= 3:
+            signals += 1
+
+        # Signal 2: Numbered/bulleted list
+        if re.search(r"^\s*(?:\d+[.)]|-|\*)\s+", msg, re.MULTILINE):
+            signals += 1
+
+        # Signal 3: 2+ complexity keywords
+        lowered = msg.lower()
+        keyword_hits = sum(1 for kw in self._COMPLEXITY_KEYWORDS if kw in lowered)
+        if keyword_hits >= 2:
+            signals += 1
+
+        # Signal 4: Long message
+        if len(msg) > 200:
+            signals += 1
+
+        return signals >= 2
+
+    @classmethod
+    def _extract_plan(cls, text: str) -> PlanTracker:
+        """Extract a <plan> block from LLM text into a PlanTracker."""
+        match = cls._PLAN_BLOCK_RE.search(text)
+        if not match:
+            return PlanTracker(planning_active=False)
+
+        raw = match.group(1)
+        steps: list[PlanStep] = []
+        for step_match in cls._PLAN_STEP_RE.finditer(raw):
+            idx = int(step_match.group(1))
+            desc = step_match.group(2).strip()
+            tools_raw = (step_match.group(3) or "").strip()
+            expected_tools = [t.strip() for t in tools_raw.split(",") if t.strip()] if tools_raw else []
+            steps.append(PlanStep(index=idx, description=desc, expected_tools=expected_tools))
+
+        if steps:
+            steps[0].status = "in_progress"
+
+        return PlanTracker(raw_plan_text=raw, steps=steps, planning_active=bool(steps))
+
+    @staticmethod
+    def _strip_plan_from_text(text: str) -> str:
+        """Remove <plan>...</plan> blocks from text."""
+        return re.sub(r"<plan>.*?</plan>\s*", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+    @staticmethod
+    def _update_plan_progress(plan: PlanTracker, tool_results: list[ToolResult]) -> None:
+        """Advance the plan when expected tools completed successfully."""
+        if not plan.planning_active or not plan.current_step:
+            return
+        step = plan.current_step
+        successful_tools = {tr.tool_name for tr in tool_results if not tr.is_error}
+        step.tool_calls_used.extend(successful_tools)
+        if step.expected_tools:
+            if any(t in successful_tools for t in step.expected_tools):
+                plan.advance()
+        elif successful_tools:
+            plan.advance()
+
+    @staticmethod
+    def _build_replan_message(plan: PlanTracker, failed_results: list[ToolResult]) -> str:
+        """Build a system message asking the LLM to reassess after failure."""
+        failed_tools = ", ".join(f"{tr.tool_name}: {tr.content[:100]}" for tr in failed_results)
+        current_desc = plan.current_step.description if plan.current_step else "unknown"
+        return (
+            f"[SYSTEM] Plan step failed: \"{current_desc}\"\n"
+            f"Failed tools: {failed_tools}\n"
+            "Reassess your approach. You may adjust the remaining plan or try an alternative."
+        )
+
+    @staticmethod
+    def _build_progress_context(plan: PlanTracker) -> str:
+        """Build a progress summary for injection into the conversation."""
+        lines = ["[PLAN PROGRESS]"]
+        for step in plan.steps:
+            marker = {"completed": "[x]", "in_progress": "[>]", "failed": "[!]"}.get(step.status, "[ ]")
+            lines.append(f"  {marker} {step.index}. {step.description}")
+        completed = sum(1 for s in plan.steps if s.status == "completed")
+        lines.append(f"  ({completed}/{len(plan.steps)} completed)")
+        return "\n".join(lines)
 
     # ──────────────────────────────────────────────────────────────────
     # Message compaction
@@ -1227,6 +1490,8 @@ class AgentRunner:
         request_id: str,
         session_id: str,
         messages: list[dict],
+        tool_definitions: list[dict] | None = None,
+        effective_allowed_tools: set[str] | None = None,
     ) -> str:
         """Run post-loop reflection passes.
 
@@ -1316,26 +1581,94 @@ class AgentRunner:
             if not verdict.should_retry:
                 break
 
-            # Build feedback and retry via LLM (without tools)
+            # Build feedback and retry via LLM
             feedback_lines = [issue for issue in verdict.issues if issue]
             if verdict.suggested_fix:
                 feedback_lines.append(f"Suggested fix: {verdict.suggested_fix}")
             feedback = "\n".join(feedback_lines).strip() or "No specific issues provided."
 
-            messages.append({
-                "role": "user",
-                "content": f"[REFLECTION FEEDBACK]\n{feedback}\n\nPlease revise your answer.",
-            })
-            try:
-                stream_result = await self.client.stream_chat_with_tools(
-                    messages=messages,
-                    tools=None,
-                    model=model,
-                    on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
-                )
-                final_text = stream_result.text
-            except Exception:
-                logger.warning("Reflection retry LLM call failed", exc_info=True)
-                break
+            # Decide: tool-enabled retry vs text-only retry
+            use_tool_retry = (
+                settings.runner_reflection_tool_retry_enabled
+                and verdict.completeness < 0.5
+                and tool_definitions is not None
+            )
+
+            if use_tool_retry:
+                # Tool-enabled retry: let the LLM gather missing information
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"[REFLECTION FEEDBACK]\n{feedback}\n\n"
+                        "Your answer is incomplete. Use the available tools to gather "
+                        "the missing information, then provide a revised answer."
+                    ),
+                })
+                try:
+                    # Mini tool loop (max 3 iterations)
+                    for _retry_iter in range(3):
+                        stream_result = await self.client.stream_chat_with_tools(
+                            messages=messages,
+                            tools=tool_definitions,
+                            model=model,
+                            on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
+                        )
+                        if stream_result.finish_reason == "stop":
+                            final_text = stream_result.text
+                            break
+                        if stream_result.finish_reason == "tool_calls" and stream_result.tool_calls:
+                            messages.append({
+                                "role": "assistant",
+                                "content": stream_result.text or None,
+                                "tool_calls": [
+                                    {
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.name,
+                                            "arguments": json.dumps(tc.arguments),
+                                        },
+                                    }
+                                    for tc in stream_result.tool_calls
+                                ],
+                            })
+                            retry_tool_results = await self._execute_tool_calls(
+                                tool_calls=stream_result.tool_calls,
+                                effective_allowed_tools=effective_allowed_tools or set(),
+                                send_event=send_event,
+                                session_id=session_id,
+                                request_id=request_id,
+                            )
+                            for rtr in retry_tool_results:
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": rtr.tool_call_id,
+                                    "content": rtr.content,
+                                })
+                            continue
+                        # Unknown finish reason
+                        if stream_result.text:
+                            final_text = stream_result.text
+                        break
+                except Exception:
+                    logger.warning("Reflection tool-enabled retry failed", exc_info=True)
+                    break
+            else:
+                # Text-only retry (original behavior)
+                messages.append({
+                    "role": "user",
+                    "content": f"[REFLECTION FEEDBACK]\n{feedback}\n\nPlease revise your answer.",
+                })
+                try:
+                    stream_result = await self.client.stream_chat_with_tools(
+                        messages=messages,
+                        tools=None,
+                        model=model,
+                        on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
+                    )
+                    final_text = stream_result.text
+                except Exception:
+                    logger.warning("Reflection retry LLM call failed", exc_info=True)
+                    break
 
         return final_text

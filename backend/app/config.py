@@ -1515,6 +1515,14 @@ class Settings(BaseModel):
     # Post-loop
     runner_reflection_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_ENABLED", True)
     runner_reflection_max_passes: int = int(os.getenv("RUNNER_REFLECTION_MAX_PASSES", "1"))
+    # Reasoning quality: planning
+    runner_planning_enabled: bool = _parse_bool_env("RUNNER_PLANNING_ENABLED", True)
+    runner_planning_progress_interval: int = int(os.getenv("RUNNER_PLANNING_PROGRESS_INTERVAL", "3"))
+    runner_planning_max_replans: int = int(os.getenv("RUNNER_PLANNING_MAX_REPLANS", "3"))
+    # Reasoning quality: smart summarization
+    runner_smart_summarization_enabled: bool = _parse_bool_env("RUNNER_SMART_SUMMARIZATION_ENABLED", True)
+    # Reasoning quality: reflection tool retry
+    runner_reflection_tool_retry_enabled: bool = _parse_bool_env("RUNNER_REFLECTION_TOOL_RETRY_ENABLED", False)
 
     @field_validator("reflection_threshold", "reflection_factual_grounding_hard_min", mode="before")
     @classmethod

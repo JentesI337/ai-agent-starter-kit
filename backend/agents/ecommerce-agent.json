@@ -1,7 +1,7 @@
 {
   "agent_id": "ecommerce-agent",
   "origin": "builtin",
-  "enabled": false,
+  "enabled": true,
   "display_name": "E-Commerce Agent",
   "description": "E-Commerce domain expert. Designs catalogs, checkout flows, order processing, SEO. Read + write access.",
   "category": "industry",
@@ -73,5 +73,5 @@
   "cost_tier": "standard",
   "latency_tier": "standard",
   "quality_tier": "standard",
-  "version": 1
+  "version": 2
 }

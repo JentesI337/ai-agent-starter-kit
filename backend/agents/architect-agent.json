@@ -1,7 +1,7 @@
 {
   "agent_id": "architect-agent",
   "origin": "builtin",
-  "enabled": false,
+  "enabled": true,
   "display_name": "Architect Agent",
   "description": "Architecture specialist. Analyzes structures, identifies trade-offs, delivers ADRs. Read-only, delegates code changes.",
   "category": "specialist",
@@ -81,5 +81,5 @@
   "cost_tier": "standard",
   "latency_tier": "standard",
   "quality_tier": "high",
-  "version": 2
+  "version": 3
 }
