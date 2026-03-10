@@ -114,6 +114,7 @@ def build_unified_system_prompt(
     reasoning_hint: str = "",
     agent_roster: str = "",
     capability_section: str = "",
+    domain_reasoning: str = "",
 ) -> str:
     """Merge the 3 phase-specific prompts into a single unified system prompt.
 
@@ -152,6 +153,10 @@ def build_unified_system_prompt(
     # 3.5 Agent-specific capabilities and tools
     if capability_section and capability_section.strip():
         sections.append(capability_section.strip() + "\n")
+
+    # 3.6 Domain-specific reasoning framework
+    if domain_reasoning and domain_reasoning.strip():
+        sections.append(f"## Domain reasoning\n{domain_reasoning.strip()}\n")
 
     # 4. Available specialist agents (delegation roster)
     if agent_roster and agent_roster.strip():

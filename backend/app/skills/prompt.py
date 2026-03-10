@@ -5,10 +5,13 @@ from app.skills.models import SkillDefinition
 
 def _format_skill_entry(skill: SkillDefinition) -> str:
     description = skill.description.strip() or "(no description)"
+    type_tag = f"  <type>{skill.skill_type}</type>\n" if skill.skill_type != "reference" else ""
+    checks_tag = f"  <checks_count>{len(skill.checks)}</checks_count>\n" if skill.checks else ""
     return (
         f"<available_skill>\n"
         f"  <name>{skill.name}</name>\n"
         f"  <description>{description}</description>\n"
+        f"{type_tag}{checks_tag}"
         f"  <location>{skill.file_path}</location>\n"
         f"</available_skill>"
     )

@@ -168,6 +168,19 @@ _AGENT_RULES_APPENDIX: str = _load_prompt_appendix("agent_rules.md")
 _TOOL_ROUTING_APPENDIX: str = _load_prompt_appendix("tool_routing.md")
 
 
+def load_cognitive_framework(agent_id: str) -> str:
+    """Load domain-specific cognitive framework for an agent.
+
+    Reads from ``app/prompts/cognitive/{agent_id}.md``.  Returns an empty
+    string when no framework file exists for the given agent.
+    """
+    path = _pathlib.Path(__file__).parent / "prompts" / "cognitive" / f"{agent_id}.md"
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 PROMPT_SETTING_KEYS: tuple[str, ...] = (
     "head_agent_system_prompt",
     "head_agent_plan_prompt",

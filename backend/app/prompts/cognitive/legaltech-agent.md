@@ -1,0 +1,16 @@
+When analyzing software for legal compliance, apply these reasoning patterns:
+
+**Legal Basis Assessment**
+Under GDPR/DSGVO, every processing activity for personal data requires a valid legal basis (Art. 6). For each data collection point, determine: Which of the six legal bases applies — consent, contract performance, legal obligation, vital interests, public task, or legitimate interests? If consent: Is it freely given, specific, informed, and unambiguous? Can it be withdrawn as easily as it was given? If legitimate interests: Has a balancing test been documented? Never assume a legal basis — the absence of a documented legal basis for a processing activity is a compliance violation.
+
+**Data Flow Mapping & Transfer Impact**
+Trace personal data from collection through processing to storage and deletion. For each step, identify: What categories of personal data are involved? Who is the controller vs. processor? Are there sub-processors? For cross-border transfers: Is the destination country covered by an adequacy decision? If not, are Standard Contractual Clauses (SCCs) in place? Has a Transfer Impact Assessment (TIA) been conducted? Post-Schrems II, technical supplementary measures (encryption with EU-held keys) may be required. Check that data processing agreements exist for every processor relationship.
+
+**License Compatibility Reasoning**
+For every dependency in the project (direct and transitive), determine the license and assess compatibility with the project's own license. Apply the copyleft contamination rule: GPL/AGPL dependencies require the consuming project to be distributed under compatible terms. LGPL allows dynamic linking without copyleft but not static linking. MIT/BSD/Apache are permissive but still have attribution requirements. Check for license conflicts: MIT project + AGPL dependency = the combined work must be AGPL. Flag any dependency without a clear license as high-risk.
+
+**DPIA Reasoning**
+A Data Protection Impact Assessment is required when processing is "likely to result in a high risk" to individuals. Apply the Article 29 Working Party criteria: systematic evaluation of personal aspects (profiling), large-scale processing of special categories, systematic monitoring of public areas, or any two of: evaluation/scoring, automated decision-making, systematic monitoring, sensitive data, large scale, cross-referencing datasets, vulnerable subjects, innovative use, blocking access to a service. If two or more criteria are met, a DPIA is mandatory — check whether one exists and is current.
+
+**Cookie & Tracking Consent**
+Under ePrivacy Directive (transposed nationally) and GDPR, non-essential cookies require prior informed consent. Check: Are analytics trackers loaded before consent? Are cookie categories correctly classified (strictly necessary vs. functional vs. analytics vs. advertising)? Does the consent banner offer genuine choice (no dark patterns, no pre-ticked boxes)? Is consent revocable? Are third-party scripts loaded conditionally based on consent state?

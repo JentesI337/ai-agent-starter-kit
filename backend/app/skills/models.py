@@ -11,6 +11,20 @@ class SkillMetadata:
 
 
 @dataclass(frozen=True)
+class ValidationCheck:
+    """A single constraint check within a validation skill."""
+
+    check_id: str
+    title: str
+    severity: str = "medium"  # critical, high, medium, low
+    grep_patterns: tuple[str, ...] = ()
+    anti_patterns: tuple[str, ...] = ()
+    file_globs: tuple[str, ...] = ()
+    pass_condition: str = ""
+    guidance: str = ""
+
+
+@dataclass(frozen=True)
 class SkillDefinition:
     name: str
     description: str
@@ -20,6 +34,8 @@ class SkillDefinition:
     metadata: SkillMetadata = field(default_factory=SkillMetadata)
     user_invocable: bool = True
     disable_model_invocation: bool = False
+    skill_type: str = "reference"  # "reference" or "validation"
+    checks: tuple[ValidationCheck, ...] = ()
 
 
 @dataclass(frozen=True)

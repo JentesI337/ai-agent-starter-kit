@@ -15,7 +15,7 @@ from time import monotonic
 from typing import Any
 
 from app.agent_runner import AgentRunner, build_unified_system_prompt
-from app.config import settings
+from app.config import load_cognitive_framework, settings
 from app.contracts.tool_protocol import ToolProvider
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm_client import LlmClient
@@ -232,6 +232,7 @@ class HeadAgent:
                 reasoning_strategy=self._agent_record.reasoning_strategy,
             )
 
+        domain_reasoning = load_cognitive_framework(self._agent_record.agent_id) if self._agent_record else ""
         system_prompt = build_unified_system_prompt(
             role=self.role,
             tool_hints=self.prompt_profile.tool_selector_prompt,
@@ -239,6 +240,8 @@ class HeadAgent:
             platform_summary=self._tool_execution_manager._platform_summary,
             agent_roster=self._agent_roster,
             capability_section=capability_section,
+            domain_reasoning=domain_reasoning,
+            reasoning_hint=self.prompt_profile.system_prompt,
         )
         self._agent_runner = AgentRunner(
             client=self.client,
@@ -385,12 +388,15 @@ class HeadAgent:
             )
             self._agent_runner.client = self.client
             self._agent_runner._reflection_service = self._reflection_service
+            domain_reasoning = load_cognitive_framework(self._agent_record.agent_id) if self._agent_record else ""
             self._agent_runner.system_prompt = build_unified_system_prompt(
                 role=self.role,
                 tool_hints=self.prompt_profile.tool_selector_prompt,
                 final_instructions=self.prompt_profile.final_prompt,
                 platform_summary=self._tool_execution_manager._platform_summary,
                 agent_roster=self._agent_roster,
+                domain_reasoning=domain_reasoning,
+                reasoning_hint=self.prompt_profile.system_prompt,
             )
         finally:
             self._reconfiguring = False
