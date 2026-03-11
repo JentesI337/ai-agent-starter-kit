@@ -90,6 +90,9 @@ def include_control_routers(
     integrations_oauth_start_handler=None,
     integrations_oauth_callback_handler=None,
     integrations_oauth_status_handler=None,
+    # Audio dependency handlers
+    config_deps_check_handler=None,
+    config_deps_install_handler=None,
 ) -> None:
     app.include_router(
         build_control_runs_router(
@@ -174,6 +177,8 @@ def include_control_routers(
                 config_update_handler=config_update_handler or handle_config_update,
                 config_diff_handler=config_diff_handler or handle_config_diff,
                 config_reset_handler=config_reset_handler or handle_config_reset,
+                config_deps_check_handler=config_deps_check_handler,
+                config_deps_install_handler=config_deps_install_handler,
             )
         )
 

@@ -21,6 +21,10 @@ from app.handlers.agent_config_handlers import (
     handle_agents_config_reset,
     handle_agents_config_update,
 )
+from app.handlers.audio_deps_handlers import (
+    handle_deps_check,
+    handle_deps_install,
+)
 from app.handlers.config_handlers import (
     handle_config_diff,
     handle_config_get,
@@ -1096,6 +1100,8 @@ include_control_routers(
     config_update_handler=handle_config_update,
     config_diff_handler=handle_config_diff,
     config_reset_handler=handle_config_reset,
+    config_deps_check_handler=handle_deps_check,
+    config_deps_install_handler=handle_deps_install,
     agents_config_list_handler=handle_agents_config_list,
     agents_config_get_handler=handle_agents_config_get,
     agents_config_update_handler=handle_agents_config_update,

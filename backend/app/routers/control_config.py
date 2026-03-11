@@ -22,6 +22,8 @@ def build_control_config_router(
     config_update_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     config_diff_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
     config_reset_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]],
+    config_deps_check_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
+    config_deps_install_handler: Callable[[JsonDict], JsonDict | Awaitable[JsonDict]] | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -54,5 +56,19 @@ def build_control_config_router(
         result = config_reset_handler(request)
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
+
+    if config_deps_check_handler is not None:
+        @router.post("/api/control/config.deps.check")
+        async def control_config_deps_check(request: JsonDict = Body(...)):
+            result = config_deps_check_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
+
+    if config_deps_install_handler is not None:
+        @router.post("/api/control/config.deps.install")
+        async def control_config_deps_install(request: JsonDict = Body(...)):
+            result = config_deps_install_handler(request)
+            awaited = _maybe_await(result)
+            return await awaited if awaited is not None else result
 
     return router

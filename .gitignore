@@ -28,6 +28,7 @@ frontend/.env
 backend/memory_store/
 backend/state_store/
 backend/runtime_state.json
+backend/piper_voices/
 *.log
 
 # Node

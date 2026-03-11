@@ -151,7 +151,9 @@ def build_unified_system_prompt(
         "- If a step fails, reconsider your approach before continuing.\n"
         "- When asked to visualize, diagram, or chart something, use the `emit_visualization` tool "
         "with Mermaid syntax. This renders the diagram live in the user's UI. "
-        "Do NOT write diagram code to files or output raw Mermaid in chat — always use the tool.\n"
+        "The mermaid source code is returned — you can embed it in markdown files "
+        "using fenced code blocks (```mermaid ... ```) for persistent documents. "
+        "Do NOT output raw Mermaid in chat — use the tool for rendering, write_file for saving.\n"
     )
 
     # 3.5 Agent-specific capabilities and tools
@@ -981,9 +983,14 @@ class AgentRunner:
                                 self._agent_name,
                             ))
                             title = viz_payload.get("title") or ""
-                            result_text = f"Visualization ({viz_type}) rendered in the user's UI."
+                            result_text = (
+                                f"Visualization ({viz_type}) rendered in the user's UI."
+                            )
                             if title:
                                 result_text += f" Title: {title}"
+                            result_text += (
+                                f"\n\nSource (for embedding in markdown files):\n```{viz_type}\n{viz_code}\n```"
+                            )
                 except (json.JSONDecodeError, KeyError, ValueError) as exc:
                     result_text = f"Visualization failed: {exc}"
                     is_error = True
@@ -1008,6 +1015,72 @@ class AgentRunner:
                             "format": fmt,
                             "status": "screenshot_captured",
                             "note": "Screenshot taken and displayed to user. Base64 data omitted from context.",
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+            # Emit generated image visualization and auto-save to workspace
+            if tool_name == "generate_image" and not is_error:
+                try:
+                    img_payload = json.loads(result_text)
+                    if img_payload.get("type") == "image":
+                        b64_data = img_payload["data"]
+                        fmt = img_payload.get("format", "png")
+                        # Display in frontend
+                        await send_event(build_visualization_event(
+                            "image",
+                            f"data:image/{fmt};base64,{b64_data}",
+                            request_id, session_id, self._agent_name,
+                        ))
+                        # Auto-save to workspace
+                        import base64 as b64_mod
+                        import uuid as _uuid
+                        from pathlib import Path as _Path
+                        img_dir = _Path(settings.workspace_root) / "generated_images"
+                        img_dir.mkdir(parents=True, exist_ok=True)
+                        filename = f"{_uuid.uuid4().hex[:12]}.{fmt}"
+                        img_path = img_dir / filename
+                        img_path.write_bytes(b64_mod.b64decode(b64_data))
+                        result_text = json.dumps({
+                            "type": "image",
+                            "format": fmt,
+                            "status": "generated_and_saved",
+                            "saved_path": str(img_path),
+                            "relative_path": f"generated_images/{filename}",
+                            "note": "Image displayed to user and saved to disk.",
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+            # Emit generated audio and auto-save to workspace
+            if tool_name == "generate_audio" and not is_error:
+                try:
+                    audio_payload = json.loads(result_text)
+                    if audio_payload.get("type") == "audio":
+                        b64_data = audio_payload["data"]
+                        fmt = audio_payload.get("format", "mp3")
+                        # Display in frontend
+                        await send_event(build_visualization_event(
+                            "audio",
+                            f"data:audio/{fmt};base64,{b64_data}",
+                            request_id, session_id, self._agent_name,
+                        ))
+                        # Auto-save to workspace
+                        import base64 as b64_mod
+                        import uuid as _uuid
+                        from pathlib import Path as _Path
+                        audio_dir = _Path(settings.workspace_root) / "generated_audio"
+                        audio_dir.mkdir(parents=True, exist_ok=True)
+                        filename = f"{_uuid.uuid4().hex[:12]}.{fmt}"
+                        audio_path = audio_dir / filename
+                        audio_path.write_bytes(b64_mod.b64decode(b64_data))
+                        result_text = json.dumps({
+                            "type": "audio",
+                            "format": fmt,
+                            "status": "generated_and_saved",
+                            "saved_path": str(audio_path),
+                            "relative_path": f"generated_audio/{filename}",
+                            "note": "Audio generated and saved to disk.",
                         })
                 except (json.JSONDecodeError, KeyError):
                     pass

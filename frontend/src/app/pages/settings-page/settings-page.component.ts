@@ -9,6 +9,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   AgentRuntimeConfig,
+  AudioDep,
   ConfigDiffResponse,
   ConfigHealthResponse,
   ConfigService,
@@ -82,6 +83,12 @@ export class SettingsPageComponent implements OnInit {
   securitySaving = false;
   securityMessage = '';
 
+  // ── Audio Dependencies ───────────────────────────────
+  audioDeps: AudioDep[] = [];
+  audioDepsLoading = false;
+  audioDepsInstalling: string | null = null;
+  audioDepsMessage = '';
+
   // ── Diff & Health ──────────────────────────────────
   diffData: ConfigDiffResponse | null = null;
   healthData: ConfigHealthResponse | null = null;
@@ -144,6 +151,7 @@ export class SettingsPageComponent implements OnInit {
       next: (res) => {
         this.sectionValues = { ...res.values };
         this.sectionDraft = { ...res.values };
+        this.autoCheckAudioDeps(res.values);
         this.cdr.markForCheck();
       },
     });
@@ -538,6 +546,9 @@ export class SettingsPageComponent implements OnInit {
     'multimodal_audio_model':        { providerField: 'multimodal_audio_provider', showFor: ['openai'] },
     'multimodal_image_gen_api_key':  { providerField: 'multimodal_image_gen_provider', showFor: ['openai', 'stabilityai'] },
     'multimodal_image_gen_model':    { providerField: 'multimodal_image_gen_provider', showFor: ['openai', 'stabilityai'] },
+    'multimodal_tts_api_key':        { providerField: 'multimodal_tts_provider', showFor: ['openai'] },
+    'multimodal_tts_base_url':       { providerField: 'multimodal_tts_provider', showFor: ['openai'] },
+    'multimodal_tts_model':          { providerField: 'multimodal_tts_provider', showFor: ['openai'] },
     'vision_api_key':                { providerField: 'vision_provider', showFor: ['openai', 'gemini'] },
   };
 
@@ -546,6 +557,93 @@ export class SettingsPageComponent implements OnInit {
     if (!dep) return true;
     const providerValue = String(this.sectionDraft[dep.providerField] ?? '').toLowerCase();
     return dep.showFor.includes(providerValue);
+  }
+
+  // ── Audio dependency helpers ─────────────────────────
+
+  private static readonly PROVIDER_FIELDS = new Set([
+    'multimodal_tts_provider',
+    'multimodal_audio_provider',
+  ]);
+
+  private static readonly PROVIDER_SCOPE_MAP: Record<string, string> = {
+    multimodal_tts_provider: 'tts',
+    multimodal_audio_provider: 'transcription',
+  };
+
+  isProviderField(name: string): boolean {
+    return SettingsPageComponent.PROVIDER_FIELDS.has(name);
+  }
+
+  onFieldChange(fieldName: string, event: Event): void {
+    this.setDraftString(fieldName, event);
+    const val = String(this.sectionDraft[fieldName] ?? '').toLowerCase();
+    if (this.isProviderField(fieldName) && val === 'local') {
+      const scope = SettingsPageComponent.PROVIDER_SCOPE_MAP[fieldName];
+      this.checkAudioDeps(scope);
+    } else if (this.isProviderField(fieldName)) {
+      // Switching away from local — clear deps
+      this.audioDeps = [];
+      this.audioDepsMessage = '';
+    }
+  }
+
+  private autoCheckAudioDeps(values: Record<string, unknown>): void {
+    for (const field of SettingsPageComponent.PROVIDER_FIELDS) {
+      const val = String(values[field] ?? '').toLowerCase();
+      if (val === 'local') {
+        const scope = SettingsPageComponent.PROVIDER_SCOPE_MAP[field];
+        this.checkAudioDeps(scope);
+        return;
+      }
+    }
+    // No local provider — clear any stale deps
+    this.audioDeps = [];
+    this.audioDepsMessage = '';
+  }
+
+  checkAudioDeps(scope?: string): void {
+    this.audioDepsLoading = true;
+    this.audioDepsMessage = 'Checking dependencies...';
+    this.cdr.markForCheck();
+    this.configService.checkAudioDeps(scope).subscribe({
+      next: (res) => {
+        this.audioDeps = res.dependencies;
+        this.audioDepsLoading = false;
+        this.audioDepsMessage = '';
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.audioDepsLoading = false;
+        this.audioDepsMessage = 'Failed to check dependencies';
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  installDep(packageName: string): void {
+    this.audioDepsInstalling = packageName;
+    this.audioDepsMessage = `Installing ${packageName}...`;
+    this.cdr.markForCheck();
+    this.configService.installAudioDep(packageName).subscribe({
+      next: (res) => {
+        this.audioDepsInstalling = null;
+        if (res.success) {
+          this.audioDepsMessage = `${packageName} installed successfully`;
+          // Re-check deps to refresh status
+          const scope = this.audioDeps.find(d => d.name === packageName)?.purpose;
+          this.checkAudioDeps(scope);
+        } else {
+          this.audioDepsMessage = `Install failed: ${res.message}`;
+        }
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.audioDepsInstalling = null;
+        this.audioDepsMessage = `Install error: ${err?.error?.detail ?? err.message}`;
+        this.cdr.markForCheck();
+      },
+    });
   }
 
   private flashMessage(target: 'section', msg: string, type: 'ok' | 'err'): void {

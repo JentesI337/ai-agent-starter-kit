@@ -39,6 +39,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "parse_pdf",
     "transcribe_audio",
     "generate_image",
+    "generate_audio",
     "export_pdf",
     # Workflow tools
     "build_workflow",
@@ -94,7 +95,7 @@ _ALL_DEVOPS_TOOLS: frozenset[str] = (
 
 # Multimodal tools — feature-gated
 _MULTIMODAL_TOOLS: frozenset[str] = frozenset({
-    "parse_pdf", "transcribe_audio", "generate_image", "export_pdf",
+    "parse_pdf", "transcribe_audio", "generate_image", "generate_audio", "export_pdf",
 })
 
 # API connector tools — feature-gated
@@ -218,6 +219,9 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "generateimage": "generate_image",
     "create_image": "generate_image",
     "dall_e": "generate_image",
+    "generateaudio": "generate_audio",
+    "text_to_speech": "generate_audio",
+    "tts": "generate_audio",
     "exportpdf": "export_pdf",
     "markdown_to_pdf": "export_pdf",
 }

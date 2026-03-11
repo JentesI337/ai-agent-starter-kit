@@ -43,6 +43,7 @@ class ToolArgValidator:
             "parse_pdf": self._validate_parse_pdf_args,
             "transcribe_audio": self._validate_transcribe_audio_args,
             "generate_image": self._validate_generate_image_args,
+            "generate_audio": self._validate_generate_audio_args,
             "export_pdf": self._validate_export_pdf_args,
             # DevOps tools
             "git_log": self._validate_git_log_args,
@@ -701,6 +702,21 @@ class ToolArgValidator:
             if err:
                 return err
             normalized_args["size"] = size
+        return None
+
+    def _validate_generate_audio_args(self, normalized_args: dict[str, object]) -> str | None:
+        text, err = self._require_str_arg(normalized_args, "text", max_len=4096)
+        if err:
+            return err
+        normalized_args["text"] = text
+        if "voice" in normalized_args:
+            voice, err = self._require_str_arg(normalized_args, "voice", max_len=20)
+            if err:
+                return err
+            normalized_voice = (voice or "").strip().lower()
+            if normalized_voice not in {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}:
+                return "argument 'voice' must be one of: alloy, echo, fable, onyx, nova, shimmer"
+            normalized_args["voice"] = normalized_voice
         return None
 
     def _validate_export_pdf_args(self, normalized_args: dict[str, object]) -> str | None:

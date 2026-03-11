@@ -166,6 +166,7 @@ def _load_prompt_appendix(filename: str, fallback: str = "") -> str:
 
 _AGENT_RULES_APPENDIX: str = _load_prompt_appendix("agent_rules.md")
 _TOOL_ROUTING_APPENDIX: str = _load_prompt_appendix("tool_routing.md")
+_TOOL_ROUTING_MULTIMODAL: str = _load_prompt_appendix("tool_routing_multimodal.md")
 
 
 def load_cognitive_framework(agent_id: str) -> str:
@@ -1043,7 +1044,7 @@ class Settings(BaseModel):
     web_search_base_url: str = os.getenv("WEB_SEARCH_BASE_URL", "")
     web_search_max_results: int = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
     # ── Multimodal tools ──
-    multimodal_tools_enabled: bool = _parse_bool_env("MULTIMODAL_TOOLS_ENABLED", False)
+    multimodal_tools_enabled: bool = _parse_bool_env("MULTIMODAL_TOOLS_ENABLED", True)
     multimodal_pdf_enabled: bool = _parse_bool_env("MULTIMODAL_PDF_ENABLED", True)
     multimodal_audio_enabled: bool = _parse_bool_env("MULTIMODAL_AUDIO_ENABLED", True)
     multimodal_audio_provider: str = os.getenv("MULTIMODAL_AUDIO_PROVIDER", "openai").strip().lower()
@@ -1057,6 +1058,12 @@ class Settings(BaseModel):
     multimodal_image_gen_base_url: str = os.getenv("MULTIMODAL_IMAGE_GEN_BASE_URL", "https://api.openai.com/v1").strip()
     multimodal_image_gen_api_key: str = os.getenv("MULTIMODAL_IMAGE_GEN_API_KEY", "").strip()
     multimodal_image_gen_default_size: str = os.getenv("MULTIMODAL_IMAGE_GEN_DEFAULT_SIZE", "1024x1024").strip()
+    multimodal_tts_enabled: bool = _parse_bool_env("MULTIMODAL_TTS_ENABLED", True)
+    multimodal_tts_provider: str = os.getenv("MULTIMODAL_TTS_PROVIDER", "openai").strip().lower()
+    multimodal_tts_model: str = os.getenv("MULTIMODAL_TTS_MODEL", "tts-1").strip()
+    multimodal_tts_voice: str = os.getenv("MULTIMODAL_TTS_VOICE", "alloy").strip()
+    multimodal_tts_base_url: str = os.getenv("MULTIMODAL_TTS_BASE_URL", "https://api.openai.com/v1").strip()
+    multimodal_tts_api_key: str = os.getenv("MULTIMODAL_TTS_API_KEY", "").strip()
     multimodal_upload_max_bytes: int = int(os.getenv("MULTIMODAL_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 
     vision_enabled: bool = _parse_bool_env("VISION_ENABLED", False)
@@ -1612,6 +1619,17 @@ class Settings(BaseModel):
 
 
 settings = Settings()
+
+# ── Conditionally append multimodal tool routing to prompts ──
+if settings.multimodal_tools_enabled and _TOOL_ROUTING_MULTIMODAL:
+    for _field_name in (
+        "head_agent_tool_selector_prompt",
+        "agent_tool_selector_prompt",
+        "researcher_agent_tool_selector_prompt",
+    ):
+        _current = getattr(settings, _field_name, "")
+        if _current and _TOOL_ROUTING_MULTIMODAL not in _current:
+            object.__setattr__(settings, _field_name, _current + _TOOL_ROUTING_MULTIMODAL)
 
 
 CONFIG_ENV_KEY_PREFIXES: tuple[str, ...] = (

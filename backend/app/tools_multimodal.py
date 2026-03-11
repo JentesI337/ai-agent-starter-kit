@@ -26,6 +26,16 @@ def _get_audio_service() -> AudioService:
     )
 
 
+def _get_tts_service() -> AudioService:
+    return AudioService(
+        provider=settings.multimodal_tts_provider,
+        api_key=settings.multimodal_tts_api_key,
+        base_url=settings.multimodal_tts_base_url,
+        model=settings.multimodal_tts_model,
+        voice=settings.multimodal_tts_voice,
+    )
+
+
 def _get_image_gen_service() -> ImageGenService:
     return ImageGenService(
         provider=settings.multimodal_image_gen_provider,
@@ -81,6 +91,25 @@ class MultimodalToolMixin:
             raise ToolExecutionError(str(exc)) from exc
         except Exception as exc:
             raise ToolExecutionError(f"Image generation failed: {exc}") from exc
+
+    async def generate_audio(self, *, text: str, voice: str | None = None, **_kwargs) -> str:
+        """Generate spoken audio from text using text-to-speech."""
+        if not settings.multimodal_tools_enabled or not settings.multimodal_tts_enabled:
+            raise ToolExecutionError(
+                "Text-to-speech is not enabled. Set MULTIMODAL_TOOLS_ENABLED=true and MULTIMODAL_TTS_ENABLED=true."
+            )
+
+        try:
+            import base64
+            svc = _get_tts_service()
+            audio_bytes = await svc.synthesize(text, voice)
+            b64_data = base64.b64encode(audio_bytes).decode("ascii")
+            fmt = "mp3" if svc.provider == "openai" else "wav"
+            return json.dumps({"type": "audio", "format": fmt, "data": b64_data})
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        except Exception as exc:
+            raise ToolExecutionError(f"Audio generation failed: {exc}") from exc
 
     async def export_pdf(self, *, content: str, path: str | None = None, **_kwargs) -> str:
         """Export markdown content to a PDF file."""

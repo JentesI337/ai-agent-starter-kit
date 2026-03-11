@@ -115,9 +115,30 @@
           <!-- Choice (dropdown) -->
           <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'choice'">
             <select class="field-input" [value]="getDraftValue(f.name) ?? ''"
-                    (change)="setDraftString(f.name, $event)">
+                    (change)="onFieldChange(f.name, $event)">
               <option *ngFor="let opt of f.choices" [value]="opt">{{ opt }}</option>
             </select>
+            <!-- Audio dependency status (shown when a provider is set to "local") -->
+            <div class="deps-status" *ngIf="isProviderField(f.name) && getDraftValue(f.name) === 'local'">
+              <div class="deps-spinner" *ngIf="audioDepsLoading || audioDepsInstalling">
+                <div class="ld-spinner"></div>
+                <span>{{ audioDepsMessage }}</span>
+              </div>
+              <div class="deps-list" *ngIf="!audioDepsLoading && !audioDepsInstalling && audioDeps.length > 0">
+                <div class="dep-row" *ngFor="let dep of audioDeps">
+                  <span>{{ dep.label }}</span>
+                  <span class="dep-badge ok" *ngIf="dep.installed">Installed</span>
+                  <ng-container *ngIf="!dep.installed && dep.auto_installable">
+                    <span class="dep-badge missing">Missing</span>
+                    <button class="btn-sm" (click)="installDep(dep.name)">Install</button>
+                  </ng-container>
+                  <span class="dep-badge manual" *ngIf="!dep.installed && !dep.auto_installable">Manual install needed</span>
+                </div>
+              </div>
+              <div class="deps-msg" *ngIf="!audioDepsLoading && !audioDepsInstalling && audioDepsMessage">
+                {{ audioDepsMessage }}
+              </div>
+            </div>
           </div>
 
           <!-- Number -->

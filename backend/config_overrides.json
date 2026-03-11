@@ -1,6 +1,7 @@
 {
   "multimodal": {
     "multimodal_audio_provider": "local",
-    "multimodal_image_gen_provider": "sd-webui"
+    "multimodal_image_gen_provider": "sd-webui",
+    "multimodal_tts_provider": "local"
   }
 }

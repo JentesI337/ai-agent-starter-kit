@@ -578,6 +578,25 @@ $venvPython = Ensure-BackendVenv312 -BackendDirPath $backendDir
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '--upgrade', 'pip') -StepName 'upgrade-pip'
 Invoke-PipInstall -PythonExe $venvPython -Arguments @('install', '-r', 'requirements.txt') -StepName 'install-requirements'
 
+# Verify piper-tts for local TTS support
+try {
+    & $venvPython -c "import piper" 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "not found" }
+}
+catch {
+    Write-Host "Warning: piper-tts is not available. Local TTS will not work." -ForegroundColor Yellow
+    Write-Host "  Attempting standalone install..." -ForegroundColor Yellow
+    & $venvPython -m pip install piper-tts 2>$null
+    try {
+        & $venvPython -c "import piper" 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "not found" }
+        Write-Host "  piper-tts installed successfully." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "  piper-tts install failed. Use TTS provider='openai' or install manually." -ForegroundColor Yellow
+    }
+}
+
 Write-Step "Running backend"
 Ensure-Port-Free -Port $BackendPort -ServiceName 'backend'
 Start-Process -FilePath $venvPython -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port $BackendPort" -WorkingDirectory $backendDir -WindowStyle Minimized | Out-Null

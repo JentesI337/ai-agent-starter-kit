@@ -292,7 +292,7 @@ class ReplSection(BaseModel):
 
 
 class MultimodalSection(BaseModel):
-    multimodal_tools_enabled: bool = False
+    multimodal_tools_enabled: bool = True
     multimodal_pdf_enabled: bool = True
     multimodal_audio_enabled: bool = True
     multimodal_audio_provider: str = Field(default="local", json_schema_extra={"choices": ["local", "openai"]})
@@ -306,6 +306,12 @@ class MultimodalSection(BaseModel):
     multimodal_image_gen_base_url: str = "http://localhost:7860"
     multimodal_image_gen_api_key: str = ""
     multimodal_image_gen_default_size: str = "1024x1024"
+    multimodal_tts_enabled: bool = True
+    multimodal_tts_provider: str = Field(default="openai", json_schema_extra={"choices": ["openai", "local"]})
+    multimodal_tts_model: str = "tts-1"
+    multimodal_tts_voice: str = Field(default="alloy", json_schema_extra={"choices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]})
+    multimodal_tts_base_url: str = "https://api.openai.com/v1"
+    multimodal_tts_api_key: str = ""
     multimodal_upload_max_bytes: int = 20 * 1024 * 1024
 
 
@@ -468,4 +474,5 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset({
     "web_search_api_key",
     "multimodal_audio_api_key",
     "multimodal_image_gen_api_key",
+    "multimodal_tts_api_key",
 })

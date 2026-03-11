@@ -12,3 +12,6 @@ cryptography>=43.0.0
 # Install Playwright browser binaries after pip install:
 #   playwright install chromium
 playwright>=1.40.0
+
+# --- Local Audio (optional) ---
+piper-tts>=1.2.0

@@ -168,12 +168,19 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
             )
         return target.read_text(encoding="utf-8")
 
-    def write_file(self, path: str, content: str) -> str:
+    def write_file(self, path: str, content: str, encoding: str = "utf-8") -> str:
         if len(content) > 300_000:
             raise ToolExecutionError("Content too large for write_file tool.")
         target = self._resolve_workspace_path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        if encoding == "base64":
+            import base64 as b64_mod
+            try:
+                target.write_bytes(b64_mod.b64decode(content))
+            except Exception as exc:
+                raise ToolExecutionError(f"Invalid base64 content: {exc}")
+        else:
+            target.write_text(content, encoding="utf-8")
         return f"Wrote file: {target}"
 
     def apply_patch(self, path: str, search: str, replace: str, replace_all: bool = False) -> str:

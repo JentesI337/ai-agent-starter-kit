@@ -572,6 +572,18 @@ fi
 run_pip_step "./.venv/bin/python" "upgrade-pip" install --upgrade pip
 run_pip_step "./.venv/bin/python" "install-requirements" install -r requirements.txt
 
+# Verify piper-tts for local TTS support
+if ! ./.venv/bin/python -c "import piper" 2>/dev/null; then
+  echo "Warning: piper-tts is not available. Local TTS will not work."
+  echo "  Attempting standalone install..."
+  ./.venv/bin/python -m pip install piper-tts 2>/dev/null || true
+  if ! ./.venv/bin/python -c "import piper" 2>/dev/null; then
+    echo "  piper-tts install failed. Use TTS provider='openai' or install manually."
+  else
+    echo "  piper-tts installed successfully."
+  fi
+fi
+
 step "Running backend"
 require_port_free "$BACKEND_PORT" "backend"
 nohup ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" >/tmp/agent-backend.log 2>&1 &

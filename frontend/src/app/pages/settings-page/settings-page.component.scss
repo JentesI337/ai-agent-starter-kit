@@ -656,6 +656,84 @@ select.field-input {
   margin-bottom: 4px;
 }
 
+// ── Audio Dependency Status ────────────────────────
+.deps-status {
+  margin-top: 8px;
+}
+
+.deps-spinner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+
+  .ld-spinner {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.deps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dep-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 0.76rem;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.dep-badge {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+
+  &.ok {
+    color: var(--c-accent);
+    background: var(--c-accent-dim);
+  }
+
+  &.missing {
+    color: var(--c-yellow);
+    background: var(--c-yellow-dim);
+  }
+
+  &.manual {
+    color: var(--c-text-muted);
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.btn-sm {
+  all: unset;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  background: var(--c-accent);
+  color: var(--c-bg-deep);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--c-accent-text);
+  }
+}
+
+.deps-msg {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--c-text-dim);
+}
+
 // ── Responsive ─────────────────────────────────────
 @media (max-width: 768px) {
   .settings-shell {

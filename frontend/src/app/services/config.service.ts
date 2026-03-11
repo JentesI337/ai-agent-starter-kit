@@ -140,6 +140,26 @@ export interface LoopDetectionConfigResponse {
   config: Record<string, unknown>;
 }
 
+// ── Audio Dependencies ─────────────────────────────
+
+export interface AudioDep {
+  name: string;
+  label: string;
+  purpose: string;
+  installed: boolean;
+  auto_installable: boolean;
+}
+
+export interface DepsCheckResponse {
+  dependencies: AudioDep[];
+}
+
+export interface DepsInstallResponse {
+  name: string;
+  success: boolean;
+  message: string;
+}
+
 // ── Config Health ──────────────────────────────────
 
 export interface ConfigHealthResponse {
@@ -180,6 +200,18 @@ export class ConfigService {
 
   getHealth(): Observable<ConfigHealthResponse> {
     return this.http.post<ConfigHealthResponse>(`${this.api}/config.health`, {});
+  }
+
+  // ── Audio Dependencies ────────────────────────────────
+
+  checkAudioDeps(scope?: string): Observable<DepsCheckResponse> {
+    const body: Record<string, unknown> = {};
+    if (scope) body['scope'] = scope;
+    return this.http.post<DepsCheckResponse>(`${this.api}/config.deps.check`, body);
+  }
+
+  installAudioDep(pkg: string): Observable<DepsInstallResponse> {
+    return this.http.post<DepsInstallResponse>(`${this.api}/config.deps.install`, { package: pkg });
   }
 
   // ── Agent Configs (deprecated — use AgentsService.patchAgent instead) ──

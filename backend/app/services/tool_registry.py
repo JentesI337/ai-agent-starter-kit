@@ -289,7 +289,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
         "write_file": ToolSpec(
             name="write_file",
             required_args=("path", "content"),
-            optional_args=(),
+            optional_args=("encoding",),
             timeout_seconds=10.0,
             max_retries=0,
             description="Write complete content to a file path.",
@@ -298,6 +298,11 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "properties": {
                     "path": {"type": "string", "minLength": 1},
                     "content": {"type": "string"},
+                    "encoding": {
+                        "type": "string",
+                        "enum": ["utf-8", "base64"],
+                        "description": "Use 'utf-8' (default) for text, 'base64' for binary files.",
+                    },
                 },
                 "required": ["path", "content"],
                 "additionalProperties": False,
@@ -680,6 +685,36 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("image_generation", "creative"),
         ),
+        "generate_audio": ToolSpec(
+            name="generate_audio",
+            required_args=("text",),
+            optional_args=("voice",),
+            timeout_seconds=60.0,
+            max_retries=0,
+            description=(
+                "Generate spoken audio from text using text-to-speech. "
+                "Returns a JSON object with base64-encoded MP3 audio data."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096,
+                        "description": "The text to convert to speech.",
+                    },
+                    "voice": {
+                        "type": "string",
+                        "enum": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                        "description": "Voice to use. Defaults to config setting (alloy).",
+                    },
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+            capabilities=("audio_generation", "text_to_speech", "creative"),
+        ),
         "export_pdf": ToolSpec(
             name="export_pdf",
             required_args=("content",),
@@ -988,7 +1023,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "IMPORTANT: Always wrap node labels in double quotes to avoid parse errors, "
                 'e.g. A["My Label"] not A[My Label]. '
                 "Supported diagram types: flowchart, sequenceDiagram, classDiagram, erDiagram, gantt, pie. "
-                "The diagram is rendered live — do NOT create files or code blocks for diagrams."
+                "The diagram is rendered live and the source code is returned for embedding in files."
             ),
             parameters={
                 "type": "object",
