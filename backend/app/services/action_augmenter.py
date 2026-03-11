@@ -79,26 +79,6 @@ class ActionAugmenter:
                 if fallback_url:
                     augmented_actions.append({"tool": "web_fetch", "args": {"url": fallback_url, "max_chars": 24000}})
 
-        if (
-            self._intent is not None
-            and self._intent.is_subrun_orchestration_task(user_message)
-            and "spawn_subrun" in allowed_tools
-            and not any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
-        ):
-            should_delegate, _ = self._should_delegate_subrun(user_message)
-            if not should_delegate:
-                return augmented_actions
-            augmented_actions.append(
-                {
-                    "tool": "spawn_subrun",
-                    "args": {
-                        "message": user_message.strip() or "Execute delegated orchestration task",
-                        "mode": "wait",
-                        "agent_id": "head-agent",
-                    },
-                }
-            )
-
         return augmented_actions
 
     async def augment_actions(
@@ -124,14 +104,10 @@ class ActionAugmenter:
         if uses_injected_intent:
             is_web_research_task = self._intent.is_web_research_task
             build_web_research_url = self._intent.build_search_url
-            is_subrun_orchestration_task = self._intent.is_subrun_orchestration_task
             is_file_creation_task = self._intent.is_file_creation_task
 
         had_web_fetch_in_input = any(str(action.get("tool", "")).strip() == "web_fetch" for action in actions)
         had_web_search_in_input = any(str(action.get("tool", "")).strip() == "web_search" for action in actions)
-        had_spawn_subrun_in_input = any(
-            str(action.get("tool", "")).strip() == "spawn_subrun" for action in actions
-        )
 
         augmented_actions = self.augment(actions, user_message, allowed_tools)
 
@@ -167,35 +143,6 @@ class ActionAugmenter:
                 },
             )
 
-        has_spawn_subrun_after_augment = any(
-            str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions
-        )
-        should_delegate_subrun, delegate_reason = self._should_delegate_subrun(user_message)
-        if (
-            is_subrun_orchestration_task(user_message)
-            and "spawn_subrun" in allowed_tools
-            and not had_spawn_subrun_in_input
-            and should_delegate_subrun
-            and has_spawn_subrun_after_augment
-        ):
-            await emit_lifecycle(
-                "tool_selection_followup_completed",
-                {
-                    "reason": "orchestration_without_spawn_subrun",
-                    "added_tool": "spawn_subrun",
-                    "delegation_reason": delegate_reason,
-                },
-            )
-
-        if is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools and not should_delegate_subrun:
-            await emit_lifecycle(
-                "subrun_delegation_skipped",
-                {
-                    "reason": delegate_reason,
-                    "min_subrun_message_chars": self._min_subrun_message_chars,
-                },
-            )
-
         if (not uses_injected_intent) and is_web_research_task(user_message):
             has_web_search = any(str(action.get("tool", "")).strip() == "web_search" for action in augmented_actions)
             has_web_fetch = any(str(action.get("tool", "")).strip() == "web_fetch" for action in augmented_actions)
@@ -223,28 +170,6 @@ class ActionAugmenter:
                                 "url": fallback_url,
                             },
                         )
-
-        if (not uses_injected_intent) and is_subrun_orchestration_task(user_message) and "spawn_subrun" in allowed_tools:
-            has_spawn_subrun = any(str(action.get("tool", "")).strip() == "spawn_subrun" for action in augmented_actions)
-            if not has_spawn_subrun and should_delegate_subrun:
-                augmented_actions.append(
-                    {
-                        "tool": "spawn_subrun",
-                        "args": {
-                            "message": user_message.strip() or "Execute delegated orchestration task",
-                            "mode": "wait",
-                            "agent_id": "head-agent",
-                        },
-                    }
-                )
-                await emit_lifecycle(
-                    "tool_selection_followup_completed",
-                    {
-                        "reason": "orchestration_without_spawn_subrun",
-                        "added_tool": "spawn_subrun",
-                        "delegation_reason": delegate_reason,
-                    },
-                )
 
         augmented_actions, reduced_spawn_actions = self._apply_subrun_governance(augmented_actions)
         if reduced_spawn_actions:

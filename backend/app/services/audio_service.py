@@ -26,7 +26,7 @@ class AudioService:
         model: str = "whisper-1",
         max_duration_seconds: int = _MAX_DURATION_DEFAULT,
     ):
-        self.provider = (provider or "openai").strip().lower()
+        self.provider = (provider or "local").strip().lower()
         self.api_key = (api_key or "").strip()
         self.base_url = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
         self.model = (model or "whisper-1").strip()

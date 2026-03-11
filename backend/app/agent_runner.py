@@ -1400,10 +1400,10 @@ class AgentRunner:
             return "orchestration_pending"
 
         # Intent-based classification (via IntentDetector when available)
+        # NOTE: orchestration is classified purely by evidence (spawned_subrun_id
+        # in tool results above), never by keyword matching.  The LLM decides
+        # whether to delegate via spawn_subrun based on its system prompt.
         if self._intent_detector:
-            if hasattr(self._intent_detector, "is_subrun_orchestration_task"):
-                if self._intent_detector.is_subrun_orchestration_task(message):
-                    return "orchestration"
             if hasattr(self._intent_detector, "is_file_creation_task"):
                 if self._intent_detector.is_file_creation_task(message):
                     return "implementation"
@@ -1477,12 +1477,7 @@ class AgentRunner:
                         "If the subrun succeeded but this message still appears, the subrun returned before "
                         "the parent could read its result — this is now fixed in the current build."
                     )
-                else:
-                    final_text = (
-                        "No subrun was executed for this orchestration request. "
-                        "The plan did not result in a `spawn_subrun` tool call. "
-                        "Please verify the orchestration intent and retry."
-                    )
+                # else: LLM chose not to delegate — keep its response as-is
 
         return final_text
 

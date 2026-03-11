@@ -295,15 +295,15 @@ class MultimodalSection(BaseModel):
     multimodal_tools_enabled: bool = False
     multimodal_pdf_enabled: bool = True
     multimodal_audio_enabled: bool = True
-    multimodal_audio_provider: str = "openai"
-    multimodal_audio_model: str = "whisper-1"
-    multimodal_audio_base_url: str = "https://api.openai.com/v1"
+    multimodal_audio_provider: str = Field(default="local", json_schema_extra={"choices": ["local", "openai"]})
+    multimodal_audio_model: str = "base"
+    multimodal_audio_base_url: str = ""
     multimodal_audio_api_key: str = ""
     multimodal_audio_max_duration_seconds: int = 600
     multimodal_image_gen_enabled: bool = True
-    multimodal_image_gen_provider: str = "openai"
-    multimodal_image_gen_model: str = "dall-e-3"
-    multimodal_image_gen_base_url: str = "https://api.openai.com/v1"
+    multimodal_image_gen_provider: str = Field(default="sd-webui", json_schema_extra={"choices": ["sd-webui", "openai", "stabilityai"]})
+    multimodal_image_gen_model: str = ""
+    multimodal_image_gen_base_url: str = "http://localhost:7860"
     multimodal_image_gen_api_key: str = ""
     multimodal_image_gen_default_size: str = "1024x1024"
     multimodal_upload_max_bytes: int = 20 * 1024 * 1024
@@ -311,12 +311,12 @@ class MultimodalSection(BaseModel):
 
 class VisionWebSection(BaseModel):
     vision_enabled: bool = False
-    vision_provider: str = "auto"
+    vision_provider: str = Field(default="ollama", json_schema_extra={"choices": ["ollama", "openai", "gemini", "auto"]})
     vision_model: str = "llava:13b"
     vision_base_url: str = "http://localhost:11434"
     vision_api_key: str = ""
     vision_max_tokens: int = 1000
-    web_search_provider: str = "duckduckgo"
+    web_search_provider: str = Field(default="duckduckgo", json_schema_extra={"choices": ["duckduckgo"]})
     web_search_api_key: str = ""
     web_search_base_url: str = ""
     web_search_max_results: int = 5
