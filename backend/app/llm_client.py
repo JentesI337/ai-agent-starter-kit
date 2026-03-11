@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 import httpx
 
 from app.config import settings
-from app.errors import LlmClientError
+from app.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
 from app.url_validator import UrlValidationError, validate_llm_base_url
 
 logger = logging.getLogger("app.llm_client")
@@ -27,6 +27,25 @@ def _retry_delay(attempt: int) -> float:
     delay = min(RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_DELAY_SECONDS)
     delay += random.uniform(0.0, delay * 0.2)
     return delay
+
+
+# Patterns in error bodies that indicate a permanent resource constraint.
+# These should NOT be retried on the same model — the model simply can't run.
+_RESOURCE_EXHAUSTED_PATTERNS: tuple[str, ...] = (
+    "requires more system memory",
+    "out of memory",
+    "insufficient memory",
+    "not enough memory",
+    "oom",
+    "cuda out of memory",
+    "gpu memory",
+)
+
+
+def _is_resource_exhausted(body_text: str) -> bool:
+    """Return True if the error body indicates a permanent resource constraint."""
+    lower = body_text.lower()
+    return any(pattern in lower for pattern in _RESOURCE_EXHAUSTED_PATTERNS)
 
 
 class LlmClient:
@@ -118,7 +137,7 @@ class LlmClient:
         try:
             for attempt in range(1, MAX_RETRIES + 1):
                 async with (
-                    httpx.AsyncClient(timeout=120) as client,
+                    httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client,
                     client.stream("POST", url, headers=headers, json=payload) as response,
                 ):
                     if response.status_code >= 400:
@@ -132,6 +151,10 @@ class LlmClient:
                             attempt,
                             body_text[:300],
                         )
+                        if _is_resource_exhausted(body_text):
+                            raise LlmResourceExhaustedError(
+                                f"Model requires more resources than available: {body_text[:600]}"
+                            )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
@@ -159,7 +182,7 @@ class LlmClient:
             return
         except httpx.TimeoutException as exc:
             logger.warning("llm_stream_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning("llm_stream_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
@@ -189,7 +212,7 @@ class LlmClient:
         try:
             for attempt in range(1, MAX_RETRIES + 1):
                 async with (
-                    httpx.AsyncClient(timeout=120) as client,
+                    httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client,
                     client.stream("POST", url, headers=headers, json=payload) as response,
                 ):
                     if response.status_code >= 400:
@@ -203,6 +226,10 @@ class LlmClient:
                             attempt,
                             body_text[:300],
                         )
+                        if _is_resource_exhausted(body_text):
+                            raise LlmResourceExhaustedError(
+                                f"Model requires more resources than available: {body_text[:600]}"
+                            )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
@@ -227,7 +254,7 @@ class LlmClient:
             return
         except httpx.TimeoutException as exc:
             logger.warning("llm_native_stream_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_native_stream_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc
@@ -268,7 +295,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
+                async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
                     response = await client.post(url, headers=headers, json=payload)
                     if response.status_code >= 400:
                         logger.warning(
@@ -279,6 +306,10 @@ class LlmClient:
                             attempt,
                             response.text[:300],
                         )
+                        if _is_resource_exhausted(response.text):
+                            raise LlmResourceExhaustedError(
+                                f"Model requires more resources than available: {response.text[:600]}"
+                            )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
@@ -292,7 +323,7 @@ class LlmClient:
                     )
         except httpx.TimeoutException as exc:
             logger.warning("llm_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning("llm_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
@@ -352,7 +383,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
+                async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
                     response = await client.post(url, headers=headers, json=payload)
                     if response.status_code >= 400:
                         logger.warning(
@@ -363,6 +394,10 @@ class LlmClient:
                             attempt,
                             response.text[:300],
                         )
+                        if _is_resource_exhausted(response.text):
+                            raise LlmResourceExhaustedError(
+                                f"Model requires more resources than available: {response.text[:600]}"
+                            )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
@@ -403,7 +438,7 @@ class LlmClient:
                     return actions
         except httpx.TimeoutException as exc:
             logger.warning("llm_tools_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc)
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning("llm_tools_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc)
             raise LlmClientError(f"LLM HTTP error: {exc}") from exc
@@ -433,7 +468,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
+                async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
                     response = await client.post(url, headers=headers, json=payload)
                     if response.status_code >= 400:
                         logger.warning(
@@ -444,6 +479,10 @@ class LlmClient:
                             attempt,
                             response.text[:300],
                         )
+                        if _is_resource_exhausted(response.text):
+                            raise LlmResourceExhaustedError(
+                                f"Model requires more resources than available: {response.text[:600]}"
+                            )
                         if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                             await asyncio.sleep(_retry_delay(attempt))
                             continue
@@ -459,7 +498,7 @@ class LlmClient:
             logger.warning(
                 "llm_native_complete_timeout base_url=%s model=%s error=%s", self.base_url, active_model, exc
             )
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_native_complete_httpx_error base_url=%s model=%s error=%s", self.base_url, active_model, exc
@@ -524,7 +563,7 @@ class LlmClient:
         try:
             for attempt in range(1, MAX_RETRIES + 1):
                 async with (
-                    httpx.AsyncClient(timeout=120) as client,
+                    httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client,
                     client.stream("POST", url, headers=headers, json=payload) as response,
                 ):
                     if response.status_code >= 400:
@@ -596,7 +635,7 @@ class LlmClient:
                 "llm_stream_tools_timeout base_url=%s model=%s error=%s",
                 self.base_url, active_model, exc,
             )
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_stream_tools_httpx_error base_url=%s model=%s error=%s",
@@ -653,7 +692,7 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
-                async with httpx.AsyncClient(timeout=120) as client:
+                async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
                     response = await client.post(url, headers=headers, json=payload)
                     if response.status_code >= 400:
                         logger.warning(
@@ -682,7 +721,7 @@ class LlmClient:
                 "llm_native_tools_timeout base_url=%s model=%s error=%s",
                 self.base_url, model, exc,
             )
-            raise LlmClientError(f"LLM timeout: {exc}") from exc
+            raise LlmTimeoutError(f"LLM timeout: {exc}") from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_native_tools_httpx_error base_url=%s model=%s error=%s",

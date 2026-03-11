@@ -975,6 +975,44 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("browser_automation", "code_execution"),
         ),
+        # ── Visualization ──────────────────────────────────────────────
+        "emit_visualization": ToolSpec(
+            name="emit_visualization",
+            required_args=("viz_type", "code"),
+            optional_args=("title",),
+            timeout_seconds=5.0,
+            max_retries=0,
+            description=(
+                "Render a diagram or visualization in the user's UI. "
+                "Use viz_type='mermaid' with valid Mermaid syntax. "
+                "IMPORTANT: Always wrap node labels in double quotes to avoid parse errors, "
+                'e.g. A["My Label"] not A[My Label]. '
+                "Supported diagram types: flowchart, sequenceDiagram, classDiagram, erDiagram, gantt, pie. "
+                "The diagram is rendered live — do NOT create files or code blocks for diagrams."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "viz_type": {
+                        "type": "string",
+                        "enum": ["mermaid", "svg"],
+                        "description": "Visualization format: 'mermaid' for Mermaid diagrams, 'svg' for raw SVG markup.",
+                    },
+                    "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The diagram source code (Mermaid syntax or SVG markup).",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional title for the visualization.",
+                    },
+                },
+                "required": ["viz_type", "code"],
+                "additionalProperties": False,
+            },
+            capabilities=("visualization", "diagramming"),
+        ),
         # ── DevOps: Git tools ────────────────────────────────────────
         "git_log": ToolSpec(
             name="git_log",

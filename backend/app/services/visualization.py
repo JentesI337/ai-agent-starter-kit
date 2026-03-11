@@ -9,6 +9,25 @@ from app.agent_runner_types import PlanTracker
 from app.services.plan_graph import PlanGraph
 
 
+def build_plan_progress_event(
+    tracker: PlanTracker,
+    request_id: str | None = None,
+    session_id: str | None = None,
+    agent: str | None = None,
+) -> dict[str, Any]:
+    """Return a lightweight plan-progress WebSocket event (no Mermaid generation)."""
+    return {
+        "type": "plan_progress",
+        "request_id": request_id,
+        "session_id": session_id,
+        "agent": agent,
+        "steps": [
+            {"index": s.index, "description": s.description, "status": s.status}
+            for s in tracker.steps
+        ],
+    }
+
+
 def build_visualization_event(
     viz_type: str,
     data: str,
@@ -38,6 +57,24 @@ _NODE_PATTERNS = re.compile(
     """,
     re.MULTILINE | re.VERBOSE,
 )
+
+
+# Patterns to detect unquoted node labels in common Mermaid shapes.
+# Negative lookahead (?!") skips labels already wrapped in double quotes.
+_UNQUOTED_RECT_LABEL = re.compile(r'(\b\w[\w.-]*)\[(?!")([^\]"]+)\]')
+_UNQUOTED_DIAMOND_LABEL = re.compile(r'(\b\w[\w.-]*)\{(?!")([^\}"]+)\}')
+
+
+def sanitize_mermaid_labels(code: str) -> str:
+    """Wrap unquoted Mermaid node labels in double-quotes to prevent parse errors.
+
+    LLMs frequently emit labels like ``B[func()]`` where the parentheses are
+    interpreted as Mermaid shape delimiters.  Quoting to ``B["func()"]`` fixes
+    this.  Already-quoted labels are left unchanged.
+    """
+    code = _UNQUOTED_RECT_LABEL.sub(r'\1["\2"]', code)
+    code = _UNQUOTED_DIAMOND_LABEL.sub(r'\1{"\2"}', code)
+    return code
 
 
 def validate_mermaid_node_count(mermaid_code: str, max_nodes: int = 500) -> None:

@@ -1,0 +1,250 @@
+:host {
+  display: block;
+}
+
+.plan-stepper {
+  margin: 8px 0;
+  background: var(--c-bg-window);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color var(--t-slow);
+
+  &.all-done {
+    border-color: var(--c-accent-border);
+  }
+}
+
+// ── Header ──────────────────────────────────────
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--t-fast);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
+.plan-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--c-text-muted);
+}
+
+.plan-counter {
+  font-size: 0.7rem;
+  color: var(--c-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.done-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--c-green-dim);
+  color: var(--c-accent-text);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.plan-toggle {
+  margin-left: auto;
+  color: var(--c-text-muted);
+  display: flex;
+  align-items: center;
+  transition: transform var(--t);
+
+  svg {
+    transition: transform var(--t);
+
+    &.rotated {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+// ── Steps container ─────────────────────────────
+
+.plan-steps {
+  padding: 0 12px 10px;
+  max-height: 600px;
+  overflow: hidden;
+  transition: max-height var(--t-slow), padding var(--t-slow), opacity var(--t);
+  opacity: 1;
+
+  &.hidden {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+  }
+}
+
+// ── Individual step ─────────────────────────────
+
+.step {
+  display: flex;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.step-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.step-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--t-slow);
+}
+
+// ── Status: pending ─────────────────────────────
+
+.step-pending .step-icon {
+  border: 1.5px solid var(--c-border-hi);
+  background: transparent;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--c-text-muted);
+  opacity: 0.5;
+}
+
+// ── Status: in_progress ─────────────────────────
+
+.step-active .step-icon {
+  border: 1.5px solid var(--c-blue);
+  background: var(--c-blue-dim);
+  box-shadow: var(--shadow-glow-blue);
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid transparent;
+  border-top-color: var(--c-blue);
+  border-right-color: var(--c-blue);
+  border-radius: 50%;
+  animation: plan-spin 0.7s linear infinite;
+}
+
+@keyframes plan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ── Status: completed ───────────────────────────
+
+.step-done .step-icon {
+  border: 1.5px solid var(--c-accent);
+  background: var(--c-accent-dim);
+  color: var(--c-accent);
+  box-shadow: var(--shadow-glow-accent);
+}
+
+// ── Status: failed ──────────────────────────────
+
+.step-failed .step-icon {
+  border: 1.5px solid var(--c-red);
+  background: var(--c-red-dim);
+  color: var(--c-red);
+}
+
+// ── Connector line ──────────────────────────────
+
+.step-connector {
+  width: 1.5px;
+  flex: 1;
+  min-height: 6px;
+  margin: 2px 0;
+  transition: background var(--t-slow);
+}
+
+.step-pending .step-connector {
+  background: var(--c-border);
+}
+
+.step-active .step-connector {
+  background: var(--c-blue-border);
+}
+
+.step-done .step-connector {
+  background: var(--c-accent-border);
+}
+
+.step-failed .step-connector {
+  background: var(--c-red);
+  opacity: 0.4;
+}
+
+// ── Step label ──────────────────────────────────
+
+.step-content {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 0;
+  min-height: 20px;
+}
+
+.step-number {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  transition: color var(--t);
+}
+
+.step-label {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  transition: color var(--t);
+}
+
+.step-pending .step-number,
+.step-pending .step-label {
+  color: var(--c-text-muted);
+}
+
+.step-active .step-number {
+  color: var(--c-blue);
+  font-weight: 600;
+}
+
+.step-active .step-label {
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.step-done .step-number,
+.step-done .step-label {
+  color: var(--c-text-dim);
+}
+
+.step-failed .step-number,
+.step-failed .step-label {
+  color: var(--c-red);
+  opacity: 0.8;
+}

@@ -17,7 +17,7 @@ import os
 from typing import Any
 
 from app.agent_runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
-from app.services.visualization import build_visualization_event, plan_tracker_to_mermaid, validate_mermaid_node_count
+from app.services.visualization import build_plan_progress_event, build_visualization_event, sanitize_mermaid_labels, validate_mermaid_node_count
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient
@@ -149,6 +149,9 @@ def build_unified_system_prompt(
         "- The <plan> block is for system tracking only — omit it from your final answer.\n"
         "- For simple questions, skip the plan entirely.\n"
         "- If a step fails, reconsider your approach before continuing.\n"
+        "- When asked to visualize, diagram, or chart something, use the `emit_visualization` tool "
+        "with Mermaid syntax. This renders the diagram live in the user's UI. "
+        "Do NOT write diagram code to files or output raw Mermaid in chat — always use the tool.\n"
     )
 
     # 3.5 Agent-specific capabilities and tools
@@ -485,16 +488,11 @@ class AgentRunner:
                                 "step_descriptions": [s.description for s in extracted_plan.steps],
                             },
                         )
-                    # Emit plan visualization if >= 2 steps
+                    # Emit plan progress as lightweight JSON (frontend renders CSS stepper)
                     if extracted_plan.planning_active and len(extracted_plan.steps) >= 2:
-                        try:
-                            _mermaid_code = plan_tracker_to_mermaid(extracted_plan)
-                            validate_mermaid_node_count(_mermaid_code)
-                            await send_event(build_visualization_event(
-                                "mermaid", _mermaid_code, request_id, session_id, self._agent_name,
-                            ))
-                        except (ValueError, Exception):
-                            pass
+                        await send_event(build_plan_progress_event(
+                            extracted_plan, request_id, session_id, self._agent_name,
+                        ))
 
             # ── FINISH REASON: STOP → done ──
             if stream_result.finish_reason == "stop":
@@ -502,6 +500,14 @@ class AgentRunner:
                 # Strip plan block from final output
                 if loop_state.plan.planning_active:
                     final_text = self._strip_plan_from_text(final_text)
+                    # Mark remaining steps as completed and emit final progress
+                    for step in loop_state.plan.steps:
+                        if step.status in ("pending", "in_progress"):
+                            step.status = "completed"
+                    if len(loop_state.plan.steps) >= 2:
+                        await send_event(build_plan_progress_event(
+                            loop_state.plan, request_id, session_id, self._agent_name,
+                        ))
                 break
 
             # ── FINISH REASON: TOOL_CALLS → execute tools ──
@@ -591,16 +597,11 @@ class AgentRunner:
                     else:
                         _prev_step_idx = loop_state.plan.current_step_index
                         self._update_plan_progress(loop_state.plan, tool_results)
-                        # Re-emit visualization when step advanced
+                        # Re-emit plan progress when step advanced
                         if loop_state.plan.current_step_index != _prev_step_idx and len(loop_state.plan.steps) >= 2:
-                            try:
-                                _mermaid_code = plan_tracker_to_mermaid(loop_state.plan)
-                                validate_mermaid_node_count(_mermaid_code)
-                                await send_event(build_visualization_event(
-                                    "mermaid", _mermaid_code, request_id, session_id, self._agent_name,
-                                ))
-                            except (ValueError, Exception):
-                                pass
+                            await send_event(build_plan_progress_event(
+                                loop_state.plan, request_id, session_id, self._agent_name,
+                            ))
 
                     # Periodic progress injection
                     if loop_state.iteration % settings.runner_planning_progress_interval == 0:
@@ -960,6 +961,56 @@ class AgentRunner:
                 logger.warning("Tool execution failed: %s %s", tool_name, exc, exc_info=True)
 
             duration_ms = int((time.monotonic() - start) * 1000)
+
+            # Emit emit_visualization result to frontend
+            if tool_name == "emit_visualization" and not is_error:
+                try:
+                    viz_payload = json.loads(result_text)
+                    if viz_payload.get("type") == "visualization":
+                        viz_type = viz_payload.get("viz_type", "mermaid")
+                        viz_code = viz_payload.get("code", "")
+                        if viz_code:
+                            if viz_type == "mermaid":
+                                validate_mermaid_node_count(viz_code)
+                                viz_code = sanitize_mermaid_labels(viz_code)
+                            await send_event(build_visualization_event(
+                                viz_type,
+                                viz_code,
+                                request_id,
+                                session_id,
+                                self._agent_name,
+                            ))
+                            title = viz_payload.get("title") or ""
+                            result_text = f"Visualization ({viz_type}) rendered in the user's UI."
+                            if title:
+                                result_text += f" Title: {title}"
+                except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    result_text = f"Visualization failed: {exc}"
+                    is_error = True
+
+            # Emit screenshot visualization BEFORE truncation (base64 is huge)
+            if tool_name == "browser_screenshot" and not is_error:
+                try:
+                    img_payload = json.loads(result_text)
+                    if img_payload.get("type") == "image":
+                        b64 = img_payload["data"]
+                        fmt = img_payload.get("format", "png")
+                        await send_event(build_visualization_event(
+                            "image",
+                            f"data:image/{fmt};base64,{b64}",
+                            request_id,
+                            session_id,
+                            self._agent_name,
+                        ))
+                        # Replace with compact placeholder — LLM doesn't need raw base64
+                        result_text = json.dumps({
+                            "type": "image",
+                            "format": fmt,
+                            "status": "screenshot_captured",
+                            "note": "Screenshot taken and displayed to user. Base64 data omitted from context.",
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
             # Truncate large results
             if len(result_text) > self._tool_result_max_chars:

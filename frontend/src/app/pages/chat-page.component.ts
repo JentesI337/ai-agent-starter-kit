@@ -16,6 +16,7 @@ import { Subscription } from 'rxjs';
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
 import { AgentStateService, ChatLine, PolicyApprovalItem, VisualizationData } from '../services/agent-state.service';
 import { MermaidDiagramComponent } from '../components/mermaid-diagram/mermaid-diagram.component';
+import { PlanProgressComponent } from '../components/plan-progress/plan-progress.component';
 import { MonitoringService } from '../services/monitoring.service';
 import { SecureStorageService } from '../services/secure-storage.service';
 import { UploadResult, UploadService } from '../services/upload.service';
@@ -36,7 +37,7 @@ interface PendingFile {
 @Component({
   selector: 'app-chat-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
+  imports: [CommonModule, FormsModule, MermaidDiagramComponent, PlanProgressComponent],
   templateUrl: './chat-page.component.html',
   styleUrl: './chat-page.component.scss',
 })
@@ -674,6 +675,7 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
 
     if (event.type === 'socket_raw') return;
+    if (event.type === 'ping') return;
 
     if (event.type === 'socket_close') {
       if (this.agentState.activeAssistantIndex !== null) {
@@ -702,6 +704,18 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     if (event.type === 'agent_step' && event.step) {
       this.agentState.pushChatLine({ role: 'system', text: `Step: ${event.step}` });
+      return;
+    }
+
+    if (event.type === 'plan_progress' && event.steps) {
+      this.agentState.upsertPlanProgress({
+        requestId: event.request_id ?? '',
+        steps: event.steps.map(s => ({
+          index: s.index,
+          description: s.description,
+          status: s.status as 'pending' | 'in_progress' | 'completed' | 'failed',
+        })),
+      });
       return;
     }
 

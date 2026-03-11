@@ -64,6 +64,9 @@ def sync_custom_agents(
     coder_agent_id: str,
     review_agent_id: str,
     effective_orchestrator_agent_ids_fn,
+    browser_pool=None,
+    repl_manager=None,
+    connector_services: tuple | None = None,
 ) -> None:
     from app.agent import HeadAgent
     from app.agents.unified_adapter import UnifiedAgentAdapter
@@ -104,6 +107,17 @@ def sync_custom_agents(
             agent=adapter,
             state_store=components.state_store,
         )
+
+        # Wire runtime services (browser pool, REPL, connectors) to custom agent tooling
+        _tools = getattr(delegate, "tools", None)
+        if _tools is not None:
+            if browser_pool is not None and hasattr(_tools, "set_browser_pool"):
+                _tools.set_browser_pool(browser_pool)
+            if repl_manager is not None and hasattr(_tools, "set_repl_manager"):
+                _tools.set_repl_manager(repl_manager)
+            if connector_services is not None and hasattr(_tools, "set_connector_services"):
+                _tools.set_connector_services(*connector_services)
+
         components.custom_agent_ids.add(custom_id)
         wf = record.custom_workflow
         if wf and wf.allow_subrun_delegation:

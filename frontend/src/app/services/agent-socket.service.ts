@@ -33,6 +33,7 @@ export interface AgentSocketEvent {
   usage?: unknown;
   viz_type?: string;
   data?: string;
+  steps?: Array<{ index: number; description: string; status: string }>;
   approval?: {
     approval_id?: string;
     tool?: string;

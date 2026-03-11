@@ -172,6 +172,12 @@
           <div class="viz-svg" *ngIf="line.visualization.vizType === 'svg'" [innerHTML]="sanitizeSvg(line.visualization.data)"></div>
         </ng-container>
 
+        <!-- Plan Progress -->
+        <app-plan-progress
+          *ngIf="line.planProgress"
+          [steps]="line.planProgress.steps">
+        </app-plan-progress>
+
         <!-- Inline policy actions -->
         <div class="policy-inline" *ngIf="hasPendingPolicyAction(line)">
           <span class="pi-tool">{{ line.policyAction?.tool }}</span>

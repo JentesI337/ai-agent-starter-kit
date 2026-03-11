@@ -1180,6 +1180,7 @@ class Settings(BaseModel):
         ["minimax-m2:cloud", "gpt-oss:20b-cloud", "qwen3-coder:480b-cloud"],
     )
     api_base_url: str = os.getenv("API_BASE_URL", "http://localhost:11434/api")
+    llm_request_timeout_seconds: int = int(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "180"))
     ollama_bin: str = os.getenv("OLLAMA_BIN", "")
     runtime_state_file: str = _resolve_path_from_workspace(
         os.getenv("RUNTIME_STATE_FILE"),

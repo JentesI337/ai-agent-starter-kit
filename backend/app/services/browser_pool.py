@@ -126,12 +126,54 @@ class BrowserPool:
             )
 
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
+        try:
+            self._browser = await self._playwright.chromium.launch(headless=True)
+        except Exception as exc:
+            error_msg = str(exc)
+            if "Executable doesn't exist" in error_msg or "browserType.launch" in error_msg:
+                logger.info("chromium_not_found — auto-installing via playwright install chromium")
+                installed = await self._auto_install_chromium()
+                if installed:
+                    self._browser = await self._playwright.chromium.launch(headless=True)
+                else:
+                    raise RuntimeError(
+                        "Chromium browser not found and auto-install failed. "
+                        "Run manually: python -m playwright install chromium"
+                    ) from exc
+            else:
+                raise
         logger.info("browser_pool_started browser=chromium headless=true")
 
         # Start background TTL eviction task
         if self._ttl_task is None:
             self._ttl_task = asyncio.create_task(self._eviction_loop())
+
+    @staticmethod
+    async def _auto_install_chromium() -> bool:
+        """Attempt to install Chromium via ``playwright install chromium``."""
+        import subprocess
+        import sys
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                logger.info("chromium_auto_install_success")
+                return True
+            logger.warning(
+                "chromium_auto_install_failed exit_code=%d stderr=%s",
+                result.returncode,
+                result.stderr[:500],
+            )
+            return False
+        except Exception as e:
+            logger.warning("chromium_auto_install_error: %s", e)
+            return False
 
     async def _eviction_loop(self) -> None:
         """Periodically close contexts that have been idle too long."""

@@ -1004,6 +1004,27 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
             value = text
         return f"Typed into '{selector}'. Current value: '{value}'"
 
+    def emit_visualization(self, viz_type: str, code: str, title: str | None = None) -> str:
+        """Emit a visualization to the user's UI.
+
+        Supported viz_type values: 'mermaid', 'svg'.
+        For mermaid, provide valid Mermaid diagram syntax (flowchart, sequence, etc.).
+        """
+        viz_type = (viz_type or "").strip().lower()
+        if viz_type not in ("mermaid", "svg"):
+            raise ToolExecutionError(
+                f"Unsupported viz_type '{viz_type}'. Use 'mermaid' or 'svg'."
+            )
+        code = (code or "").strip()
+        if not code:
+            raise ToolExecutionError("Visualization code must not be empty.")
+        return json.dumps({
+            "type": "visualization",
+            "viz_type": viz_type,
+            "code": code,
+            "title": (title or "").strip() or None,
+        })
+
     async def browser_screenshot(self, session_id: str | None = None) -> str:
         """Take a screenshot of the current page. Returns Base64-encoded PNG."""
         pool = self._require_browser_pool()

@@ -76,6 +76,10 @@ class LlmTemporarilyUnavailableError(LlmClientError):
     reason: str = "temporary_unavailable"
 
 
+class LlmResourceExhaustedError(LlmClientError):
+    reason: str = "resource_exhausted"
+
+
 class RuntimeSwitchError(AppError):
     pass
 

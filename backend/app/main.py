@@ -794,6 +794,15 @@ def _effective_orchestrator_agent_ids(components: RuntimeComponents | None = Non
 def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
     if components is None:
         components = _get_runtime_components()
+
+    # Build connector services tuple if connectors are enabled
+    _conn_services: tuple | None = None
+    if settings.api_connectors_enabled:
+        try:
+            _conn_services = (get_connector_store(), get_credential_store(), ConnectorRegistry())
+        except Exception:
+            _conn_services = None
+
     _sync_custom_agents_impl(
         components=components,
         normalize_agent_id_fn=_normalize_agent_id,
@@ -801,6 +810,9 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         coder_agent_id=CODER_AGENT_ID,
         review_agent_id=REVIEW_AGENT_ID,
         effective_orchestrator_agent_ids_fn=_effective_orchestrator_agent_ids,
+        browser_pool=_browser_pool,
+        repl_manager=_repl_session_manager,
+        connector_services=_conn_services,
     )
     if components.policy_approval_handler is not None:
         for agent_instance in components.agent_registry.values():

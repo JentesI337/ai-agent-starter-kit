@@ -45,7 +45,10 @@ function ensureMermaidInit(): void {
   template: `
     <div class="diagram-container">
       <div class="diagram-content" #diagramEl></div>
-      <div class="diagram-error" *ngIf="error">{{ error }}</div>
+      <div class="diagram-error" *ngIf="error">
+        {{ error }}
+        <pre class="diagram-source" *ngIf="showSource">{{ code }}</pre>
+      </div>
       <div class="diagram-actions" *ngIf="!error && rendered">
         <button (click)="exportSvg()" title="Download SVG">SVG</button>
         <button (click)="exportPng()" title="Download PNG">PNG</button>
@@ -61,6 +64,7 @@ export class MermaidDiagramComponent implements AfterViewInit, OnChanges {
 
   error = '';
   rendered = false;
+  showSource = false;
   private _uniqueId = '';
 
   ngAfterViewInit(): void {
@@ -79,13 +83,15 @@ export class MermaidDiagramComponent implements AfterViewInit, OnChanges {
     ensureMermaidInit();
     this.error = '';
     this.rendered = false;
+    this.showSource = false;
 
     try {
       const { svg } = await mermaid.render(this._uniqueId, this.code);
       this.diagramEl.nativeElement.innerHTML = svg;
       this.rendered = true;
     } catch (err: unknown) {
-      this.error = err instanceof Error ? err.message : 'Failed to render diagram';
+      this.error = 'Diagram could not be rendered \u2014 the syntax may be invalid.';
+      this.showSource = true;
       this.diagramEl.nativeElement.innerHTML = '';
     }
   }

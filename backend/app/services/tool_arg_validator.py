@@ -33,6 +33,7 @@ class ToolArgValidator:
             "browser_screenshot": self._validate_session_id_only_args,
             "browser_read_dom": self._validate_browser_read_dom_args,
             "browser_evaluate_js": self._validate_browser_evaluate_js_args,
+            "emit_visualization": self._validate_emit_visualization_args,
             "spawn_subrun": self._validate_spawn_subrun_args,
             "create_workflow": self._validate_create_workflow_args,
             "delete_workflow": self._validate_delete_workflow_args,
@@ -489,6 +490,27 @@ class ToolArgValidator:
         return None
 
     def _validate_noop_tool_args(self, normalized_args: dict[str, object]) -> str | None:
+        return None
+
+    def _validate_emit_visualization_args(self, normalized_args: dict[str, object]) -> str | None:
+        viz_type, err = self._require_str_arg(normalized_args, "viz_type", max_len=20)
+        if err:
+            return err
+        if viz_type not in ("mermaid", "svg"):
+            return "viz_type must be 'mermaid' or 'svg'"
+        normalized_args["viz_type"] = viz_type
+
+        code, err = self._require_str_arg(normalized_args, "code", max_len=50_000)
+        if err:
+            return err
+        normalized_args["code"] = code
+
+        if "title" in normalized_args:
+            title, err = self._require_str_arg(normalized_args, "title", max_len=200, non_empty=False)
+            if err:
+                return err
+            normalized_args["title"] = title
+
         return None
 
     def _validate_create_workflow_args(self, normalized_args: dict[str, object]) -> str | None:

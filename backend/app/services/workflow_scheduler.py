@@ -56,7 +56,9 @@ async def _tick() -> None:
     except RuntimeError:
         return  # system not ready yet
 
-    deps.sync_custom_agents()
+    # NOTE: Do NOT call deps.sync_custom_agents() here — it mutates the global
+    # agent_registry which can race with concurrent WebSocket handlers.  The
+    # scheduler only needs to read workflow definitions, not rebuild agents.
     now = datetime.now(timezone.utc)
 
     for workflow in deps.custom_agent_store.list():

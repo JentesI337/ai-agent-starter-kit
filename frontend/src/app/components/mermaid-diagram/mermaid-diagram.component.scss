@@ -27,6 +27,19 @@
   border-top: 1px solid rgba(255, 85, 85, 0.15);
 }
 
+.diagram-source {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: var(--c-text-dim, #9b9b9b);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .diagram-actions {
   display: flex;
   justify-content: flex-end;

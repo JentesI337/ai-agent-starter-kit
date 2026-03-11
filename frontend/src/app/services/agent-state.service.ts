@@ -169,10 +169,22 @@ export interface VisualizationData {
   data: string;
 }
 
+export interface PlanProgressStep {
+  index: number;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+}
+
+export interface PlanProgressData {
+  requestId: string;
+  steps: PlanProgressStep[];
+}
+
 export interface ChatLine {
   role: 'user' | 'agent' | 'system';
   text: string;
   visualization?: VisualizationData;
+  planProgress?: PlanProgressData;
   policyAction?: {
     approvalId: string;
     runId: string;
@@ -311,6 +323,17 @@ export class AgentStateService implements OnDestroy {
 
   pushChatLine(line: ChatLine): void {
     this._chatLines.next([...this._chatLines.value, line]);
+  }
+
+  upsertPlanProgress(data: PlanProgressData): void {
+    const lines = [...this._chatLines.value];
+    const idx = lines.findIndex(l => l.planProgress?.requestId === data.requestId);
+    if (idx >= 0) {
+      lines[idx] = { ...lines[idx], planProgress: data };
+    } else {
+      lines.push({ role: 'agent', text: '', planProgress: data });
+    }
+    this._chatLines.next(lines);
   }
 
   appendTokenToAssistant(token: string): void {

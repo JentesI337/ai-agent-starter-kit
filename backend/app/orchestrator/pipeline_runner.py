@@ -54,6 +54,17 @@ FAILOVER_REASON_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("timeout", ("timeout", "timed out")),
     ("temporary_unavailable", ("temporarily unavailable", "service unavailable", "503")),
     ("network_error", ("connection", "network", "dns")),
+    (
+        "resource_exhausted",
+        (
+            "requires more system memory",
+            "out of memory",
+            "insufficient memory",
+            "not enough memory",
+            "cuda out of memory",
+            "gpu memory",
+        ),
+    ),
 )
 
 NON_RETRYABLE_FAIL_FAST_BRANCH_BY_REASON: dict[str, str] = {
@@ -503,6 +514,7 @@ class PipelineRunner:
             "temporary_unavailable",
             "network_error",
             "role_ordering",
+            "resource_exhausted",
         }
 
     def _resolve_recovery_branch(self, reason: str) -> str:

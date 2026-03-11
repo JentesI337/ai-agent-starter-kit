@@ -749,6 +749,23 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             return
         session_workers[session_id] = asyncio.create_task(drain_session_queue(session_id))
 
+    # --- WebSocket keepalive ping ---
+    _WS_PING_INTERVAL = 25  # seconds — below typical proxy/LB idle timeout (60s)
+
+    async def _ping_loop() -> None:
+        """Send periodic pings to keep the connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(_WS_PING_INTERVAL)
+                try:
+                    await send_event({"type": "ping"})
+                except Exception:
+                    return  # connection gone — let the main loop handle it
+        except asyncio.CancelledError:
+            return
+
+    _ping_task = asyncio.create_task(_ping_loop(), name="ws-ping")
+
     try:
         while True:
             request_id = str(uuid.uuid4())
@@ -1715,6 +1732,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         except ClientDisconnectedError:
             return
     finally:
+        _ping_task.cancel()
         if deps.policy_approval_service is not None:
             for _cleanup_sid in used_session_ids:
                 try:

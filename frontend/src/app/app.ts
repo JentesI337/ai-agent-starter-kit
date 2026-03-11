@@ -16,8 +16,7 @@ export class App {
     readonly agentState: AgentStateService,
     private readonly socket: AgentSocketService,
   ) {
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.socket.connect(`${wsProto}//${window.location.host}/ws/agent`);
+    this.socket.connect('ws://localhost:8000/ws/agent');
     this.agentState.init();
   }
 }
