@@ -98,7 +98,7 @@ export class SettingsPageComponent implements OnInit {
     { id: 'security',   label: 'Security',         icon: '⛊', sectionKeys: ['security'] },
     { id: 'agents_cfg', label: 'Agent Names',      icon: '◎', sectionKeys: ['agent_names'] },
     { id: 'prompts',    label: 'Prompts',          icon: '✦', sectionKeys: ['prompts'] },
-    { id: 'extensions', label: 'Extensions',       icon: '◇', sectionKeys: ['browser', 'repl', 'rag', 'vision_web', 'skills'] },
+    { id: 'extensions', label: 'Extensions',       icon: '◇', sectionKeys: ['browser', 'repl', 'multimodal', 'rag', 'vision_web', 'skills'] },
     { id: 'subruns',    label: 'Subruns',          icon: '▣', sectionKeys: ['subrun'] },
   ];
 
@@ -477,6 +477,7 @@ export class SettingsPageComponent implements OnInit {
 
   fieldType(field: SectionFieldMeta): string {
     if (field.sensitive) return 'sensitive';
+    if (field.choices && field.choices.length > 0) return 'choice';
     const t = field.type.toLowerCase();
     if (t === 'boolean' || t === 'bool') return 'boolean';
     if (t === 'integer' || t === 'int') return 'number';
@@ -530,6 +531,22 @@ export class SettingsPageComponent implements OnInit {
   isBoolean(v: unknown): boolean { return v === true || v === false; }
   isNumber(v: unknown): boolean { return typeof v === 'number'; }
   isArray(v: unknown): boolean { return Array.isArray(v); }
+
+  private readonly providerDependentFields: Record<string, { providerField: string; showFor: string[] }> = {
+    'multimodal_audio_api_key':      { providerField: 'multimodal_audio_provider', showFor: ['openai'] },
+    'multimodal_audio_base_url':     { providerField: 'multimodal_audio_provider', showFor: ['openai'] },
+    'multimodal_audio_model':        { providerField: 'multimodal_audio_provider', showFor: ['openai'] },
+    'multimodal_image_gen_api_key':  { providerField: 'multimodal_image_gen_provider', showFor: ['openai', 'stabilityai'] },
+    'multimodal_image_gen_model':    { providerField: 'multimodal_image_gen_provider', showFor: ['openai', 'stabilityai'] },
+    'vision_api_key':                { providerField: 'vision_provider', showFor: ['openai', 'gemini'] },
+  };
+
+  isFieldVisible(f: SectionFieldMeta): boolean {
+    const dep = this.providerDependentFields[f.name];
+    if (!dep) return true;
+    const providerValue = String(this.sectionDraft[dep.providerField] ?? '').toLowerCase();
+    return dep.showFor.includes(providerValue);
+  }
 
   private flashMessage(target: 'section', msg: string, type: 'ok' | 'err'): void {
     this.sectionMessage = msg;

@@ -11,6 +11,7 @@ export interface SectionFieldMeta {
   description?: string;
   sensitive?: boolean;
   current_value?: unknown;
+  choices?: string[];
 }
 
 export interface SectionMeta {

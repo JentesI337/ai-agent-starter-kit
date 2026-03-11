@@ -312,11 +312,15 @@ class ConfigService:
             for fname, finfo in model_cls.model_fields.items():
                 annotation = finfo.annotation
                 type_name = getattr(annotation, "__name__", str(annotation))
-                fields[fname] = {
+                extra = finfo.json_schema_extra if isinstance(finfo.json_schema_extra, dict) else {}
+                field_meta: dict[str, Any] = {
                     "type": type_name,
                     "default": finfo.default if finfo.default is not None else None,
                     "sensitive": fname in SENSITIVE_FIELDS,
                 }
+                if "choices" in extra:
+                    field_meta["choices"] = extra["choices"]
+                fields[fname] = field_meta
             result.append(SectionMeta(key=key, fields=fields))
         return result
 

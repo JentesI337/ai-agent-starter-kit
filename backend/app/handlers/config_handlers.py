@@ -13,7 +13,12 @@ def handle_config_sections(request: dict[str, Any]) -> dict[str, Any]:
         "sections": [
             {
                 "key": s.key,
-                "fields": s.fields,
+                "label": s.key.replace("_", " ").title(),
+                "field_count": len(s.fields),
+                "fields": [
+                    {"name": fname, **fmeta}
+                    for fname, fmeta in s.fields.items()
+                ],
             }
             for s in sections
         ],

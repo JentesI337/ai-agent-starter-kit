@@ -89,7 +89,7 @@
         {{ sectionMessage }}
       </div>
       <div class="fields">
-        <div class="field" *ngFor="let f of filteredFields" [class.modified]="isFieldModified(f.name)" [class.sensitive]="f.sensitive">
+        <div class="field" *ngFor="let f of filteredFields" [class.modified]="isFieldModified(f.name)" [class.sensitive]="f.sensitive" [hidden]="!isFieldVisible(f)">
 
           <div class="field-head">
             <label class="field-name">{{ f.name }}</label>
@@ -110,6 +110,14 @@
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
               <span class="toggle-label">{{ getDraftValue(f.name) ? 'Enabled' : 'Disabled' }}</span>
             </label>
+          </div>
+
+          <!-- Choice (dropdown) -->
+          <div class="field-val" *ngIf="!f.sensitive && fieldType(f) === 'choice'">
+            <select class="field-input" [value]="getDraftValue(f.name) ?? ''"
+                    (change)="setDraftString(f.name, $event)">
+              <option *ngFor="let opt of f.choices" [value]="opt">{{ opt }}</option>
+            </select>
           </div>
 
           <!-- Number -->
