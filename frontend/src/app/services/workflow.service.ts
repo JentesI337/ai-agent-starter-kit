@@ -117,7 +117,7 @@ export interface WorkflowTemplateListResponse {
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowService {
-  private readonly apiBase = window.location.origin;
+  private readonly apiBase = 'http://localhost:8000';
 
   constructor(private readonly http: HttpClient) {}
 

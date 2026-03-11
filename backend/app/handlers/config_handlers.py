@@ -63,14 +63,28 @@ def handle_config_update(request: dict[str, Any]) -> dict[str, Any]:
             })
     return {
         "ok": len(errors) == 0,
-        "applied": applied,
-        "errors": errors,
+        "changes": applied,
+        "validation_errors": errors,
     }
 
 
 def handle_config_diff(request: dict[str, Any]) -> dict[str, Any]:
     svc = get_config_service()
-    return {"diff": svc.export_diff()}
+    raw = svc.export_diff()
+    # Reshape to match frontend ConfigDiffResponse: {overrides: {section: {field: {env_value, runtime_value}}}}
+    overrides: dict[str, dict[str, dict[str, Any]]] = {}
+    for section_key, fields in raw.items():
+        section_overrides: dict[str, dict[str, Any]] = {}
+        for field_name, info in fields.items():
+            env_value = getattr(svc._settings, field_name, None)
+            runtime_value = svc.get_value(section_key, field_name)
+            section_overrides[field_name] = {
+                "env_value": env_value,
+                "runtime_value": runtime_value,
+            }
+        if section_overrides:
+            overrides[section_key] = section_overrides
+    return {"overrides": overrides}
 
 
 def handle_config_reset(request: dict[str, Any]) -> dict[str, Any]:
@@ -78,5 +92,9 @@ def handle_config_reset(request: dict[str, Any]) -> dict[str, Any]:
     if not section_key:
         return {"error": "sectionKey is required"}
     svc = get_config_service()
+    # Collect field names that had overrides before reset
+    from app.config_sections import SECTION_REGISTRY
+    model_cls = SECTION_REGISTRY.get(section_key)
+    reset_fields = list(model_cls.model_fields.keys()) if model_cls else []
     ok = svc.reset_section(section_key)
-    return {"ok": ok, "sectionKey": section_key}
+    return {"ok": ok, "sectionKey": section_key, "reset_fields": reset_fields if ok else []}

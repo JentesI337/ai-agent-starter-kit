@@ -976,8 +976,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   webhookUrl(workflowId: string | null): string {
     if (!workflowId) return '';
-    const base = window.location.origin;
-    return `${base}/api/webhooks/${workflowId}`;
+    return `http://localhost:8000/api/webhooks/${workflowId}`;
   }
 
   cronHumanReadable(expr: string | undefined): string {

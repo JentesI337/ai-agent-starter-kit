@@ -75,13 +75,15 @@ def build_fastapi_app(*, title: str, settings) -> FastAPI:
         redoc_url="/redoc" if show_docs else None,
         openapi_url="/openapi.json" if show_docs else None,
     )
-    configure_cors(app=app, settings=settings)
     # SEC (OE-03): Add rate limiting middleware
     app.add_middleware(_RateLimitMiddleware)
     # SEC (API-05): Add security headers to all responses
     app.add_middleware(_SecurityHeaderMiddleware)
     # SEC (API-03): Enforce request body size limits
     app.add_middleware(_RequestSizeLimitMiddleware)
+    # CORS must be added LAST so it is the outermost middleware —
+    # otherwise preflight OPTIONS responses from inner middleware lack CORS headers.
+    configure_cors(app=app, settings=settings)
     return app
 
 
