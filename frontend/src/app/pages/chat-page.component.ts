@@ -76,7 +76,7 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
   isDragOver = false;
 
   private readonly subscriptions = new Subscription();
-  private readonly wsUrl = 'ws://localhost:8000/ws/agent';
+  private readonly wsUrl = 'ws://127.0.0.1:8000/ws/agent';
   private readonly policyApprovalBusy = new Set<string>();
   private approvalPollTimer: number | null = null;
   private approvalPollInFlight = false;

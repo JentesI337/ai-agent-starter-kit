@@ -18,17 +18,17 @@ def _get_store():
 def handle_agents_config_list(request: dict[str, Any]) -> dict[str, Any]:
     store = _get_store()
     records = store.list_all()
-    configs: dict[str, dict] = {}
+    agents: list[dict] = []
     for record in records:
-        configs[record.agent_id] = {
+        agents.append({
             "agent_id": record.agent_id,
             **record.constraints.model_dump(),
             "read_only": record.tool_policy.read_only,
             "mandatory_deny_tools": record.tool_policy.mandatory_deny,
             "additional_deny_tools": record.tool_policy.additional_deny,
             "additional_allow_tools": record.tool_policy.additional_allow,
-        }
-    return {"configs": configs}
+        })
+    return {"agents": agents}
 
 
 def handle_agents_config_get(request: dict[str, Any]) -> dict[str, Any]:

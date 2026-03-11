@@ -85,7 +85,14 @@ export class AgentSocketService {
       this.reconnectTimer = null;
     }
 
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      this.connectedSubject.next(false);
+      this.scheduleReconnect();
+      return;
+    }
     this.socket = ws;
 
     ws.onopen = () => {
@@ -105,11 +112,7 @@ export class AgentSocketService {
       this.ngZone.run(() => {
         this.connectedSubject.next(false);
         this.eventsSubject.next({ type: 'socket_close', message: 'Socket closed.' });
-        if (!this.manualDisconnect) {
-          this.reconnectTimer = window.setTimeout(() => {
-            this.connect(this.socketUrl);
-          }, 1500);
-        }
+        this.scheduleReconnect();
       });
     };
     ws.onerror = () => {
@@ -155,6 +158,15 @@ export class AgentSocketService {
       typeof (payload as AgentSocketEnvelope).seq === 'number' &&
       'event' in payload
     );
+  }
+
+  private scheduleReconnect(): void {
+    if (this.manualDisconnect) return;
+    if (this.reconnectTimer !== null) return;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect(this.socketUrl);
+    }, 1500);
   }
 
   private handleSequence(seq: number): void {

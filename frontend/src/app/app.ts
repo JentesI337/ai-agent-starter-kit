@@ -16,7 +16,7 @@ export class App {
     readonly agentState: AgentStateService,
     private readonly socket: AgentSocketService,
   ) {
-    this.socket.connect('ws://localhost:8000/ws/agent');
+    this.socket.connect('ws://127.0.0.1:8000/ws/agent');
     this.agentState.init();
   }
 }

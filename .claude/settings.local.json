@@ -34,7 +34,8 @@
       "Read(//c/Users/wisni/code/git/ai-agent-starter-kit/$USERPROFILE/**)",
       "Read(//c/Users/wisni/code/git/ai-agent-starter-kit/**)",
       "Bash(\"C:\\\\Users\\\\wisni\\\\code\\\\git\\\\ai-agent-starter-kit\\\\backend\\\\.venv\\\\Scripts\\\\piper.exe\" --help)",
-      "Bash(\"C:\\\\Users\\\\wisni\\\\code\\\\git\\\\ai-agent-starter-kit\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\":*)"
+      "Bash(\"C:\\\\Users\\\\wisni\\\\code\\\\git\\\\ai-agent-starter-kit\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\":*)",
+      "Bash(npm run:*)"
     ]
   }
 }

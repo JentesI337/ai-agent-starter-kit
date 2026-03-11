@@ -162,10 +162,14 @@ export class SettingsPageComponent implements OnInit {
     this.agentMessage = '';
     this.configService.getAgentConfigs().subscribe({
       next: (res) => {
-        this.agentConfigs = res.agents;
-        if (res.agents.length > 0 && !this.selectedAgentId) {
-          this.selectAgent(res.agents[0].agent_id);
+        this.agentConfigs = res.agents ?? [];
+        if (this.agentConfigs.length > 0 && !this.selectedAgentId) {
+          this.selectAgent(this.agentConfigs[0].agent_id);
         }
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.agentMessage = `Failed to load agent configs: ${err?.error?.detail ?? err.message}`;
         this.cdr.markForCheck();
       },
     });
