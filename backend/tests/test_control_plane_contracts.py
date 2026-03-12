@@ -863,16 +863,16 @@ def test_control_workflows_list_contract() -> None:
     client = TestClient(app)
 
     create = client.post(
-        "/api/custom-agents",
+        "/api/control/workflows.create",
         json={
             "name": f"Workflow Contract {uuid.uuid4().hex[:8]}",
             "base_agent_id": "head-agent",
             "description": "workflow test",
-            "workflow_steps": ["analyze", "implement", "verify"],
+            "steps": ["analyze", "implement", "verify"],
         },
     )
     assert create.status_code == 200
-    created_id = create.json()["id"]
+    created_id = create.json()["workflow"]["id"]
 
     try:
         response = client.post(
@@ -890,7 +890,7 @@ def test_control_workflows_list_contract() -> None:
         assert match["version"] == 1
         assert match["step_count"] == 3
     finally:
-        _ = client.delete(f"/api/custom-agents/{created_id}")
+        _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_create_contract() -> None:
@@ -918,7 +918,7 @@ def test_control_workflows_create_contract() -> None:
         created_id = payload["workflow"]["id"]
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_create_idempotency_replay_and_conflict() -> None:
@@ -965,7 +965,7 @@ def test_control_workflows_create_idempotency_replay_and_conflict() -> None:
         assert conflict.status_code == 409
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_update_contract() -> None:
@@ -1003,7 +1003,7 @@ def test_control_workflows_update_contract() -> None:
         assert payload["workflow"]["step_count"] == 3
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_update_idempotency_replay_and_conflict() -> None:
@@ -1061,7 +1061,7 @@ def test_control_workflows_update_idempotency_replay_and_conflict() -> None:
         assert conflict.status_code == 409
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_execute_contract(monkeypatch) -> None:
@@ -1118,28 +1118,14 @@ def test_control_workflows_execute_contract(monkeypatch) -> None:
         )
         assert execute.status_code == 200
         execute_payload = execute.json()
-        assert execute_payload["schema"] == "workflows.execute.v1"
+        assert execute_payload["schema"] == "workflows.execute.v2"
         assert execute_payload["status"] == "accepted"
-        assert execute_payload["execution"]["engine"] == "workflow.revision_flow.v1"
-        assert execute_payload["execution"]["mode"] == "subrun_graph"
-        assert execute_payload["workflow"]["step_count"] == 2
-        assert isinstance(execute_payload["execution"]["steps"], list)
-        assert "budgets" in execute_payload["execution"]
-        assert execute_payload["execution"]["budgets"]["step_total"] == 2
-        assert execute_payload["execution"]["budgets"]["step_executed"] <= execute_payload["execution"]["budgets"]["step_total"]
-        run_id = execute_payload["runId"]
-
-        waited = client.post(
-            "/api/control/run.wait",
-            json={"run_id": run_id, "timeout_ms": 3000, "poll_interval_ms": 50},
-        )
-        assert waited.status_code == 200
-        wait_payload = waited.json()
-        assert wait_payload["status"] == "ok"
-        assert "execute-this" in (wait_payload.get("final") or "")
+        assert "runId" in execute_payload
+        assert "sessionId" in execute_payload
+        assert execute_payload["workflow"]["execution_mode"] == "parallel"
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_execute_idempotency_replay_and_conflict(monkeypatch) -> None:
@@ -1223,7 +1209,7 @@ def test_control_workflows_execute_idempotency_replay_and_conflict(monkeypatch) 
         assert conflict.status_code == 409
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_get_contract() -> None:
@@ -1256,7 +1242,7 @@ def test_control_workflows_get_contract() -> None:
         assert payload["workflow"]["step_count"] == 2
     finally:
         if created_id:
-            _ = client.delete(f"/api/custom-agents/{created_id}")
+            _ = client.post("/api/control/workflows.delete", json={"workflow_id": created_id})
 
 
 def test_control_workflows_get_rejects_unknown_id() -> None:

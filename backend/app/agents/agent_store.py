@@ -324,6 +324,9 @@ class _CompatAgentDef:
                 tp["deny"] = list(record.tool_policy.additional_deny)
             self.tool_policy = tp
         self.allow_subrun_delegation = wf.allow_subrun_delegation if wf else False
+        self.execution_mode = wf.execution_mode if wf else "parallel"
+        self.workflow_graph = wf.workflow_graph if wf else None
+        self.triggers = [t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in (wf.triggers if wf else [])]
         self.capabilities = list(record.capabilities)
         self.workspace_scope = wf.workspace_scope if wf else None
         self.skills_scope = wf.skills_scope if wf else None
@@ -396,6 +399,9 @@ def _compat_request_to_dict(request, id_factory=None) -> dict[str, Any]:
             "base_agent_id": base_agent_id,
             "workflow_steps": wf_steps,
             "allow_subrun_delegation": bool(getattr(request, "allow_subrun_delegation", False)),
+            "execution_mode": (getattr(request, "execution_mode", None) or "parallel").strip().lower(),
+            "workflow_graph": getattr(request, "workflow_graph", None),
+            "triggers": getattr(request, "triggers", None) or [],
             "workspace_scope": (getattr(request, "workspace_scope", None) or "").strip() or None,
             "skills_scope": (getattr(request, "skills_scope", None) or "").strip() or None,
             "credential_scope": (getattr(request, "credential_scope", None) or "").strip() or None,

@@ -209,6 +209,12 @@ def _startup_sequence() -> None:
     init_workflow_run_store(persist_dir=_workflow_runs_dir)
     logger.info("workflow_run_store_initialized persist_dir=%s", _workflow_runs_dir)
 
+    # R3c: Initialize WorkflowStore (dedicated workflow persistence)
+    from app.services.workflow_store import init_workflow_store
+    _workflow_store_dir = Path(settings.workspace_root) / "workflows_v2"
+    init_workflow_store(persist_dir=_workflow_store_dir)
+    logger.info("workflow_store_initialized persist_dir=%s", _workflow_store_dir)
+
     # R4: Initialize ConnectorStore and CredentialStore
     _connector_cfg_path = Path(settings.workspace_root) / "connectors.json"
     _connector_cred_path = Path(settings.workspace_root) / "connector_credentials.json"
@@ -405,6 +411,17 @@ _browser_pool: BrowserPool | None = None
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
     global _repl_session_manager  # noqa: PLW0603
     global _browser_pool  # noqa: PLW0603
+
+    # Run one-time workflow migration from agent store to dedicated workflow store
+    try:
+        from app.services.workflow_store import get_workflow_store
+        _wf_store = get_workflow_store()
+        migrated = _wf_store.migrate_from_agent_store(components.agent_store)
+        if migrated:
+            logger.info("migrated_workflows count=%d", migrated)
+    except Exception:
+        logger.warning("workflow_migration_skipped", exc_info=True)
+
     _sync_custom_agents(components)
 
     # Create ReplSessionManager if persistent REPL is enabled
@@ -443,7 +460,16 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
     for _agent in components.agent_registry.values():
         _delegate = getattr(_agent, "_delegate", _agent)
         _tools = getattr(_delegate, "tools", None)
-        if _tools is not None and hasattr(_tools, "set_custom_agent_store"):
+        if _tools is not None and hasattr(_tools, "set_workflow_store"):
+            try:
+                from app.services.workflow_store import get_workflow_store as _get_wfs
+                _tools.set_workflow_store(
+                    _get_wfs(),
+                    lambda: _sync_custom_agents(components),
+                )
+            except RuntimeError:
+                pass
+        elif _tools is not None and hasattr(_tools, "set_custom_agent_store"):
             _tools.set_custom_agent_store(
                 components.custom_agent_store,
                 lambda: _sync_custom_agents(components),
@@ -807,6 +833,14 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         except Exception:
             _conn_services = None
 
+    # Get workflow store for agent registration
+    _wf_store = None
+    try:
+        from app.services.workflow_store import get_workflow_store as _get_wf_store
+        _wf_store = _get_wf_store()
+    except (RuntimeError, ImportError):
+        pass
+
     _sync_custom_agents_impl(
         components=components,
         normalize_agent_id_fn=_normalize_agent_id,
@@ -817,6 +851,7 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         browser_pool=_browser_pool,
         repl_manager=_repl_session_manager,
         connector_services=_conn_services,
+        workflow_store=_wf_store,
     )
     if components.policy_approval_handler is not None:
         for agent_instance in components.agent_registry.values():
@@ -946,16 +981,22 @@ session_handlers.configure(
         start_run_background=run_handlers.start_run_background,
     )
 )
+def _get_workflow_store_lazy():
+    from app.services.workflow_store import get_workflow_store, init_workflow_store, _instance as _wfs_instance
+    if _wfs_instance is None:
+        # Auto-init if startup sequence hasn't run yet (e.g. test environment)
+        _workflow_store_dir = Path(settings.workspace_root) / "workflows_v2"
+        init_workflow_store(persist_dir=_workflow_store_dir)
+    return get_workflow_store()
+
 workflow_handlers.configure(
     workflow_handlers.WorkflowHandlerDependencies(
         settings=settings,
-        custom_agent_store=custom_agent_store,
+        workflow_store=LazyObjectProxy(_get_workflow_store_lazy),
         agent_registry=agent_registry,
         idempotency_mgr=idempotency_mgr,
         runtime_manager=runtime_manager,
         subrun_lane=subrun_lane,
-        workflow_version_registry=control_plane_state.workflow_version_registry,
-        workflow_version_lock=control_plane_state.workflow_version_lock,
         normalize_agent_id=_normalize_agent_id,
         resolve_agent=_resolve_agent,
         sync_custom_agents=_sync_custom_agents,

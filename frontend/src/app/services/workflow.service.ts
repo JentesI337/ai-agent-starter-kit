@@ -48,6 +48,9 @@ export interface WorkflowDefinition {
   } | null;
   allow_subrun_delegation?: boolean;
   triggers?: WorkflowTrigger[];
+  version?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WorkflowCreatePayload {
@@ -126,7 +129,7 @@ export class WorkflowService {
   }
 
   get(id: string): Observable<WorkflowGetResponse> {
-    return this.http.post<WorkflowGetResponse>(`${this.apiBase}/api/control/workflows.get`, { id });
+    return this.http.post<WorkflowGetResponse>(`${this.apiBase}/api/control/workflows.get`, { workflow_id: id });
   }
 
   create(payload: WorkflowCreatePayload): Observable<any> {
@@ -138,12 +141,12 @@ export class WorkflowService {
   }
 
   delete(id: string): Observable<any> {
-    return this.http.post(`${this.apiBase}/api/control/workflows.delete`, { id });
+    return this.http.post(`${this.apiBase}/api/control/workflows.delete`, { workflow_id: id });
   }
 
   execute(id: string, message?: string): Observable<WorkflowExecuteResponse> {
     return this.http.post<WorkflowExecuteResponse>(`${this.apiBase}/api/control/workflows.execute`, {
-      id,
+      workflow_id: id,
       message: message ?? '',
     });
   }

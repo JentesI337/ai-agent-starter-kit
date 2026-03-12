@@ -67,6 +67,7 @@ def sync_custom_agents(
     browser_pool=None,
     repl_manager=None,
     connector_services: tuple | None = None,
+    workflow_store=None,
 ) -> None:
     from app.agent import HeadAgent
     from app.agents.unified_adapter import UnifiedAgentAdapter
@@ -80,6 +81,16 @@ def sync_custom_agents(
 
     store = components.agent_store
     custom_records = [r for r in store.list_enabled() if r.origin == "custom"]
+
+    # Also register workflows from WorkflowStore
+    if workflow_store is not None:
+        from app.services.workflow_record import workflow_record_to_agent_record
+        for wf_record in workflow_store.list():
+            wf_agent_record = workflow_record_to_agent_record(wf_record)
+            # Avoid duplicates — skip if already present as a custom agent
+            if not any(r.agent_id == wf_agent_record.agent_id for r in custom_records):
+                custom_records.append(wf_agent_record)
+
     for record in custom_records:
         custom_id = normalize_agent_id_fn(record.agent_id)
         if not custom_id or custom_id in {primary_agent_id, coder_agent_id, review_agent_id}:

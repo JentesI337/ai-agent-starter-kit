@@ -26,6 +26,8 @@ class WorkflowRunStore:
         self._lock = threading.Lock()
         # In-memory event queues for SSE subscribers (run_id -> list[asyncio.Queue])
         self._subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
+        # Per-run event buffer so late subscribers can replay missed events
+        self._event_buffers: dict[str, list[dict]] = defaultdict(list)
 
     # ── Persistence ──────────────────────────────────
 
@@ -76,6 +78,12 @@ class WorkflowRunStore:
 
     def subscribe(self, run_id: str) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        # Replay buffered events so late subscribers catch up
+        for event in self._event_buffers.get(run_id, []):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                break
         self._subscribers[run_id].append(queue)
         return queue
 
@@ -90,12 +98,16 @@ class WorkflowRunStore:
                 del self._subscribers[run_id]
 
     async def broadcast(self, run_id: str, event: dict[str, Any]) -> None:
+        self._event_buffers[run_id].append(event)
         subs = list(self._subscribers.get(run_id, []))  # snapshot to avoid mutation during iteration
         for q in subs:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 pass
+        # Clean up buffer on terminal events (no longer needed after run ends)
+        if event.get("type") in ("workflow_completed", "workflow_failed"):
+            self._event_buffers.pop(run_id, None)
 
     def cleanup_stale_subscribers(self, run_id: str) -> None:
         """Remove subscriber queues that are full (likely disconnected clients)."""

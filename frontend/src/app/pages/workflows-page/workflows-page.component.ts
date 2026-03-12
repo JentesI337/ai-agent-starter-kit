@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import {
@@ -130,6 +131,9 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
   runHistory: WorkflowRunSummary[] = [];
   runsLoading = false;
 
+  // ── Add-menu state ───────────────────────────────────
+  addMenuIndex: number | null = null;
+
   // ── Canvas interaction ─────────────────────────────
   canvasOffsetX = 0;
   canvasOffsetY = 0;
@@ -185,6 +189,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     private readonly agentsService: AgentsService,
     private readonly execService: WorkflowExecutionService,
     private readonly cdr: ChangeDetectorRef,
+    private readonly router: Router,
   ) {}
 
   ngOnDestroy(): void {
@@ -252,6 +257,25 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
   }
 
   openEdit(wf: WorkflowDefinition): void {
+    // Fetch full workflow data (list response is incomplete)
+    this.loading = true;
+    this.wfService.get(wf.id).subscribe({
+      next: (res) => {
+        this.loading = false;
+        const full = res.workflow;
+        this._populateEditor(full);
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.loading = false;
+        // Fallback to list data if get fails
+        this._populateEditor(wf);
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  private _populateEditor(wf: WorkflowDefinition): void {
     this.editId = wf.id;
     this.wfName = wf.name;
     this.wfDescription = wf.description ?? '';
@@ -266,7 +290,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     this.nodeCounter = 0;
     this.edgeCounter = 0;
 
-    if (wf.workflow_graph && wf.execution_mode === 'sequential') {
+    if (wf.workflow_graph) {
       this.loadFromGraph(wf.workflow_graph);
     } else {
       // Build canvas nodes from flat steps
@@ -357,6 +381,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    if (this.addMenuIndex !== null) { this.addMenuIndex = null; this.cdr.markForCheck(); return; }
     if (this.drawingEdge) { this.drawingEdge = false; this.drawingFromId = null; return; }
     if (this.selectedNodeId) { this.selectedNodeId = null; return; }
     if (this.view === 'editor') this.backToList();
@@ -434,13 +459,22 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  addStepAfter(index: number): void {
+  showAddMenu(index: number): void {
+    this.addMenuIndex = index;
+    this.cdr.markForCheck();
+  }
+
+  addNodeAfterIndex(index: number, type: CanvasNode['type']): void {
     const ordered = this.orderedNodes;
     if (index < 0 || index >= ordered.length - 1) return;
     const prevNode = ordered[index];
     const nextNode = ordered[index + 1];
     const y = (prevNode.y + nextNode.y) / 2;
-    const newNode = this.makeNode('step', `Step`, '', prevNode.x, y);
+    const label = this.paletteItems.find(p => p.type === type)?.label ?? type;
+    const newNode = this.makeNode(type, label, '', prevNode.x, y);
+    if (type === 'delay') {
+      newNode.timeoutSeconds = 5;
+    }
 
     const insertIdx = this.nodes.indexOf(nextNode);
     this.nodes.splice(insertIdx, 0, newNode);
@@ -453,6 +487,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     this.edges.push({ id: `edge-${++this.edgeCounter}`, from: prevNode.id, to: newNode.id, type: 'default' });
     this.edges.push({ id: `edge-${++this.edgeCounter}`, from: newNode.id, to: nextNode.id, type: 'default' });
 
+    this.addMenuIndex = null;
     this.selectedNodeId = newNode.id;
     this.cdr.markForCheck();
   }
@@ -585,6 +620,11 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     return ordered;
   }
 
+  get activeAddPosition(): { index: number; x: number; y: number } | null {
+    if (this.addMenuIndex === null) return null;
+    return this.addButtonPositions.find(p => p.index === this.addMenuIndex) ?? null;
+  }
+
   get addButtonPositions(): Array<{ index: number; x: number; y: number }> {
     const ordered = this.orderedNodes;
     const positions: Array<{ index: number; x: number; y: number }> = [];
@@ -623,6 +663,10 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   onCanvasMouseDown(event: MouseEvent): void {
     if (event.button !== 0) return;
+    if (this.addMenuIndex !== null) {
+      this.addMenuIndex = null;
+      this.cdr.markForCheck();
+    }
     if (this.drawingEdge) {
       this.drawingEdge = false;
       this.drawingFromId = null;
@@ -657,8 +701,50 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   @HostListener('document:mouseup')
   onMouseUp(): void {
-    this.draggingNodeId = null;
+    if (this.draggingNodeId) {
+      const node = this.nodes.find(n => n.id === this.draggingNodeId);
+      const wasMoved = node && (Math.abs(node.x - this.nodeStartX) > 5 || Math.abs(node.y - this.nodeStartY) > 5);
+      this.draggingNodeId = null;
+      if (wasMoved && this.wfExecutionMode === 'sequential') {
+        this.reorderByPosition();
+      }
+    }
     this.isPanning = false;
+  }
+
+  private reorderByPosition(): void {
+    const trigger = this.triggerNode;
+    const end = this.endNode;
+    if (!trigger || !end) return;
+
+    // Get step nodes sorted by y-position
+    const steps = this.nodes
+      .filter(n => n.type !== 'trigger' && n.type !== 'end')
+      .sort((a, b) => a.y - b.y);
+
+    // Remove all edges between trigger/steps/end
+    const nodeIds = new Set([trigger.id, end.id, ...steps.map(n => n.id)]);
+    this.edges = this.edges.filter(e => !nodeIds.has(e.from) || !nodeIds.has(e.to));
+
+    // Rebuild edges in y-order: trigger -> step1 -> step2 -> ... -> end
+    let prevId = trigger.id;
+    for (const step of steps) {
+      this.edges.push({ id: `edge-${++this.edgeCounter}`, from: prevId, to: step.id, type: 'default' });
+      prevId = step.id;
+    }
+    this.edges.push({ id: `edge-${++this.edgeCounter}`, from: prevId, to: end.id, type: 'default' });
+
+    // Snap positions to even spacing
+    const startY = 60;
+    const spacing = 140;
+    trigger.y = startY;
+    for (let i = 0; i < steps.length; i++) {
+      steps[i].x = 400;
+      steps[i].y = startY + (i + 1) * spacing;
+    }
+    end.y = startY + (steps.length + 1) * spacing;
+
+    this.cdr.markForCheck();
   }
 
   onCanvasWheel(event: WheelEvent): void {
@@ -700,11 +786,8 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       .map(n => n.instruction)
       .filter(s => s.trim());
 
-    // Build workflow graph for sequential mode
-    let workflowGraph: WorkflowGraphDef | undefined;
-    if (this.wfExecutionMode === 'sequential') {
-      workflowGraph = this.buildWorkflowGraph();
-    }
+    // Build workflow graph for all modes (enables pipeline view + SSE events)
+    const workflowGraph = this.buildWorkflowGraph();
 
     // Filter out pure "manual" triggers with no extra config
     const triggers = this.wfTriggers.filter(t => t.type !== 'manual' || this.wfTriggers.length === 1);
@@ -807,11 +890,12 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
         const runId = res.runId ?? res.run_id;
         this.executeResult = `Run started: ${runId ?? res.status ?? 'accepted'}`;
 
-        // For sequential workflows, start the execution monitor
-        if (runId && this.wfExecutionMode === 'sequential') {
-          this.monitorRunId = runId;
-          this.monitorActive = true;
-          this.startExecutionMonitor(runId);
+        // Navigate to pipeline view
+        if (runId) {
+          this.executing = false;
+          this.router.navigate(['/workflows/pipeline'], {
+            queryParams: { run_id: runId, workflow_id: this.editId },
+          });
         } else {
           this.executing = false;
         }
@@ -885,6 +969,12 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
   switchTab(tab: 'canvas' | 'runs'): void {
     this.editorTab = tab;
     if (tab === 'runs') this.loadRunHistory();
+  }
+
+  openRunResult(run: WorkflowRunSummary): void {
+    this.router.navigate(['/workflows/result'], {
+      queryParams: { id: run.run_id, workflow_id: this.editId },
+    });
   }
 
   deleteWorkflow(wf: WorkflowDefinition, event?: MouseEvent): void {

@@ -1,0 +1,73 @@
+{
+  "agent_id": "content-creation-pipeline",
+  "origin": "custom",
+  "enabled": true,
+  "display_name": "Content Creation Pipeline",
+  "description": "Research a topic, draft content, review for quality, and produce a final document.",
+  "category": "custom",
+  "role": "specialist",
+  "reasoning_strategy": "plan_execute",
+  "specialization": "",
+  "capabilities": [],
+  "constraints": {
+    "temperature": 0.3,
+    "reflection_passes": 0,
+    "reasoning_depth": 2,
+    "max_context": null,
+    "combine_steps": false
+  },
+  "tool_policy": {
+    "read_only": false,
+    "mandatory_deny": [],
+    "preferred_tools": [],
+    "forbidden_tools": [],
+    "additional_deny": [],
+    "additional_allow": []
+  },
+  "prompts": {
+    "system": "",
+    "plan": "",
+    "tool_selector": "",
+    "tool_repair": "",
+    "final": "",
+    "fallback_system_key": "",
+    "fallback_plan_key": "",
+    "fallback_tool_selector_key": "",
+    "fallback_tool_repair_key": "",
+    "fallback_final_key": ""
+  },
+  "delegation": {
+    "autonomy_level": 5,
+    "confidence_threshold": 0.7,
+    "delegation_preference": "selective",
+    "supports_delegation": false,
+    "supports_parallel": false,
+    "max_concurrent_tasks": 1
+  },
+  "behavior": {
+    "require_review_evidence": false,
+    "command_allowlist_regex": null,
+    "relaxed_deny": [],
+    "custom_deny_override": null
+  },
+  "custom_workflow": {
+    "base_agent_id": "head-agent",
+    "workflow_steps": [
+      "Research the given topic thoroughly. Search for relevant information, recent developments, and key data points.",
+      "Draft the content based on the research. Create a well-structured document with an introduction, main sections, and conclusion.",
+      "Review the draft for quality. Check for accuracy, clarity, grammar, and completeness. Suggest improvements.",
+      "Produce the final version incorporating review feedback. Ensure the content is polished and ready for publication."
+    ],
+    "execution_mode": "parallel",
+    "workflow_graph": null,
+    "triggers": [],
+    "allow_subrun_delegation": false,
+    "workspace_scope": null,
+    "skills_scope": null,
+    "credential_scope": null
+  },
+  "cost_tier": "standard",
+  "latency_tier": "standard",
+  "quality_tier": "high",
+  "version": 1
+}

@@ -1,0 +1,7 @@
+{
+  "step_id": "step-2",
+  "status": "timeout",
+  "duration_ms": 121406,
+  "output": null,
+  "error": "Step timed out"
+}

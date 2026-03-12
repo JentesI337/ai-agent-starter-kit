@@ -130,10 +130,7 @@
   <header class="editor-topbar">
     <button class="btn-ghost" (click)="backToList()">← Back</button>
     <div class="topbar-center">
-      <input class="wf-name-input"
-             type="text"
-             placeholder="Workflow name"
-             [(ngModel)]="wfName" />
+      <span class="wf-name-display">{{ wfName || 'Untitled Workflow' }}</span>
     </div>
     <div class="topbar-right">
       <div class="mode-toggle">
@@ -170,13 +167,19 @@
 
   <!-- Runs history panel -->
   <div class="runs-panel" *ngIf="editorTab === 'runs'">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px;">
+      <span style="font-size: 13px; color: var(--c-text-dim);">Run History</span>
+      <button class="btn-ghost" (click)="loadRunHistory()" style="font-size: 12px; padding: 2px 8px;">⟳ Refresh</button>
+    </div>
     <div class="runs-loading" *ngIf="runsLoading">Loading runs…</div>
     <div class="runs-empty" *ngIf="!runsLoading && runHistory.length === 0">No runs yet</div>
     <div class="runs-list" *ngIf="!runsLoading && runHistory.length > 0">
       <div class="run-card" *ngFor="let run of runHistory"
            [class.run-success]="run.status === 'completed'"
            [class.run-failed]="run.status === 'failed'"
-           [class.run-running]="run.status === 'running'">
+           [class.run-running]="run.status === 'running'"
+           (click)="openRunResult(run)"
+           style="cursor: pointer;">
         <div class="run-head">
           <span class="run-status-dot" [class.s-ok]="run.status === 'completed'" [class.s-fail]="run.status === 'failed'" [class.s-run]="run.status === 'running'"></span>
           <span class="run-id">{{ run.run_id.substring(0, 8) }}…</span>
@@ -265,14 +268,29 @@
         </svg>
 
         <!-- Add step buttons (between connected nodes) -->
-        <button *ngFor="let pos of addButtonPositions"
+        <button *ngFor="let pos of addButtonPositions; trackBy: trackByIndex"
                 class="add-step-btn"
                 [style.left.px]="pos.x"
                 [style.top.px]="pos.y"
-                (click)="addStepAfter(pos.index); $event.stopPropagation()"
+                (mousedown)="$event.stopPropagation()"
+                (click)="showAddMenu(pos.index); $event.stopPropagation()"
                 title="Add step">
           +
         </button>
+
+        <!-- Single menu instance, outside the loop -->
+        <div class="add-menu"
+             *ngIf="activeAddPosition as pos"
+             [style.left.px]="pos.x"
+             [style.top.px]="pos.y + 20"
+             (mousedown)="$event.stopPropagation()">
+          <button *ngFor="let item of paletteItems"
+                  class="add-menu-item"
+                  (click)="addNodeAfterIndex(pos.index, item.type); $event.stopPropagation()">
+            <span class="add-menu-icon">{{ item.icon }}</span>
+            <span class="add-menu-label">{{ item.label }}</span>
+          </button>
+        </div>
 
         <!-- Nodes -->
         <div *ngFor="let node of orderedNodes; trackBy: trackById"
@@ -339,6 +357,12 @@
       <!-- Workflow properties -->
       <section class="props-section">
         <h3 class="props-heading">Workflow</h3>
+        <label class="field-label">
+          Name
+          <input class="field-input" type="text"
+                 placeholder="Workflow name"
+                 [(ngModel)]="wfName" />
+        </label>
         <label class="field-label">
           Description
           <textarea class="field-input" rows="2"

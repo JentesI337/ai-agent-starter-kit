@@ -14,6 +14,7 @@ export interface WorkflowStepEvent {
   total_duration_ms?: number;
   steps_completed?: number;
   steps_total?: number;
+  output_dir?: string;
 }
 
 export interface WorkflowRunSummary {

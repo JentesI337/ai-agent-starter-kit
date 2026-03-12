@@ -355,6 +355,12 @@
   &::placeholder { color: var(--c-text-muted); }
 }
 
+.wf-name-display {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
@@ -561,6 +567,7 @@
   height: 100%;
   pointer-events: none;
   overflow: visible;
+  z-index: 1;
 }
 
 .conn-path {
@@ -644,6 +651,59 @@
     box-shadow: var(--shadow-glow-accent);
     transform: translate(-50%, -50%) scale(1.15);
   }
+}
+
+// ── Add Menu (node type picker) ─────────────────────
+.add-menu {
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: var(--c-bg-window);
+  border: 1px solid var(--c-border-hi);
+  border-radius: var(--r-md);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: add-menu-in 0.12s ease;
+}
+
+@keyframes add-menu-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.add-menu-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  transition: background var(--t);
+
+  &:hover {
+    background: var(--c-bg-tab);
+    .add-menu-icon { color: var(--c-accent); }
+  }
+}
+
+.add-menu-icon {
+  font-size: 14px;
+  width: 22px;
+  text-align: center;
+  color: var(--c-text-dim);
+  transition: color var(--t);
+}
+
+.add-menu-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text);
+  white-space: nowrap;
 }
 
 // ── Canvas Nodes ────────────────────────────────────

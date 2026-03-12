@@ -136,13 +136,18 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         self._read_file_max_bytes = 1_000_000
         self._grep_max_file_bytes = 1_000_000
         self._grep_max_total_scan_bytes = 8_000_000
-        self._custom_agent_store: object | None = None
+        self._workflow_store: object | None = None
         self._sync_custom_agents_fn: object | None = None
         self._repl_manager: ReplSessionManager | None = None
         self._browser_pool: BrowserPool | None = None
 
     def set_custom_agent_store(self, store: object, sync_fn: object) -> None:
-        self._custom_agent_store = store
+        """Backward-compat alias — delegates to set_workflow_store."""
+        self._workflow_store = store
+        self._sync_custom_agents_fn = sync_fn
+
+    def set_workflow_store(self, store: object, sync_fn: object) -> None:
+        self._workflow_store = store
         self._sync_custom_agents_fn = sync_fn
 
     def set_repl_manager(self, manager: ReplSessionManager) -> None:
@@ -1190,7 +1195,7 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         steps: str | list,
         base_agent_id: str = "head-agent",
     ) -> str:
-        if self._custom_agent_store is None:
+        if self._workflow_store is None:
             raise ToolExecutionError("Workflow management is not available in this runtime.")
         name = (name or "").strip()
         if not name or len(name) > 120:
@@ -1207,30 +1212,46 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         if len(workflow_steps) > 20:
             raise ToolExecutionError("Maximum 20 workflow steps allowed.")
 
-        from types import SimpleNamespace
+        import re as _re
 
-        request = SimpleNamespace(
+        def _norm(raw: str) -> str:
+            c = (raw or "").strip().lower()
+            c = _re.sub(r"[^a-z0-9_-]+", "-", c)
+            c = _re.sub(r"-+", "-", c).strip("-")
+            return c[:80]
+
+        workflow_id = _norm(f"workflow-{name}-{str(uuid.uuid4())[:8]}")
+
+        from app.services.workflow_record import WorkflowRecord
+        from app.services.workflow_store import WorkflowStore
+
+        # Build a linear graph from steps
+        graph = WorkflowStore._build_linear_graph(workflow_steps)
+
+        record = WorkflowRecord(
+            id=workflow_id,
             name=name,
             description=description,
             base_agent_id=base_agent_id,
-            workflow_steps=workflow_steps,
+            workflow_graph=graph,
+            execution_mode="sequential",
         )
-        definition = self._custom_agent_store.upsert(request)
+        created = self._workflow_store.create(record)
         if self._sync_custom_agents_fn is not None:
             self._sync_custom_agents_fn()
         return json.dumps(
-            {"status": "created", "id": definition.id, "name": definition.name,
-             "steps": definition.workflow_steps},
+            {"status": "created", "id": created.id, "name": created.name,
+             "steps": workflow_steps},
             ensure_ascii=False,
         )
 
     def delete_workflow(self, workflow_id: str) -> str:
-        if self._custom_agent_store is None:
+        if self._workflow_store is None:
             raise ToolExecutionError("Workflow management is not available in this runtime.")
         workflow_id = (workflow_id or "").strip()
         if not workflow_id:
             raise ToolExecutionError("workflow_id is required.")
-        deleted = self._custom_agent_store.delete(workflow_id)
+        deleted = self._workflow_store.delete(workflow_id)
         if self._sync_custom_agents_fn is not None:
             self._sync_custom_agents_fn()
         if deleted:

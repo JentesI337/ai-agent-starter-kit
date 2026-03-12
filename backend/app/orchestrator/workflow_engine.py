@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from app.orchestrator.workflow_models import (
@@ -51,6 +53,7 @@ class WorkflowEngine:
         initial_message: str,
         workflow_id: str,
         send_event: Callable,
+        mode: str = "sequential",
         runtime: str = "api",
         model: str | None = None,
         preset: str | None = None,
@@ -74,12 +77,45 @@ class WorkflowEngine:
                 context={"input": {"message": initial_message}},
             )
 
+        exec_kwargs = dict(
+            graph=graph,
+            state=state,
+            run_id=run_id,
+            session_id=session_id,
+            send_event=send_event,
+            runtime=runtime,
+            model=model,
+            preset=preset,
+            tool_policy=tool_policy,
+            orchestrator_agent_ids=orchestrator_agent_ids or [],
+            orchestrator_api=orchestrator_api,
+        )
+
+        if mode == "parallel":
+            return await self._execute_parallel(**exec_kwargs)
+        return await self._execute_sequential(**exec_kwargs)
+
+    async def _execute_sequential(
+        self,
+        *,
+        graph: WorkflowGraphDef,
+        state: WorkflowExecutionState,
+        run_id: str,
+        session_id: str,
+        send_event: Callable,
+        runtime: str,
+        model: str | None,
+        preset: str | None,
+        tool_policy: Any,
+        orchestrator_agent_ids: list[str],
+        orchestrator_api: Any,
+    ) -> WorkflowExecutionState:
         current_step_id: str | None = graph.entry_step_id
 
         while current_step_id is not None:
             step_def = graph.get_step(current_step_id)
             if step_def is None:
-                logger.error("workflow_step_not_found step_id=%s workflow=%s", current_step_id, workflow_id)
+                logger.error("workflow_step_not_found step_id=%s workflow=%s", current_step_id, state.workflow_id)
                 state.status = "failed"
                 break
 
@@ -100,13 +136,14 @@ class WorkflowEngine:
                 model=model,
                 preset=preset,
                 tool_policy=tool_policy,
-                orchestrator_agent_ids=orchestrator_agent_ids or [],
+                orchestrator_agent_ids=orchestrator_agent_ids,
                 orchestrator_api=orchestrator_api,
                 send_event=send_event,
             )
             result.duration_ms = int((time.monotonic() - t0) * 1000)
 
             state.step_results[step_def.id] = result
+            self._write_step_audit(state, result)
             if result.output is not None:
                 state.context[step_def.id] = {"output": result.output}
 
@@ -135,12 +172,94 @@ class WorkflowEngine:
         state.current_step_id = None
         state.completed_at = datetime.now(timezone.utc).isoformat()
 
+        self._write_summary_audit(state, graph)
+
         total_ms = sum(r.duration_ms for r in state.step_results.values())
         await self._emit(send_event, "workflow_completed", {
             "status": state.status,
             "total_duration_ms": total_ms,
             "steps_completed": sum(1 for r in state.step_results.values() if r.status == "success"),
             "steps_total": len(graph.steps),
+            "output_dir": state.output_dir or "",
+        })
+
+        return state
+
+    async def _execute_parallel(
+        self,
+        *,
+        graph: WorkflowGraphDef,
+        state: WorkflowExecutionState,
+        run_id: str,
+        session_id: str,
+        send_event: Callable,
+        runtime: str,
+        model: str | None,
+        preset: str | None,
+        tool_policy: Any,
+        orchestrator_agent_ids: list[str],
+        orchestrator_api: Any,
+    ) -> WorkflowExecutionState:
+        # Emit started for all steps at once
+        for step_def in graph.steps:
+            await self._emit(send_event, "workflow_step_started", {
+                "step_id": step_def.id,
+                "step_type": step_def.type,
+                "label": step_def.label or step_def.id,
+            })
+
+        async def _run_one(step_def: WorkflowStepDef) -> StepResult:
+            t0 = time.monotonic()
+            result = await self._execute_step(
+                step_def=step_def,
+                state=state,
+                run_id=run_id,
+                session_id=session_id,
+                runtime=runtime,
+                model=model,
+                preset=preset,
+                tool_policy=tool_policy,
+                orchestrator_agent_ids=orchestrator_agent_ids,
+                orchestrator_api=orchestrator_api,
+                send_event=send_event,
+            )
+            result.duration_ms = int((time.monotonic() - t0) * 1000)
+            state.step_results[step_def.id] = result
+            self._write_step_audit(state, result)
+            if result.output is not None:
+                state.context[step_def.id] = {"output": result.output}
+
+            if result.status == "error":
+                await self._emit(send_event, "workflow_step_failed", {
+                    "step_id": step_def.id,
+                    "error": result.error or "Unknown",
+                })
+            else:
+                await self._emit(send_event, "workflow_step_completed", {
+                    "step_id": step_def.id,
+                    "status": result.status,
+                    "output_preview": str(result.output)[:200] if result.output else "",
+                    "duration_ms": result.duration_ms,
+                })
+            return result
+
+        await asyncio.gather(*[_run_one(s) for s in graph.steps], return_exceptions=True)
+
+        # Finalize
+        has_errors = any(r.status == "error" for r in state.step_results.values())
+        state.status = "failed" if has_errors else "completed"
+        state.current_step_id = None
+        state.completed_at = datetime.now(timezone.utc).isoformat()
+
+        self._write_summary_audit(state, graph)
+
+        total_ms = sum(r.duration_ms for r in state.step_results.values())
+        await self._emit(send_event, "workflow_completed", {
+            "status": state.status,
+            "total_duration_ms": total_ms,
+            "steps_completed": sum(1 for r in state.step_results.values() if r.status == "success"),
+            "steps_total": len(graph.steps),
+            "output_dir": state.output_dir or "",
         })
 
         return state
@@ -346,6 +465,52 @@ class WorkflowEngine:
             return step_def.on_true if branch == "true" else step_def.on_false
 
         return step_def.next_step
+
+    def _write_step_audit(self, state: WorkflowExecutionState, result: StepResult) -> None:
+        """Write step result to the audit directory."""
+        if not state.output_dir:
+            return
+        try:
+            audit_dir = Path(state.output_dir)
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            step_file = audit_dir / f"{result.step_id}.json"
+            step_file.write_text(json.dumps({
+                "step_id": result.step_id,
+                "status": result.status,
+                "duration_ms": result.duration_ms,
+                "output": result.output,
+                "error": result.error,
+            }, default=str, indent=2), encoding="utf-8")
+        except Exception:
+            logger.debug("audit_write_step_failed step_id=%s", result.step_id, exc_info=True)
+
+    def _write_summary_audit(self, state: WorkflowExecutionState, graph: WorkflowGraphDef) -> None:
+        """Write final run summary to the audit directory."""
+        if not state.output_dir:
+            return
+        try:
+            audit_dir = Path(state.output_dir)
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = audit_dir / "summary.json"
+            summary_file.write_text(json.dumps({
+                "workflow_id": state.workflow_id,
+                "run_id": state.run_id,
+                "status": state.status,
+                "started_at": state.started_at,
+                "completed_at": state.completed_at,
+                "steps": {
+                    sid: {
+                        "step_id": sr.step_id,
+                        "status": sr.status,
+                        "duration_ms": sr.duration_ms,
+                        "output": sr.output,
+                        "error": sr.error,
+                    }
+                    for sid, sr in state.step_results.items()
+                },
+            }, default=str, indent=2), encoding="utf-8")
+        except Exception:
+            logger.debug("audit_write_summary_failed run_id=%s", state.run_id, exc_info=True)
 
     async def _emit(self, send_event: Callable, event_type: str, data: dict) -> None:
         try:

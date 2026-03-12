@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -56,41 +55,26 @@ async def _tick() -> None:
     except RuntimeError:
         return  # system not ready yet
 
-    # NOTE: Do NOT call deps.sync_custom_agents() here — it mutates the global
-    # agent_registry which can race with concurrent WebSocket handlers.  The
-    # scheduler only needs to read workflow definitions, not rebuild agents.
     now = datetime.now(timezone.utc)
 
-    for workflow in deps.custom_agent_store.list():
-        triggers = getattr(workflow, "triggers", []) or []
-        for t in triggers:
-            t_type = t.get("type") if isinstance(t, dict) else getattr(t, "type", None)
-            if t_type != "schedule":
+    for record in deps.workflow_store.list():
+        for t in record.triggers:
+            if t.type != "schedule":
                 continue
-
-            cron_expr = (
-                t.get("cron_expression") if isinstance(t, dict)
-                else getattr(t, "cron_expression", None)
-            )
-            if not cron_expr:
+            if not t.cron_expression:
                 continue
-
-            next_run_raw = (
-                t.get("next_run_at") if isinstance(t, dict)
-                else getattr(t, "next_run_at", None)
-            )
 
             # Compute next_run_at if not yet set
-            if not next_run_raw:
-                next_dt = _next_cron_time(cron_expr, now)
+            if not t.next_run_at:
+                next_dt = _next_cron_time(t.cron_expression, now)
                 if next_dt is None:
                     continue
-                _update_trigger_times(t, last_run=None, next_run=next_dt.isoformat())
-                _persist_triggers(deps, workflow)
+                t.next_run_at = next_dt.isoformat()
+                _persist_triggers(deps, record)
                 continue
 
             try:
-                next_dt = datetime.fromisoformat(next_run_raw)
+                next_dt = datetime.fromisoformat(t.next_run_at)
                 if next_dt.tzinfo is None:
                     next_dt = next_dt.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
@@ -102,60 +86,32 @@ async def _tick() -> None:
             # --- Fire! ---
             logger.info(
                 "schedule_trigger_firing workflow_id=%s cron=%s",
-                workflow.id, cron_expr,
+                record.id, t.cron_expression,
             )
-            await _execute_scheduled_workflow(workflow, deps)
+            await _execute_scheduled_workflow(record, deps)
 
             # Update timestamps
-            new_next = _next_cron_time(cron_expr, next_dt)
-            _update_trigger_times(
-                t,
-                last_run=now.isoformat(),
-                next_run=new_next.isoformat() if new_next else None,
-            )
-            _persist_triggers(deps, workflow)
+            new_next = _next_cron_time(t.cron_expression, next_dt)
+            t.last_run_at = now.isoformat()
+            t.next_run_at = new_next.isoformat() if new_next else None
+            _persist_triggers(deps, record)
 
 
-def _update_trigger_times(
-    trigger: Any,
-    last_run: str | None,
-    next_run: str | None,
-) -> None:
-    """Set ``last_run_at`` / ``next_run_at`` on a trigger (dict or object)."""
-    if isinstance(trigger, dict):
-        if last_run is not None:
-            trigger["last_run_at"] = last_run
-        if next_run is not None:
-            trigger["next_run_at"] = next_run
-    else:
-        if last_run is not None:
-            trigger.last_run_at = last_run
-        if next_run is not None:
-            trigger.next_run_at = next_run
-
-
-def _persist_triggers(deps: Any, workflow: Any) -> None:
-    """Save trigger timestamp changes back to the store."""
+def _persist_triggers(deps, record) -> None:
+    """Save trigger timestamp changes back to the workflow store."""
     try:
-        from types import SimpleNamespace
-        triggers = getattr(workflow, "triggers", []) or []
-        trigger_dicts = [
-            t if isinstance(t, dict) else t.model_dump() if hasattr(t, "model_dump") else vars(t)
-            for t in triggers
-        ]
-        patch = SimpleNamespace(triggers=trigger_dicts)
-        deps.custom_agent_store.upsert(patch, merge_id=workflow.id)
+        deps.workflow_store.update(record.id, record)
     except Exception:
-        logger.debug("trigger_persist_failed workflow_id=%s", workflow.id, exc_info=True)
+        logger.debug("trigger_persist_failed workflow_id=%s", record.id, exc_info=True)
 
 
-async def _execute_scheduled_workflow(workflow: Any, deps: Any) -> None:
+async def _execute_scheduled_workflow(record, deps) -> None:
     """Execute a workflow that is due according to its schedule trigger."""
     from app.control_models import ControlWorkflowsExecuteRequest
     from app.handlers import workflow_handlers
 
     execute_request = ControlWorkflowsExecuteRequest(
-        workflow_id=workflow.id,
+        workflow_id=record.id,
         message=f"Scheduled execution at {datetime.now(timezone.utc).isoformat()}",
     )
     try:
@@ -164,9 +120,9 @@ async def _execute_scheduled_workflow(workflow: Any, deps: Any) -> None:
             idempotency_key_header=None,
         )
         run_id = result.get("runId") or result.get("run_id") or "?"
-        logger.info("schedule_trigger_executed workflow_id=%s run_id=%s", workflow.id, run_id)
+        logger.info("schedule_trigger_executed workflow_id=%s run_id=%s", record.id, run_id)
     except Exception:
-        logger.exception("schedule_trigger_execute_failed workflow_id=%s", workflow.id)
+        logger.exception("schedule_trigger_execute_failed workflow_id=%s", record.id)
 
 
 def start_workflow_scheduler() -> None:

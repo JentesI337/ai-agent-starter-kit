@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from dataclasses import dataclass
 from threading import Lock
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from fastapi import HTTPException
 
 from app.handlers import run_handlers, session_handlers, workflow_handlers
 from app.services.idempotency_manager import IdempotencyManager
+from app.services.workflow_store import WorkflowStore
 
 
 class _RuntimeManager:
@@ -144,18 +146,16 @@ def test_session_handler_contract_and_idempotency_replay() -> None:
     assert second["runId"] == first["runId"]
 
 
-def test_workflow_handler_contract_and_idempotency_replay() -> None:
-    workflow_store = _WorkflowStore()
+def test_workflow_handler_contract_and_idempotency_replay(tmp_path) -> None:
+    wf_store = WorkflowStore(persist_dir=tmp_path / "wf1")
     workflow_handlers.configure(
         workflow_handlers.WorkflowHandlerDependencies(
             settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            custom_agent_store=workflow_store,
+            workflow_store=wf_store,
             agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
             idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
             runtime_manager=_RuntimeManager(),
             subrun_lane=SimpleNamespace(),
-            workflow_version_registry={},
-            workflow_version_lock=Lock(),
             normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
             resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
             sync_custom_agents=lambda: None,
@@ -195,24 +195,22 @@ def test_workflow_handler_contract_and_idempotency_replay() -> None:
     assert second["workflow"]["id"] == first["workflow"]["id"]
 
 
-def test_workflow_create_with_vision_tool_policy_and_execute() -> None:
+def test_workflow_create_with_vision_tool_policy_and_execute(tmp_path) -> None:
     captured_start: dict[str, object] = {}
 
     def _start_run_background(**kwargs):
         captured_start.update(kwargs)
         return "run-workflow-vision-1"
 
-    workflow_store = _WorkflowStore()
+    wf_store = WorkflowStore(persist_dir=tmp_path / "wf2")
     workflow_handlers.configure(
         workflow_handlers.WorkflowHandlerDependencies(
             settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            custom_agent_store=workflow_store,
+            workflow_store=wf_store,
             agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
             idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
             runtime_manager=_RuntimeManager(),
             subrun_lane=SimpleNamespace(),
-            workflow_version_registry={},
-            workflow_version_lock=Lock(),
             normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
             resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
             sync_custom_agents=lambda: None,
@@ -319,24 +317,22 @@ def test_run_handler_idempotency_conflict_when_queue_mode_differs() -> None:
     assert captured_queue_modes == ["wait", "steer"]
 
 
-def test_workflow_execute_idempotency_conflict_when_queue_mode_differs() -> None:
+def test_workflow_execute_idempotency_conflict_when_queue_mode_differs(tmp_path) -> None:
     captured_queue_modes: list[str | None] = []
 
     def _build_workflow_execute_fingerprint(**kw) -> str:
         captured_queue_modes.append(kw.get("queue_mode"))
         return f"wf-exec:{kw.get('workflow_id')}:{kw.get('queue_mode')}"
 
-    workflow_store = _WorkflowStore()
+    wf_store = WorkflowStore(persist_dir=tmp_path / "wf3")
     workflow_handlers.configure(
         workflow_handlers.WorkflowHandlerDependencies(
             settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            custom_agent_store=workflow_store,
+            workflow_store=wf_store,
             agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
             idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
             runtime_manager=_RuntimeManager(),
             subrun_lane=SimpleNamespace(),
-            workflow_version_registry={},
-            workflow_version_lock=Lock(),
             normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
             resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
             sync_custom_agents=lambda: None,

@@ -8,6 +8,8 @@ export const routes: Routes = [
 	{ path: 'debug/dashboard', loadComponent: () => import('./pages/debug-page/debug-dashboard/debug-dashboard.component').then(m => m.DebugDashboardComponent) },
 	{ path: 'agents', loadComponent: () => import('./pages/agents-page/agents-page.component').then(m => m.AgentsPageComponent) },
 	{ path: 'settings', loadComponent: () => import('./pages/settings-page/settings-page.component').then(m => m.SettingsPageComponent) },
+	{ path: 'workflows/pipeline', loadComponent: () => import('./pages/workflows-page/workflow-pipeline/workflow-pipeline.component').then(m => m.WorkflowPipelineComponent) },
+	{ path: 'workflows/result', loadComponent: () => import('./pages/workflows-page/workflow-result/workflow-result.component').then(m => m.WorkflowResultComponent) },
 	{ path: 'workflows', loadComponent: () => import('./pages/workflows-page/workflows-page.component').then(m => m.WorkflowsPageComponent) },
 	{ path: 'integrations', loadComponent: () => import('./pages/integrations-page/integrations-page.component').then(m => m.IntegrationsPageComponent) },
 	{ path: 'architecture', loadComponent: () => import('./pages/architecture-page/architecture-page.component').then(m => m.ArchitecturePageComponent) },

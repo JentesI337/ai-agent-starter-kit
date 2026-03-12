@@ -34,32 +34,22 @@ def build_webhooks_router() -> APIRouter:
         except RuntimeError:
             raise HTTPException(status_code=503, detail="Workflow system not ready")
 
-        deps.sync_custom_agents()
         normalized_id = deps.normalize_agent_id(workflow_id)
-        workflow = next(
-            (item for item in deps.custom_agent_store.list()
-             if deps.normalize_agent_id(item.id) == normalized_id),
-            None,
-        )
-        if workflow is None:
+        record = deps.workflow_store.get(normalized_id)
+        if record is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         # Check for webhook trigger and validate signature
-        triggers = getattr(workflow, "triggers", []) or []
-        webhook_trigger = None
-        for t in triggers:
-            trigger_type = t.get("type") if isinstance(t, dict) else getattr(t, "type", None)
-            if trigger_type == "webhook":
-                webhook_trigger = t
+        webhook_trigger_cfg = None
+        for t in record.triggers:
+            if t.type == "webhook":
+                webhook_trigger_cfg = t
                 break
 
-        if webhook_trigger is None:
+        if webhook_trigger_cfg is None:
             raise HTTPException(status_code=404, detail="No webhook trigger configured")
 
-        secret = (
-            webhook_trigger.get("webhook_secret") if isinstance(webhook_trigger, dict)
-            else getattr(webhook_trigger, "webhook_secret", None)
-        )
+        secret = webhook_trigger_cfg.webhook_secret
 
         if secret:
             if not x_webhook_signature:

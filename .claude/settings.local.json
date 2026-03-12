@@ -35,7 +35,12 @@
       "Read(//c/Users/wisni/code/git/ai-agent-starter-kit/**)",
       "Bash(\"C:\\\\Users\\\\wisni\\\\code\\\\git\\\\ai-agent-starter-kit\\\\backend\\\\.venv\\\\Scripts\\\\piper.exe\" --help)",
       "Bash(\"C:\\\\Users\\\\wisni\\\\code\\\\git\\\\ai-agent-starter-kit\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\":*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "WebSearch",
+      "WebFetch(domain:www.firecrawl.dev)",
+      "WebFetch(domain:docs.agpt.co)",
+      "WebFetch(domain:agpt.co)",
+      "WebFetch(domain:cosmo-edge.com)"
     ]
   }
 }

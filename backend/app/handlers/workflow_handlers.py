@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import re
+import shutil
 import uuid
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
-from threading import Lock
-from types import SimpleNamespace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,18 +24,18 @@ from app.errors import GuardrailViolation
 from app.handlers.tools_handlers import normalize_tool_policy_payload
 from app.orchestrator.workflow_models import WorkflowGraphDef
 from app.services.request_normalization import normalize_idempotency_key
+from app.services.workflow_record import WorkflowRecord, WorkflowToolPolicy, _extract_flat_steps
+from app.services.workflow_store import WorkflowStore
 
 
 @dataclass
 class WorkflowHandlerDependencies:
     settings: Any
-    custom_agent_store: Any
+    workflow_store: WorkflowStore
     agent_registry: MutableMapping[str, Any]
     idempotency_mgr: Any
     runtime_manager: Any
     subrun_lane: Any
-    workflow_version_registry: dict[str, int]
-    workflow_version_lock: Lock
     normalize_agent_id: Callable[[str | None], str]
     resolve_agent: Callable[[str | None], tuple[str, Any, Any]]
     sync_custom_agents: Callable[[], None]
@@ -44,6 +47,28 @@ class WorkflowHandlerDependencies:
 
 
 _deps: WorkflowHandlerDependencies | None = None
+
+_AUDIT_BASE = Path("workflows")
+
+
+def _ensure_audit_dir(workflow_id: str) -> None:
+    """Create the audit directory for a workflow if it doesn't exist."""
+    (_AUDIT_BASE / workflow_id).mkdir(parents=True, exist_ok=True)
+
+
+def _cleanup_audit_dir(workflow_id: str) -> None:
+    """Remove all audit data for a workflow."""
+    audit_path = _AUDIT_BASE / workflow_id
+    if audit_path.exists():
+        shutil.rmtree(audit_path, ignore_errors=True)
+
+
+def _make_run_audit_dir(workflow_id: str) -> str:
+    """Create a timestamped audit directory for a specific run and return its path."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    run_dir = _AUDIT_BASE / workflow_id / ts
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return str(run_dir)
 
 
 def configure(deps: WorkflowHandlerDependencies) -> None:
@@ -57,44 +82,39 @@ def _require_deps() -> WorkflowHandlerDependencies:
     return _deps
 
 
-def _get_workflow_version(workflow_id: str) -> int:
+def _find_workflow_or_404(workflow_id: str) -> WorkflowRecord:
     deps = _require_deps()
     normalized = deps.normalize_agent_id(workflow_id)
-    with deps.workflow_version_lock:
-        return int(deps.workflow_version_registry.get(normalized, 1))
-
-
-def _set_workflow_version(workflow_id: str, version: int) -> None:
-    deps = _require_deps()
-    normalized = deps.normalize_agent_id(workflow_id)
-    with deps.workflow_version_lock:
-        deps.workflow_version_registry[normalized] = max(1, int(version))
-
-
-def _increment_workflow_version(workflow_id: str) -> int:
-    deps = _require_deps()
-    normalized = deps.normalize_agent_id(workflow_id)
-    with deps.workflow_version_lock:
-        current = int(deps.workflow_version_registry.get(normalized, 1))
-        next_version = current + 1
-        deps.workflow_version_registry[normalized] = next_version
-        return next_version
-
-
-def _delete_workflow_version(workflow_id: str) -> None:
-    deps = _require_deps()
-    normalized = deps.normalize_agent_id(workflow_id)
-    with deps.workflow_version_lock:
-        deps.workflow_version_registry.pop(normalized, None)
-
-
-def _find_workflow_or_404(workflow_id: str) -> Any:
-    deps = _require_deps()
-    target = deps.normalize_agent_id(workflow_id)
-    match = next((item for item in deps.custom_agent_store.list() if deps.normalize_agent_id(item.id) == target), None)
-    if match is None:
+    record = deps.workflow_store.get(normalized)
+    if record is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    return match
+    return record
+
+
+def _record_to_response(record: WorkflowRecord, deps: WorkflowHandlerDependencies) -> dict:
+    """Build a response dict from a WorkflowRecord with backward-compatible fields."""
+    steps = _extract_flat_steps(record)
+    tp = None
+    if record.tool_policy is not None:
+        tp = {"allow": record.tool_policy.allow, "deny": record.tool_policy.deny}
+    triggers = [t.model_dump() for t in record.triggers]
+    graph = record.workflow_graph.model_dump() if record.workflow_graph else None
+    return {
+        "id": record.id,
+        "name": record.name,
+        "description": record.description,
+        "base_agent_id": record.base_agent_id,
+        "allow_subrun_delegation": record.allow_subrun_delegation,
+        "execution_mode": record.execution_mode,
+        "workflow_graph": graph,
+        "tool_policy": tp,
+        "triggers": triggers,
+        "version": record.version,
+        "steps": steps,
+        "step_count": len(steps),
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
 
 
 def _find_idempotent_workflow_or_raise(*, idempotency_key: str | None, fingerprint: str) -> dict | None:
@@ -178,30 +198,70 @@ def _register_idempotent_workflow_delete(*, idempotency_key: str | None, fingerp
     )
 
 
+def _normalize_workflow_id(raw: str) -> str:
+    """Normalize a raw string to a valid workflow ID."""
+    candidate = (raw or "").strip().lower()
+    candidate = re.sub(r"[^a-z0-9_-]+", "-", candidate)
+    candidate = re.sub(r"-+", "-", candidate).strip("-")
+    return candidate[:80]
+
+
+def _build_workflow_graph_from_steps(steps: list[str]) -> WorkflowGraphDef | None:
+    """Build a linear WorkflowGraphDef from a flat step list (backward compat)."""
+    if not steps:
+        return None
+    from app.orchestrator.workflow_models import WorkflowStepDef
+    graph_steps: list = []
+    for i, instruction in enumerate(steps):
+        step_id = f"step-{i + 1}"
+        next_id = f"step-{i + 2}" if i + 1 < len(steps) else None
+        graph_steps.append(WorkflowStepDef(
+            id=step_id,
+            type="agent",
+            label=f"Step {i + 1}",
+            instruction=instruction,
+            next_step=next_id,
+        ))
+    return WorkflowGraphDef(steps=graph_steps, entry_step_id="step-1")
+
+
+def _parse_tool_policy(raw: Any) -> WorkflowToolPolicy | None:
+    """Parse a tool_policy dict into WorkflowToolPolicy."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        allow = [s.strip() for s in (raw.get("allow") or []) if isinstance(s, str) and s.strip()]
+        deny = [s.strip() for s in (raw.get("deny") or []) if isinstance(s, str) and s.strip()]
+        if allow or deny:
+            return WorkflowToolPolicy(allow=allow, deny=deny)
+    return None
+
+
+def _parse_triggers(raw: Any) -> list:
+    """Parse raw triggers into WorkflowTrigger list."""
+    from app.agents.unified_agent_record import WorkflowTrigger
+    if not raw:
+        return []
+    result = []
+    for t in raw:
+        if isinstance(t, dict):
+            result.append(WorkflowTrigger.model_validate(t))
+        elif hasattr(t, "model_dump"):
+            result.append(t)
+        else:
+            result.append(WorkflowTrigger.model_validate(vars(t)))
+    return result
+
+
 def _list_workflows_minimal(*, limit: int, base_agent_id: str | None = None) -> dict:
     deps = _require_deps()
     normalized_base_agent = deps.normalize_agent_id(base_agent_id) if base_agent_id else None
     items: list[dict] = []
 
-    for definition in deps.custom_agent_store.list():
-        base_id = deps.normalize_agent_id(definition.base_agent_id)
-        if normalized_base_agent and base_id != normalized_base_agent:
+    for record in deps.workflow_store.list(limit=max(1, limit) * 2):
+        if normalized_base_agent and record.base_agent_id != normalized_base_agent:
             continue
-
-        steps = [step for step in (definition.workflow_steps or []) if isinstance(step, str) and step.strip()]
-        items.append(
-            {
-                "id": definition.id,
-                "name": definition.name,
-                "base_agent_id": base_id,
-                "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
-                "execution_mode": getattr(definition, "execution_mode", "parallel"),
-                "triggers": getattr(definition, "triggers", []) or [],
-                "version": _get_workflow_version(definition.id),
-                "steps": steps,
-                "step_count": len(steps),
-            }
-        )
+        items.append(_record_to_response(record, deps))
         if len(items) >= max(1, limit):
             break
 
@@ -214,24 +274,10 @@ def _list_workflows_minimal(*, limit: int, base_agent_id: str | None = None) -> 
 
 def _get_workflow_minimal(*, workflow_id: str) -> dict:
     deps = _require_deps()
-    definition = _find_workflow_or_404(workflow_id)
-    steps = [step for step in (definition.workflow_steps or []) if isinstance(step, str) and step.strip()]
+    record = _find_workflow_or_404(workflow_id)
     return {
         "schema": "workflows.get.v1",
-        "workflow": {
-            "id": definition.id,
-            "name": definition.name,
-            "description": definition.description,
-            "base_agent_id": deps.normalize_agent_id(definition.base_agent_id),
-            "allow_subrun_delegation": bool(getattr(definition, "allow_subrun_delegation", False)),
-            "execution_mode": getattr(definition, "execution_mode", "parallel"),
-            "workflow_graph": getattr(definition, "workflow_graph", None),
-            "triggers": getattr(definition, "triggers", []) or [],
-            "version": _get_workflow_version(definition.id),
-            "steps": steps,
-            "step_count": len(steps),
-            "tool_policy": definition.tool_policy,
-        },
+        "workflow": _record_to_response(record, deps),
     }
 
 
@@ -244,17 +290,20 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
 
     steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
-    workflow_id = (request.id or "").strip() or None
+    raw_id = (request.id or "").strip()
     name = (request.name or "").strip()
     description = (request.description or "").strip()
     if not name:
         raise GuardrailViolation("Workflow name must not be empty.")
 
+    # Use explicit ID for fingerprint, or None for auto-generated
+    fingerprint_id = _normalize_workflow_id(raw_id) if raw_id else None
+
     normalized_tool_policy = normalize_tool_policy_payload(request.tool_policy)
     idempotency_key = normalize_idempotency_key(request.idempotency_key)
     fingerprint = deps.build_workflow_create_fingerprint(
         operation="create",
-        workflow_id=workflow_id,
+        workflow_id=fingerprint_id,
         name=name,
         description=description,
         base_agent_id=normalized_base_agent,
@@ -266,46 +315,49 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
     if existing is not None:
         return existing
 
+    # Generate workflow ID after idempotency check
+    if raw_id:
+        workflow_id = _normalize_workflow_id(raw_id)
+    else:
+        workflow_id = _normalize_workflow_id(f"workflow-{name}-{str(uuid.uuid4())[:8]}")
+
     execution_mode = (getattr(request, "execution_mode", None) or "parallel").strip().lower()
     if execution_mode not in ("parallel", "sequential"):
         execution_mode = "parallel"
-    workflow_graph = getattr(request, "workflow_graph", None)
-    triggers = getattr(request, "triggers", None) or []
 
-    created = deps.custom_agent_store.upsert(
-        SimpleNamespace(
-            id=workflow_id,
-            name=name,
-            description=description,
-            base_agent_id=normalized_base_agent,
-            workflow_steps=steps,
-            execution_mode=execution_mode,
-            workflow_graph=workflow_graph,
-            tool_policy=normalized_tool_policy,
-            allow_subrun_delegation=bool(request.allow_subrun_delegation),
-            triggers=triggers,
-        ),
-        id_factory=lambda base_name: f"workflow-{base_name}-{str(uuid.uuid4())[:8]}",
+    # Parse workflow_graph — if not provided but steps given, build linear graph
+    raw_graph = getattr(request, "workflow_graph", None)
+    workflow_graph = None
+    if raw_graph is not None:
+        try:
+            workflow_graph = WorkflowGraphDef.model_validate(raw_graph) if isinstance(raw_graph, dict) else raw_graph
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+    elif steps:
+        workflow_graph = _build_workflow_graph_from_steps(steps)
+
+    triggers = _parse_triggers(getattr(request, "triggers", None))
+    tool_policy = _parse_tool_policy(normalized_tool_policy)
+
+    record = WorkflowRecord(
+        id=workflow_id,
+        name=name,
+        description=description,
+        base_agent_id=normalized_base_agent,
+        execution_mode=execution_mode,
+        workflow_graph=workflow_graph,
+        tool_policy=tool_policy,
+        triggers=triggers,
+        allow_subrun_delegation=bool(request.allow_subrun_delegation),
     )
+    created = deps.workflow_store.create(record)
     deps.sync_custom_agents()
-    _set_workflow_version(created.id, 1)
+    _ensure_audit_dir(created.id)
 
     response = {
         "schema": "workflows.create.v1",
         "status": "created",
-        "workflow": {
-            "id": created.id,
-            "name": created.name,
-            "description": created.description,
-            "base_agent_id": deps.normalize_agent_id(created.base_agent_id),
-            "allow_subrun_delegation": bool(getattr(created, "allow_subrun_delegation", False)),
-            "execution_mode": getattr(created, "execution_mode", "parallel"),
-            "workflow_graph": getattr(created, "workflow_graph", None),
-            "triggers": getattr(created, "triggers", []) or [],
-            "version": _get_workflow_version(created.id),
-            "steps": list(created.workflow_steps or []),
-            "step_count": len(created.workflow_steps or []),
-        },
+        "workflow": _record_to_response(created, deps),
         "idempotency": {
             "key": idempotency_key,
             "reused": False,
@@ -323,7 +375,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
     if not workflow_id:
         raise GuardrailViolation("Workflow id must not be empty.")
 
-    existing = next((item for item in deps.custom_agent_store.list() if item.id == workflow_id), None)
+    existing = deps.workflow_store.get(workflow_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -332,23 +384,50 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         raise GuardrailViolation("Workflow name must not be empty.")
 
     resolved_description = existing.description if request.description is None else (request.description or "").strip()
-    normalized_base_agent = deps.normalize_agent_id(existing.base_agent_id) if request.base_agent_id is None else deps.normalize_agent_id(request.base_agent_id)
+    normalized_base_agent = existing.base_agent_id if request.base_agent_id is None else deps.normalize_agent_id(request.base_agent_id)
     if normalized_base_agent not in deps.agent_registry:
         raise HTTPException(status_code=400, detail=f"Unsupported base agent: {request.base_agent_id}")
 
-    if request.steps is None:
-        resolved_steps = [step for step in (existing.workflow_steps or []) if isinstance(step, str) and step.strip()]
-    else:
-        resolved_steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
-
-    resolved_tool_policy = existing.tool_policy if request.tool_policy is None else normalize_tool_policy_payload(request.tool_policy)
-    resolved_allow_subrun_delegation = bool(getattr(existing, "allow_subrun_delegation", False)) if request.allow_subrun_delegation is None else bool(request.allow_subrun_delegation)
-
-    resolved_execution_mode = getattr(existing, "execution_mode", "parallel") if getattr(request, "execution_mode", None) is None else (request.execution_mode or "parallel").strip().lower()
+    # Resolve execution mode
+    resolved_execution_mode = existing.execution_mode if getattr(request, "execution_mode", None) is None else (request.execution_mode or "parallel").strip().lower()
     if resolved_execution_mode not in ("parallel", "sequential"):
         resolved_execution_mode = "parallel"
-    resolved_workflow_graph = getattr(existing, "workflow_graph", None) if getattr(request, "workflow_graph", None) is None else request.workflow_graph
-    resolved_triggers = getattr(existing, "triggers", []) if getattr(request, "triggers", None) is None else (request.triggers or [])
+
+    # Resolve workflow_graph
+    raw_request_graph = getattr(request, "workflow_graph", None)
+    if raw_request_graph is not None:
+        try:
+            resolved_graph = WorkflowGraphDef.model_validate(raw_request_graph) if isinstance(raw_request_graph, dict) else raw_request_graph
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+    else:
+        resolved_graph = existing.workflow_graph
+
+    # If request sends steps but no graph, build linear graph from steps
+    if raw_request_graph is None and request.steps is not None:
+        resolved_steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
+        if resolved_steps:
+            resolved_graph = _build_workflow_graph_from_steps(resolved_steps)
+
+    # Resolve tool policy
+    if request.tool_policy is None:
+        resolved_tool_policy = existing.tool_policy
+    else:
+        resolved_tool_policy = _parse_tool_policy(normalize_tool_policy_payload(request.tool_policy))
+
+    resolved_allow_subrun_delegation = existing.allow_subrun_delegation if request.allow_subrun_delegation is None else bool(request.allow_subrun_delegation)
+
+    # Resolve triggers
+    raw_triggers = getattr(request, "triggers", None)
+    resolved_triggers = existing.triggers if raw_triggers is None else _parse_triggers(raw_triggers)
+
+    # Build fingerprint for idempotency
+    steps_for_fingerprint = _extract_flat_steps(existing) if request.steps is None else [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
+    tp_for_fingerprint = None
+    if resolved_tool_policy is not None:
+        tp_for_fingerprint = {"allow": resolved_tool_policy.allow, "deny": resolved_tool_policy.deny}
+    triggers_for_fingerprint = [t.model_dump() for t in resolved_triggers]
+    graph_for_fingerprint = resolved_graph.model_dump() if resolved_graph else None
 
     idempotency_key = normalize_idempotency_key(request.idempotency_key)
     fingerprint = deps.build_workflow_create_fingerprint(
@@ -357,50 +436,35 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         name=resolved_name,
         description=resolved_description,
         base_agent_id=normalized_base_agent,
-        steps=resolved_steps,
-        tool_policy=resolved_tool_policy,
+        steps=steps_for_fingerprint,
+        tool_policy=tp_for_fingerprint,
         allow_subrun_delegation=resolved_allow_subrun_delegation,
         execution_mode=resolved_execution_mode,
-        workflow_graph=resolved_workflow_graph,
-        triggers=resolved_triggers,
+        workflow_graph=graph_for_fingerprint,
+        triggers=triggers_for_fingerprint,
     )
     existing_response = _find_idempotent_workflow_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
     if existing_response is not None:
         return existing_response
 
-    updated = deps.custom_agent_store.upsert(
-        SimpleNamespace(
-            id=workflow_id,
-            name=resolved_name,
-            description=resolved_description,
-            base_agent_id=normalized_base_agent,
-            workflow_steps=resolved_steps,
-            execution_mode=resolved_execution_mode,
-            workflow_graph=resolved_workflow_graph,
-            tool_policy=resolved_tool_policy,
-            allow_subrun_delegation=resolved_allow_subrun_delegation,
-            triggers=resolved_triggers,
-        )
+    updated_record = WorkflowRecord(
+        id=workflow_id,
+        name=resolved_name,
+        description=resolved_description,
+        base_agent_id=normalized_base_agent,
+        execution_mode=resolved_execution_mode,
+        workflow_graph=resolved_graph,
+        tool_policy=resolved_tool_policy,
+        triggers=resolved_triggers,
+        allow_subrun_delegation=resolved_allow_subrun_delegation,
     )
+    updated = deps.workflow_store.update(workflow_id, updated_record)
     deps.sync_custom_agents()
-    next_version = _increment_workflow_version(updated.id)
 
     response = {
         "schema": "workflows.update.v1",
         "status": "updated",
-        "workflow": {
-            "id": updated.id,
-            "name": updated.name,
-            "description": updated.description,
-            "base_agent_id": deps.normalize_agent_id(updated.base_agent_id),
-            "allow_subrun_delegation": bool(getattr(updated, "allow_subrun_delegation", False)),
-            "execution_mode": getattr(updated, "execution_mode", "parallel"),
-            "workflow_graph": getattr(updated, "workflow_graph", None),
-            "triggers": getattr(updated, "triggers", []) or [],
-            "version": next_version,
-            "steps": list(updated.workflow_steps or []),
-            "step_count": len(updated.workflow_steps or []),
-        },
+        "workflow": _record_to_response(updated, deps),
         "idempotency": {
             "key": idempotency_key,
             "reused": False,
@@ -413,15 +477,17 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
 async def _execute_workflow_sequential(
     *,
     request: ControlWorkflowsExecuteRequest,
-    workflow: Any,
+    record: WorkflowRecord,
     workflow_agent_id: str,
     session_id: str,
     run_id: str,
     graph: WorkflowGraphDef,
+    execution_mode: str,
     deps: WorkflowHandlerDependencies,
     normalized_tool_policy: Any,
     idempotency_key: str | None,
     fingerprint: str,
+    pre_state: Any,
 ) -> dict:
     """Execute a workflow with sequential step-by-step processing."""
     from app.orchestrator.workflow_engine import WorkflowEngine
@@ -457,15 +523,9 @@ async def _execute_workflow_sequential(
     except Exception:
         run_store = None
 
-    # Pre-create execution state so run_store can reference it for persistence
-    from app.orchestrator.workflow_models import WorkflowExecutionState as _WES
-    _pre_state = _WES(workflow_id=workflow_agent_id, run_id=run_id, session_id=session_id)
-
     if run_store is not None:
         send_event_fn, state_holder = run_store.make_send_event(run_id)
-        # Point the state holder at _pre_state so intermediate saves persist the live state
-        state_holder[0] = _pre_state
-        run_store.save(_pre_state)
+        state_holder[0] = pre_state
     else:
         async def send_event_fn(_event: dict) -> None:
             return None
@@ -478,21 +538,21 @@ async def _execute_workflow_sequential(
             initial_message=request.message,
             workflow_id=workflow_agent_id,
             send_event=send_event_fn,
+            mode=execution_mode,
             runtime=runtime_state.runtime,
             model=request.model or runtime_state.model,
             preset=request.preset,
             tool_policy=normalized_tool_policy,
             orchestrator_agent_ids=sorted(deps.effective_orchestrator_agent_ids()),
             orchestrator_api=workflow_orchestrator,
-            existing_state=_pre_state,
+            existing_state=pre_state,
         )
     except Exception:
-        _pre_state.status = "failed"
+        pre_state.status = "failed"
         if run_store is not None:
-            run_store.save(_pre_state)
+            run_store.save(pre_state)
         raise
 
-    # Persist final state
     if run_store is not None:
         run_store.save(execution_state)
 
@@ -512,14 +572,14 @@ async def _execute_workflow_sequential(
         "sessionId": session_id,
         "workflow": {
             "id": workflow_agent_id,
-            "name": workflow.name,
-            "base_agent_id": deps.normalize_agent_id(workflow.base_agent_id),
-            "execution_mode": "sequential",
-            "version": _get_workflow_version(workflow_agent_id),
+            "name": record.name,
+            "base_agent_id": record.base_agent_id,
+            "execution_mode": execution_mode,
+            "version": record.version,
         },
         "execution": {
-            "engine": "workflow.sequential.v1",
-            "mode": "sequential_pipeline",
+            "engine": f"workflow.{execution_mode}.v1",
+            "mode": f"{execution_mode}_pipeline",
             "status": execution_state.status,
             "steps": step_summaries,
             "started_at": execution_state.started_at,
@@ -538,8 +598,8 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
     deps = _require_deps()
     deps.sync_custom_agents()
 
-    workflow = _find_workflow_or_404(request.workflow_id)
-    workflow_agent_id = deps.normalize_agent_id(workflow.id)
+    record = _find_workflow_or_404(request.workflow_id)
+    workflow_agent_id = deps.normalize_agent_id(record.id)
     _, _, workflow_orchestrator = deps.resolve_agent(workflow_agent_id)
 
     normalized_tool_policy = normalize_tool_policy_payload(request.tool_policy)
@@ -555,7 +615,7 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         queue_mode=getattr(request, "queue_mode", None),
         prompt_mode=getattr(request, "prompt_mode", None),
         tool_policy=normalized_tool_policy,
-        allow_subrun_delegation=bool(getattr(workflow, "allow_subrun_delegation", False)),
+        allow_subrun_delegation=record.allow_subrun_delegation,
         runtime=runtime_state.runtime,
     )
     existing = _find_idempotent_workflow_execute_or_raise(idempotency_key=idempotency_key, fingerprint=fingerprint)
@@ -565,27 +625,57 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
     session_id = request.session_id or str(uuid.uuid4())
 
     # Branch: sequential execution with workflow graph
-    execution_mode = getattr(workflow, "execution_mode", "parallel")
-    raw_graph = getattr(workflow, "workflow_graph", None)
-    if execution_mode == "sequential" and raw_graph is not None:
-        try:
-            graph = WorkflowGraphDef.model_validate(raw_graph) if isinstance(raw_graph, dict) else raw_graph
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+    if record.workflow_graph is not None:
+        graph = record.workflow_graph
         run_id = str(uuid.uuid4())
-        return await _execute_workflow_sequential(
+
+        # Pre-create execution state so the SSE stream has something to connect to
+        from app.orchestrator.workflow_models import WorkflowExecutionState as _WES
+        _pre_state = _WES(workflow_id=workflow_agent_id, run_id=run_id, session_id=session_id,
+                          output_dir=_make_run_audit_dir(workflow_agent_id))
+        try:
+            from app.services.workflow_run_store import get_workflow_run_store
+            run_store = get_workflow_run_store()
+            run_store.save(_pre_state)
+        except Exception:
+            pass
+
+        asyncio.ensure_future(_execute_workflow_sequential(
             request=request,
-            workflow=workflow,
+            record=record,
             workflow_agent_id=workflow_agent_id,
             session_id=session_id,
             run_id=run_id,
             graph=graph,
+            execution_mode=record.execution_mode,
             deps=deps,
             normalized_tool_policy=normalized_tool_policy,
             idempotency_key=idempotency_key,
             fingerprint=fingerprint,
-        )
+            pre_state=_pre_state,
+        ))
 
+        response = {
+            "schema": "workflows.execute.v2",
+            "status": "accepted",
+            "runId": run_id,
+            "sessionId": session_id,
+            "workflow": {
+                "id": workflow_agent_id,
+                "name": record.name,
+                "base_agent_id": record.base_agent_id,
+                "execution_mode": record.execution_mode,
+                "version": record.version,
+            },
+            "idempotency": {
+                "key": idempotency_key,
+                "reused": False,
+            },
+        }
+        _register_idempotent_workflow_execute(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
+        return response
+
+    # Legacy subrun path — no graph, use flat steps
     run_id = deps.start_run_background(
         agent_id=workflow_agent_id,
         message=request.message,
@@ -598,11 +688,11 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         meta={
             "workflow_execute": True,
             "workflow_id": workflow_agent_id,
-            "workflow_version": _get_workflow_version(workflow_agent_id),
+            "workflow_version": record.version,
         },
     )
 
-    steps = [step for step in (workflow.workflow_steps or []) if isinstance(step, str) and step.strip()]
+    steps = _extract_flat_steps(record)
     step_spawn_cap = max(1, int(deps.settings.subrun_max_children_per_parent))
     executable_steps = steps[:step_spawn_cap]
     spawned_subruns: list[dict] = []
@@ -683,9 +773,9 @@ async def _execute_workflow_minimal(*, request: ControlWorkflowsExecuteRequest) 
         "sessionId": session_id,
         "workflow": {
             "id": workflow_agent_id,
-            "name": workflow.name,
-            "base_agent_id": deps.normalize_agent_id(workflow.base_agent_id),
-            "version": _get_workflow_version(workflow_agent_id),
+            "name": record.name,
+            "base_agent_id": record.base_agent_id,
+            "version": record.version,
             "steps": steps,
             "step_count": len(steps),
         },
@@ -729,12 +819,12 @@ def _delete_workflow_minimal(*, request: ControlWorkflowsDeleteRequest) -> dict:
     if existing is not None:
         return existing
 
-    workflow = _find_workflow_or_404(workflow_id)
+    record = _find_workflow_or_404(workflow_id)
 
-    deleted = deps.custom_agent_store.delete(workflow_id)
+    deleted = deps.workflow_store.delete(workflow_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    _delete_workflow_version(workflow_id)
+    _cleanup_audit_dir(workflow_id)
     deps.sync_custom_agents()
 
     response = {
@@ -742,7 +832,7 @@ def _delete_workflow_minimal(*, request: ControlWorkflowsDeleteRequest) -> dict:
         "status": "deleted",
         "workflow": {
             "id": workflow_id,
-            "name": workflow.name,
+            "name": record.name,
         },
         "idempotency": {
             "key": idempotency_key,

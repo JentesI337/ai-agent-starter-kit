@@ -58,3 +58,4 @@ class WorkflowExecutionState(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
     started_at: str = ""
     completed_at: str | None = None
+    output_dir: str | None = None
