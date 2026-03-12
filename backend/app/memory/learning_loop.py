@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.memory.adaptive_selector import AdaptiveToolSelector
-    from app.services.execution_pattern_detector import ExecutionPatternDetector, PatternAlert
+    from app.quality.execution_pattern_detector import ExecutionPatternDetector, PatternAlert
     from app.services.tool_knowledge_base import ToolKnowledgeBase
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class LearningLoop:
             from app.services.tool_knowledge_base import ToolKnowledgeBase
             kb = ToolKnowledgeBase()
         if detector is None:
-            from app.services.execution_pattern_detector import ExecutionPatternDetector
+            from app.quality.execution_pattern_detector import ExecutionPatternDetector
             detector = ExecutionPatternDetector()
 
         self._selector = selector
