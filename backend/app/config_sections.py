@@ -32,6 +32,7 @@ class CoreSection(BaseModel):
     context_window_guard_enabled: bool = True
     context_window_warn_below_tokens: int = 12000
     context_window_hard_min_tokens: int = 4000
+    workflows_audit_enabled: bool = False
 
 
 class LlmSection(BaseModel):
@@ -322,9 +323,9 @@ class VisionWebSection(BaseModel):
     vision_base_url: str = "http://localhost:11434"
     vision_api_key: str = ""
     vision_max_tokens: int = 1000
-    web_search_provider: str = Field(default="duckduckgo", json_schema_extra={"choices": ["duckduckgo"]})
+    web_search_provider: str = Field(default="searxng", json_schema_extra={"choices": ["searxng", "duckduckgo", "tavily", "brave"]})
     web_search_api_key: str = ""
-    web_search_base_url: str = ""
+    web_search_base_url: str = "http://localhost:8888"
     web_search_max_results: int = 5
     web_fetch_max_download_bytes: int = 5 * 1024 * 1024
     web_fetch_blocked_content_types: list[str] = Field(

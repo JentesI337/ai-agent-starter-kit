@@ -597,6 +597,95 @@ catch {
     }
 }
 
+# Start SearXNG (web search aggregator) if Docker is available
+$searxngCompose = Join-Path $PSScriptRoot 'docker-compose.searxng.yml'
+if ((Test-Path $searxngCompose) -and (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $searxngPort = 8888
+    if (Test-TcpPort -HostName '127.0.0.1' -Port $searxngPort) {
+        Write-Host "SearXNG already running on port $searxngPort"
+    }
+    else {
+        # Ensure Docker daemon is running (start Docker Desktop if needed)
+        $dockerReady = $false
+        try {
+            docker info 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $dockerReady = $true }
+        } catch {}
+
+        if (-not $dockerReady) {
+            Write-Step "Docker daemon not running, starting Docker Desktop"
+            $dockerDesktopPath = $null
+            $candidates = @(
+                (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+                (Join-Path ${env:ProgramFiles(x86)} 'Docker\Docker\Docker Desktop.exe'),
+                (Join-Path $env:LOCALAPPDATA 'Docker\Docker Desktop.exe')
+            )
+            foreach ($c in $candidates) {
+                if (Test-Path $c) { $dockerDesktopPath = $c; break }
+            }
+
+            if ($dockerDesktopPath) {
+                Start-Process -FilePath $dockerDesktopPath -WindowStyle Minimized
+                Write-Host "Waiting for Docker daemon to be ready..."
+                for ($i = 0; $i -lt 60; $i++) {
+                    Start-Sleep -Seconds 2
+                    try {
+                        docker info 2>&1 | Out-Null
+                        if ($LASTEXITCODE -eq 0) {
+                            $dockerReady = $true
+                            Write-Host "Docker daemon is ready"
+                            break
+                        }
+                    } catch {}
+                }
+                if (-not $dockerReady) {
+                    Write-Host "Warning: Docker Desktop did not become ready within 120s. Web search will fall back to DuckDuckGo." -ForegroundColor Yellow
+                }
+            }
+            else {
+                Write-Host "Warning: Docker Desktop not found. Web search will fall back to DuckDuckGo." -ForegroundColor Yellow
+            }
+        }
+
+        if ($dockerReady) {
+            Write-Step "Starting SearXNG (web search aggregator) on port $searxngPort"
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                $composeOutput = & docker compose -f $searxngCompose up -d 2>&1
+                $composeExit = $LASTEXITCODE
+                foreach ($line in $composeOutput) {
+                    $lineStr = "$line".Trim()
+                    if ($lineStr) { Write-Host "  $lineStr" }
+                }
+                # Wait for container to be ready (image pull can take a while)
+                $waitSeconds = if ($composeExit -eq 0) { 30 } else { 5 }
+                for ($i = 0; $i -lt $waitSeconds; $i++) {
+                    Start-Sleep -Seconds 1
+                    if (Test-TcpPort -HostName '127.0.0.1' -Port $searxngPort) {
+                        Write-Host "SearXNG started on port $searxngPort"
+                        break
+                    }
+                }
+                if (-not (Test-TcpPort -HostName '127.0.0.1' -Port $searxngPort)) {
+                    Write-Host "Warning: SearXNG did not start. Web search will fall back to DuckDuckGo." -ForegroundColor Yellow
+                }
+            }
+            catch {
+                Write-Host "Warning: Could not start SearXNG ($($_.Exception.Message)). Web search will fall back to DuckDuckGo." -ForegroundColor Yellow
+            }
+            finally {
+                $ErrorActionPreference = $prevEAP
+            }
+        }
+    }
+}
+else {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Host "Docker not found. SearXNG will not start. Web search will fall back to DuckDuckGo." -ForegroundColor Yellow
+    }
+}
+
 Write-Step "Running backend"
 Ensure-Port-Free -Port $BackendPort -ServiceName 'backend'
 Start-Process -FilePath $venvPython -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port $BackendPort" -WorkingDirectory $backendDir -WindowStyle Minimized | Out-Null

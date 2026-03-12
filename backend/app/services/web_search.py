@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from time import monotonic
 from urllib.parse import quote_plus
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -102,17 +105,21 @@ class WebSearchService:
         )
 
     async def _search_searxng(self, query: str, max_results: int) -> list[WebSearchResult]:
-        base_url = self.base_url or "http://localhost:8080"
-        payload = await self._request_json(
-            "GET",
-            f"{base_url.rstrip('/')}/search",
-            params={
-                "q": query,
-                "format": "json",
-                "engines": "google,bing,duckduckgo",
-                "pageno": 1,
-            },
-        )
+        base_url = self.base_url or "http://localhost:8888"
+        try:
+            payload = await self._request_json(
+                "GET",
+                f"{base_url.rstrip('/')}/search",
+                params={
+                    "q": query,
+                    "format": "json",
+                    "engines": "google,bing,duckduckgo",
+                    "pageno": 1,
+                },
+            )
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            logger.warning("SearXNG unreachable at %s: %s — falling back to DuckDuckGo", base_url, exc)
+            return await self._search_duckduckgo(query, max_results)
         raw_results = payload.get("results") if isinstance(payload.get("results"), list) else []
         results: list[WebSearchResult] = []
         for item in raw_results[:max_results]:
