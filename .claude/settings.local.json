@@ -41,7 +41,8 @@
       "WebFetch(domain:docs.agpt.co)",
       "WebFetch(domain:agpt.co)",
       "WebFetch(domain:cosmo-edge.com)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(C:/Users/wisni/code/git/ai-agent-starter-kit/backend/.venv/Scripts/python.exe:*)"
     ]
   }
 }
