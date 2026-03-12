@@ -11,7 +11,6 @@ from app.services.idempotency_service import (
     idempotency_register,
     prune_idempotency_registry,
 )
-from app.services.policy_approval_service import PolicyApprovalService
 from app.services.prompt_kernel_builder import PromptKernel, PromptKernelBuilder
 from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.services.session_inbox_service import InboxMessage, SessionInboxService
@@ -58,3 +57,10 @@ __all__ = [
     "resolve_tool_policy",
     "resolve_tool_policy_with_preset",
 ]
+
+
+def __getattr__(name: str):  # noqa: N807
+    if name == "PolicyApprovalService":
+        from app.policy.approval_service import PolicyApprovalService
+        return PolicyApprovalService
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
