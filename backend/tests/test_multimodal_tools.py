@@ -16,7 +16,7 @@ from app.errors import ToolExecutionError
 
 def _make_tooling(**overrides):
     """Build a minimal AgentTooling-like object with the MultimodalToolMixin."""
-    from app.tools_multimodal import MultimodalToolMixin
+    from app.tools.implementations.multimodal import MultimodalToolMixin
 
     class FakeTooling(MultimodalToolMixin):
         def _resolve_workspace_path(self, path: str) -> Path:
@@ -43,8 +43,8 @@ class TestParsePdf:
             "page_count": 1,
         }
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._pdf_service") as mock_svc:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._pdf_service") as mock_svc:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_pdf_enabled = True
             mock_settings.workspace_root = str(tmp_path)
@@ -59,8 +59,8 @@ class TestParsePdf:
     async def test_parse_pdf_not_found(self, tmp_path):
         """Missing PDF raises ToolExecutionError."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._pdf_service") as mock_svc:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._pdf_service") as mock_svc:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_pdf_enabled = True
             mock_settings.workspace_root = str(tmp_path)
@@ -73,7 +73,7 @@ class TestParsePdf:
     async def test_parse_pdf_disabled(self):
         """Feature gate blocks parse_pdf when disabled."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings:
             mock_settings.multimodal_tools_enabled = False
             mock_settings.multimodal_pdf_enabled = True
 
@@ -92,8 +92,8 @@ class TestTranscribeAudio:
         audio_path = tmp_path / "audio.mp3"
         fake_result = {"text": "Hello world", "segments": [{"start": 0.0, "end": 1.5, "text": "Hello world"}]}
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._get_audio_service") as mock_factory:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._get_audio_service") as mock_factory:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_audio_enabled = True
             mock_settings.workspace_root = str(tmp_path)
@@ -110,8 +110,8 @@ class TestTranscribeAudio:
     async def test_transcribe_audio_too_large(self, tmp_path):
         """Files exceeding 20 MB are rejected."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._get_audio_service") as mock_factory:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._get_audio_service") as mock_factory:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_audio_enabled = True
             mock_settings.workspace_root = str(tmp_path)
@@ -126,8 +126,8 @@ class TestTranscribeAudio:
     async def test_transcribe_audio_too_long(self, tmp_path):
         """Audio exceeding max duration is rejected."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._get_audio_service") as mock_factory:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._get_audio_service") as mock_factory:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_audio_enabled = True
             mock_settings.workspace_root = str(tmp_path)
@@ -148,8 +148,8 @@ class TestGenerateImage:
     async def test_generate_image_valid(self):
         """Mock ImageGenService and verify base64 JSON output."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._get_image_gen_service") as mock_factory:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._get_image_gen_service") as mock_factory:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_image_gen_enabled = True
             mock_svc = AsyncMock()
@@ -166,7 +166,7 @@ class TestGenerateImage:
     async def test_generate_image_disabled(self):
         """Feature gate blocks generate_image when disabled."""
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_image_gen_enabled = False
 
@@ -184,8 +184,8 @@ class TestExportPdf:
         """Verify export_pdf creates a file."""
         output = tmp_path / "output.pdf"
         tooling = _make_tooling()
-        with patch("app.tools_multimodal.settings") as mock_settings, \
-             patch("app.tools_multimodal._pdf_service") as mock_svc:
+        with patch("app.tools.implementations.multimodal.settings") as mock_settings, \
+             patch("app.tools.implementations.multimodal._pdf_service") as mock_svc:
             mock_settings.multimodal_tools_enabled = True
             mock_settings.multimodal_pdf_enabled = True
             mock_settings.workspace_root = str(tmp_path)

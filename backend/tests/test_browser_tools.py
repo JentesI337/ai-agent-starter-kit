@@ -372,7 +372,7 @@ class TestBrowserTools:
     async def test_browser_open(self, tooling):
         tools, url = tooling
         # Patch validate_browser_url so the local test server isn't blocked
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             result = await tools.browser_open(url)
         assert "Title: Test Page" in result
         assert "Hello Browser" in result
@@ -380,7 +380,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_click(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
             result = await tools.browser_click("#click-btn")
         assert "Clicked!" in result
@@ -388,7 +388,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_type(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_type("#username", "admin")
         assert "admin" in result
@@ -396,7 +396,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_screenshot(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_screenshot()
         data = json.loads(result)
@@ -409,7 +409,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_read_dom(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_read_dom("#test-form")
         assert "Form fields:" in result
@@ -418,7 +418,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_read_dom_full_page(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_read_dom()
         assert "Hello Browser" in result
@@ -428,7 +428,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_evaluate_js(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_evaluate_js("window.testValue")
         assert result == "42"
@@ -436,7 +436,7 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_evaluate_js_complex(self, tooling):
         tools, url = tooling
-        with patch("app.tooling.validate_browser_url", side_effect=lambda u: u):
+        with patch("app.tools.implementations.browser.validate_browser_url", side_effect=lambda u: u):
             await tools.browser_open(url)
         result = await tools.browser_evaluate_js("document.title")
         assert json.loads(result) == "Test Page"

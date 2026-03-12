@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.services.web_search import WebSearchService
+from app.tools.implementations.web import WebSearchService
 
 
 class _StubService(WebSearchService):

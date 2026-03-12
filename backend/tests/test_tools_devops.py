@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.errors import ToolExecutionError
-from app.tools_devops import DevOpsToolMixin
+from app.tools.implementations.devops import DevOpsToolMixin
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ class TestGitLog:
             "abc123\nJohn Doe\n2024-01-15 10:00:00\nAdd feature\n"
             "---GIT_LOG_ENTRY---\n"
         )
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(raw)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(raw)):
             result = tooling.git_log()
         entries = json.loads(result)
         assert len(entries) == 1
@@ -55,19 +55,19 @@ class TestGitLog:
     def test_oneline_format(self, tmp_path):
         tooling = _make_tooling(tmp_path)
         raw = "abc123 Add feature\ndef456 Fix bug\n"
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(raw)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(raw)):
             result = tooling.git_log(format="oneline")
         assert "abc123" in result
 
     def test_empty_result(self, tmp_path):
         tooling = _make_tooling(tmp_path)
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run("")):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run("")):
             result = tooling.git_log()
         assert "No commits" in result
 
     def test_max_count_capped(self, tmp_path):
         tooling = _make_tooling(tmp_path)
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run("")) as mock:
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run("")) as mock:
             tooling.git_log(max_count=200)
             args = mock.call_args[0][0]
             assert "--max-count=100" in args
@@ -77,19 +77,19 @@ class TestGitDiff:
     def test_returns_diff_output(self, tmp_path):
         tooling = _make_tooling(tmp_path)
         diff = "diff --git a/file.py b/file.py\n+new line\n"
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(diff)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(diff)):
             result = tooling.git_diff()
         assert "+new line" in result
 
     def test_no_differences(self, tmp_path):
         tooling = _make_tooling(tmp_path)
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run("")):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run("")):
             result = tooling.git_diff()
         assert "No differences" in result
 
     def test_stat_only(self, tmp_path):
         tooling = _make_tooling(tmp_path)
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run("file.py | 2 +-\n")) as mock:
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run("file.py | 2 +-\n")) as mock:
             tooling.git_diff(stat_only=True)
             args = mock.call_args[0][0]
             assert "--stat" in args
@@ -103,7 +103,7 @@ class TestGitBlame:
             "author John Doe\n"
             "\tcode here\n"
         )
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(raw)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(raw)):
             result = tooling.git_blame(path="file.py")
         entries = json.loads(result)
         assert len(entries) == 1
@@ -118,7 +118,7 @@ class TestGitShow:
     def test_returns_commit_details(self, tmp_path):
         tooling = _make_tooling(tmp_path)
         raw = "commit abc123\nAuthor: John\n\nAdd feature\n\ndiff...\n"
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(raw)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(raw)):
             result = tooling.git_show(ref="abc123")
         assert "Add feature" in result
 
@@ -131,7 +131,7 @@ class TestGitShow:
 class TestGitStash:
     def test_save(self, tmp_path):
         tooling = _make_tooling(tmp_path)
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run("Saved working directory\n")):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run("Saved working directory\n")):
             result = tooling.git_stash(action="save", message="wip")
         assert "Saved" in result
 
@@ -149,7 +149,7 @@ class TestRunTests:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         tooling = _make_tooling(tmp_path)
         stdout = "2 passed in 0.50s\n"
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(stdout)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(stdout)):
             result = tooling.run_tests()
         parsed = json.loads(result)
         assert parsed["passed"] == 2
@@ -162,7 +162,7 @@ class TestRunTests:
     def test_explicit_runner(self, tmp_path):
         tooling = _make_tooling(tmp_path)
         stdout = "3 passed, 1 failed in 1.23s\nFAILED test_a.py::test_x - assert False\n"
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
             result = tooling.run_tests(runner="pytest")
         parsed = json.loads(result)
         assert parsed["failed"] == 1
@@ -179,7 +179,7 @@ class TestLintCheck:
         stdout = json.dumps([
             {"filename": "app.py", "location": {"row": 5, "column": 1}, "message": "unused", "code": "F401", "fix": None},
         ])
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
             result = tooling.lint_check()
         parsed = json.loads(result)
         assert parsed["tool"] == "ruff"
@@ -244,7 +244,7 @@ class TestDependencyAudit:
                 "lodash": {"severity": "high", "title": "Prototype Pollution", "fixAvailable": True, "via": []},
             },
         })
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(audit_json, returncode=1)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(audit_json, returncode=1)):
             result = tooling.dependency_audit()
         parsed = json.loads(result)
         assert parsed["manager"] == "npm"
@@ -263,7 +263,7 @@ class TestDependencyOutdated:
         stdout = json.dumps({
             "lodash": {"current": "4.17.19", "wanted": "4.17.21", "latest": "4.17.21"},
         })
-        with patch("app.tools_devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
+        with patch("app.tools.implementations.devops.subprocess.run", return_value=_mock_run(stdout, returncode=1)):
             result = tooling.dependency_outdated()
         parsed = json.loads(result)
         assert len(parsed["outdated"]) == 1

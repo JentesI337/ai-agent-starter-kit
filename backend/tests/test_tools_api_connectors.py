@@ -10,7 +10,7 @@ from app.connectors.base import ConnectorConfig, ConnectorCredentials
 from app.connectors.connector_store import ConnectorStore
 from app.connectors.credential_store import CredentialStore
 from app.connectors.registry import ConnectorRegistry
-from app.tools_api_connectors import ApiConnectorToolMixin
+from app.tools.implementations.api_connectors import ApiConnectorToolMixin
 
 
 class MockTooling(ApiConnectorToolMixin):

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 import app.tooling as tools_module
+import app.tools.implementations.code_execution as code_exec_module
+import app.tools.implementations.multimodal as multimodal_module
 import app.url_validator as url_validator_module
 from app.errors import ToolExecutionError
 from app.tooling import AgentTooling
@@ -280,7 +282,7 @@ def test_analyze_image_uses_vision_service(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(tools_module.settings, "vision_api_key", "")
     monkeypatch.setattr(tools_module.settings, "vision_provider", "ollama")
     monkeypatch.setattr(tools_module.settings, "vision_max_tokens", 1000)
-    monkeypatch.setattr(tools_module, "VisionService", _FakeVisionService)
+    monkeypatch.setattr(multimodal_module, "VisionService", _FakeVisionService)
 
     result = asyncio.run(tooling.analyze_image("screen.png", prompt="Find text"))
 
@@ -314,7 +316,7 @@ def test_code_execute_returns_serialized_payload(monkeypatch: pytest.MonkeyPatch
             assert max_output_chars == 900
             return _FakeResult()
 
-    monkeypatch.setattr(tools_module, "CodeSandbox", _FakeSandbox)
+    monkeypatch.setattr(code_exec_module, "CodeSandbox", _FakeSandbox)
 
     payload = asyncio.run(
         tooling.code_execute(
