@@ -83,7 +83,7 @@ def build_control_workflows_router(
     @router.post("/api/control/workflows.runs.list")
     async def control_workflows_runs_list(request: JsonDict = Body(...)):
         try:
-            from app.services.workflow_run_store import get_workflow_run_store
+            from app.workflows.store import get_workflow_run_store
             store = get_workflow_run_store()
         except RuntimeError:
             return {"schema": "workflows.runs.list.v1", "items": [], "count": 0}
@@ -96,7 +96,7 @@ def build_control_workflows_router(
     @router.post("/api/control/workflows.runs.get")
     async def control_workflows_runs_get(request: JsonDict = Body(...)):
         try:
-            from app.services.workflow_run_store import get_workflow_run_store
+            from app.workflows.store import get_workflow_run_store
             store = get_workflow_run_store()
         except RuntimeError:
             return {"error": "Run store not initialized"}
@@ -117,7 +117,7 @@ def build_control_workflows_router(
     ):
         """SSE endpoint for real-time workflow step progress."""
         try:
-            from app.services.workflow_run_store import get_workflow_run_store
+            from app.workflows.store import get_workflow_run_store
             store = get_workflow_run_store()
         except RuntimeError:
             async def _error():
@@ -132,20 +132,31 @@ def build_control_workflows_router(
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=30.0)
                     except asyncio.TimeoutError:
-                        # Send keepalive
                         yield ": keepalive\n\n"
                         continue
 
                     event_type = event.get("type", "message")
                     yield f"event: {event_type}\ndata: {json.dumps(event, default=str)}\n\n"
 
-                    # Close stream on terminal events
                     if event_type in ("workflow_completed", "workflow_failed"):
                         break
             finally:
                 store.unsubscribe(run_id, queue)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # ── Workflow Run Audit ──────────────────────────────────
+
+    @router.post("/api/control/workflows.runs.audit")
+    async def control_workflows_runs_audit(request: JsonDict = Body(...)):
+        """Return the audit trail for a workflow run."""
+        from app.workflows.handlers import api_control_workflows_run_audit
+        run_id = request.get("run_id", "")
+        if not run_id:
+            return {"error": "run_id is required"}
+        result = api_control_workflows_run_audit(run_id)
+        awaited = _maybe_await(result)
+        return await awaited if awaited is not None else result
 
     # ── Template endpoints ────────────────────────────────
 
@@ -193,7 +204,6 @@ def build_control_workflows_router(
 
         data = _json.loads(template_file.read_text(encoding="utf-8"))
 
-        # Build create payload from template + overrides
         create_payload = {
             "name": overrides.get("name", data.get("name", template_id)),
             "description": overrides.get("description", data.get("description", "")),

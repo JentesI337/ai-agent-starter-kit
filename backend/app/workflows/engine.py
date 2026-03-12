@@ -1,23 +1,26 @@
-"""Sequential workflow execution engine with data flow between steps."""
+"""Sequential workflow execution engine with data flow between steps.
+
+Uses a RunAgentFn callback to execute agent steps — no direct dependency
+on OrchestratorApi, RequestContext, or any agent-domain code.
+"""
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.orchestrator.workflow_models import (
+from app.workflows.models import (
     StepResult,
     WorkflowExecutionState,
     WorkflowGraphDef,
     WorkflowStepDef,
 )
-from app.orchestrator.workflow_transforms import (
+from app.workflows.transforms import (
     evaluate_condition,
     resolve_params,
     resolve_templates,
@@ -25,24 +28,27 @@ from app.orchestrator.workflow_transforms import (
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_STATUSES = frozenset({"completed", "failed", "timed_out", "cancelled"})
+# Callback type: (agent_id, message, session_id) → output
+RunAgentFn = Callable[[str, str, str], Awaitable[str]]
 
 
 class WorkflowEngine:
-    """Executes a WorkflowGraphDef sequentially with data flow between steps."""
+    """Executes a WorkflowGraphDef with data flow between steps."""
 
     def __init__(
         self,
         *,
-        subrun_lane: Any,
+        run_agent: RunAgentFn | None = None,
         connector_store: Any | None = None,
         credential_store: Any | None = None,
         connector_registry: Any | None = None,
+        audit_store: Any | None = None,
     ) -> None:
-        self._subrun_lane = subrun_lane
+        self._run_agent = run_agent
         self._connector_store = connector_store
         self._credential_store = credential_store
         self._connector_registry = connector_registry
+        self._audit_store = audit_store
 
     async def execute(
         self,
@@ -54,12 +60,6 @@ class WorkflowEngine:
         workflow_id: str,
         send_event: Callable,
         mode: str = "sequential",
-        runtime: str = "api",
-        model: str | None = None,
-        preset: str | None = None,
-        tool_policy: Any = None,
-        orchestrator_agent_ids: list[str] | None = None,
-        orchestrator_api: Any = None,
         existing_state: WorkflowExecutionState | None = None,
     ) -> WorkflowExecutionState:
         if existing_state is not None:
@@ -83,12 +83,6 @@ class WorkflowEngine:
             run_id=run_id,
             session_id=session_id,
             send_event=send_event,
-            runtime=runtime,
-            model=model,
-            preset=preset,
-            tool_policy=tool_policy,
-            orchestrator_agent_ids=orchestrator_agent_ids or [],
-            orchestrator_api=orchestrator_api,
         )
 
         if mode == "parallel":
@@ -103,14 +97,23 @@ class WorkflowEngine:
         run_id: str,
         session_id: str,
         send_event: Callable,
-        runtime: str,
-        model: str | None,
-        preset: str | None,
-        tool_policy: Any,
-        orchestrator_agent_ids: list[str],
-        orchestrator_api: Any,
     ) -> WorkflowExecutionState:
         current_step_id: str | None = graph.entry_step_id
+
+        # Repair broken chains: if steps are unreachable, infer linear order
+        reachable: set[str] = set()
+        sid = graph.entry_step_id
+        while sid and sid not in reachable:
+            reachable.add(sid)
+            s = graph.get_step(sid)
+            sid = s.next_step if s else None
+
+        if len(reachable) < len(graph.steps):
+            logger.warning("workflow_chain_broken: %d/%d steps reachable, repairing",
+                           len(reachable), len(graph.steps))
+            for i, step in enumerate(graph.steps):
+                if i + 1 < len(graph.steps) and not step.next_step and not step.on_true:
+                    step.next_step = graph.steps[i + 1].id
 
         while current_step_id is not None:
             step_def = graph.get_step(current_step_id)
@@ -132,12 +135,6 @@ class WorkflowEngine:
                 state=state,
                 run_id=run_id,
                 session_id=session_id,
-                runtime=runtime,
-                model=model,
-                preset=preset,
-                tool_policy=tool_policy,
-                orchestrator_agent_ids=orchestrator_agent_ids,
-                orchestrator_api=orchestrator_api,
                 send_event=send_event,
             )
             result.duration_ms = int((time.monotonic() - t0) * 1000)
@@ -193,12 +190,6 @@ class WorkflowEngine:
         run_id: str,
         session_id: str,
         send_event: Callable,
-        runtime: str,
-        model: str | None,
-        preset: str | None,
-        tool_policy: Any,
-        orchestrator_agent_ids: list[str],
-        orchestrator_api: Any,
     ) -> WorkflowExecutionState:
         # Emit started for all steps at once
         for step_def in graph.steps:
@@ -208,6 +199,8 @@ class WorkflowEngine:
                 "label": step_def.label or step_def.id,
             })
 
+        context_lock = asyncio.Lock()
+
         async def _run_one(step_def: WorkflowStepDef) -> StepResult:
             t0 = time.monotonic()
             result = await self._execute_step(
@@ -215,19 +208,15 @@ class WorkflowEngine:
                 state=state,
                 run_id=run_id,
                 session_id=session_id,
-                runtime=runtime,
-                model=model,
-                preset=preset,
-                tool_policy=tool_policy,
-                orchestrator_agent_ids=orchestrator_agent_ids,
-                orchestrator_api=orchestrator_api,
                 send_event=send_event,
             )
             result.duration_ms = int((time.monotonic() - t0) * 1000)
-            state.step_results[step_def.id] = result
-            self._write_step_audit(state, result)
-            if result.output is not None:
-                state.context[step_def.id] = {"output": result.output}
+
+            async with context_lock:
+                state.step_results[step_def.id] = result
+                self._write_step_audit(state, result)
+                if result.output is not None:
+                    state.context[step_def.id] = {"output": result.output}
 
             if result.status == "error":
                 await self._emit(send_event, "workflow_step_failed", {
@@ -243,7 +232,13 @@ class WorkflowEngine:
                 })
             return result
 
-        await asyncio.gather(*[_run_one(s) for s in graph.steps], return_exceptions=True)
+        results = await asyncio.gather(*[_run_one(s) for s in graph.steps], return_exceptions=True)
+
+        # Log any exceptions from gather
+        for i, r in enumerate(results):
+            if isinstance(r, BaseException):
+                step_id = graph.steps[i].id if i < len(graph.steps) else f"step-{i}"
+                logger.error("workflow_parallel_step_exception step_id=%s error=%s", step_id, r)
 
         # Finalize
         has_errors = any(r.status == "error" for r in state.step_results.values())
@@ -271,12 +266,6 @@ class WorkflowEngine:
         state: WorkflowExecutionState,
         run_id: str,
         session_id: str,
-        runtime: str,
-        model: str | None,
-        preset: str | None,
-        tool_policy: Any,
-        orchestrator_agent_ids: list[str],
-        orchestrator_api: Any,
         send_event: Callable,
     ) -> StepResult:
         try:
@@ -286,12 +275,6 @@ class WorkflowEngine:
                     state=state,
                     run_id=run_id,
                     session_id=session_id,
-                    runtime=runtime,
-                    model=model,
-                    preset=preset,
-                    tool_policy=tool_policy,
-                    orchestrator_agent_ids=orchestrator_agent_ids,
-                    orchestrator_api=orchestrator_api,
                     send_event=send_event,
                 )
             elif step_def.type == "connector":
@@ -317,14 +300,11 @@ class WorkflowEngine:
         state: WorkflowExecutionState,
         run_id: str,
         session_id: str,
-        runtime: str,
-        model: str | None,
-        preset: str | None,
-        tool_policy: Any,
-        orchestrator_agent_ids: list[str],
-        orchestrator_api: Any,
         send_event: Callable,
     ) -> StepResult:
+        if self._run_agent is None:
+            return StepResult(step_id=step_def.id, status="error", error="No run_agent callback configured")
+
         # Build the step message with context injection
         instruction = resolve_templates(step_def.instruction, state.context)
         step_message = f"Workflow step [{step_def.label or step_def.id}]: {instruction}"
@@ -339,51 +319,30 @@ class WorkflowEngine:
             if context_lines:
                 step_message += "\n\nPrevious step outputs:\n" + "\n".join(context_lines)
 
-        async def _noop_send(_event: dict) -> None:
-            return None
+        agent_id = step_def.agent_id or "head-agent"
 
-        agent_id = step_def.agent_id
-        subrun_id = await self._subrun_lane.spawn(
-            parent_request_id=run_id,
-            parent_session_id=session_id,
-            user_message=step_message,
-            runtime=runtime,
-            model=model or "",
-            timeout_seconds=step_def.timeout_seconds,
-            tool_policy=tool_policy,
-            send_event=_noop_send,
-            agent_id=agent_id,
-            mode="run",
-            preset=preset,
-            orchestrator_agent_ids=orchestrator_agent_ids,
-            orchestrator_api=orchestrator_api,
-        )
+        if step_def.timeout_seconds > 0:
+            output = await asyncio.wait_for(
+                self._run_agent(agent_id, step_message, session_id),
+                timeout=step_def.timeout_seconds,
+            )
+        else:
+            output = await self._run_agent(agent_id, step_message, session_id)
 
-        # Poll for completion
-        output = await self._await_subrun(subrun_id, step_def.timeout_seconds)
+        # Handle file output: save agent text to disk
+        if step_def.output_type == "file" and output:
+            file_path = resolve_templates(step_def.output_path or f"{step_def.id}.txt", state.context)
+            output_dir = state.output_dir or str(Path("workflow_outputs") / state.run_id)
+            full_path = Path(output_dir) / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(str(output), encoding="utf-8")
+            return StepResult(
+                step_id=step_def.id,
+                status="success",
+                output={"text": output, "file_path": str(full_path), "file_name": full_path.name},
+            )
+
         return StepResult(step_id=step_def.id, status="success", output=output)
-
-    async def _await_subrun(self, subrun_id: str, timeout_seconds: int) -> Any:
-        """Poll SubrunLane until the subrun reaches a terminal state."""
-        deadline = time.monotonic() + timeout_seconds
-        poll_interval = 0.5
-
-        while time.monotonic() < deadline:
-            info = self._subrun_lane.get_info(subrun_id)
-            if info is None:
-                await asyncio.sleep(poll_interval)
-                continue
-
-            status = info.get("status", "")
-            if status in _TERMINAL_STATUSES:
-                handover = info.get("handover") or {}
-                return handover.get("result_text") or handover.get("final_text") or ""
-
-            await asyncio.sleep(poll_interval)
-            # Gradually increase poll interval (up to 2s)
-            poll_interval = min(poll_interval * 1.2, 2.0)
-
-        raise asyncio.TimeoutError(f"Subrun {subrun_id} did not complete within {timeout_seconds}s")
 
     async def _execute_connector_step(
         self, step_def: WorkflowStepDef, state: WorkflowExecutionState
@@ -466,49 +425,61 @@ class WorkflowEngine:
 
         return step_def.next_step
 
+    def _is_audit_enabled(self) -> bool:
+        """Check if workflow auditing is enabled via settings."""
+        try:
+            from app.config_service import get_config_service
+            svc = get_config_service()
+            return bool(svc.get_value("core", "workflows_audit_enabled"))
+        except Exception:
+            return False
+
     def _write_step_audit(self, state: WorkflowExecutionState, result: StepResult) -> None:
-        """Write step result to the audit directory."""
-        if not state.output_dir:
+        """Write step result to the audit store (if auditing is enabled)."""
+        if self._audit_store is None or not self._is_audit_enabled():
             return
         try:
-            audit_dir = Path(state.output_dir)
-            audit_dir.mkdir(parents=True, exist_ok=True)
-            step_file = audit_dir / f"{result.step_id}.json"
-            step_file.write_text(json.dumps({
-                "step_id": result.step_id,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                "output": result.output,
-                "error": result.error,
-            }, default=str, indent=2), encoding="utf-8")
+            self._audit_store.write_step(
+                workflow_id=state.workflow_id,
+                run_id=state.run_id,
+                step_id=result.step_id,
+                data={
+                    "step_id": result.step_id,
+                    "status": result.status,
+                    "duration_ms": result.duration_ms,
+                    "output": result.output,
+                    "error": result.error,
+                },
+            )
         except Exception:
             logger.debug("audit_write_step_failed step_id=%s", result.step_id, exc_info=True)
 
     def _write_summary_audit(self, state: WorkflowExecutionState, graph: WorkflowGraphDef) -> None:
-        """Write final run summary to the audit directory."""
-        if not state.output_dir:
+        """Write final run summary to the audit store (if auditing is enabled)."""
+        if self._audit_store is None or not self._is_audit_enabled():
             return
         try:
-            audit_dir = Path(state.output_dir)
-            audit_dir.mkdir(parents=True, exist_ok=True)
-            summary_file = audit_dir / "summary.json"
-            summary_file.write_text(json.dumps({
-                "workflow_id": state.workflow_id,
-                "run_id": state.run_id,
-                "status": state.status,
-                "started_at": state.started_at,
-                "completed_at": state.completed_at,
-                "steps": {
-                    sid: {
-                        "step_id": sr.step_id,
-                        "status": sr.status,
-                        "duration_ms": sr.duration_ms,
-                        "output": sr.output,
-                        "error": sr.error,
-                    }
-                    for sid, sr in state.step_results.items()
+            self._audit_store.write_summary(
+                workflow_id=state.workflow_id,
+                run_id=state.run_id,
+                data={
+                    "workflow_id": state.workflow_id,
+                    "run_id": state.run_id,
+                    "status": state.status,
+                    "started_at": state.started_at,
+                    "completed_at": state.completed_at,
+                    "steps": {
+                        sid: {
+                            "step_id": sr.step_id,
+                            "status": sr.status,
+                            "duration_ms": sr.duration_ms,
+                            "output": sr.output,
+                            "error": sr.error,
+                        }
+                        for sid, sr in state.step_results.items()
+                    },
                 },
-            }, default=str, indent=2), encoding="utf-8")
+            )
         except Exception:
             logger.debug("audit_write_summary_failed run_id=%s", state.run_id, exc_info=True)
 

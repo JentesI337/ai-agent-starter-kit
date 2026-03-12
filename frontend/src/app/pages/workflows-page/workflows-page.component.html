@@ -424,6 +424,19 @@
               </option>
             </select>
           </label>
+          <label class="field-label">
+            Output Type
+            <select class="field-input" [(ngModel)]="selectedNode.outputType">
+              <option value="text">Text</option>
+              <option value="file">File</option>
+            </select>
+          </label>
+          <label class="field-label" *ngIf="selectedNode.outputType === 'file'">
+            Output Path
+            <input class="field-input" type="text"
+                   placeholder="e.g. report.md or {{'{{step-1.output.file_name}}'}}"
+                   [(ngModel)]="selectedNode.outputPath" />
+          </label>
         </ng-container>
 
         <!-- Connector -->

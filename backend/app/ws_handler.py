@@ -393,32 +393,31 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         extra_message = (m.group(2) or "").strip()
 
         try:
-            from app.handlers import workflow_handlers
-            wf_deps = workflow_handlers._require_deps()
-        except RuntimeError:
+            from app.workflows.store import get_workflow_store
+            wf_store = get_workflow_store()
+        except (RuntimeError, ImportError):
             await send_event({"type": "status", "message": "Workflow system not ready."})
             return True
 
-        wf_deps.sync_custom_agents()
+        def _normalize_id(raw: str) -> str:
+            return _re.sub(r"-+", "-", _re.sub(r"[^a-z0-9_-]+", "-", (raw or "").strip().lower())).strip("-")[:80]
 
         # Match by command_name trigger, workflow id, or display name
         target = None
-        for item in wf_deps.custom_agent_store.list():
-            triggers = getattr(item, "triggers", []) or []
+        for item in wf_store.list():
+            triggers = item.triggers or []
             for t in triggers:
-                t_type = t.get("type") if isinstance(t, dict) else getattr(t, "type", None)
-                cmd = t.get("command_name") if isinstance(t, dict) else getattr(t, "command_name", None)
+                t_type = t.type if hasattr(t, "type") else (t.get("type") if isinstance(t, dict) else None)
+                cmd = t.command_name if hasattr(t, "command_name") else (t.get("command_name") if isinstance(t, dict) else None)
                 if t_type == "chat_command" and cmd and cmd.lower() == command_name.lower():
                     target = item
                     break
             if target:
                 break
-            norm = wf_deps.normalize_agent_id(item.id)
-            if norm == wf_deps.normalize_agent_id(command_name):
+            if _normalize_id(item.id) == _normalize_id(command_name):
                 target = item
                 break
-            display = getattr(item, "display_name", "") or ""
-            if display.lower() == command_name.lower():
+            if item.name.lower() == command_name.lower():
                 target = item
                 break
 
@@ -435,11 +434,12 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
         await send_event({
             "type": "status",
-            "message": f"Running workflow '{getattr(target, 'display_name', target.id)}'...",
+            "message": f"Running workflow '{target.name or target.id}'...",
         })
 
         try:
-            result = await workflow_handlers.api_control_workflows_execute(
+            from app.workflows.handlers import api_control_workflows_execute
+            result = await api_control_workflows_execute(
                 request_data=execute_request.model_dump(),
                 idempotency_key_header=None,
             )
@@ -448,7 +448,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 "type": "workflow_triggered",
                 "workflow_id": target.id,
                 "run_id": run_id,
-                "message": f"Workflow '{getattr(target, 'display_name', target.id)}' started (run {run_id}).",
+                "message": f"Workflow '{target.name or target.id}' started (run {run_id}).",
             })
         except Exception as exc:
             await send_event({

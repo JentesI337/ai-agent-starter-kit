@@ -875,7 +875,7 @@ class SubrunLane:
         )
         result = (result_text or "").strip() or None
         if isinstance(result, str):
-            result = result[:2000]
+            result = result[:50000]
         return {
             "terminal_reason": terminal_reason,
             "confidence": confidence,

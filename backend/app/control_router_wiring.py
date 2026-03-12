@@ -12,8 +12,8 @@ from app.routers import (
     build_control_sessions_router,
     build_control_tool_config_router,
     build_control_tools_router,
-    build_control_workflows_router,
 )
+from app.workflows.router import build_control_workflows_router
 
 
 def include_control_routers(

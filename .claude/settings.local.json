@@ -40,7 +40,8 @@
       "WebFetch(domain:www.firecrawl.dev)",
       "WebFetch(domain:docs.agpt.co)",
       "WebFetch(domain:agpt.co)",
-      "WebFetch(domain:cosmo-edge.com)"
+      "WebFetch(domain:cosmo-edge.com)",
+      "Bash(rm:*)"
     ]
   }
 }

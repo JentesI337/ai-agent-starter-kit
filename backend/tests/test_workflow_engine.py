@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.orchestrator.workflow_models import (
+from app.workflows.models import (
     StepResult,
     WorkflowExecutionState,
     WorkflowGraphDef,
     WorkflowStepDef,
 )
-from app.orchestrator.workflow_transforms import (
+from app.workflows.transforms import (
     evaluate_condition,
     resolve_params,
     resolve_templates,
@@ -184,10 +184,9 @@ class TestWorkflowEngine:
     @pytest.mark.asyncio
     async def test_transform_step_only(self):
         """Engine executes a single transform step."""
-        from app.orchestrator.workflow_engine import WorkflowEngine
+        from app.workflows.engine import WorkflowEngine
 
-        mock_lane = MagicMock()
-        engine = WorkflowEngine(subrun_lane=mock_lane)
+        engine = WorkflowEngine()
 
         graph = WorkflowGraphDef(
             steps=[
@@ -218,10 +217,9 @@ class TestWorkflowEngine:
     @pytest.mark.asyncio
     async def test_condition_branching(self):
         """Engine follows condition true/false branches."""
-        from app.orchestrator.workflow_engine import WorkflowEngine
+        from app.workflows.engine import WorkflowEngine
 
-        mock_lane = MagicMock()
-        engine = WorkflowEngine(subrun_lane=mock_lane)
+        engine = WorkflowEngine()
 
         graph = WorkflowGraphDef(
             steps=[
@@ -264,10 +262,9 @@ class TestWorkflowEngine:
     @pytest.mark.asyncio
     async def test_delay_step(self):
         """Engine executes a delay step."""
-        from app.orchestrator.workflow_engine import WorkflowEngine
+        from app.workflows.engine import WorkflowEngine
 
-        mock_lane = MagicMock()
-        engine = WorkflowEngine(subrun_lane=mock_lane)
+        engine = WorkflowEngine()
 
         graph = WorkflowGraphDef(
             steps=[
@@ -297,10 +294,9 @@ class TestWorkflowEngine:
     @pytest.mark.asyncio
     async def test_sequential_data_flow(self):
         """Step 2 can reference step 1's output via template."""
-        from app.orchestrator.workflow_engine import WorkflowEngine
+        from app.workflows.engine import WorkflowEngine
 
-        mock_lane = MagicMock()
-        engine = WorkflowEngine(subrun_lane=mock_lane)
+        engine = WorkflowEngine()
 
         graph = WorkflowGraphDef(
             steps=[
@@ -335,10 +331,9 @@ class TestWorkflowEngine:
     @pytest.mark.asyncio
     async def test_events_emitted(self):
         """Engine emits start/complete/workflow_completed events."""
-        from app.orchestrator.workflow_engine import WorkflowEngine
+        from app.workflows.engine import WorkflowEngine
 
-        mock_lane = MagicMock()
-        engine = WorkflowEngine(subrun_lane=mock_lane)
+        engine = WorkflowEngine()
 
         graph = WorkflowGraphDef(
             steps=[

@@ -173,101 +173,23 @@ class UnifiedAgentAdapter(AgentContract):
             await send_event({"type": "final", "agent": self.name, "message": message})
             return message
 
-        # Custom workflow injection (for custom agents)
-        effective_message = user_message
-        effective_policy = tool_policy
-        source_token = None
-        context_set = False
-
-        if self._record.custom_workflow:
-            wf = self._record.custom_workflow
-            flow_instruction = self._build_flow_instruction()
-            if flow_instruction:
-                effective_message = (
-                    f"{user_message.strip()}\n\n"
-                    f"Custom workflow to follow:\n{flow_instruction}\n"
-                    "Execute these steps in order unless blocked by missing context."
-                )
-            effective_policy = self._merge_custom_tool_policy(tool_policy)
-
-            # Set source context for custom agents
-            set_ctx = getattr(self._delegate, "set_source_agent_context", None)
-            if callable(set_ctx):
-                source_token = set_ctx(self._record.agent_id)
-                context_set = True
-
-        try:
-            normalized_policy = self.normalize_tool_policy(effective_policy)
-            payload = self.input_schema(
-                user_message=effective_message,
-                session_id=session_id,
-                request_id=request_id,
-                model=model,
-                tool_policy=normalized_policy,
-            )
-            final_text = await self._delegate.run(
-                payload.user_message,
-                send_event,
-                session_id=payload.session_id,
-                request_id=payload.request_id,
-                model=payload.model,
-                tool_policy=payload.tool_policy,
-                prompt_mode=prompt_mode,
-                should_steer_interrupt=should_steer_interrupt,
-            )
-            output = self.output_schema(final_text=final_text)
-            return output.final_text
-        finally:
-            if context_set:
-                reset_ctx = getattr(self._delegate, "reset_source_agent_context", None)
-                if callable(reset_ctx):
-                    reset_ctx(source_token)
-
-    # ------------------------------------------------------------------
-    # Custom workflow helpers
-    # ------------------------------------------------------------------
-
-    def _build_flow_instruction(self) -> str:
-        wf = self._record.custom_workflow
-        if wf is None:
-            return ""
-        lines: list[str] = []
-        if self._record.description.strip():
-            lines.append(f"Goal: {self._record.description.strip()}")
-        for index, step in enumerate(wf.workflow_steps, start=1):
-            text = (step or "").strip()
-            if text:
-                lines.append(f"{index}. {text}")
-        return "\n".join(lines)
-
-    def _merge_custom_tool_policy(self, incoming: ToolPolicyDict | None) -> ToolPolicyDict | None:
-        """Merge custom workflow tool policy with request policy."""
-        wf = self._record.custom_workflow
-        if wf is None:
-            return incoming
-
-        # Custom agents don't have their own tool_policy in CustomWorkflow,
-        # but the record's tool_policy holds the agent-level policy.
-        record_tp = self._record.tool_policy
-        allow_values: list[str] = []
-        deny_values: list[str] = list(record_tp.additional_deny)
-
-        if record_tp.additional_allow:
-            allow_values.extend(record_tp.additional_allow)
-
-        if isinstance(incoming, dict):
-            for item in incoming.get("allow") or []:
-                if isinstance(item, str) and item.strip() and item not in allow_values:
-                    allow_values.append(item.strip())
-            for item in incoming.get("deny") or []:
-                if isinstance(item, str) and item.strip() and item not in deny_values:
-                    deny_values.append(item.strip())
-
-        if not allow_values and not deny_values:
-            return None
-        payload: ToolPolicyDict = {}
-        if allow_values:
-            payload["allow"] = allow_values
-        if deny_values:
-            payload["deny"] = deny_values
-        return payload
+        normalized_policy = self.normalize_tool_policy(tool_policy)
+        payload = self.input_schema(
+            user_message=user_message,
+            session_id=session_id,
+            request_id=request_id,
+            model=model,
+            tool_policy=normalized_policy,
+        )
+        final_text = await self._delegate.run(
+            payload.user_message,
+            send_event,
+            session_id=payload.session_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            tool_policy=payload.tool_policy,
+            prompt_mode=prompt_mode,
+            should_steer_interrupt=should_steer_interrupt,
+        )
+        output = self.output_schema(final_text=final_text)
+        return output.final_text

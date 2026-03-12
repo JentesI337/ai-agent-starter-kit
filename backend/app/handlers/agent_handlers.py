@@ -272,7 +272,6 @@ def _record_to_api(record: UnifiedAgentRecord) -> dict:
         "prompts": record.prompts.model_dump(),
         "delegation": record.delegation.model_dump(),
         "behavior": record.behavior.model_dump(),
-        "customWorkflow": record.custom_workflow.model_dump() if record.custom_workflow else None,
         "costTier": record.cost_tier,
         "latencyTier": record.latency_tier,
         "qualityTier": record.quality_tier,

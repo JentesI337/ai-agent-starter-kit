@@ -29,13 +29,14 @@ def build_webhooks_router() -> APIRouter:
 
         # Look up the workflow
         try:
-            from app.handlers import workflow_handlers
-            deps = workflow_handlers._require_deps()
+            from app.workflows import handlers as workflow_handlers
+            from app.workflows.store import get_workflow_store
         except RuntimeError:
             raise HTTPException(status_code=503, detail="Workflow system not ready")
 
-        normalized_id = deps.normalize_agent_id(workflow_id)
-        record = deps.workflow_store.get(normalized_id)
+        import re as _re
+        normalized_id = _re.sub(r"-+", "-", _re.sub(r"[^a-z0-9_-]+", "-", workflow_id.strip().lower())).strip("-")[:80]
+        record = get_workflow_store().get(normalized_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
 

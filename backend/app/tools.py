@@ -29,7 +29,7 @@ from app.tool_catalog import TOOL_NAMES
 from app.tools_api_connectors import ApiConnectorToolMixin
 from app.tools_devops import DevOpsToolMixin
 from app.tools_multimodal import MultimodalToolMixin
-from app.tools_workflow import WorkflowToolMixin
+from app.workflows.tools import WorkflowToolMixin
 from app.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,
@@ -136,19 +136,8 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         self._read_file_max_bytes = 1_000_000
         self._grep_max_file_bytes = 1_000_000
         self._grep_max_total_scan_bytes = 8_000_000
-        self._workflow_store: object | None = None
-        self._sync_custom_agents_fn: object | None = None
         self._repl_manager: ReplSessionManager | None = None
         self._browser_pool: BrowserPool | None = None
-
-    def set_custom_agent_store(self, store: object, sync_fn: object) -> None:
-        """Backward-compat alias — delegates to set_workflow_store."""
-        self._workflow_store = store
-        self._sync_custom_agents_fn = sync_fn
-
-    def set_workflow_store(self, store: object, sync_fn: object) -> None:
-        self._workflow_store = store
-        self._sync_custom_agents_fn = sync_fn
 
     def set_repl_manager(self, manager: ReplSessionManager) -> None:
         self._repl_manager = manager
@@ -1195,8 +1184,8 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         steps: str | list,
         base_agent_id: str = "head-agent",
     ) -> str:
-        if self._workflow_store is None:
-            raise ToolExecutionError("Workflow management is not available in this runtime.")
+        from app.workflows.store import get_workflow_store
+        store = get_workflow_store()
         name = (name or "").strip()
         if not name or len(name) > 120:
             raise ToolExecutionError("Workflow name must be 1-120 characters.")
@@ -1212,22 +1201,10 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
         if len(workflow_steps) > 20:
             raise ToolExecutionError("Maximum 20 workflow steps allowed.")
 
-        import re as _re
+        workflow_id = re.sub(r"-+", "-", re.sub(r"[^a-z0-9_-]+", "-", f"workflow-{name}-{str(uuid.uuid4())[:8]}".strip().lower())).strip("-")[:80]
 
-        def _norm(raw: str) -> str:
-            c = (raw or "").strip().lower()
-            c = _re.sub(r"[^a-z0-9_-]+", "-", c)
-            c = _re.sub(r"-+", "-", c).strip("-")
-            return c[:80]
-
-        workflow_id = _norm(f"workflow-{name}-{str(uuid.uuid4())[:8]}")
-
-        from app.services.workflow_record import WorkflowRecord
-        from app.services.workflow_store import WorkflowStore
-
-        # Build a linear graph from steps
-        graph = WorkflowStore._build_linear_graph(workflow_steps)
-
+        from app.workflows.models import WorkflowRecord
+        graph = store._build_linear_graph(workflow_steps)
         record = WorkflowRecord(
             id=workflow_id,
             name=name,
@@ -1236,24 +1213,16 @@ class AgentTooling(ApiConnectorToolMixin, MultimodalToolMixin, DevOpsToolMixin, 
             workflow_graph=graph,
             execution_mode="sequential",
         )
-        created = self._workflow_store.create(record)
-        if self._sync_custom_agents_fn is not None:
-            self._sync_custom_agents_fn()
-        return json.dumps(
-            {"status": "created", "id": created.id, "name": created.name,
-             "steps": workflow_steps},
-            ensure_ascii=False,
-        )
+        created = store.create(record)
+        return json.dumps({"status": "created", "id": created.id, "name": created.name}, ensure_ascii=False)
 
     def delete_workflow(self, workflow_id: str) -> str:
-        if self._workflow_store is None:
-            raise ToolExecutionError("Workflow management is not available in this runtime.")
+        from app.workflows.store import get_workflow_store
+        store = get_workflow_store()
         workflow_id = (workflow_id or "").strip()
         if not workflow_id:
             raise ToolExecutionError("workflow_id is required.")
-        deleted = self._workflow_store.delete(workflow_id)
-        if self._sync_custom_agents_fn is not None:
-            self._sync_custom_agents_fn()
+        deleted = store.delete(workflow_id)
         if deleted:
             return json.dumps({"status": "deleted", "id": workflow_id}, ensure_ascii=False)
         return json.dumps({"status": "not_found", "id": workflow_id}, ensure_ascii=False)

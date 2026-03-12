@@ -92,4 +92,5 @@ class LoopState:
     loop_detected: bool = False
     budget_exhausted: bool = False
     steer_interrupted: bool = False
+    consecutive_empty_web_calls: int = 0
     plan: PlanTracker = field(default_factory=PlanTracker)

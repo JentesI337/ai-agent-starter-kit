@@ -557,6 +557,27 @@ class AgentRunner:
                 # 4. Update loop state
                 loop_state.total_tool_calls += len(tool_results)
 
+                # 4b. Track consecutive empty web search/fetch results
+                _WEB_TOOL_NAMES = {"web_search", "web_fetch"}
+                _EMPTY_INDICATORS = ("results: (none)", "no results found", "total_results: 0")
+                web_calls_this_turn = [
+                    r for r in tool_results if r.tool_name in _WEB_TOOL_NAMES
+                ]
+                if web_calls_this_turn:
+                    def _is_empty_web_result(r: ToolResult) -> bool:
+                        if r.is_error:
+                            return True
+                        lower = r.content.lower()
+                        return any(ind in lower for ind in _EMPTY_INDICATORS)
+
+                    all_empty_or_error = all(
+                        _is_empty_web_result(r) for r in web_calls_this_turn
+                    )
+                    if all_empty_or_error:
+                        loop_state.consecutive_empty_web_calls += len(web_calls_this_turn)
+                    else:
+                        loop_state.consecutive_empty_web_calls = 0
+
                 # 5. Budget check: max tool calls
                 if loop_state.total_tool_calls > self._max_tool_calls:
                     loop_state.budget_exhausted = True
@@ -576,13 +597,20 @@ class AgentRunner:
                     loop_state, stream_result.tool_calls
                 ):
                     loop_state.loop_detected = True
-                    messages.append({
-                        "role": "user",
-                        "content": (
+                    if loop_state.consecutive_empty_web_calls >= 5:
+                        loop_msg = (
+                            "[SYSTEM] Multiple web searches returned no useful results. "
+                            "Proceed using your own knowledge instead of continuing to search."
+                        )
+                    else:
+                        loop_msg = (
                             "[SYSTEM] Loop detected — you are repeating "
                             "the same tool calls. Please try a different "
                             "approach or provide your answer."
-                        ),
+                        )
+                    messages.append({
+                        "role": "user",
+                        "content": loop_msg,
                     })
                     continue
 
@@ -1252,6 +1280,15 @@ class AgentRunner:
             ):
                 logger.warning("Loop detected: ping-pong pattern")
                 return True
+
+        # 3. Web Search Exhaustion — consecutive empty/error web calls
+        _WEB_SEARCH_EXHAUSTION_THRESHOLD = 5
+        if state.consecutive_empty_web_calls >= _WEB_SEARCH_EXHAUSTION_THRESHOLD:
+            logger.warning(
+                "Loop detected: %d consecutive web search/fetch calls returned no results",
+                state.consecutive_empty_web_calls,
+            )
+            return True
 
         return False
 

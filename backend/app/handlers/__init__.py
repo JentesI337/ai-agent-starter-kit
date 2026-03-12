@@ -6,7 +6,6 @@ from app.handlers import (
     session_handlers,
     skills_handlers,
     tools_handlers,
-    workflow_handlers,
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "session_handlers",
     "skills_handlers",
     "tools_handlers",
-    "workflow_handlers",
 ]

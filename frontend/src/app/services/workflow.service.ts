@@ -16,6 +16,8 @@ export interface WorkflowStepDef {
   on_true?: string;
   on_false?: string;
   next_step?: string;
+  output_type?: 'text' | 'file';
+  output_path?: string;
   timeout_seconds?: number;
   retry_count?: number;
 }

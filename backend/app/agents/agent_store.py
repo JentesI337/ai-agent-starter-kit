@@ -312,9 +312,7 @@ class _CompatAgentDef:
         self.id = record.agent_id
         self.name = record.display_name
         self.description = record.description
-        wf = record.custom_workflow
-        self.base_agent_id = wf.base_agent_id if wf else "head-agent"
-        self.workflow_steps = list(wf.workflow_steps) if wf else []
+        self.base_agent_id = "head-agent"
         self.tool_policy = None
         if record.tool_policy.additional_allow or record.tool_policy.additional_deny:
             tp: dict[str, list[str]] = {}
@@ -323,14 +321,13 @@ class _CompatAgentDef:
             if record.tool_policy.additional_deny:
                 tp["deny"] = list(record.tool_policy.additional_deny)
             self.tool_policy = tp
-        self.allow_subrun_delegation = wf.allow_subrun_delegation if wf else False
-        self.execution_mode = wf.execution_mode if wf else "parallel"
-        self.workflow_graph = wf.workflow_graph if wf else None
-        self.triggers = [t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in (wf.triggers if wf else [])]
+        self.allow_subrun_delegation = False
+        self.execution_mode = "parallel"
+        self.triggers: list[dict] = []
         self.capabilities = list(record.capabilities)
-        self.workspace_scope = wf.workspace_scope if wf else None
-        self.skills_scope = wf.skills_scope if wf else None
-        self.credential_scope = wf.credential_scope if wf else None
+        self.workspace_scope = None
+        self.skills_scope = None
+        self.credential_scope = None
 
     def model_dump(self) -> dict:
         return {
@@ -338,7 +335,6 @@ class _CompatAgentDef:
             "name": self.name,
             "description": self.description,
             "base_agent_id": self.base_agent_id,
-            "workflow_steps": self.workflow_steps,
             "tool_policy": self.tool_policy,
             "allow_subrun_delegation": self.allow_subrun_delegation,
             "capabilities": self.capabilities,
@@ -369,10 +365,6 @@ def _compat_request_to_dict(request, id_factory=None) -> dict[str, Any]:
     if not agent_id:
         agent_id = "custom-agent"
 
-    wf_steps = [
-        s.strip() for s in (getattr(request, "workflow_steps", None) or [])
-        if isinstance(s, str) and s.strip()
-    ]
     capabilities = [
         str(c).strip().lower() for c in (getattr(request, "capabilities", None) or [])
         if isinstance(c, str) and str(c).strip()
@@ -394,16 +386,5 @@ def _compat_request_to_dict(request, id_factory=None) -> dict[str, Any]:
         "tool_policy": {
             "additional_allow": additional_allow,
             "additional_deny": additional_deny,
-        },
-        "custom_workflow": {
-            "base_agent_id": base_agent_id,
-            "workflow_steps": wf_steps,
-            "allow_subrun_delegation": bool(getattr(request, "allow_subrun_delegation", False)),
-            "execution_mode": (getattr(request, "execution_mode", None) or "parallel").strip().lower(),
-            "workflow_graph": getattr(request, "workflow_graph", None),
-            "triggers": getattr(request, "triggers", None) or [],
-            "workspace_scope": (getattr(request, "workspace_scope", None) or "").strip() or None,
-            "skills_scope": (getattr(request, "skills_scope", None) or "").strip() or None,
-            "credential_scope": (getattr(request, "credential_scope", None) or "").strip() or None,
         },
     }

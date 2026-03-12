@@ -63,8 +63,8 @@ from app.handlers import (
     session_handlers,
     skills_handlers,
     tools_handlers,
-    workflow_handlers,
 )
+from app.workflows import handlers as workflow_handlers
 from app.interfaces import OrchestratorApi
 from app.orchestrator.events import build_lifecycle_event
 from app.orchestrator.subrun_lane import SubrunLane
@@ -203,17 +203,11 @@ def _startup_sequence() -> None:
     init_tool_config_store(persist_path=_tool_cfg_path)
     logger.info("tool_config_store_initialized persist_path=%s", _tool_cfg_path)
 
-    # R3b: Initialize WorkflowRunStore
-    from app.services.workflow_run_store import init_workflow_run_store
-    _workflow_runs_dir = Path(settings.workspace_root) / "workflow_runs"
-    init_workflow_run_store(persist_dir=_workflow_runs_dir)
-    logger.info("workflow_run_store_initialized persist_dir=%s", _workflow_runs_dir)
-
-    # R3c: Initialize WorkflowStore (dedicated workflow persistence)
-    from app.services.workflow_store import init_workflow_store
-    _workflow_store_dir = Path(settings.workspace_root) / "workflows_v2"
-    init_workflow_store(persist_dir=_workflow_store_dir)
-    logger.info("workflow_store_initialized persist_dir=%s", _workflow_store_dir)
+    # R3b+R3c: Initialize SQLite workflow stores (definitions + runs + audit)
+    from app.workflows.store import init_workflow_sqlite_stores
+    _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
+    init_workflow_sqlite_stores(db_path=_workflow_db_path)
+    logger.info("workflow_sqlite_stores_initialized db_path=%s", _workflow_db_path)
 
     # R4: Initialize ConnectorStore and CredentialStore
     _connector_cfg_path = Path(settings.workspace_root) / "connectors.json"
@@ -247,7 +241,7 @@ def _startup_sequence() -> None:
     )
 
     # Start workflow scheduler for cron-based triggers
-    from app.services.workflow_scheduler import start_workflow_scheduler
+    from app.workflows.scheduler import start_workflow_scheduler
     try:
         start_workflow_scheduler()
     except Exception:
@@ -256,7 +250,7 @@ def _startup_sequence() -> None:
 
 def _shutdown_sequence() -> None:
     # Stop workflow scheduler
-    from app.services.workflow_scheduler import stop_workflow_scheduler
+    from app.workflows.scheduler import stop_workflow_scheduler
     stop_workflow_scheduler()
 
     # Persist model health snapshots before shutdown
@@ -412,16 +406,6 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
     global _repl_session_manager  # noqa: PLW0603
     global _browser_pool  # noqa: PLW0603
 
-    # Run one-time workflow migration from agent store to dedicated workflow store
-    try:
-        from app.services.workflow_store import get_workflow_store
-        _wf_store = get_workflow_store()
-        migrated = _wf_store.migrate_from_agent_store(components.agent_store)
-        if migrated:
-            logger.info("migrated_workflows count=%d", migrated)
-    except Exception:
-        logger.warning("workflow_migration_skipped", exc_info=True)
-
     _sync_custom_agents(components)
 
     # Create ReplSessionManager if persistent REPL is enabled
@@ -460,20 +444,6 @@ def _initialize_runtime_components(components: RuntimeComponents) -> None:
     for _agent in components.agent_registry.values():
         _delegate = getattr(_agent, "_delegate", _agent)
         _tools = getattr(_delegate, "tools", None)
-        if _tools is not None and hasattr(_tools, "set_workflow_store"):
-            try:
-                from app.services.workflow_store import get_workflow_store as _get_wfs
-                _tools.set_workflow_store(
-                    _get_wfs(),
-                    lambda: _sync_custom_agents(components),
-                )
-            except RuntimeError:
-                pass
-        elif _tools is not None and hasattr(_tools, "set_custom_agent_store"):
-            _tools.set_custom_agent_store(
-                components.custom_agent_store,
-                lambda: _sync_custom_agents(components),
-            )
         if _tools is not None and hasattr(_tools, "set_repl_manager") and repl_manager is not None:
             _tools.set_repl_manager(repl_manager)
         if _tools is not None and hasattr(_tools, "set_browser_pool") and browser_pool is not None:
@@ -833,14 +803,6 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         except Exception:
             _conn_services = None
 
-    # Get workflow store for agent registration
-    _wf_store = None
-    try:
-        from app.services.workflow_store import get_workflow_store as _get_wf_store
-        _wf_store = _get_wf_store()
-    except (RuntimeError, ImportError):
-        pass
-
     _sync_custom_agents_impl(
         components=components,
         normalize_agent_id_fn=_normalize_agent_id,
@@ -851,7 +813,6 @@ def _sync_custom_agents(components: RuntimeComponents | None = None) -> None:
         browser_pool=_browser_pool,
         repl_manager=_repl_session_manager,
         connector_services=_conn_services,
-        workflow_store=_wf_store,
     )
     if components.policy_approval_handler is not None:
         for agent_instance in components.agent_registry.values():
@@ -982,26 +943,40 @@ session_handlers.configure(
     )
 )
 def _get_workflow_store_lazy():
-    from app.services.workflow_store import get_workflow_store, init_workflow_store, _instance as _wfs_instance
+    from app.workflows.store import get_workflow_store, init_workflow_sqlite_stores, _wf_store as _wfs_instance
     if _wfs_instance is None:
-        # Auto-init if startup sequence hasn't run yet (e.g. test environment)
-        _workflow_store_dir = Path(settings.workspace_root) / "workflows_v2"
-        init_workflow_store(persist_dir=_workflow_store_dir)
+        _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
+        init_workflow_sqlite_stores(db_path=_workflow_db_path)
     return get_workflow_store()
 
+def _get_workflow_audit_store_lazy():
+    from app.workflows.store import get_workflow_audit_store, init_workflow_sqlite_stores, _audit_store as _as_instance
+    if _as_instance is None:
+        _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
+        init_workflow_sqlite_stores(db_path=_workflow_db_path)
+    return get_workflow_audit_store()
+
+async def _workflow_run_agent(agent_id: str, message: str, session_id: str) -> str:
+    """RunAgentFn callback — bridges workflow engine to agent domain."""
+    import uuid as _uuid
+    _, _, orch_api = _resolve_agent(agent_id)
+    from app.interfaces.request_context import RequestContext
+    rc = RequestContext(
+        session_id=session_id,
+        request_id=f"wf-{_uuid.uuid4()}",
+        runtime=runtime_manager.get_state().runtime,
+        model=runtime_manager.get_state().model,
+    )
+    return await orch_api.run_user_message(
+        user_message=message, send_event=lambda e: None, request_context=rc)
+
 workflow_handlers.configure(
-    workflow_handlers.WorkflowHandlerDependencies(
+    workflow_handlers.WorkflowDependencies(
         settings=settings,
         workflow_store=LazyObjectProxy(_get_workflow_store_lazy),
-        agent_registry=agent_registry,
+        audit_store=LazyObjectProxy(_get_workflow_audit_store_lazy),
         idempotency_mgr=idempotency_mgr,
-        runtime_manager=runtime_manager,
-        subrun_lane=subrun_lane,
-        normalize_agent_id=_normalize_agent_id,
-        resolve_agent=_resolve_agent,
-        sync_custom_agents=_sync_custom_agents,
-        effective_orchestrator_agent_ids=_effective_orchestrator_agent_ids,
-        start_run_background=run_handlers.start_run_background,
+        run_agent=_workflow_run_agent,
         build_workflow_create_fingerprint=_build_workflow_create_fingerprint,
         build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
         build_workflow_delete_fingerprint=_build_workflow_delete_fingerprint,

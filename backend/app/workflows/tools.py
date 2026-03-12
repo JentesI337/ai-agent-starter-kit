@@ -43,7 +43,7 @@ class WorkflowToolMixin:
         steps = [line for line in raw_lines if line]
 
         try:
-            from app.handlers import workflow_handlers
+            from app.workflows import handlers as workflow_handlers
             from app.control_models import ControlWorkflowsCreateRequest
 
             request = ControlWorkflowsCreateRequest(
@@ -52,7 +52,7 @@ class WorkflowToolMixin:
                 steps=steps,
                 execution_mode=execution_mode if execution_mode in ("parallel", "sequential") else "sequential",
             )
-            result = await workflow_handlers.api_control_workflows_create(
+            result = workflow_handlers.api_control_workflows_create(
                 request_data=request.model_dump(),
                 idempotency_key_header=None,
             )

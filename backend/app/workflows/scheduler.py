@@ -50,8 +50,8 @@ async def _scheduler_loop() -> None:
 async def _tick() -> None:
     """Single scheduler tick — scan workflows and fire any that are due."""
     try:
-        from app.handlers import workflow_handlers
-        deps = workflow_handlers._require_deps()
+        from app.workflows.handlers import _require_deps
+        deps = _require_deps()
     except RuntimeError:
         return  # system not ready yet
 
@@ -88,7 +88,7 @@ async def _tick() -> None:
                 "schedule_trigger_firing workflow_id=%s cron=%s",
                 record.id, t.cron_expression,
             )
-            await _execute_scheduled_workflow(record, deps)
+            await _execute_scheduled_workflow(record)
 
             # Update timestamps
             new_next = _next_cron_time(t.cron_expression, next_dt)
@@ -105,17 +105,17 @@ def _persist_triggers(deps, record) -> None:
         logger.debug("trigger_persist_failed workflow_id=%s", record.id, exc_info=True)
 
 
-async def _execute_scheduled_workflow(record, deps) -> None:
+async def _execute_scheduled_workflow(record) -> None:
     """Execute a workflow that is due according to its schedule trigger."""
     from app.control_models import ControlWorkflowsExecuteRequest
-    from app.handlers import workflow_handlers
+    from app.workflows.handlers import api_control_workflows_execute
 
     execute_request = ControlWorkflowsExecuteRequest(
         workflow_id=record.id,
         message=f"Scheduled execution at {datetime.now(timezone.utc).isoformat()}",
     )
     try:
-        result = await workflow_handlers.api_control_workflows_execute(
+        result = await api_control_workflows_execute(
             request_data=execute_request.model_dump(),
             idempotency_key_header=None,
         )

@@ -39,6 +39,8 @@ interface CanvasNode {
   connectorParams?: Record<string, string>;
   transformExpr?: string;
   conditionExpr?: string;
+  outputType?: 'text' | 'file';
+  outputPath?: string;
   timeoutSeconds?: number;
   retryCount?: number;
   x: number;
@@ -344,8 +346,18 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       node.timeoutSeconds = sd.timeout_seconds;
       node.retryCount = sd.retry_count;
       node.agentId = sd.agent_id || this.wfBaseAgent;
+      node.outputType = sd.output_type || 'text';
+      node.outputPath = sd.output_path || '';
       stepMap.set(sd.id, node);
       this.nodes.push(node);
+    }
+
+    // Update nodeCounter to avoid ID collisions with preserved step IDs
+    for (const sd of graph.steps) {
+      const match = sd.id.match(/\d+$/);
+      if (match) {
+        this.nodeCounter = Math.max(this.nodeCounter, parseInt(match[0], 10));
+      }
     }
 
     const end = this.makeNode('end', 'End', '', 400, 60 + (graph.steps.length + 1) * 140);
@@ -367,9 +379,15 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       if (sd.on_false) {
         this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.on_false, label: 'false', type: 'false' });
       }
-      // If no outgoing edge, wire to end
+      // If no outgoing edge, chain to next step in sequence (sequential only) or wire to end
       if (!sd.next_step && !sd.on_true && !sd.on_false) {
-        this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: end.id, type: 'default' });
+        const stepIndex = graph.steps.indexOf(sd);
+        const nextInSequence = graph.steps[stepIndex + 1];
+        if (this.wfExecutionMode === 'sequential' && nextInSequence) {
+          this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: nextInSequence.id, type: 'default' });
+        } else {
+          this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: end.id, type: 'default' });
+        }
       }
     }
   }
@@ -862,9 +880,20 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
         next_step: nextStep,
         on_true: onTrue,
         on_false: onFalse,
+        output_type: node.outputType || 'text',
+        output_path: node.outputPath || '',
         timeout_seconds: node.timeoutSeconds ?? 120,
         retry_count: node.retryCount ?? 0,
       });
+    }
+
+    // Ensure sequential chain: if a step has no next_step and isn't the last step, chain to next
+    if (this.wfExecutionMode === 'sequential') {
+      for (let i = 0; i < stepDefs.length - 1; i++) {
+        if (!stepDefs[i].next_step && !stepDefs[i].on_true && !stepDefs[i].on_false) {
+          stepDefs[i].next_step = stepDefs[i + 1].id;
+        }
+      }
     }
 
     // Entry step = first node connected from trigger
@@ -872,6 +901,12 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     if (trigger) {
       const triggerEdge = this.edges.find(e => e.from === trigger.id);
       if (triggerEdge) entryStepId = triggerEdge.to;
+    }
+
+    // Validate entryStepId references an actual step
+    const stepIds = new Set(stepDefs.map(s => s.id));
+    if (!stepIds.has(entryStepId) && stepDefs.length > 0) {
+      entryStepId = stepDefs[0].id;
     }
 
     return { steps: stepDefs, entry_step_id: entryStepId };
