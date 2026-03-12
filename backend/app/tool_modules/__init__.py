@@ -1,6 +1,3 @@
-"""Tool registry sub-modules (Sprint R3).
-
-Houses extracted concerns that were previously inlined in ``app.tools``:
-- ``command_security`` -- safety-pattern matching for shell commands
-- ``tool_config_store`` -- per-tool runtime configuration with JSON persistence
-"""
+# DEPRECATED: tool_modules/ merged into app.tools.provisioning and app.tools.registry
+from app.tools.provisioning.command_security import *  # noqa: F401,F403
+from app.tools.registry.config_store import *  # noqa: F401,F403

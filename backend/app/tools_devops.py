@@ -33,7 +33,7 @@ from app.services.output_parsers import (
     parse_tsc_output,
     scan_text_for_secrets,
 )
-from app.services.tool_detector import detect_linter, detect_package_manager, detect_test_runner
+from app.tools.discovery.detector import detect_linter, detect_package_manager, detect_test_runner
 
 # Max chars for tool output to prevent blowing up context
 _MAX_OUTPUT_CHARS = 12_000

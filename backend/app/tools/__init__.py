@@ -45,6 +45,23 @@ _REGISTRY_NAMES = {
 }
 _TELEMETRY_NAMES = {"ToolSpan", "ToolTelemetry"}
 _EXECUTION_LAZY = {"ToolExecutionManager", "ToolExecutionConfig", "STEER_INTERRUPTED_MARKER"}
+_DISCOVERY_NAMES = {
+    "CAPABILITY_PATTERNS", "CAPABILITY_TOOLS", "ConversionEdge", "DiscoveryResult",
+    "EcoTool", "ToolCapabilityRouter", "ToolDiscoveryEngine", "ToolEcosystemMap",
+    "ToolKnowledge", "ToolKnowledgeBase", "detect_linter", "detect_package_manager",
+    "detect_test_runner",
+}
+_PROVISIONING_NAMES = {
+    "AuditEntry", "BUILTIN_COMMAND_SAFETY_PATTERNS", "BudgetConfig",
+    "PackageCandidate", "PackageManagerAdapter", "PRESET_TOOL_POLICIES",
+    "ProvisionResult", "TOOL_POLICY_BY_MODEL", "TOOL_POLICY_BY_PROVIDER",
+    "TOOL_POLICY_RESOLUTION_ORDER", "ToolBudgetManager", "ToolProvisioner",
+    "add_pattern", "find_command_safety_violation",
+    "find_semantic_command_safety_violation", "get_all_patterns",
+    "get_extended_patterns", "get_platform_adapters", "merge_tool_policy",
+    "normalize_policy_values", "policy_payload", "resolve_tool_policy",
+    "resolve_tool_policy_with_preset",
+}
 
 
 def __getattr__(name: str):
@@ -68,5 +85,11 @@ def __getattr__(name: str):
         return getattr(_m, name)
     if name in _EXECUTION_LAZY:
         from app.tools.execution import manager as _m
+        return getattr(_m, name)
+    if name in _DISCOVERY_NAMES:
+        from app.tools import discovery as _m
+        return getattr(_m, name)
+    if name in _PROVISIONING_NAMES:
+        from app.tools import provisioning as _m
         return getattr(_m, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

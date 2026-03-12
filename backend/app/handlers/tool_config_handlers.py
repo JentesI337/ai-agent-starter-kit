@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.tool_modules.tool_config_store import get_tool_config_store
-from app.tool_modules.command_security import (
+from app.tools.provisioning.command_security import (
     BUILTIN_COMMAND_SAFETY_PATTERNS,
     add_pattern,
     get_all_patterns,
