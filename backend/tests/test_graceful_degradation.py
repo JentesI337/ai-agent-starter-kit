@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.graceful_degradation import (
+from app.quality.graceful_degradation import (
     DegradationResponse,
     FailedAttempt,
     GracefulDegradation,

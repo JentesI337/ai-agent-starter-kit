@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from app.services.package_manager_adapter import (
+from app.tools.provisioning.package_manager_adapter import (
     BrewAdapter,
     ChocoAdapter,
     NpmAdapter,

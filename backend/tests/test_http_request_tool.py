@@ -5,10 +5,10 @@ import socket
 
 import pytest
 
-import app.tools as tools_module
+import app.tooling as tools_module
 import app.url_validator as url_validator_module
 from app.errors import ToolExecutionError
-from app.tools import AgentTooling
+from app.tooling import AgentTooling
 
 
 class _FakeResponse:

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.reflection_service import _REFLECTION_SYSTEM_PROMPT, ReflectionService
+from app.quality.reflection_service import _REFLECTION_SYSTEM_PROMPT, ReflectionService
 
 
 class _FakeClient:

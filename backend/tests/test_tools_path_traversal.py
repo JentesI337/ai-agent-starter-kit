@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.errors import ToolExecutionError
-from app.tools import AgentTooling
+from app.tooling import AgentTooling
 
 
 def _tooling(tmp_path: Path) -> AgentTooling:

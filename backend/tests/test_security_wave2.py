@@ -23,12 +23,12 @@ import pytest
 from app.config import settings
 from app.errors import ToolExecutionError
 from app.memory import MemoryStore
-from app.services.self_healing_loop import (
+from app.quality.self_healing_loop import (
     _RECOVERY_COMMAND_ALLOWLIST,
     RecoveryPlan,
     SelfHealingLoop,
 )
-from app.tools import AgentTooling
+from app.tooling import AgentTooling
 
 # ── CFG-03: Shells removed from default allowlist ─────────────────────
 

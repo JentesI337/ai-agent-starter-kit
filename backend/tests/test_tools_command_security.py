@@ -6,7 +6,7 @@ import pytest
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.tools import AgentTooling
+from app.tooling import AgentTooling
 
 
 def _make_tooling(tmp_path, monkeypatch) -> AgentTooling:

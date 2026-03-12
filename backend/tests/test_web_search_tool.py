@@ -4,7 +4,7 @@ import asyncio
 
 from app.config import settings
 from app.services.web_search import WebSearchResponse, WebSearchResult
-from app.tools import AgentTooling
+from app.tooling import AgentTooling
 
 
 def test_agent_tooling_web_search_formats_results(monkeypatch, tmp_path) -> None:

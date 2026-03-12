@@ -48,7 +48,7 @@ from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tool_policy import ToolPolicyDict
-from app.tools import AgentTooling, find_command_safety_violation
+from app.tooling import AgentTooling, find_command_safety_violation
 
 SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]

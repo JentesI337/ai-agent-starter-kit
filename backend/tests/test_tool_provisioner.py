@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from app.services.provisioning_policy import ProvisioningPolicy
-from app.services.tool_provisioner import (
+from app.tools.provisioning.provisioner import (
     AuditEntry,
     ProvisionResult,
     ToolProvisioner,
