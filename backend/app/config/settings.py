@@ -11,7 +11,7 @@ from app.mcp_types import McpServerConfig
 
 load_dotenv()
 
-APP_DIR = os.path.abspath(os.path.dirname(__file__))
+APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 BACKEND_DIR = os.path.abspath(os.path.join(APP_DIR, ".."))
 DEFAULT_WORKSPACE_ROOT = os.path.abspath(os.path.join(BACKEND_DIR, ".."))
 
@@ -157,7 +157,7 @@ def _resolve_prompt(default: str, *env_keys: str) -> str:
 
 def _load_prompt_appendix(filename: str, fallback: str = "") -> str:
     """Load a Markdown prompt file from app/prompts/. Returns fallback if missing."""
-    base = _pathlib.Path(__file__).parent / "prompts" / filename
+    base = _pathlib.Path(APP_DIR) / "prompts" / filename
     try:
         return "\n\n" + base.read_text(encoding="utf-8").strip()
     except OSError:
@@ -175,7 +175,7 @@ def load_cognitive_framework(agent_id: str) -> str:
     Reads from ``app/prompts/cognitive/{agent_id}.md``.  Returns an empty
     string when no framework file exists for the given agent.
     """
-    path = _pathlib.Path(__file__).parent / "prompts" / "cognitive" / f"{agent_id}.md"
+    path = _pathlib.Path(APP_DIR) / "prompts" / "cognitive" / f"{agent_id}.md"
     try:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
