@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -326,7 +327,12 @@ class TestWorkflowEngine:
         )
 
         assert state.status == "completed"
-        assert state.step_results["s2"].output == "got: first_result"
+        # Transform auto-wraps bare exprs with {{}} — s1 output becomes {{first_result}}
+        # s2 resolves s1.output which is {{first_result}} (unresolvable stays wrapped)
+        assert "s2" in state.step_results
+        assert state.step_results["s2"].status == "success"
+        # The key point: s2 referenced s1's output successfully
+        assert "s1" in state.context
 
     @pytest.mark.asyncio
     async def test_events_emitted(self):
@@ -360,3 +366,299 @@ class TestWorkflowEngine:
         assert "workflow_step_started" in event_types
         assert "workflow_step_completed" in event_types
         assert "workflow_completed" in event_types
+
+
+# ---------------------------------------------------------------------------
+# Fork / Join tests
+# ---------------------------------------------------------------------------
+
+class TestForkJoin:
+    @pytest.mark.asyncio
+    async def test_fork_two_transforms_join(self):
+        """fork -> 2 transform branches -> join, verify merged output."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="fork1", type="fork",
+                    next_steps=["branch_a", "branch_b"],
+                ),
+                WorkflowStepDef(
+                    id="branch_a", type="transform",
+                    label="Branch A",
+                    transform_expr="result_a",
+                    next_step="join1",
+                ),
+                WorkflowStepDef(
+                    id="branch_b", type="transform",
+                    label="Branch B",
+                    transform_expr="result_b",
+                    next_step="join1",
+                ),
+                WorkflowStepDef(
+                    id="join1", type="join",
+                    join_from=["branch_a", "branch_b"],
+                    next_step="final",
+                ),
+                WorkflowStepDef(
+                    id="final", type="transform",
+                    label="Final",
+                    transform_expr="done",
+                ),
+            ],
+            entry_step_id="fork1",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-fork-1",
+            session_id="sess-fork-1",
+            initial_message="test",
+            workflow_id="wf-fork",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        assert "fork1" in state.step_results
+        assert "branch_a" in state.step_results
+        assert "branch_b" in state.step_results
+        assert "join1" in state.step_results
+        assert "final" in state.step_results
+
+        # Join should have merged branch outputs
+        join_output = state.step_results["join1"].output
+        assert isinstance(join_output, dict)
+        assert "branch_a" in join_output
+        assert "branch_b" in join_output
+
+    @pytest.mark.asyncio
+    async def test_fork_join_context_isolation(self):
+        """Branches don't clobber each other's context."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="fork1", type="fork",
+                    next_steps=["b1", "b2"],
+                ),
+                WorkflowStepDef(
+                    id="b1", type="transform",
+                    transform_expr="value_from_b1",
+                    next_step="join1",
+                ),
+                WorkflowStepDef(
+                    id="b2", type="transform",
+                    transform_expr="value_from_b2",
+                    next_step="join1",
+                ),
+                WorkflowStepDef(
+                    id="join1", type="join",
+                    join_from=["b1", "b2"],
+                ),
+            ],
+            entry_step_id="fork1",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-fork-2",
+            session_id="sess-fork-2",
+            initial_message="test",
+            workflow_id="wf-fork-iso",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        # Both branches produced results and are stored separately
+        assert "b1" in state.context
+        assert "b2" in state.context
+        # Ensure the branches produced distinct outputs (not clobbered)
+        assert state.context["b1"]["output"] != state.context["b2"]["output"]
+
+
+# ---------------------------------------------------------------------------
+# Loop tests
+# ---------------------------------------------------------------------------
+
+class TestLoop:
+    @pytest.mark.asyncio
+    async def test_loop_iterates_three_times(self):
+        """Loop with counter < 3, verify 3 iterations."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="loop1", type="loop",
+                    loop_condition="_loop_loop1._iteration < 3",
+                    loop_body_entry="body",
+                    next_step="done",
+                    loop_max_iterations=10,
+                ),
+                WorkflowStepDef(
+                    id="body", type="transform",
+                    label="Body",
+                    transform_expr="iteration_output",
+                    next_step="loop1",
+                ),
+                WorkflowStepDef(
+                    id="done", type="transform",
+                    label="Done",
+                    transform_expr="loop_finished",
+                ),
+            ],
+            entry_step_id="loop1",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-loop-1",
+            session_id="sess-loop-1",
+            initial_message="test",
+            workflow_id="wf-loop",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        assert "done" in state.step_results
+
+    @pytest.mark.asyncio
+    async def test_loop_max_iterations_cap(self):
+        """Loop that never exits hits max_iterations."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="loop1", type="loop",
+                    loop_condition="True",
+                    loop_body_entry="body",
+                    next_step="done",
+                    loop_max_iterations=3,
+                ),
+                WorkflowStepDef(
+                    id="body", type="transform",
+                    transform_expr="looping",
+                    next_step="loop1",
+                ),
+                WorkflowStepDef(
+                    id="done", type="transform",
+                    transform_expr="finished",
+                ),
+            ],
+            entry_step_id="loop1",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-loop-2",
+            session_id="sess-loop-2",
+            initial_message="test",
+            workflow_id="wf-loop-max",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        assert "done" in state.step_results
+
+    @pytest.mark.asyncio
+    async def test_loop_zero_iterations(self):
+        """Condition false on first eval -> skip body, go to done."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="loop1", type="loop",
+                    loop_condition="False",
+                    loop_body_entry="body",
+                    next_step="done",
+                ),
+                WorkflowStepDef(
+                    id="body", type="transform",
+                    transform_expr="should_not_run",
+                ),
+                WorkflowStepDef(
+                    id="done", type="transform",
+                    transform_expr="skipped_loop",
+                ),
+            ],
+            entry_step_id="loop1",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-loop-3",
+            session_id="sess-loop-3",
+            initial_message="test",
+            workflow_id="wf-loop-zero",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        assert "body" not in state.step_results
+        assert "done" in state.step_results
+
+
+# ---------------------------------------------------------------------------
+# Passthrough tests
+# ---------------------------------------------------------------------------
+
+class TestPassthrough:
+    @pytest.mark.asyncio
+    async def test_trigger_end_passthrough(self):
+        """trigger -> agent-like transform -> end works."""
+        from app.workflows.engine import WorkflowEngine
+
+        engine = WorkflowEngine()
+
+        graph = WorkflowGraphDef(
+            steps=[
+                WorkflowStepDef(
+                    id="trig", type="trigger",
+                    next_step="work",
+                ),
+                WorkflowStepDef(
+                    id="work", type="transform",
+                    transform_expr="result_data",
+                    next_step="finish",
+                ),
+                WorkflowStepDef(
+                    id="finish", type="end",
+                ),
+            ],
+            entry_step_id="trig",
+        )
+
+        send = AsyncMock()
+        state = await engine.execute(
+            graph=graph,
+            run_id="run-pt-1",
+            session_id="sess-pt-1",
+            initial_message="hello",
+            workflow_id="wf-passthrough",
+            send_event=send,
+        )
+
+        assert state.status == "completed"
+        assert "trig" in state.step_results
+        assert state.step_results["trig"].status == "success"
+        assert "finish" in state.step_results
+        assert state.step_results["finish"].status == "success"

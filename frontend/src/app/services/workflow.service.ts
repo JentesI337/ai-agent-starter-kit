@@ -4,7 +4,8 @@ import { Observable } from 'rxjs';
 
 export interface WorkflowStepDef {
   id: string;
-  type: 'agent' | 'connector' | 'transform' | 'condition' | 'delay';
+  type: 'agent' | 'connector' | 'transform' | 'condition' | 'delay'
+      | 'fork' | 'join' | 'loop' | 'trigger' | 'end';
   label?: string;
   instruction?: string;
   agent_id?: string;
@@ -20,6 +21,18 @@ export interface WorkflowStepDef {
   output_path?: string;
   timeout_seconds?: number;
   retry_count?: number;
+
+  // Fork fan-out
+  next_steps?: string[];
+
+  // Join barrier
+  wait_for?: string;       // "all" | "1" | "2" ...
+  join_from?: string[];    // explicit source step IDs
+
+  // Loop control
+  loop_condition?: string;
+  loop_body_entry?: string;
+  loop_max_iterations?: number;
 }
 
 export interface WorkflowGraphDef {
@@ -161,6 +174,16 @@ export class WorkflowService {
     return this.http.post(`${this.apiBase}/api/control/workflows.templates.instantiate`, {
       template_id: templateId,
       overrides: overrides ?? {},
+    });
+  }
+
+  getContracts(): Observable<any> {
+    return this.http.post(`${this.apiBase}/api/control/workflows.contracts`, {});
+  }
+
+  validate(graph: WorkflowGraphDef): Observable<any> {
+    return this.http.post(`${this.apiBase}/api/control/workflows.validate`, {
+      workflow_graph: graph,
     });
   }
 }

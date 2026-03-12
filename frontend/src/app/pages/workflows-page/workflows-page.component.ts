@@ -30,7 +30,8 @@ import {
 
 interface CanvasNode {
   id: string;
-  type: 'trigger' | 'step' | 'connector' | 'condition' | 'transform' | 'delay' | 'end';
+  type: 'trigger' | 'step' | 'connector' | 'condition' | 'transform' | 'delay'
+      | 'fork' | 'join' | 'loop' | 'end';
   label: string;
   instruction: string;
   agentId: string;
@@ -45,6 +46,18 @@ interface CanvasNode {
   retryCount?: number;
   x: number;
   y: number;
+
+  // Fork
+  nextSteps?: string[];
+
+  // Join
+  waitFor?: string;       // "all" | "2"
+  joinFrom?: string[];    // source step IDs
+
+  // Loop
+  loopCondition?: string;
+  loopBodyEntry?: string;
+  loopMaxIterations?: number;
 }
 
 interface CanvasEdge {
@@ -52,7 +65,7 @@ interface CanvasEdge {
   from: string;
   to: string;
   label?: string;
-  type: 'default' | 'true' | 'false';
+  type: 'default' | 'true' | 'false' | 'branch' | 'join_edge' | 'loop_back' | 'loop_exit';
 }
 
 interface PaletteItem {
@@ -154,7 +167,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
   // ── Edge drawing ───────────────────────────────────
   drawingEdge = false;
   drawingFromId: string | null = null;
-  drawingEdgeType: 'default' | 'true' | 'false' = 'default';
+  drawingEdgeType: CanvasEdge['type'] = 'default';
   drawingMouseX = 0;
   drawingMouseY = 0;
 
@@ -172,6 +185,9 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     { type: 'condition', icon: '◇', label: 'Condition',    desc: 'Branch on expression' },
     { type: 'transform', icon: '⟗', label: 'Transform',   desc: 'Transform data' },
     { type: 'delay',     icon: '◔', label: 'Delay',        desc: 'Wait before next step' },
+    { type: 'fork',      icon: '⑃', label: 'Fork',         desc: 'Split into parallel branches' },
+    { type: 'join',      icon: '⑂', label: 'Join',         desc: 'Wait for branches' },
+    { type: 'loop',      icon: '↻', label: 'Loop',         desc: 'Repeat while condition is true' },
   ];
 
   readonly AGENT_ICONS: Record<string, string> = {
@@ -184,6 +200,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
   readonly NODE_ICONS: Record<string, string> = {
     'trigger': '▶', 'end': '■', 'step': '◈', 'connector': '⟐',
     'condition': '◇', 'transform': '⟗', 'delay': '◔',
+    'fork': '⑃', 'join': '⑂', 'loop': '↻',
   };
 
   constructor(
@@ -348,6 +365,13 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       node.agentId = sd.agent_id || this.wfBaseAgent;
       node.outputType = sd.output_type || 'text';
       node.outputPath = sd.output_path || '';
+      // Fork/Join/Loop fields
+      node.nextSteps = sd.next_steps;
+      node.waitFor = sd.wait_for;
+      node.joinFrom = sd.join_from;
+      node.loopCondition = sd.loop_condition;
+      node.loopBodyEntry = sd.loop_body_entry;
+      node.loopMaxIterations = sd.loop_max_iterations;
       stepMap.set(sd.id, node);
       this.nodes.push(node);
     }
@@ -371,7 +395,10 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     // Wire step edges
     for (const sd of graph.steps) {
       if (sd.next_step) {
-        this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.next_step, type: 'default' });
+        // Loop back-edge: if target is a loop node, render as loop_back
+        const targetStep = graph.steps.find(s => s.id === sd.next_step);
+        const edgeType: CanvasEdge['type'] = targetStep?.type === 'loop' ? 'loop_back' : 'default';
+        this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.next_step, type: edgeType });
       }
       if (sd.on_true) {
         this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.on_true, label: 'true', type: 'true' });
@@ -379,8 +406,19 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       if (sd.on_false) {
         this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.on_false, label: 'false', type: 'false' });
       }
+      // Fork: branch edges from next_steps
+      if (sd.next_steps) {
+        for (const target of sd.next_steps) {
+          this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: target, label: 'branch', type: 'branch' });
+        }
+      }
+      // Loop body entry
+      if (sd.loop_body_entry) {
+        this.edges.push({ id: `edge-${++this.edgeCounter}`, from: sd.id, to: sd.loop_body_entry, label: 'body', type: 'default' });
+      }
       // If no outgoing edge, chain to next step in sequence (sequential only) or wire to end
-      if (!sd.next_step && !sd.on_true && !sd.on_false) {
+      const hasOutgoing = sd.next_step || sd.on_true || sd.on_false || sd.next_steps?.length || sd.loop_body_entry;
+      if (!hasOutgoing) {
         const stepIndex = graph.steps.indexOf(sd);
         const nextInSequence = graph.steps[stepIndex + 1];
         if (this.wfExecutionMode === 'sequential' && nextInSequence) {
@@ -443,6 +481,12 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
     const node = this.makeNode(type, label, '', 400, y);
     if (type === 'delay') {
       node.timeoutSeconds = 5;
+    }
+    if (type === 'loop') {
+      node.loopMaxIterations = 100;
+    }
+    if (type === 'join') {
+      node.waitFor = 'all';
     }
 
     // Insert before end node
@@ -544,7 +588,7 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
 
   // ── Edge Drawing ───────────────────────────────────
 
-  startEdge(nodeId: string, edgeType: 'default' | 'true' | 'false' = 'default'): void {
+  startEdge(nodeId: string, edgeType: CanvasEdge['type'] = 'default'): void {
     this.drawingEdge = true;
     this.drawingFromId = nodeId;
     this.drawingEdgeType = edgeType;
@@ -596,13 +640,25 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       const y1 = from.y + 36;
       const x2 = to.x;
       const y2 = to.y - 36;
-      const midY = (y1 + y2) / 2;
+
+      let path: string;
+      let midX: number;
+      let midY: number;
+
+      if (edge.type === 'loop_back' && y1 > y2) {
+        // Loop back-edge: curved path going to the right and upward
+        const offset = 120;
+        midX = Math.max(x1, x2) + offset;
+        midY = (y1 + y2) / 2;
+        path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+      } else {
+        midY = (y1 + y2) / 2;
+        midX = (x1 + x2) / 2;
+        path = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+      }
+
       paths.push({
-        edge,
-        path: `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`,
-        midX: (x1 + x2) / 2,
-        midY,
-        x1, y1, x2, y2,
+        edge, path, midX, midY, x1, y1, x2, y2,
       });
     }
     return paths;
@@ -856,15 +912,37 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
       if (node.type === 'trigger' || node.type === 'end') continue;
 
       const outgoing = this.edges.filter(e => e.from === node.id);
-      const defaultEdge = outgoing.find(e => e.type === 'default');
+      const defaultEdge = outgoing.find(e => e.type === 'default' || e.type === 'loop_exit');
       const trueEdge = outgoing.find(e => e.type === 'true');
       const falseEdge = outgoing.find(e => e.type === 'false');
+      const branchEdges = outgoing.filter(e => e.type === 'branch');
 
       // Don't set next_step to end node
       const endId = this.endNode?.id;
       const nextStep = defaultEdge && defaultEdge.to !== endId ? defaultEdge.to : undefined;
       const onTrue = trueEdge && trueEdge.to !== endId ? trueEdge.to : undefined;
       const onFalse = falseEdge && falseEdge.to !== endId ? falseEdge.to : undefined;
+
+      // Fork: collect branch targets
+      const nextSteps = node.type === 'fork' && branchEdges.length > 0
+        ? branchEdges.map(e => e.to)
+        : undefined;
+
+      // Join: collect incoming edges as join_from
+      const joinFrom = node.type === 'join'
+        ? this.edges.filter(e => e.to === node.id).map(e => e.from)
+        : undefined;
+
+      // Loop: find body entry from outgoing edges (non-default, non-loop_exit)
+      let loopBodyEntry = node.loopBodyEntry;
+      if (node.type === 'loop' && !loopBodyEntry) {
+        const bodyEdge = outgoing.find(e => e.type !== 'loop_exit' && e.type !== 'default');
+        if (bodyEdge) loopBodyEntry = bodyEdge.to;
+        // If no explicit body edge, use the first non-default outgoing
+        if (!loopBodyEntry && outgoing.length > 1) {
+          loopBodyEntry = outgoing.find(e => e.to !== nextStep)?.to;
+        }
+      }
 
       stepDefs.push({
         id: node.id,
@@ -877,13 +955,20 @@ export class WorkflowsPageComponent implements OnInit, OnDestroy {
         connector_params: node.connectorParams,
         transform_expr: node.transformExpr,
         condition_expr: node.conditionExpr,
-        next_step: nextStep,
+        next_step: node.type === 'fork' ? undefined : nextStep,
         on_true: onTrue,
         on_false: onFalse,
         output_type: node.outputType || 'text',
         output_path: node.outputPath || '',
         timeout_seconds: node.timeoutSeconds ?? 120,
         retry_count: node.retryCount ?? 0,
+        // Fork/Join/Loop fields
+        next_steps: nextSteps,
+        wait_for: node.type === 'join' ? (node.waitFor || 'all') : undefined,
+        join_from: joinFrom,
+        loop_condition: node.type === 'loop' ? node.loopCondition : undefined,
+        loop_body_entry: node.type === 'loop' ? loopBodyEntry : undefined,
+        loop_max_iterations: node.type === 'loop' ? (node.loopMaxIterations ?? 100) : undefined,
       });
     }
 

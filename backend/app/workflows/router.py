@@ -78,6 +78,20 @@ def build_control_workflows_router(
         awaited = _maybe_await(result)
         return await awaited if awaited is not None else result
 
+    # ── Contracts + Validation ──────────────────────────
+
+    @router.post("/api/control/workflows.contracts")
+    async def control_workflows_contracts():
+        """Return node contracts registry."""
+        from app.workflows.handlers import api_control_workflows_contracts
+        return api_control_workflows_contracts()
+
+    @router.post("/api/control/workflows.validate")
+    async def control_workflows_validate(request: JsonDict = Body(...)):
+        """Validate a workflow graph and return resolved chain + warnings."""
+        from app.workflows.handlers import api_control_workflows_validate
+        return api_control_workflows_validate(request_data=request)
+
     # ── Workflow Runs: list + get + SSE stream ──────────
 
     @router.post("/api/control/workflows.runs.list")

@@ -21,7 +21,8 @@ class WorkflowStepDef(BaseModel):
     """Single step in a workflow graph."""
 
     id: str
-    type: Literal["agent", "connector", "transform", "condition", "delay"]
+    type: Literal["agent", "connector", "transform", "condition", "delay",
+                  "fork", "join", "loop", "trigger", "end"]
     label: str = ""
     instruction: str = ""
     agent_id: str | None = None
@@ -37,6 +38,18 @@ class WorkflowStepDef(BaseModel):
     output_path: str = ""
     timeout_seconds: int = 120
     retry_count: int = 0
+
+    # Fork fan-out (mutually exclusive with next_step)
+    next_steps: list[str] | None = None
+
+    # Join barrier
+    wait_for: str | None = None       # "all" | "1" | "2" ...
+    join_from: list[str] | None = None  # explicit source step IDs
+
+    # Loop control
+    loop_condition: str | None = None
+    loop_body_entry: str | None = None
+    loop_max_iterations: int = 100
 
 
 class WorkflowGraphDef(BaseModel):

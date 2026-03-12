@@ -578,6 +578,9 @@
 
   &.conn-true { stroke: url(#connGradTrue); stroke-dasharray: 6 3; }
   &.conn-false { stroke: url(#connGradFalse); stroke-dasharray: 6 3; }
+  &.conn-branch { stroke: url(#connGradBranch); stroke-width: 2.5; }
+  &.conn-loop-back { stroke: url(#connGradLoop); stroke-dasharray: 8 4; stroke-width: 2; }
+  &.conn-loop-exit { stroke: url(#connGrad); stroke-dasharray: 4 4; }
 }
 
 .conn-particle {
@@ -801,6 +804,37 @@
   }
 }
 
+.node-fork {
+  border-color: rgba(168, 85, 247, 0.3);
+  background: linear-gradient(135deg, var(--c-bg-window) 0%, rgba(168, 85, 247, 0.06) 100%);
+
+  .node-icon {
+    background: rgba(168, 85, 247, 0.1);
+    color: rgb(168, 85, 247);
+  }
+}
+
+.node-join {
+  border-color: rgba(168, 85, 247, 0.3);
+  background: linear-gradient(135deg, var(--c-bg-window) 0%, rgba(168, 85, 247, 0.06) 100%);
+
+  .node-icon {
+    background: rgba(168, 85, 247, 0.1);
+    color: rgb(168, 85, 247);
+  }
+}
+
+.node-loop {
+  border-color: rgba(251, 146, 60, 0.3);
+  background: linear-gradient(135deg, var(--c-bg-window) 0%, rgba(251, 146, 60, 0.08) 100%);
+  border-style: dashed;
+
+  .node-icon {
+    background: rgba(251, 146, 60, 0.1);
+    color: rgb(251, 146, 60);
+  }
+}
+
 .node-icon {
   width: 32px; height: 32px;
   border-radius: var(--r-md);
@@ -930,6 +964,13 @@
     color: #f87171;
     border: 1px solid rgba(248, 113, 113, 0.4);
     &:hover { background: #f87171; color: #000; }
+  }
+
+  &.port-branch {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    &:hover { background: #a855f7; color: #000; }
   }
 }
 

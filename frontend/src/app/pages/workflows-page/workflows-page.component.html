@@ -240,13 +240,24 @@
               <stop offset="0%" stop-color="var(--c-red)" stop-opacity="0.7"/>
               <stop offset="100%" stop-color="var(--c-red)" stop-opacity="0.3"/>
             </linearGradient>
+            <linearGradient id="connGradBranch" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--c-purple, #a855f7)" stop-opacity="0.7"/>
+              <stop offset="100%" stop-color="var(--c-purple, #a855f7)" stop-opacity="0.3"/>
+            </linearGradient>
+            <linearGradient id="connGradLoop" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stop-color="var(--c-orange, #f59e0b)" stop-opacity="0.7"/>
+              <stop offset="100%" stop-color="var(--c-orange, #f59e0b)" stop-opacity="0.3"/>
+            </linearGradient>
           </defs>
 
           <ng-container *ngFor="let ep of edgePaths; trackBy: trackByIndex">
             <path [attr.d]="ep.path"
                   class="conn-path"
                   [class.conn-true]="ep.edge.type === 'true'"
-                  [class.conn-false]="ep.edge.type === 'false'" />
+                  [class.conn-false]="ep.edge.type === 'false'"
+                  [class.conn-branch]="ep.edge.type === 'branch'"
+                  [class.conn-loop-back]="ep.edge.type === 'loop_back'"
+                  [class.conn-loop-exit]="ep.edge.type === 'loop_exit'" />
             <circle r="3" class="conn-particle">
               <animateMotion [attr.path]="ep.path" dur="2s" repeatCount="indefinite" />
             </circle>
@@ -301,6 +312,9 @@
              [class.node-condition]="node.type === 'condition'"
              [class.node-transform]="node.type === 'transform'"
              [class.node-delay]="node.type === 'delay'"
+             [class.node-fork]="node.type === 'fork'"
+             [class.node-join]="node.type === 'join'"
+             [class.node-loop]="node.type === 'loop'"
              [class.node-end]="node.type === 'end'"
              [class.selected]="selectedNodeId === node.id"
              [class.exec-running]="nodeStatus(node.id) === 'running'"
@@ -329,6 +343,15 @@
             <span class="node-sub" *ngIf="node.type === 'delay'">
               {{ node.timeoutSeconds ?? 5 }}s
             </span>
+            <span class="node-sub" *ngIf="node.type === 'fork'">
+              {{ (node.nextSteps?.length ?? 0) }} branches
+            </span>
+            <span class="node-sub" *ngIf="node.type === 'join'">
+              wait: {{ node.waitFor ?? 'all' }}
+            </span>
+            <span class="node-sub" *ngIf="node.type === 'loop' && node.loopCondition">
+              {{ node.loopCondition.length > 30 ? (node.loopCondition.substring(0, 30) + '…') : node.loopCondition }}
+            </span>
           </div>
 
           <!-- Connect button -->
@@ -341,6 +364,17 @@
           <div class="condition-ports" *ngIf="node.type === 'condition'">
             <button class="port-btn port-true" (click)="startEdge(node.id, 'true'); $event.stopPropagation()" title="True branch">T</button>
             <button class="port-btn port-false" (click)="startEdge(node.id, 'false'); $event.stopPropagation()" title="False branch">F</button>
+          </div>
+
+          <!-- Fork branch button -->
+          <div class="condition-ports" *ngIf="node.type === 'fork'">
+            <button class="port-btn port-branch" (click)="startEdge(node.id, 'branch'); $event.stopPropagation()" title="Add branch">+</button>
+          </div>
+
+          <!-- Loop port buttons -->
+          <div class="condition-ports" *ngIf="node.type === 'loop'">
+            <button class="port-btn port-true" (click)="startEdge(node.id, 'default'); $event.stopPropagation()" title="Loop body">B</button>
+            <button class="port-btn port-false" (click)="startEdge(node.id, 'loop_exit'); $event.stopPropagation()" title="Done (exit loop)">D</button>
           </div>
 
           <button class="node-remove"
@@ -490,6 +524,40 @@
             <input class="field-input" type="number" min="1" max="3600"
                    [(ngModel)]="selectedNode.timeoutSeconds" />
           </label>
+        </ng-container>
+
+        <!-- Fork -->
+        <ng-container *ngIf="selectedNode.type === 'fork'">
+          <p class="hint">Use the branch port (+) on the node to connect to parallel branches.</p>
+        </ng-container>
+
+        <!-- Join -->
+        <ng-container *ngIf="selectedNode.type === 'join'">
+          <label class="field-label">
+            Wait For
+            <select class="field-input" [(ngModel)]="selectedNode.waitFor">
+              <option value="all">All branches</option>
+              <option value="1">Any 1 branch</option>
+              <option value="2">Any 2 branches</option>
+            </select>
+          </label>
+          <p class="hint">Connect incoming edges from fork branches.</p>
+        </ng-container>
+
+        <!-- Loop -->
+        <ng-container *ngIf="selectedNode.type === 'loop'">
+          <label class="field-label">
+            Loop Condition
+            <textarea class="field-input" rows="3"
+                      placeholder='e.g. _loop_loop1._iteration < 10'
+                      [(ngModel)]="selectedNode.loopCondition"></textarea>
+          </label>
+          <label class="field-label">
+            Max Iterations
+            <input class="field-input" type="number" min="1" max="10000"
+                   [(ngModel)]="selectedNode.loopMaxIterations" />
+          </label>
+          <p class="hint">Use the body (B) port to connect to the loop body, and done (D) to exit.</p>
         </ng-container>
 
         <!-- Common: Timeout & Retry -->

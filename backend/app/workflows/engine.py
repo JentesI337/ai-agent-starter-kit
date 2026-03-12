@@ -98,21 +98,32 @@ class WorkflowEngine:
         session_id: str,
         send_event: Callable,
     ) -> WorkflowExecutionState:
+        self._current_graph = graph
         current_step_id: str | None = graph.entry_step_id
 
         # Repair broken chains: if steps are unreachable, infer linear order
         reachable: set[str] = set()
-        sid = graph.entry_step_id
-        while sid and sid not in reachable:
+        visit_queue: list[str] = [graph.entry_step_id] if graph.entry_step_id else []
+        while visit_queue:
+            sid = visit_queue.pop()
+            if sid in reachable:
+                continue
             reachable.add(sid)
             s = graph.get_step(sid)
-            sid = s.next_step if s else None
+            if not s:
+                continue
+            for target in [s.next_step, s.on_true, s.on_false, s.loop_body_entry]:
+                if target and target not in reachable:
+                    visit_queue.append(target)
+            for target in (s.next_steps or []):
+                if target not in reachable:
+                    visit_queue.append(target)
 
         if len(reachable) < len(graph.steps):
             logger.warning("workflow_chain_broken: %d/%d steps reachable, repairing",
                            len(reachable), len(graph.steps))
             for i, step in enumerate(graph.steps):
-                if i + 1 < len(graph.steps) and not step.next_step and not step.on_true:
+                if i + 1 < len(graph.steps) and not step.next_step and not step.on_true and not step.next_steps:
                     step.next_step = graph.steps[i + 1].id
 
         while current_step_id is not None:
@@ -285,6 +296,21 @@ class WorkflowEngine:
                 return self._execute_condition_step(step_def, state)
             elif step_def.type == "delay":
                 return await self._execute_delay_step(step_def)
+            elif step_def.type == "fork":
+                return await self._execute_fork_step(
+                    step_def=step_def,
+                    state=state,
+                    graph=getattr(self, '_current_graph', None),
+                    run_id=run_id,
+                    session_id=session_id,
+                    send_event=send_event,
+                )
+            elif step_def.type == "join":
+                return self._execute_join_step(step_def, state)
+            elif step_def.type == "loop":
+                return self._execute_loop_step(step_def, state)
+            elif step_def.type in ("trigger", "end"):
+                return self._execute_passthrough_step(step_def, state)
             else:
                 return StepResult(step_id=step_def.id, status="error", error=f"Unknown step type: {step_def.type}")
         except asyncio.TimeoutError:
@@ -423,7 +449,260 @@ class WorkflowEngine:
             branch = output.get("branch", "false") if isinstance(output, dict) else "false"
             return step_def.on_true if branch == "true" else step_def.on_false
 
+        if step_def.type == "fork":
+            # Fork handles its own dispatch via _execute_fork_step;
+            # after fork completes, jump to the join node's next_step.
+            if result.output and isinstance(result.output, dict):
+                resume_from = result.output.get("_resume_from")
+                if resume_from:
+                    return resume_from
+            return None
+
+        if step_def.type == "loop":
+            output = result.output or {}
+            if isinstance(output, dict) and output.get("_loop_continue"):
+                return step_def.loop_body_entry
+            return step_def.next_step  # done port
+
         return step_def.next_step
+
+    # ── Fork / Join / Loop / Passthrough ─────────────────
+
+    async def _execute_subchain(
+        self,
+        *,
+        entry_step_id: str,
+        graph: WorkflowGraphDef,
+        state: WorkflowExecutionState,
+        run_id: str,
+        session_id: str,
+        send_event: Callable,
+        stop_at_types: set[str],
+        context_lock: asyncio.Lock,
+    ) -> str | None:
+        """Execute steps linearly until hitting a step type in stop_at_types.
+
+        Returns the step_id it stopped at (the join/end), or None.
+        """
+        current = entry_step_id
+        while current is not None:
+            step_def = graph.get_step(current)
+            if step_def is None:
+                break
+            if step_def.type in stop_at_types:
+                return current  # stop before executing the join/end
+
+            await self._emit(send_event, "workflow_step_started", {
+                "step_id": step_def.id,
+                "step_type": step_def.type,
+                "label": step_def.label or step_def.id,
+            })
+
+            t0 = time.monotonic()
+            result = await self._execute_step(
+                step_def=step_def, state=state,
+                run_id=run_id, session_id=session_id,
+                send_event=send_event,
+            )
+            result.duration_ms = int((time.monotonic() - t0) * 1000)
+
+            async with context_lock:
+                state.step_results[step_def.id] = result
+                self._write_step_audit(state, result)
+                if result.output is not None:
+                    state.context[step_def.id] = {"output": result.output}
+
+            if result.status == "error":
+                await self._emit(send_event, "workflow_step_failed", {
+                    "step_id": step_def.id,
+                    "error": result.error or "Unknown error",
+                })
+                return None
+
+            await self._emit(send_event, "workflow_step_completed", {
+                "step_id": step_def.id,
+                "status": result.status,
+                "output_preview": str(result.output)[:200] if result.output else "",
+                "duration_ms": result.duration_ms,
+            })
+
+            current = self._resolve_next_step(step_def, result, state)
+
+        return None
+
+    async def _execute_fork_step(
+        self,
+        *,
+        step_def: WorkflowStepDef,
+        state: WorkflowExecutionState,
+        graph: WorkflowGraphDef | None,
+        run_id: str,
+        session_id: str,
+        send_event: Callable,
+    ) -> StepResult:
+        """Fan-out: run all branch subchains concurrently via asyncio.gather."""
+        branch_targets = step_def.next_steps or []
+        if not branch_targets:
+            return StepResult(
+                step_id=step_def.id, status="success",
+                output={"branches": 0, "message": "No branches defined"},
+            )
+
+        if graph is None:
+            return StepResult(
+                step_id=step_def.id, status="error",
+                error="Fork step requires graph context",
+            )
+
+        # Pass through input to all branches
+        input_data = None
+        for sid, ctx in state.context.items():
+            if isinstance(ctx, dict) and "output" in ctx:
+                input_data = ctx["output"]
+
+        state.context[step_def.id] = {"output": input_data, "_type": "fork"}
+
+        context_lock = asyncio.Lock()
+        join_step_ids: list[str | None] = []
+
+        async def run_branch(target_id: str) -> str | None:
+            return await self._execute_subchain(
+                entry_step_id=target_id,
+                graph=graph,
+                state=state,
+                run_id=run_id,
+                session_id=session_id,
+                send_event=send_event,
+                stop_at_types={"join", "end"},
+                context_lock=context_lock,
+            )
+
+        results = await asyncio.gather(
+            *[run_branch(t) for t in branch_targets],
+            return_exceptions=True,
+        )
+
+        # Collect join step IDs
+        for r in results:
+            if isinstance(r, str):
+                join_step_ids.append(r)
+            elif isinstance(r, BaseException):
+                logger.error("fork_branch_exception: %s", r)
+
+        # Find the join node and its next_step for resumption
+        resume_from = None
+        for jsid in join_step_ids:
+            if jsid:
+                join_step = graph.get_step(jsid)
+                if join_step and join_step.type == "join":
+                    # Execute the join step itself
+                    join_result = self._execute_join_step(join_step, state)
+                    state.step_results[jsid] = join_result
+                    if join_result.output is not None:
+                        state.context[jsid] = {"output": join_result.output}
+                    await self._emit(send_event, "workflow_step_completed", {
+                        "step_id": jsid,
+                        "status": join_result.status,
+                        "output_preview": str(join_result.output)[:200] if join_result.output else "",
+                        "duration_ms": 0,
+                    })
+                    resume_from = join_step.next_step
+                    break
+
+        return StepResult(
+            step_id=step_def.id, status="success",
+            output={
+                "branches": len(branch_targets),
+                "_resume_from": resume_from,
+            },
+        )
+
+    def _execute_join_step(
+        self,
+        step_def: WorkflowStepDef,
+        state: WorkflowExecutionState,
+    ) -> StepResult:
+        """Fan-in: merge results from join_from steps into JSON dict."""
+        sources = step_def.join_from or []
+        merged: dict[str, Any] = {}
+
+        for src_id in sources:
+            ctx = state.context.get(src_id)
+            if ctx and isinstance(ctx, dict) and "output" in ctx:
+                merged[src_id] = ctx["output"]
+
+        # If no explicit join_from, gather all completed step outputs
+        if not sources:
+            for sid, ctx in state.context.items():
+                if sid != "input" and isinstance(ctx, dict) and "output" in ctx:
+                    merged[sid] = ctx["output"]
+
+        return StepResult(
+            step_id=step_def.id, status="success",
+            output=merged,
+        )
+
+    def _execute_loop_step(
+        self,
+        step_def: WorkflowStepDef,
+        state: WorkflowExecutionState,
+    ) -> StepResult:
+        """Evaluate loop_condition. Returns result with routing metadata."""
+        loop_key = f"_loop_{step_def.id}"
+        iteration = state.context.get(loop_key, {}).get("_iteration", 0)
+
+        # Check max iterations
+        if iteration >= step_def.loop_max_iterations:
+            logger.warning(
+                "loop_max_iterations_reached step_id=%s iterations=%d",
+                step_def.id, iteration,
+            )
+            return StepResult(
+                step_id=step_def.id, status="success",
+                output={"_loop_continue": False, "iteration": iteration, "reason": "max_iterations"},
+            )
+
+        # Evaluate condition
+        condition = step_def.loop_condition or ""
+        if condition:
+            from app.workflows.transforms import evaluate_condition
+            try:
+                should_continue = evaluate_condition(condition, state.context)
+            except ValueError:
+                should_continue = False
+        else:
+            should_continue = False
+
+        # Update iteration counter
+        state.context[loop_key] = {"_iteration": iteration + 1}
+
+        return StepResult(
+            step_id=step_def.id, status="success",
+            output={"_loop_continue": should_continue, "iteration": iteration},
+        )
+
+    def _execute_passthrough_step(
+        self,
+        step_def: WorkflowStepDef,
+        state: WorkflowExecutionState,
+    ) -> StepResult:
+        """Trigger/end: pass through input message or context."""
+        # For trigger: pass the input message
+        if step_def.type == "trigger":
+            input_msg = state.context.get("input", {}).get("message", "")
+            return StepResult(
+                step_id=step_def.id, status="success",
+                output=input_msg,
+            )
+        # For end: pass through last available output
+        last_output = None
+        for sid, ctx in state.context.items():
+            if sid != "input" and isinstance(ctx, dict) and "output" in ctx:
+                last_output = ctx["output"]
+        return StepResult(
+            step_id=step_def.id, status="success",
+            output=last_output,
+        )
 
     def _is_audit_enabled(self) -> bool:
         """Check if workflow auditing is enabled via settings."""

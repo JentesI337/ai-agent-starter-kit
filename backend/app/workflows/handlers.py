@@ -338,12 +338,26 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         triggers=triggers,
         allow_subrun_delegation=bool(request.allow_subrun_delegation),
     )
+
+    # Run chain validation (non-blocking — warnings only)
+    chain_warnings: list[dict] = []
+    if workflow_graph:
+        try:
+            from app.workflows.chain_resolver import resolve_chain
+            _resolved, _warnings = resolve_chain(workflow_graph)
+            if _warnings:
+                chain_warnings = [{"code": w.code, "message": w.message, "severity": w.severity, "step_id": w.step_id} for w in _warnings]
+                logger.warning("chain_validation_warnings workflow_id=%s: %s", workflow_id, chain_warnings)
+        except Exception:
+            logger.debug("chain_validation_failed workflow_id=%s", workflow_id, exc_info=True)
+
     created = deps.workflow_store.create(record)
 
     response = {
         "schema": "workflows.create.v1",
         "status": "created",
         "workflow": _record_to_response(created),
+        "chain_warnings": chain_warnings,
         "idempotency": {"key": idempotency_key, "reused": False},
     }
     _register_idempotent_workflow(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
@@ -432,12 +446,25 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         triggers=resolved_triggers,
         allow_subrun_delegation=resolved_allow_subrun_delegation,
     )
+    # Run chain validation (non-blocking — warnings only)
+    chain_warnings: list[dict] = []
+    if resolved_graph:
+        try:
+            from app.workflows.chain_resolver import resolve_chain
+            _resolved, _warnings = resolve_chain(resolved_graph)
+            if _warnings:
+                chain_warnings = [{"code": w.code, "message": w.message, "severity": w.severity, "step_id": w.step_id} for w in _warnings]
+                logger.warning("chain_validation_warnings workflow_id=%s: %s", workflow_id, chain_warnings)
+        except Exception:
+            logger.debug("chain_validation_failed workflow_id=%s", workflow_id, exc_info=True)
+
     updated = deps.workflow_store.update(workflow_id, updated_record)
 
     response = {
         "schema": "workflows.update.v1",
         "status": "updated",
         "workflow": _record_to_response(updated),
+        "chain_warnings": chain_warnings,
         "idempotency": {"key": idempotency_key, "reused": False},
     }
     _register_idempotent_workflow(idempotency_key=idempotency_key, fingerprint=fingerprint, response=response)
@@ -717,6 +744,31 @@ def api_control_workflows_delete(request_data: dict, idempotency_key_header: str
     request = ControlWorkflowsDeleteRequest.model_validate(request_data)
     payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
     return _delete_workflow_minimal(request=payload)
+
+
+def api_control_workflows_contracts() -> dict:
+    """Return NODE_CONTRACTS registry as JSON."""
+    from app.workflows.contracts import NODE_CONTRACTS
+    return {
+        "schema": "workflows.contracts.v1",
+        "contracts": {k: v.model_dump() for k, v in NODE_CONTRACTS.items()},
+    }
+
+
+def api_control_workflows_validate(*, request_data: dict) -> dict:
+    """Validate a workflow_graph, return resolved chain + warnings."""
+    from dataclasses import asdict
+
+    from app.workflows.chain_resolver import resolve_chain
+
+    raw_graph = request_data.get("workflow_graph", {})
+    graph = WorkflowGraphDef.model_validate(raw_graph)
+    resolved, warnings = resolve_chain(graph)
+    return {
+        "schema": "workflows.validate.v1",
+        "resolved_chain": [asdict(r) for r in resolved],
+        "warnings": [asdict(w) for w in warnings],
+    }
 
 
 def api_control_workflows_run_audit(run_id: str) -> dict:
