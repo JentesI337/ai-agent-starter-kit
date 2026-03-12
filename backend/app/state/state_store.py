@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import Lock
 
 from app.config import settings
-from app.services.state_encryption import decrypt_state, encrypt_state
+from app.state.encryption import decrypt_state, encrypt_state
 from app.state.snapshots import build_summary_snapshot
 from app.state.task_graph import TaskGraph
 
