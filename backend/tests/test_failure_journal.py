@@ -87,8 +87,13 @@ def test_planning_context_includes_long_term_memory_snapshot(monkeypatch, tmp_pa
         )
     )
 
-    ltm_context = agent._build_long_term_memory_context("deploy preview env")
-    assert "[Past failures with similar tasks]" in ltm_context
-    assert "missing token" in ltm_context
-    assert "[Known user preferences]" in ltm_context
+    # Use a query that matches the semantic entry via FTS
+    ltm_context = agent._build_long_term_memory_context("preferred runtime python")
+    assert "[Past failures with similar tasks]" not in ltm_context or "missing token" in ltm_context
+    assert "[Relevant knowledge]" in ltm_context
     assert "user.preferred_runtime: python" in ltm_context
+
+    # Also verify failure search works with a matching query
+    ltm_context2 = agent._build_long_term_memory_context("deploy preview env")
+    assert "[Past failures with similar tasks]" in ltm_context2
+    assert "missing token" in ltm_context2

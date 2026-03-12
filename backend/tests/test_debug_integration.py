@@ -38,6 +38,7 @@ def _make_agent(*, debug_mode_active: bool = True) -> MagicMock:
     from app.agent import HeadAgent
 
     agent = MagicMock(spec=HeadAgent)
+    agent.name = "test-agent"
     agent._debug_mode_active = debug_mode_active
     agent._debug_breakpoints = set()
     agent._debug_continue_event = asyncio.Event()
@@ -76,11 +77,11 @@ async def test_breakpoint_pause_continue_cycle():
         agent._debug_continue_event.set()
         await asyncio.wait_for(task, timeout=2.0)
 
-    # Verify breakpoint_hit was emitted
-    assert agent._emit_lifecycle.await_count == 1
-    hit_call = agent._emit_lifecycle.call_args
-    assert hit_call[0][1] == "debug_breakpoint_hit"
-    assert hit_call[1]["details"]["phase"] == "planning"
+    # Verify breakpoint_hit was emitted via send_event
+    send_event.assert_awaited_once()
+    payload = send_event.call_args[0][0]
+    assert payload["stage"] == "debug_breakpoint_hit"
+    assert payload["details"]["phase"] == "planning"
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +118,8 @@ async def test_multiple_breakpoints_sequential():
         agent._debug_continue_event.set()
         await asyncio.wait_for(task2, timeout=2.0)
 
-    assert agent._emit_lifecycle.await_count == 2
-    phases_hit = [c[1]["details"]["phase"] for c in agent._emit_lifecycle.call_args_list]
+    assert send_event.await_count == 2
+    phases_hit = [c[0][0]["details"]["phase"] for c in send_event.call_args_list]
     assert "context" in phases_hit
     assert "planning" in phases_hit
 

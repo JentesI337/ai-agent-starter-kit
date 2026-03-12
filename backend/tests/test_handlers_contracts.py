@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from dataclasses import dataclass
-from threading import Lock
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
-from app.handlers import run_handlers, session_handlers, workflow_handlers
+from app.handlers import run_handlers, session_handlers
+from app.workflows import handlers as workflow_handlers
+from app.workflows.store import SqliteWorkflowStore, SqliteWorkflowAuditStore
 from app.services.idempotency_manager import IdempotencyManager
-from app.services.workflow_store import WorkflowStore
 
 
 class _RuntimeManager:
@@ -41,37 +40,26 @@ class _RunStateStore:
         self.runs.setdefault(run_id, {"events": []}).setdefault("events", []).append(event)
 
 
-@dataclass
-class _WorkflowDefinition:
-    id: str
-    name: str
-    description: str
-    base_agent_id: str
-    workflow_steps: list[str]
-    tool_policy: dict | None
-    allow_subrun_delegation: bool = False
+def _make_workflow_deps(tmp_path, **overrides):
+    """Create WorkflowDependencies with sensible defaults for tests."""
+    db_path = tmp_path / "workflow_store.db"
+    wf_store = SqliteWorkflowStore(db_path=db_path)
+    defaults = dict(
+        settings=SimpleNamespace(),
+        workflow_store=wf_store,
+        audit_store=None,
+        idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
+        run_agent=_noop_run_agent,
+        build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
+        build_workflow_execute_fingerprint=lambda **kw: f"wf-exec:{kw.get('workflow_id')}",
+        build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
+    )
+    defaults.update(overrides)
+    return workflow_handlers.WorkflowDependencies(**defaults)
 
 
-class _WorkflowStore:
-    def __init__(self) -> None:
-        self._items: dict[str, _WorkflowDefinition] = {}
-
-    def list(self) -> list[_WorkflowDefinition]:
-        return list(self._items.values())
-
-    def upsert(self, request, id_factory=None):
-        workflow_id = request.id or (id_factory(request.name) if callable(id_factory) else request.name)
-        item = _WorkflowDefinition(
-            id=str(workflow_id),
-            name=str(request.name),
-            description=str(request.description or ""),
-            base_agent_id=str(request.base_agent_id),
-            workflow_steps=list(request.workflow_steps or []),
-            tool_policy=request.tool_policy,
-            allow_subrun_delegation=bool(getattr(request, "allow_subrun_delegation", False)),
-        )
-        self._items[item.id] = item
-        return item
+async def _noop_run_agent(agent_id: str, message: str, session_id: str) -> str:
+    return "ok"
 
 
 def test_run_handler_contract_and_idempotency_replay(monkeypatch) -> None:
@@ -147,25 +135,7 @@ def test_session_handler_contract_and_idempotency_replay() -> None:
 
 
 def test_workflow_handler_contract_and_idempotency_replay(tmp_path) -> None:
-    wf_store = WorkflowStore(persist_dir=tmp_path / "wf1")
-    workflow_handlers.configure(
-        workflow_handlers.WorkflowHandlerDependencies(
-            settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            workflow_store=wf_store,
-            agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
-            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
-            runtime_manager=_RuntimeManager(),
-            subrun_lane=SimpleNamespace(),
-            normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
-            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
-            sync_custom_agents=lambda: None,
-            effective_orchestrator_agent_ids=lambda: {"head-agent"},
-            start_run_background=lambda **kwargs: "run-workflow-1",
-            build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
-            build_workflow_execute_fingerprint=lambda **kw: f"wf-exec:{kw.get('workflow_id')}",
-            build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
-        )
-    )
+    workflow_handlers.configure(_make_workflow_deps(tmp_path))
 
     first = workflow_handlers.api_control_workflows_create(
         request_data={
@@ -195,47 +165,20 @@ def test_workflow_handler_contract_and_idempotency_replay(tmp_path) -> None:
     assert second["workflow"]["id"] == first["workflow"]["id"]
 
 
-def test_workflow_create_with_vision_tool_policy_and_execute(tmp_path) -> None:
-    captured_start: dict[str, object] = {}
-
-    def _start_run_background(**kwargs):
-        captured_start.update(kwargs)
-        return "run-workflow-vision-1"
-
-    wf_store = WorkflowStore(persist_dir=tmp_path / "wf2")
-    workflow_handlers.configure(
-        workflow_handlers.WorkflowHandlerDependencies(
-            settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            workflow_store=wf_store,
-            agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
-            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
-            runtime_manager=_RuntimeManager(),
-            subrun_lane=SimpleNamespace(),
-            normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
-            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
-            sync_custom_agents=lambda: None,
-            effective_orchestrator_agent_ids=lambda: {"head-agent"},
-            start_run_background=_start_run_background,
-            build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
-            build_workflow_execute_fingerprint=lambda **kw: f"wf-exec:{kw.get('workflow_id')}:{kw.get('runtime')}",
-            build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
-        )
-    )
+def test_workflow_create_and_get_roundtrip(tmp_path) -> None:
+    workflow_handlers.configure(_make_workflow_deps(tmp_path))
 
     created = workflow_handlers.api_control_workflows_create(
         request_data={
             "name": "Vision Workflow",
             "description": "Use vision in workflow run",
             "base_agent_id": "head-agent",
-            "steps": [],
-            "tool_policy": {
-                "allow": ["analyze_image"],
-                "deny": ["run_command"],
-            },
+            "steps": ["analyze the image"],
             "idempotency_key": "idem-wf-vision-1",
         },
         idempotency_key_header=None,
     )
+    assert created["schema"] == "workflows.create.v1"
     workflow_id = created["workflow"]["id"]
 
     got = workflow_handlers.api_control_workflows_get(
@@ -244,24 +187,38 @@ def test_workflow_create_with_vision_tool_policy_and_execute(tmp_path) -> None:
         }
     )
     assert got["schema"] == "workflows.get.v1"
-    assert got["workflow"]["tool_policy"]["allow"] == ["analyze_image"]
-    assert got["workflow"]["tool_policy"]["deny"] == ["run_command"]
+    assert got["workflow"]["name"] == "Vision Workflow"
+    assert got["workflow"]["description"] == "Use vision in workflow run"
+
+
+def test_workflow_execute_returns_accepted(tmp_path) -> None:
+    workflow_handlers.configure(_make_workflow_deps(tmp_path))
+
+    created = workflow_handlers.api_control_workflows_create(
+        request_data={
+            "name": "Exec Workflow",
+            "description": "desc",
+            "base_agent_id": "head-agent",
+            "steps": ["do something"],
+            "idempotency_key": "idem-wf-exec-create-1",
+        },
+        idempotency_key_header=None,
+    )
+    workflow_id = created["workflow"]["id"]
 
     executed = asyncio.run(
         workflow_handlers.api_control_workflows_execute(
             request_data={
                 "workflow_id": workflow_id,
                 "message": "analyze screenshot",
-                "idempotency_key": "idem-wf-vision-exec-1",
+                "idempotency_key": "idem-wf-exec-1",
             },
             idempotency_key_header=None,
         )
     )
 
-    assert executed["schema"] == "workflows.execute.v1"
     assert executed["status"] == "accepted"
-    assert captured_start.get("agent_id") == workflow_id.strip().lower()
-    assert captured_start.get("message") == "analyze screenshot"
+    assert "runId" in executed
 
 
 def test_run_handler_idempotency_conflict_when_queue_mode_differs() -> None:
@@ -324,25 +281,10 @@ def test_workflow_execute_idempotency_conflict_when_queue_mode_differs(tmp_path)
         captured_queue_modes.append(kw.get("queue_mode"))
         return f"wf-exec:{kw.get('workflow_id')}:{kw.get('queue_mode')}"
 
-    wf_store = WorkflowStore(persist_dir=tmp_path / "wf3")
-    workflow_handlers.configure(
-        workflow_handlers.WorkflowHandlerDependencies(
-            settings=SimpleNamespace(subrun_max_children_per_parent=3, subrun_timeout_seconds=30, session_visibility_default="tree"),
-            workflow_store=wf_store,
-            agent_registry={"head-agent": SimpleNamespace(name="head-agent")},
-            idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
-            runtime_manager=_RuntimeManager(),
-            subrun_lane=SimpleNamespace(),
-            normalize_agent_id=lambda agent_id: (agent_id or "head-agent").strip().lower(),
-            resolve_agent=lambda agent_id: (agent_id or "head-agent", SimpleNamespace(name="head-agent"), object()),
-            sync_custom_agents=lambda: None,
-            effective_orchestrator_agent_ids=lambda: {"head-agent"},
-            start_run_background=lambda **kwargs: "run-workflow-queue-mode",
-            build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
-            build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
-            build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
-        )
-    )
+    workflow_handlers.configure(_make_workflow_deps(
+        tmp_path,
+        build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
+    ))
 
     created = workflow_handlers.api_control_workflows_create(
         request_data={

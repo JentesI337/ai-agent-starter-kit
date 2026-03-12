@@ -103,11 +103,14 @@ class TestResolveTaskType:
         runner = _make_runner()
         assert runner._resolve_task_type("hello world", []) == "general"
 
-    def test_orchestration_via_intent_detector(self):
+    def test_orchestration_keyword_without_evidence_is_not_orchestration(self):
+        """Orchestration is classified purely by evidence (spawned_subrun_id in
+        tool results), never by keyword matching or intent detector alone."""
         intent = MagicMock()
         intent.is_subrun_orchestration_task.return_value = True
         runner = _make_runner(intent_detector=intent)
-        assert runner._resolve_task_type("orchestrate multi-agent workflow", []) == "orchestration"
+        # Without tool result evidence, even orchestration keywords resolve to implementation
+        assert runner._resolve_task_type("orchestrate multi-agent workflow", []) != "orchestration"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -206,14 +209,18 @@ class TestOrchestrationEvidenceGate:
         result = runner._apply_evidence_gates("Success!", results, "orchestrate")
         assert "did not complete successfully" in result.lower()
 
-    def test_fires_when_no_subrun_executed(self):
+    def test_no_gate_fires_without_subrun_evidence(self):
+        """Without actual spawn_subrun tool results, orchestration gate does not
+        fire — orchestration is classified purely by evidence."""
         intent = MagicMock()
         intent.is_subrun_orchestration_task.return_value = True
         intent.is_file_creation_task.return_value = False
         intent.is_web_research_task.return_value = False
         runner = _make_runner(intent_detector=intent)
         result = runner._apply_evidence_gates("Done!", [], "orchestrate this")
-        assert "no subrun was executed" in result.lower()
+        # Without spawn_subrun evidence, task is not classified as orchestration,
+        # so orchestration gate does not fire
+        assert result == "Done!"
 
     def test_does_not_fire_when_subrun_complete(self):
         runner = _make_runner()

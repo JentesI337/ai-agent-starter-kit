@@ -26,6 +26,7 @@ def _make_agent(*, debug_mode_active: bool = True) -> MagicMock:
     from app.agent import HeadAgent
 
     agent = MagicMock(spec=HeadAgent)
+    agent.name = "test-agent"
     agent._debug_mode_active = debug_mode_active
     agent._debug_breakpoints = set()
     agent._debug_continue_event = asyncio.Event()
@@ -62,16 +63,16 @@ async def test_checkpoint_no_op_when_inactive():
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_no_op_when_settings_debug_mode_false():
-    """Checkpoint must return immediately if settings.debug_mode is False."""
-    agent = _make_agent(debug_mode_active=True)
+async def test_checkpoint_no_op_when_debug_mode_active_false():
+    """Checkpoint must return immediately if _debug_mode_active is False,
+    even when breakpoints are registered."""
+    agent = _make_agent(debug_mode_active=False)
     agent._debug_breakpoints = {"planning"}
+    send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
-        mock_settings.debug_mode = False
-        await agent._debug_checkpoint("planning", AsyncMock(), "req-1", "sess-1")
+    await agent._debug_checkpoint("planning", send_event, "req-1", "sess-1")
 
-    agent._emit_lifecycle.assert_not_called()
+    send_event.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -113,11 +114,12 @@ async def test_checkpoint_blocks_on_registered_breakpoint():
         agent._debug_continue_event.set()
         await asyncio.wait_for(task, timeout=1.0)
 
-    # debug_breakpoint_hit should have been emitted
-    agent._emit_lifecycle.assert_awaited_once()
-    call_args = agent._emit_lifecycle.call_args
-    assert call_args[0][1] == "debug_breakpoint_hit"
-    assert call_args[1]["details"]["phase"] == "planning"
+    # debug_breakpoint_hit should have been emitted via send_event
+    send_event.assert_awaited_once()
+    call_args = send_event.call_args
+    payload = call_args[0][0]
+    assert payload["stage"] == "debug_breakpoint_hit"
+    assert payload["details"]["phase"] == "planning"
 
 
 @pytest.mark.asyncio
@@ -140,7 +142,8 @@ async def test_checkpoint_resumes_on_continue():
             timeout=2.0,
         )
 
-    agent._emit_lifecycle.assert_awaited_once()
+    # debug_breakpoint_hit emitted via send_event
+    send_event.assert_awaited_once()
 
 
 @pytest.mark.asyncio

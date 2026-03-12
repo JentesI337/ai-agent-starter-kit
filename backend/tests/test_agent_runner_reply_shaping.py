@@ -40,45 +40,51 @@ def _ok(name: str, content: str = "success") -> ToolResult:
 
 
 class TestReplyShaping:
-    def test_tool_call_markers_removed(self):
+    @pytest.mark.asyncio
+    async def test_tool_call_markers_removed(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=["read_file"])
         text = "Here is the result [TOOL_CALL]read_file[/TOOL_CALL] of the operation."
-        result = runner._shape_final_response(text, [])
+        result = await runner._shape_final_response(text, [])
         assert "[TOOL_CALL]" not in result
         assert "[/TOOL_CALL]" not in result
 
-    def test_empty_text_suppressed(self):
+    @pytest.mark.asyncio
+    async def test_empty_text_suppressed(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=[])
-        result = runner._shape_final_response("", [])
+        result = await runner._shape_final_response("", [])
         assert "suppressed" in result.lower() or result == ""
 
-    def test_duplicate_tool_confirmations_deduped(self):
+    @pytest.mark.asyncio
+    async def test_duplicate_tool_confirmations_deduped(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=["read_file"])
         text = "read_file done\nread_file done\nAll good."
-        result = runner._shape_final_response(text, [_ok("read_file")])
+        result = await runner._shape_final_response(text, [_ok("read_file")])
         # Should only have one "read_file done" line
         assert result.count("read_file done") == 1
 
-    def test_suppressed_response_returns_fallback(self):
+    @pytest.mark.asyncio
+    async def test_suppressed_response_returns_fallback(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=["read_file"])
-        result = runner._shape_final_response("done.", [_ok("read_file")])
+        result = await runner._shape_final_response("done.", [_ok("read_file")])
         assert "suppressed" in result.lower() or result == ""
 
-    def test_without_reply_shaper_returns_original(self):
+    @pytest.mark.asyncio
+    async def test_without_reply_shaper_returns_original(self):
         runner = _make_runner(reply_shaper=None)
         original = "Hello world!"
-        result = runner._shape_final_response(original, [])
+        result = await runner._shape_final_response(original, [])
         assert result == original
 
-    def test_normal_text_passes_through(self):
+    @pytest.mark.asyncio
+    async def test_normal_text_passes_through(self):
         runner = _make_runner(reply_shaper=ReplyShaper())
         runner.tool_registry.keys = MagicMock(return_value=[])
         original = "Here is a detailed analysis of the code."
-        result = runner._shape_final_response(original, [])
+        result = await runner._shape_final_response(original, [])
         assert result == original
 
 

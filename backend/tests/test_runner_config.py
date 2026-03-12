@@ -10,7 +10,7 @@ import pytest
 def _clean_env(monkeypatch):
     """Ensure runner env vars dont leak between tests."""
     for key in list(os.environ):
-        if key.startswith("RUNNER_") or key == "USE_CONTINUOUS_LOOP":
+        if key.startswith("RUNNER_"):
             monkeypatch.delenv(key, raising=False)
 
 
@@ -33,10 +33,6 @@ def _load_fresh_settings(**env_overrides):
 
 
 class TestRunnerDefaults:
-    def test_use_continuous_loop_default_true(self):
-        s = _load_fresh_settings()
-        assert s.use_continuous_loop is True
-
     def test_runner_max_iterations_default(self):
         s = _load_fresh_settings()
         assert s.runner_max_iterations == 25
@@ -86,11 +82,6 @@ class TestRunnerEnvOverride:
     """Verify that runner settings accept explicit overrides (matching
     the os.getenv pattern used in config.py where env values are read at
     class definition time)."""
-
-    def test_use_continuous_loop_override(self):
-        from app.config import Settings
-        s = Settings(use_continuous_loop=True)
-        assert s.use_continuous_loop is True
 
     def test_runner_max_iterations_override(self):
         from app.config import Settings

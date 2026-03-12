@@ -681,7 +681,10 @@ def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
     assert decision.extracted_command is None
 
 
-def test_augment_actions_adds_spawn_subrun_for_orchestration_request() -> None:
+def test_augment_actions_does_not_add_spawn_subrun_without_llm() -> None:
+    """Orchestration augmentation was removed from the action augmenter.
+    The LLM decides whether to delegate via spawn_subrun based on its system prompt.
+    Verify that augmenter does not inject spawn_subrun on its own."""
     agent = HeadAgent()
     events: list[dict] = []
 
@@ -702,15 +705,8 @@ def test_augment_actions_adds_spawn_subrun_for_orchestration_request() -> None:
         )
     )
 
-    assert any(action.get("tool") == "spawn_subrun" for action in result_actions)
-    spawn_action = next(action for action in result_actions if action.get("tool") == "spawn_subrun")
-    assert str(spawn_action.get("args", {}).get("message", "")).startswith("orchestrate a big parallel research")
-    assert any(
-        payload.get("type") == "lifecycle"
-        and payload.get("stage") == "tool_selection_followup_completed"
-        and payload.get("details", {}).get("reason") == "orchestration_without_spawn_subrun"
-        for payload in events
-    )
+    # Action augmenter should NOT inject spawn_subrun — that's the LLM's job
+    assert not any(action.get("tool") == "spawn_subrun" for action in result_actions)
 
 
 def test_augment_actions_adds_web_fetch_for_web_research() -> None:
