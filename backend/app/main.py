@@ -143,7 +143,7 @@ install_secret_filter()
 logger = logging.getLogger("app.main")
 app = build_fastapi_app(title="AI Agent Starter Kit", settings=settings)
 # Manifest path for agent store bootstrap
-_MANIFEST_PATH = Path(__file__).resolve().parent / "agents" / "agents_manifest.json"
+_MANIFEST_PATH = Path(__file__).resolve().parent / "agent" / "manifest.json"
 control_plane_state = ControlPlaneState()
 idempotency_mgr = IdempotencyManager(
     ttl_seconds=settings.idempotency_registry_ttl_seconds,

@@ -14,7 +14,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from app.agent_runner import AgentRunner, build_unified_system_prompt
+from app.agent.runner import AgentRunner, build_unified_system_prompt
 from app.config import load_cognitive_framework, settings
 from app.contracts.tool_protocol import ToolProvider
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
@@ -222,7 +222,7 @@ class HeadAgent:
     def _build_sub_agents(self) -> None:
         capability_section = ""
         if self._agent_record is not None:
-            from app.agent_runner import build_capability_section
+            from app.agent.runner import build_capability_section
 
             capability_section = build_capability_section(
                 specialization=self._agent_record.specialization,
@@ -325,14 +325,14 @@ class HeadAgent:
 
     @staticmethod
     def _resolve_agent_record(role: str):
-        from app.agents.factory_defaults import FACTORY_DEFAULTS
+        from app.agent.factory_defaults import FACTORY_DEFAULTS
 
         normalized = (role or "").strip().lower()
         lookup_key = "coder-agent" if normalized == "coding-agent" else normalized
         return FACTORY_DEFAULTS.get(lookup_key)
 
     def _resolve_prompt_profile(self, role: str) -> PromptProfile:
-        from app.agents.factory_defaults import FACTORY_DEFAULTS
+        from app.agent.factory_defaults import FACTORY_DEFAULTS
 
         normalized_role = (role or "").strip().lower()
 
