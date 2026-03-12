@@ -121,6 +121,12 @@
   <!-- ── Chat Messages ─────────────────────────────── -->
   <div class="messages" #chatScroll>
 
+    <!-- Fixed working indicator -->
+    <div class="working-fixed" *ngIf="isAgentWorking">
+      <div class="wf-dots"><span></span><span></span><span></span></div>
+      <span>Agent is working...</span>
+    </div>
+
     <!-- Empty state -->
     <div class="empty" *ngIf="lines.length === 0 && !firstRunChoicePending">
       <div class="empty-vis">
@@ -138,8 +144,8 @@
          [class.msg-user]="line.role === 'user'"
          [class.msg-agent]="line.role === 'agent'"
          [class.msg-system]="line.role === 'system'"
-         [class.msg-working]="line.text === 'Agent is working...'">
-
+         [class.msg-working]="line.text === 'Agent is working...'"
+>
       <span class="msg-role">
         <ng-container *ngIf="line.role === 'user'">You</ng-container>
         <ng-container *ngIf="line.role === 'agent'">Agent</ng-container>
@@ -191,33 +197,6 @@
           </select>
           <button class="pi-apply" (click)="executePolicyDropdownAction(line)"
                   [disabled]="line.policyAction?.busy || !line.policyAction?.dropdownAction">Apply</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Pending Approvals Strip ───────────────────── -->
-  <div class="approvals-strip" *ngIf="policyApprovals.length > 0">
-    <div class="as-head">
-      <span class="as-title">Pending Approvals</span>
-      <span class="as-count">{{ policyApprovals.length }}</span>
-      <button class="as-refresh" (click)="refreshPendingPolicyApprovals()">Refresh</button>
-    </div>
-    <div class="as-list">
-      <div class="as-item" *ngFor="let item of policyApprovals | slice:0:10">
-        <div class="as-meta">
-          <span>{{ item.agentName }}</span>
-          <span class="as-tool">{{ item.tool }}</span>
-          <span class="as-status" [class.pending]="item.status === 'pending'">{{ item.status }}</span>
-        </div>
-        <p class="as-text">{{ item.displayText }}</p>
-        <div class="as-actions" *ngIf="item.status === 'pending'">
-          <button class="pi-allow" (click)="allowPolicyApproval(item)" [disabled]="isPolicyApprovalBusy(item.approvalId)">
-            {{ isPolicyApprovalBusy(item.approvalId) ? 'Allowing...' : 'Allow' }}
-          </button>
-        </div>
-        <div class="as-resolved" *ngIf="item.status !== 'pending'">
-          {{ item.status }} · {{ item.runId || '-' }}
         </div>
       </div>
     </div>

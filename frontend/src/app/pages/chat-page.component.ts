@@ -14,7 +14,7 @@ import { DomSanitizer, SafeHtml, SafeUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
-import { AgentStateService, ChatLine, PolicyApprovalItem, VisualizationData } from '../services/agent-state.service';
+import { AgentStateService, ChatLine, PolicyApprovalItem } from '../services/agent-state.service';
 import { MermaidDiagramComponent } from '../components/mermaid-diagram/mermaid-diagram.component';
 import { PlanProgressComponent } from '../components/plan-progress/plan-progress.component';
 import { MonitoringService } from '../services/monitoring.service';

@@ -527,6 +527,38 @@
   .msg-text { color: var(--c-text-dim); font-size: 0.8rem; }
 }
 
+// Fixed working indicator (sticky top of chat)
+.working-fixed {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--c-accent-dim);
+  border-bottom: 1px solid var(--c-accent-border);
+  font-size: 0.78rem;
+  color: var(--c-accent);
+  font-weight: 500;
+
+  .wf-dots {
+    display: flex;
+    gap: 4px;
+
+    span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--c-accent);
+      animation: dots 1.4s ease-in-out infinite;
+    }
+
+    span:nth-child(2) { animation-delay: 0.2s; }
+    span:nth-child(3) { animation-delay: 0.4s; }
+  }
+}
+
 // Working dots
 .working-dots {
   display: flex;
@@ -653,92 +685,6 @@
   min-width: 120px;
 
   &:focus { outline: none; border-color: var(--c-border-focus); }
-}
-
-// ── Approvals Strip ────────────────────────────────
-.approvals-strip {
-  flex-shrink: 0;
-  border-top: 1px solid var(--c-border);
-  background: var(--c-accent-dim);
-  padding: 8px 14px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.as-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.as-title {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--c-accent);
-}
-
-.as-count {
-  padding: 0 6px;
-  border-radius: var(--r-full);
-  font-size: 0.62rem;
-  font-weight: 600;
-  background: var(--c-accent-dim);
-  color: var(--c-accent);
-  border: 1px solid var(--c-accent-border);
-}
-
-.as-refresh {
-  all: unset;
-  box-sizing: border-box;
-  margin-left: auto;
-  padding: 2px 8px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-sm);
-  font-size: 0.68rem;
-  color: var(--c-text-dim);
-  cursor: pointer;
-
-  &:hover { background: rgba(255, 255, 255, 0.06); }
-}
-
-.as-list { display: flex; flex-direction: column; gap: 4px; }
-
-.as-item {
-  padding: 6px 8px;
-  border: 1px solid var(--c-accent-border);
-  border-radius: var(--r-md);
-  background: rgba(0, 204, 122, 0.06);
-}
-
-.as-meta {
-  display: flex;
-  gap: 6px;
-  font-size: 0.65rem;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--c-text-dim);
-  margin-bottom: 2px;
-}
-
-.as-tool { color: var(--c-accent); }
-.as-status.pending { color: var(--c-yellow); }
-
-.as-text {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--c-text);
-  line-height: 1.4;
-}
-
-.as-actions { margin-top: 4px; }
-
-.as-resolved {
-  margin-top: 3px;
-  font-size: 0.65rem;
-  color: var(--c-text-muted);
-  font-family: 'JetBrains Mono', monospace;
 }
 
 // ── Drop Overlay ──────────────────────────────────
