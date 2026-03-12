@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.tool_retry_strategy import ToolRetryStrategy
+from app.tools.execution.retry_strategy import ToolRetryStrategy
 
 logger = logging.getLogger(__name__)
 

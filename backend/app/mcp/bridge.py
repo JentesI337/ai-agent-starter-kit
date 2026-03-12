@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import httpx
 
 from app.mcp.types import McpServerConfig, McpToolDefinition
-from app.services.tool_registry import ToolSpec
+from app.tools.registry.registry import ToolSpec
 
 # SEC (OE-05): Allowlist of MCP server commands.
 # Only executables in this set (or resolved via shutil.which to one of these
