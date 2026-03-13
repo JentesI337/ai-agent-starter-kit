@@ -566,6 +566,13 @@ class LlmClient:
 
         try:
             for attempt in range(1, MAX_RETRIES + 1):
+                # Reset accumulated state before each attempt to prevent
+                # duplicate chunks when retrying after a partial stream.
+                collected_text.clear()
+                collected_tool_calls.clear()
+                finish_reason = "stop"
+                usage = {}
+
                 async with (
                     httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client,
                     client.stream("POST", url, headers=headers, json=payload) as response,

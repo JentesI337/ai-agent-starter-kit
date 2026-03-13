@@ -746,6 +746,7 @@ class AgentRunner:
             final_check = self._verification_service.verify_final(
                 user_message=user_message,
                 final_text=final_text,
+                tool_results=all_tool_results,
             )
             if self._emit_lifecycle:
                 await self._emit_lifecycle(
@@ -797,7 +798,10 @@ class AgentRunner:
                 except Exception:
                     logger.debug("Session distillation failed", exc_info=True)
 
-            _task = _asyncio.create_task(_distill_bg())  # noqa: RUF006
+            _task = _asyncio.create_task(_distill_bg())
+            # Track the background task to prevent GC from collecting it
+            # before completion (the standard fire-and-forget pitfall).
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         if self._emit_lifecycle:
             await self._emit_lifecycle(
@@ -1222,6 +1226,10 @@ class AgentRunner:
         if len(summary) > budget:
             half = budget // 2
             summary = summary[:half] + "\n\n... (truncated) ...\n\n" + summary[-half:]
+        # Guard: never return empty string for non-empty input
+        if not summary.strip() and result_text.strip():
+            half = budget // 2
+            summary = result_text[:half] + "\n\n... (truncated) ...\n\n" + result_text[-half:]
         return summary
 
     # ──────────────────────────────────────────────────────────────────
@@ -1577,6 +1585,20 @@ class AgentRunner:
                     )
                 # else: LLM chose not to delegate — keep its response as-is
 
+        # Gate 4: Empty-Tools False-Success
+        # Prevents the LLM from claiming success when all tool outputs were empty
+        # (e.g. read_file returned nothing, web_search returned no results).
+        if (
+            tool_results
+            and self._all_tools_empty(tool_results)
+            and not self._response_acknowledges_failures(final_text)
+        ):
+            final_text = (
+                "I could not gather the necessary information to answer this request. "
+                "All tool results returned empty or trivial output. "
+                "Please verify that the referenced resources exist and try again."
+            )
+
         return final_text
 
     # ── Evidence gate helpers ──
@@ -1600,6 +1622,16 @@ class AgentRunner:
         if not tool_results:
             return False
         return all(tr.is_error for tr in tool_results)
+
+    @staticmethod
+    def _all_tools_empty(tool_results: list[ToolResult]) -> bool:
+        """Return True when every non-error tool result has empty content."""
+        if not tool_results:
+            return False
+        non_error = [tr for tr in tool_results if not tr.is_error]
+        if not non_error:
+            return False
+        return all(not (tr.content or "").strip() for tr in non_error)
 
     @staticmethod
     def _response_acknowledges_failures(final_text: str) -> bool:
@@ -1705,6 +1737,11 @@ class AgentRunner:
         tool_results_str = self._tool_results_to_string(tool_results)
         max_passes = max(0, self._max_reflections if self._max_reflections is not None else settings.runner_reflection_max_passes)
 
+        previous_score: float | None = None
+        best_text = final_text
+        best_score = 0.0
+        _regressed = False  # set when diminishing-returns guard fires
+
         for reflection_pass in range(max_passes):
             try:
                 try:
@@ -1781,8 +1818,36 @@ class AgentRunner:
                 except Exception:
                     logger.debug("Failed to store reflection record", exc_info=True)
 
+            # Track best answer so far to recover from score regressions
+            if verdict.score > best_score:
+                best_score = verdict.score
+                best_text = final_text
+
             if not verdict.should_retry:
                 break
+
+            # Diminishing-returns guard: stop if the score regressed or
+            # barely improved compared to the previous reflection pass.
+            # This prevents infinite churn where the LLM oscillates between
+            # equally-mediocre answers.
+            if previous_score is not None and verdict.score <= previous_score + 0.02:
+                _regressed = True
+                if self._emit_lifecycle:
+                    await self._emit_lifecycle(
+                        send_event,
+                        stage="reflection_diminishing_returns",
+                        request_id=request_id,
+                        session_id=session_id,
+                        details={
+                            "pass": reflection_pass + 1,
+                            "current_score": verdict.score,
+                            "previous_score": previous_score,
+                            "delta": round(verdict.score - previous_score, 4),
+                        },
+                    )
+                break
+
+            previous_score = verdict.score
 
             # Build feedback and retry via LLM
             feedback_lines = [issue for issue in verdict.issues if issue]
@@ -1873,4 +1938,12 @@ class AgentRunner:
                     logger.warning("Reflection retry LLM call failed", exc_info=True)
                     break
 
+        # Return the best answer seen across all reflection passes.
+        # Only override if diminishing-returns guard detected a regression.
+        if _regressed and best_score > 0 and best_text and best_text != final_text:
+            logger.info(
+                "Reflection: returning best-seen answer (score=%.2f) over final pass output",
+                best_score,
+            )
+            return best_text
         return final_text

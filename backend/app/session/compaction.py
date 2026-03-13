@@ -145,6 +145,9 @@ class CompactionService:
             # Verify identifiers survived
             self._verify_identifier_preservation(messages, text)
             return text
+        except ValueError:
+            logger.info("LLM compaction rejected: identifier loss detected, falling back to text summary")
+            return None
         except Exception:
             logger.debug("LLM compaction failed, falling back to text summary", exc_info=True)
             return None
@@ -202,7 +205,12 @@ class CompactionService:
         original_messages: list[dict],
         summary: str,
     ) -> None:
-        """Log a warning if critical identifiers were lost during summarisation."""
+        """Raise if critical identifiers were lost during summarisation.
+
+        Previously only logged — now rejects the summary so the caller
+        falls through to the text-based extraction which preserves
+        identifiers by design.
+        """
         original_ids: set[str] = set()
         for msg in original_messages:
             content = str(msg.get("content") or "")
@@ -214,9 +222,17 @@ class CompactionService:
         summary_ids = set(IDENTIFIER_RE.findall(summary))
         lost = original_ids - summary_ids
         if lost:
-            logger.warning(
-                "Compaction lost %d/%d identifiers: %s",
-                len(lost),
-                len(original_ids),
-                list(lost)[:5],
-            )
+            # Tolerate losing a few identifiers when there are many (>20).
+            # Only reject when a significant fraction is lost.
+            loss_ratio = len(lost) / len(original_ids)
+            if loss_ratio > 0.3 or (len(original_ids) <= 10 and lost):
+                logger.warning(
+                    "Compaction lost %d/%d identifiers (%.0f%%): %s — rejecting LLM summary",
+                    len(lost),
+                    len(original_ids),
+                    loss_ratio * 100,
+                    list(lost)[:5],
+                )
+                raise ValueError(
+                    f"LLM summary lost {len(lost)}/{len(original_ids)} identifiers"
+                )

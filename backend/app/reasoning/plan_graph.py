@@ -113,6 +113,42 @@ class PlanGraph:
         known_ids = {step.step_id for step in self.steps}
         for step in self.steps:
             step.depends_on = [dep for dep in step.depends_on if dep in known_ids and dep != step.step_id]
+        # Break dependency cycles: topological-sort validation.
+        # If a cycle exists, remove the back-edge (last dependency in
+        # the cycle) to guarantee the plan can always make progress.
+        self._break_cycles()
+
+    def _break_cycles(self) -> None:
+        """Remove back-edges that create dependency cycles."""
+        # Simple DFS-based cycle detection on the step graph.
+        adjacency: dict[str, list[str]] = {
+            step.step_id: list(step.depends_on) for step in self.steps
+        }
+        visited: set[str] = set()
+        in_stack: set[str] = set()
+        back_edges: list[tuple[str, str]] = []
+
+        def _dfs(node: str) -> None:
+            visited.add(node)
+            in_stack.add(node)
+            for dep in adjacency.get(node, []):
+                if dep in in_stack:
+                    back_edges.append((node, dep))
+                elif dep not in visited:
+                    _dfs(dep)
+            in_stack.discard(node)
+
+        for step in self.steps:
+            if step.step_id not in visited:
+                _dfs(step.step_id)
+
+        if back_edges:
+            edges_to_remove = {(src, dst) for src, dst in back_edges}
+            for step in self.steps:
+                step.depends_on = [
+                    dep for dep in step.depends_on
+                    if (step.step_id, dep) not in edges_to_remove
+                ]
 
     def to_mermaid(self) -> str:
         """Render this plan graph as a Mermaid flowchart string."""
