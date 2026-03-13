@@ -26,7 +26,7 @@ _PIPER_VOICES_DIR: Path | None = None
 def _get_piper_voices_dir() -> Path:
     global _PIPER_VOICES_DIR
     if _PIPER_VOICES_DIR is None:
-        _PIPER_VOICES_DIR = Path(__file__).resolve().parent.parent.parent / "piper_voices"
+        _PIPER_VOICES_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "assets" / "voices"
         _PIPER_VOICES_DIR.mkdir(parents=True, exist_ok=True)
     return _PIPER_VOICES_DIR
 

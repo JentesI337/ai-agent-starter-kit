@@ -177,7 +177,7 @@ def _build_skills_sync(
     source_path = Path(source_raw)
     source_path = (workspace_root / source_path).resolve() if not source_path.is_absolute() else source_path.resolve()
 
-    target_raw = (target_skills_dir or "").strip() or "skills_synced"
+    target_raw = (target_skills_dir or "").strip() or "data/skills/synced"
     target_path = Path(target_raw)
     target_path = (workspace_root / target_path).resolve() if not target_path.is_absolute() else target_path.resolve()
 

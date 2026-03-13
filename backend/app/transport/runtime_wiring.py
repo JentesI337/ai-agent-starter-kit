@@ -214,7 +214,7 @@ def _shutdown_sequence() -> None:
 
 def _build_runtime_components() -> RuntimeComponents:
     agent_store = UnifiedAgentStore(
-        persist_dir=Path(settings.workspace_root) / "agents",
+        persist_dir=Path(settings.agents_dir),
         manifest_path=_MANIFEST_PATH,
     )
     base_agent_registry: dict[str, AgentContract] = {}

@@ -24,11 +24,16 @@ backend/coverage.json
 backend/.env
 frontend/.env
 
-# Runtime state/logs
-backend/memory_store/
-backend/state_store/
+# Runtime state/logs (keep .gitkeep)
+backend/data/memory/*
+!backend/data/memory/.gitkeep
+backend/data/state/*
+!backend/data/state/.gitkeep
+backend/data/output/audio/*
+!backend/data/output/audio/.gitkeep
+backend/data/assets/voices/*
+!backend/data/assets/voices/.gitkeep
 backend/runtime_state.json
-backend/piper_voices/
 *.log
 
 # Node

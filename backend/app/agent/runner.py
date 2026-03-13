@@ -1097,7 +1097,7 @@ class AgentRunner:
                         import base64 as b64_mod
                         import uuid as _uuid
                         from pathlib import Path as _Path
-                        audio_dir = _Path(settings.workspace_root) / "generated_audio"
+                        audio_dir = _Path(settings.workspace_root) / "data" / "output" / "audio"
                         audio_dir.mkdir(parents=True, exist_ok=True)
                         filename = f"{_uuid.uuid4().hex[:12]}.{fmt}"
                         audio_path = audio_dir / filename
@@ -1107,7 +1107,7 @@ class AgentRunner:
                             "format": fmt,
                             "status": "generated_and_saved",
                             "saved_path": str(audio_path),
-                            "relative_path": f"generated_audio/{filename}",
+                            "relative_path": f"data/output/audio/{filename}",
                             "note": "Audio generated and saved to disk.",
                         })
                 except (json.JSONDecodeError, KeyError):

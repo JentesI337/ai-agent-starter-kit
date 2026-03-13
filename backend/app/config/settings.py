@@ -972,7 +972,7 @@ class Settings(BaseModel):
     memory_persist_dir: str = _resolve_path_from_workspace(
         os.getenv("MEMORY_PERSIST_DIR"),
         workspace_root,
-        "memory_store",
+        "data/memory",
     )
     memory_reset_on_startup: bool = _parse_bool_env(
         "MEMORY_RESET_ON_STARTUP",
@@ -981,23 +981,28 @@ class Settings(BaseModel):
     orchestrator_state_dir: str = _resolve_path_from_workspace(
         os.getenv("ORCHESTRATOR_STATE_DIR"),
         workspace_root,
-        "state_store",
+        "data/state",
     )
     orchestrator_state_backend: str = os.getenv("ORCHESTRATOR_STATE_BACKEND", "file").strip().lower()
     custom_agents_dir: str = _resolve_path_from_workspace(
         os.getenv("CUSTOM_AGENTS_DIR"),
         workspace_root,
-        "custom_agents",
+        "data/agents/custom",
     )
     policies_dir: str = _resolve_path_from_workspace(
         os.getenv("POLICIES_DIR"),
         workspace_root,
-        "policies",
+        "data/policies",
+    )
+    agents_dir: str = _resolve_path_from_workspace(
+        os.getenv("AGENTS_DIR"),
+        workspace_root,
+        "data/agents",
     )
     skills_dir: str = _resolve_path_from_workspace(
         os.getenv("SKILLS_DIR"),
         workspace_root,
-        "skills",
+        "data/skills",
     )
     skills_engine_enabled: bool = _parse_bool_env("SKILLS_ENGINE_ENABLED", False)
     skills_canary_enabled: bool = _parse_bool_env("SKILLS_CANARY_ENABLED", False)
@@ -1331,7 +1336,7 @@ class Settings(BaseModel):
     long_term_memory_db_path: str = _resolve_path_from_workspace(
         os.getenv("LONG_TERM_MEMORY_DB_PATH"),
         workspace_root,
-        "memory_store/long_term.db",
+        "data/memory/long_term.db",
     )
     run_direct_answer_skip_enabled: bool = _parse_bool_env("RUN_DIRECT_ANSWER_SKIP_ENABLED", True)
     run_direct_answer_max_chars: int = int(os.getenv("RUN_DIRECT_ANSWER_MAX_CHARS", "500"))
