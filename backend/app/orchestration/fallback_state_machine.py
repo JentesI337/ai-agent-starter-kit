@@ -11,14 +11,14 @@ from typing import TYPE_CHECKING, Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
 from app.errors import ClientDisconnectedError, GuardrailViolation, LlmClientError, PolicyApprovalCancelledError
-from app.model_routing.router import ModelRouteDecision
+from app.llm.routing.router import ModelRouteDecision
 from app.orchestration.events import LifecycleStage, build_lifecycle_event
 from app.orchestration.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
 from app.tool_policy import ToolPolicyDict
 
 if TYPE_CHECKING:
-    from app.services.circuit_breaker import CircuitBreakerRegistry, CircuitStateTransition
-    from app.services.model_health_tracker import ModelHealthTracker
+    from app.policy.circuit_breaker import CircuitBreakerRegistry, CircuitStateTransition
+    from app.llm.health_tracker import ModelHealthTracker
 
 
 class FallbackHooks(Protocol):

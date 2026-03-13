@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from app.services.browser_pool import BrowserPool, validate_browser_url
+from app.browser.pool import BrowserPool, validate_browser_url
 from app.url_validator import UrlValidationError
 
 

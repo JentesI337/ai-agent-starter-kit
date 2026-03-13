@@ -7,7 +7,7 @@ import pytest
 
 from app.agent import HeadAgent
 from app.config import settings
-from app.services.long_term_memory import FailureEntry, SemanticEntry
+from app.memory.long_term import FailureEntry, SemanticEntry
 
 
 def test_failure_journal_logs_entry_when_run_raises(monkeypatch, tmp_path) -> None:

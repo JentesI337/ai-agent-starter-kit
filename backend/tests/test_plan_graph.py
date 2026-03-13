@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.plan_graph import PlanGraph, PlanStep
+from app.reasoning.plan_graph import PlanGraph, PlanStep
 
 
 def test_plan_graph_ready_steps_is_complete_and_failed_steps() -> None:

@@ -295,7 +295,7 @@ class TestSecretsScan:
 
 class TestDevOpsArgValidators:
     def _make_validator(self):
-        from app.services.tool_arg_validator import ToolArgValidator
+        from app.tools.execution.arg_validator import ToolArgValidator
         return ToolArgValidator(violates_command_policy=lambda _: False)
 
     def test_all_devops_tools_have_validators(self):
@@ -348,7 +348,7 @@ class TestDevOpsArgValidators:
 
 class TestDevOpsToolRegistration:
     def test_all_devops_tools_registered(self):
-        from app.services.tool_registry import build_default_tool_registry
+        from app.tools.registry.registry import build_default_tool_registry
         registry = build_default_tool_registry(command_timeout_seconds=60)
         devops_tools = [
             "git_log", "git_diff", "git_blame", "git_show", "git_stash",
@@ -360,7 +360,7 @@ class TestDevOpsToolRegistration:
             assert registry.get(tool) is not None, f"Tool {tool} not in registry"
 
     def test_git_tools_have_correct_capabilities(self):
-        from app.services.tool_registry import build_default_tool_registry
+        from app.tools.registry.registry import build_default_tool_registry
         registry = build_default_tool_registry(command_timeout_seconds=60)
         git_log_spec = registry.get("git_log")
         assert git_log_spec is not None

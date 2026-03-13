@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.services.reflection_feedback_store import ReflectionFeedbackStore
+from app.memory.reflection_store import ReflectionFeedbackStore
 
 logger = logging.getLogger(__name__)
 

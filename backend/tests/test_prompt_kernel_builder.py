@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.prompt_kernel_builder import PromptKernelBuilder
+from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
 
 
 def test_prompt_kernel_builder_produces_stable_hash_for_same_input() -> None:

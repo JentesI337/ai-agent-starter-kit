@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
-from app.services.state_encryption import sign_policy_file, verify_policy_file
+from app.state.encryption import sign_policy_file, verify_policy_file
 
 APPROVAL_DECISIONS = {"allow_once", "allow_always", "allow_session", "deny", "cancel"}
 ALLOW_ALWAYS_SCOPES = {

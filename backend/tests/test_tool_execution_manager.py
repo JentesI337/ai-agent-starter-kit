@@ -4,8 +4,8 @@ import asyncio
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
-from app.services.tool_registry import build_default_tool_registry
+from app.tools.execution.manager import ToolExecutionConfig, ToolExecutionManager
+from app.tools.registry.registry import build_default_tool_registry
 
 
 def test_build_tool_selector_prompt_contains_allowed_tools_and_context() -> None:

@@ -9,44 +9,42 @@ import logging
 
 from fastapi import FastAPI
 
-from app.agents.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
+from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.app_state import LazyObjectProxy
 from app.config import resolved_prompt_settings, settings
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
-from app.handlers import (
-    agent_handlers,
-    integration_handlers,
-    policy_handlers,
-    run_handlers,
-    session_handlers,
-    skills_handlers,
-    tools_handlers,
-)
-from app.handlers.agent_config_handlers import (
+from app.transport.routers import agents as agent_handlers
+from app.transport.routers import integrations as integration_handlers
+from app.transport.routers import policies as policy_handlers
+from app.transport.routers import runs as run_handlers
+from app.transport.routers import sessions as session_handlers
+from app.transport.routers import skills as skills_handlers
+from app.transport.routers import tools as tools_handlers
+from app.transport.routers.agents import (
     handle_agents_config_get,
     handle_agents_config_list,
     handle_agents_config_reset,
     handle_agents_config_update,
 )
-from app.handlers.audio_deps_handlers import (
+from app.transport.routers.audio_deps import (
     handle_deps_check,
     handle_deps_install,
 )
-from app.handlers.config_handlers import (
+from app.transport.routers.config import (
     handle_config_diff,
     handle_config_get,
     handle_config_reset,
     handle_config_sections,
     handle_config_update,
 )
-from app.handlers.execution_config_handlers import (
+from app.transport.routers.config import (
     handle_execution_config_get,
     handle_execution_config_update,
     handle_execution_loop_detection_get,
     handle_execution_loop_detection_update,
 )
-from app.handlers.tool_config_handlers import (
+from app.transport.routers.tools import (
     handle_tools_config_get,
     handle_tools_config_list,
     handle_tools_config_reset,
@@ -55,16 +53,14 @@ from app.handlers.tool_config_handlers import (
     handle_tools_security_update,
 )
 from app.policy_store import PolicyStore
-from app.routers import (
-    build_agents_router,
-    build_run_api_router,
-    build_runtime_debug_router,
-    build_subruns_router,
-    build_uploads_router,
-    build_ws_agent_router,
-)
-from app.routers.run_api import RunApiRouterHandlers
-from app.routers.policies import build_policies_router
+from app.transport.routers.agents import build_agents_router
+from app.transport.routers.debug import build_runtime_debug_router
+from app.transport.routers.runs import build_run_api_router
+from app.transport.routers.subruns import build_subruns_router
+from app.transport.routers.uploads import build_uploads_router
+from app.transport.routers.ws_agent import build_ws_agent_router
+from app.transport.routers.runs import RunApiRouterHandlers
+from app.transport.routers.policies import build_policies_router
 from app.run_endpoints import (
     AgentTestDependencies,
     RunEndpointsDependencies,
@@ -82,8 +78,8 @@ from app.runtime_debug_endpoints import (
     api_test_ping,
     api_tool_telemetry_stats,
 )
-from app.services.agent_resolution import looks_like_coding_request
-from app.services.request_normalization import normalize_preset
+from app.agent.resolution import looks_like_coding_request
+from app.reasoning.request_normalization import normalize_preset
 from app.subrun_endpoints import (
     SubrunEndpointsDependencies,
     api_subruns_get,
@@ -347,5 +343,5 @@ def register_all_routers(app: FastAPI) -> None:
     app.include_router(build_uploads_router())
 
     # --- Webhook Triggers ---
-    from app.routers.webhooks import build_webhooks_router
+    from app.transport.routers.webhooks import build_webhooks_router
     app.include_router(build_webhooks_router())

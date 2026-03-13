@@ -12,8 +12,8 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from app.config import BACKEND_DIR
-from app.services.benchmark_calibration import BenchmarkCalibrationService
-from app.services.reflection_feedback_store import ReflectionFeedbackStore
+from app.quality.benchmark_calibration import BenchmarkCalibrationService
+from app.memory.reflection_store import ReflectionFeedbackStore
 
 JsonDict = dict
 

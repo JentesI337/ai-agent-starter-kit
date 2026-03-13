@@ -8,12 +8,12 @@ from app.contracts.request_context import RequestContext
 from app.orchestration.events import build_lifecycle_event
 from app.orchestration.pipeline_runner import PipelineRunner
 from app.orchestration.session_lane_manager import SessionLaneManager
-from app.services import resolve_tool_policy
+from app.tools.provisioning.policy_service import resolve_tool_policy
 from app.state import StateStore
 
 if TYPE_CHECKING:
-    from app.services.circuit_breaker import CircuitBreakerRegistry
-    from app.services.model_health_tracker import ModelHealthTracker
+    from app.policy.circuit_breaker import CircuitBreakerRegistry
+    from app.llm.health_tracker import ModelHealthTracker
 
 
 class OrchestratorApi:

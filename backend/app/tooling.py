@@ -9,6 +9,6 @@ from app.tools.implementations.base import (  # noqa: F401
 import httpx  # noqa: F401
 import subprocess  # noqa: F401
 from app.config import settings  # noqa: F401
-from app.services.code_sandbox import CodeSandbox  # noqa: F401
-from app.services.vision_service import VisionService  # noqa: F401
-from app.services.browser_pool import validate_browser_url  # noqa: F401
+from app.sandbox.code_sandbox import CodeSandbox  # noqa: F401
+from app.media.vision_service import VisionService  # noqa: F401
+from app.browser.pool import validate_browser_url  # noqa: F401

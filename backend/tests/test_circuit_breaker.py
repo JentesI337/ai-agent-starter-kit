@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.circuit_breaker import (
+from app.policy.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerRegistry,
     CircuitState,
@@ -84,10 +84,10 @@ def test_failures_outside_window_do_not_trip() -> None:
     async def _run() -> None:
         reg = _registry(failure_threshold=3, failure_window_seconds=5)
         now = time.monotonic()
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=now - 10):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=now - 10):
             await reg.record_failure("m1")
             await reg.record_failure("m1")
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=now):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=now):
             await reg.record_failure("m1")  # evicts old ones
             await reg.record_failure("m1")  # 2 within window, < 3
         assert reg.get_state("m1") == CircuitState.CLOSED
@@ -104,7 +104,7 @@ def test_transitions_after_recovery_timeout() -> None:
         await _trip_breaker(reg, "m1", 2)
         assert reg.get_state("m1") == CircuitState.OPEN
         real_mono = time.monotonic
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=real_mono() + 10):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=real_mono() + 10):
             assert reg.get_state("m1") == CircuitState.HALF_OPEN
             allowed, transition = await reg.allow_request("m1")
             assert allowed is True
@@ -171,7 +171,7 @@ def test_failure_during_probe_reopens() -> None:
         assert reg.get_state("m1") == CircuitState.OPEN
         # Fast-forward past recovery timeout to get into HALF_OPEN
         real_mono = time.monotonic
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=real_mono() + 1000):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=real_mono() + 1000):
             allowed, _ = await reg.allow_request("m1")  # probe
             assert allowed is True
             tx = await reg.record_failure("m1")  # any failure → OPEN
@@ -214,7 +214,7 @@ def test_probe_released_after_failure() -> None:
         reg = _registry(failure_threshold=2, recovery_timeout_seconds=999)
         await _trip_breaker(reg, "m1", 2)
         real_mono = time.monotonic
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=real_mono() + 1000):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=real_mono() + 1000):
             allowed, _ = await reg.allow_request("m1")  # half-open probe
             assert allowed is True
             await reg.record_failure("m1")  # → OPEN
@@ -247,10 +247,10 @@ def test_old_failures_evicted_beyond_window() -> None:
     async def _run() -> None:
         reg = _registry(failure_threshold=3, failure_window_seconds=10)
         now = time.monotonic()
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=now - 20):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=now - 20):
             await reg.record_failure("m1")
             await reg.record_failure("m1")
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=now):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=now):
             await reg.record_failure("m1")
             await reg.record_failure("m1")
         assert reg.get_state("m1") == CircuitState.CLOSED
@@ -403,7 +403,7 @@ def test_allow_request_returns_transition_on_open_to_half_open() -> None:
         reg = _registry(failure_threshold=2, recovery_timeout_seconds=1)
         await _trip_breaker(reg, "m1", 2)
         real_mono = time.monotonic
-        with patch("app.services.circuit_breaker.time.monotonic", return_value=real_mono() + 10):
+        with patch("app.policy.circuit_breaker.time.monotonic", return_value=real_mono() + 10):
             allowed, tx = await reg.allow_request("m1")
             assert allowed is True
             assert tx is not None

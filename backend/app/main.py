@@ -5,7 +5,7 @@ import logging
 
 from app.app_setup import build_fastapi_app, build_lifespan_context
 from app.config import settings, validate_environment_config
-from app.services.log_secret_filter import install_secret_filter
+from app.policy.log_secret_filter import install_secret_filter
 from app.startup_tasks import run_startup_sequence
 from app.transport.runtime_wiring import (
     _shutdown_sequence,

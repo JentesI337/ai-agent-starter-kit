@@ -7,8 +7,8 @@ import json
 import platform
 import pytest
 
-from app.services.persistent_repl import PersistentRepl, ReplResult
-from app.services.repl_session_manager import ReplSessionManager
+from app.sandbox.persistent_repl import PersistentRepl, ReplResult
+from app.sandbox.repl_session_manager import ReplSessionManager
 
 _has_pandas = False
 try:

@@ -10,9 +10,9 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app.agents.unified_agent_record import UnifiedAgentRecord
-from app.orchestrator.events import LifecycleStage
-from app.services import PRESET_TOOL_POLICIES
+from app.agent.record import UnifiedAgentRecord
+from app.orchestration.events import LifecycleStage
+from app.tools.provisioning.policy_service import PRESET_TOOL_POLICIES
 
 JsonDict = dict
 
@@ -373,7 +373,7 @@ def api_agents_list_unified() -> list[dict]:
 # === Agent config handlers (from agent_config_handlers.py) ===
 
 def _get_store():
-    from app.agents.agent_store import UnifiedAgentStore
+    from app.agent.store import UnifiedAgentStore
     from app.transport.runtime_wiring import agent_store
     return agent_store
 

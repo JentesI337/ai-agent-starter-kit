@@ -23,7 +23,7 @@ from app.control_models import (
     ControlToolsPolicyPreviewRequest,
     ControlToolsProfileRequest,
 )
-from app.services import (
+from app.tools.provisioning.policy_service import (
     PRESET_TOOL_POLICIES,
     TOOL_POLICY_BY_MODEL,
     TOOL_POLICY_BY_PROVIDER,
@@ -32,7 +32,7 @@ from app.services import (
     normalize_policy_values,
     resolve_tool_policy,
 )
-from app.tool_modules.tool_config_store import get_tool_config_store
+from app.tools.registry.config_store import get_tool_config_store
 from app.tool_policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
 from app.tools.provisioning.command_security import (
     BUILTIN_COMMAND_SAFETY_PATTERNS,

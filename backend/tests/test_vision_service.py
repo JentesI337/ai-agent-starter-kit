@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.services.vision_service import VisionService
+from app.media.vision_service import VisionService
 
 
 class _StubVisionService(VisionService):

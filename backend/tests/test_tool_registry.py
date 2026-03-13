@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.tool_registry import ToolRegistryFactory, ToolSpec, build_default_tool_registry
+from app.tools.registry.registry import ToolRegistryFactory, ToolSpec, build_default_tool_registry
 
 
 def test_build_default_tool_registry_contains_known_tools() -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.platform_info import PlatformInfo, detect_platform
+from app.monitoring.platform_info import PlatformInfo, detect_platform
 
 
 class TestPlatformInfo:

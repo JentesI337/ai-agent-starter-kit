@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.tool_registry import ToolRegistryFactory, ToolSpec
+from app.tools.registry.registry import ToolRegistryFactory, ToolSpec
 
 
 class _StubTooling:

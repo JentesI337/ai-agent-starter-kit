@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.handlers import tools_handlers
+from app.transport.routers import tools as tools_handlers
 
 
 class _StateStore:

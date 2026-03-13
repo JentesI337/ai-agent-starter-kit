@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.tool_retry_strategy import ToolRetryStrategy
+from app.tools.execution.retry_strategy import ToolRetryStrategy
 
 
 @pytest.fixture

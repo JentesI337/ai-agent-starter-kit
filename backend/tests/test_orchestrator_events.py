@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
-from app.orchestrator.events import ErrorCategory, build_lifecycle_event, classify_error
+from app.orchestration.events import ErrorCategory, build_lifecycle_event, classify_error
 
 
 def test_build_lifecycle_event_has_expected_shape() -> None:

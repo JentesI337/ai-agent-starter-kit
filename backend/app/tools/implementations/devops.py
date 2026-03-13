@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.errors import ToolExecutionError
-from app.services.output_parsers import (
+from app.reasoning.output_parsers import (
     GIT_LOG_FORMAT_FULL,
     GIT_LOG_FORMAT_ONELINE,
     GIT_LOG_FORMAT_SHORT,

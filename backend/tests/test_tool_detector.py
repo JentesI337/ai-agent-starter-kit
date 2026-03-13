@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from app.services.tool_detector import detect_linter, detect_package_manager, detect_test_runner
+from app.tools.discovery.detector import detect_linter, detect_package_manager, detect_test_runner
 
 
 class TestDetectTestRunner:

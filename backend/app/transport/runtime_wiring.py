@@ -14,28 +14,26 @@ from pathlib import Path
 from typing import Any
 
 from app.agent import HeadAgent
-from app.agents.agent_store import UnifiedAgentStore
-from app.agents.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
-from app.agents.unified_adapter import UnifiedAgentAdapter
+from app.agent.store import UnifiedAgentStore
+from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
+from app.agent.adapter import UnifiedAgentAdapter
 from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.config import settings, validate_environment_config
 from app.config_service import init_config_service
 from app.connectors.connector_store import get_connector_store, init_connector_store
 from app.connectors.credential_store import get_credential_store, init_credential_store
 from app.connectors.registry import ConnectorRegistry
-from app.handlers import integration_handlers
+from app.transport.routers import integrations as integration_handlers
 from app.contracts.agent_contract import AgentContract
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError
-from app.interfaces import OrchestratorApi
-from app.orchestrator.events import build_lifecycle_event
-from app.orchestrator.subrun_lane import SubrunLane
+from app.contracts import OrchestratorApi
+from app.orchestration.events import build_lifecycle_event
+from app.orchestration.subrun_lane import SubrunLane
 from app.runtime_manager import RuntimeManager
-from app.services import (
-    PolicyApprovalService,
-    SessionQueryService,
-)
-from app.services.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
-from app.services.agent_resolution import (
+from app.policy.approval_service import PolicyApprovalService
+from app.session.query_service import SessionQueryService
+from app.policy.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
+from app.agent.resolution import (
     capability_route_agent,
     effective_orchestrator_agent_ids as _effective_orchestrator_agent_ids_impl,
     looks_like_coding_request,
@@ -43,14 +41,14 @@ from app.services.agent_resolution import (
     resolve_agent as _resolve_agent_impl,
     sync_custom_agents as _sync_custom_agents_impl,
 )
-from app.services.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
-from app.services.idempotency_manager import IdempotencyManager
-from app.services.repl_session_manager import ReplSessionManager
-from app.services.browser_pool import BrowserPool
-from app.services.model_health_tracker import ModelHealthTracker
+from app.policy.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
+from app.shared.idempotency.manager import IdempotencyManager
+from app.sandbox.repl_session_manager import ReplSessionManager
+from app.browser.pool import BrowserPool
+from app.llm.health_tracker import ModelHealthTracker
 from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
 from app.state import SqliteStateStore, StateStore
-from app.tool_modules.tool_config_store import init_tool_config_store
+from app.tools.registry.config_store import init_tool_config_store
 
 logger = logging.getLogger("app.main")
 

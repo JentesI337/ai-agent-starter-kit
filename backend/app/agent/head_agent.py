@@ -20,30 +20,30 @@ from app.contracts.tool_protocol import ToolProvider
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
-from app.model_routing import ModelRegistry
-from app.orchestrator.events import build_lifecycle_event
-from app.services.action_augmenter import ActionAugmenter
-from app.services.action_parser import ActionParser
-from app.services.failure_retriever import FailureRetriever
-from app.services.hook_contract import resolve_hook_execution_contract
-from app.services.intent_detector import IntentDetector
-from app.services.long_term_memory import FailureEntry, LongTermMemoryStore
-from app.services.mcp_bridge import McpBridge
-from app.services.platform_info import detect_platform
-from app.services.prompt_kernel_builder import PromptKernelBuilder
-from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
-from app.services.reflection_service import ReflectionService
-from app.services.reply_shaper import ReplyShaper
-from app.services.request_normalization import normalize_prompt_mode
-from app.services.tool_arg_validator import ToolArgValidator
-from app.services.tool_call_gatekeeper import (
+from app.llm.routing import ModelRegistry
+from app.orchestration.events import build_lifecycle_event
+from app.reasoning.action_augmenter import ActionAugmenter
+from app.reasoning.action_parser import ActionParser
+from app.memory.failure_retriever import FailureRetriever
+from app.contracts.hook_contract import resolve_hook_execution_contract
+from app.reasoning.intent_detector import IntentDetector
+from app.memory.long_term import FailureEntry, LongTermMemoryStore
+from app.mcp.bridge import McpBridge
+from app.monitoring.platform_info import detect_platform
+from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
+from app.memory.reflection_store import ReflectionFeedbackStore, ReflectionRecord
+from app.quality.reflection_service import ReflectionService
+from app.reasoning.reply_shaper import ReplyShaper
+from app.reasoning.request_normalization import normalize_prompt_mode
+from app.tools.execution.arg_validator import ToolArgValidator
+from app.tools.execution.gatekeeper import (
     collect_policy_override_candidates,
 )
-from app.services.tool_execution_manager import ToolExecutionManager
-from app.services.tool_registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
-from app.services.tool_result_context_guard import enforce_tool_result_context_budget
-from app.services.tool_retry_strategy import ToolRetryStrategy
-from app.services.verification_service import VerificationService
+from app.tools.execution.manager import ToolExecutionManager
+from app.tools.registry.registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
+from app.tools.execution.result_context_guard import enforce_tool_result_context_budget
+from app.tools.execution.retry_strategy import ToolRetryStrategy
+from app.quality.verification_service import VerificationService
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET

@@ -10,17 +10,15 @@ from pathlib import Path
 
 from app.app_state import LazyObjectProxy
 from app.config import settings
-from app.handlers import (
-    agent_handlers,
-    policy_handlers,
-    run_handlers,
-    session_handlers,
-    skills_handlers,
-    tools_handlers,
-)
+from app.transport.routers import agents as agent_handlers
+from app.transport.routers import policies as policy_handlers
+from app.transport.routers import runs as run_handlers
+from app.transport.routers import sessions as session_handlers
+from app.transport.routers import skills as skills_handlers
+from app.transport.routers import tools as tools_handlers
 from app.workflows import handlers as workflow_handlers
-from app.agents.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
-from app.services import (
+from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
+from app.shared.control_fingerprints import (
     build_run_start_fingerprint as _build_run_start_fingerprint,
     build_session_patch_fingerprint as _build_session_patch_fingerprint,
     build_session_reset_fingerprint as _build_session_reset_fingerprint,
@@ -69,7 +67,7 @@ async def _workflow_run_agent(agent_id: str, message: str, session_id: str) -> s
     """RunAgentFn callback — bridges workflow engine to agent domain."""
     import uuid as _uuid
     _, _, orch_api = _resolve_agent(agent_id)
-    from app.interfaces.request_context import RequestContext
+    from app.contracts.request_context import RequestContext
     rc = RequestContext(
         session_id=session_id,
         request_id=f"wf-{_uuid.uuid4()}",

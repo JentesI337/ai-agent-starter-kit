@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.tool_modules.tool_config_store import ToolConfigStore
-from app.tool_modules.command_security import (
+from app.tools.registry.config_store import ToolConfigStore
+from app.tools.provisioning.command_security import (
     BUILTIN_COMMAND_SAFETY_PATTERNS,
     add_pattern,
     find_command_safety_violation,

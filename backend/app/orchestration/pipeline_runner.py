@@ -10,9 +10,9 @@ from pathlib import Path
 from app.config import settings
 from app.contracts.agent_contract import AgentContract, SendEvent
 from app.errors import GuardrailViolation
-from app.model_routing import ModelRouter
-from app.model_routing.context_window_guard import evaluate_context_window_guard
-from app.model_routing.router import ModelRouteDecision
+from app.llm.routing import ModelRouter
+from app.llm.routing.context_window_guard import evaluate_context_window_guard
+from app.llm.routing.router import ModelRouteDecision
 from app.orchestration.events import LifecycleStage, build_lifecycle_event
 from app.orchestration.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestration.recovery_strategy import (
@@ -22,8 +22,8 @@ from app.orchestration.recovery_strategy import (
     RecoveryStrategyResolver,
 )
 from app.orchestration.step_types import PipelineStep
-from app.services.circuit_breaker import CircuitBreakerRegistry
-from app.services.model_health_tracker import ModelHealthTracker
+from app.policy.circuit_breaker import CircuitBreakerRegistry
+from app.llm.health_tracker import ModelHealthTracker
 from app.state import StateStore
 from app.tool_policy import ToolPolicyDict
 

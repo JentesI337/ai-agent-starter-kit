@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from app.agent.runner_types import PlanTracker
-from app.services.plan_graph import PlanGraph
+from app.reasoning.plan_graph import PlanGraph
 
 
 def build_plan_progress_event(

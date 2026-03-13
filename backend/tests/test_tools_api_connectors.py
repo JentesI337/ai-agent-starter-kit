@@ -67,7 +67,7 @@ class TestApiCall:
 
         # First call should succeed (or fail for other reasons)
         with patch.object(type(m), '_get_connector_rate_limiter') as mock_limiter:
-            from app.services.rate_limiter import RateLimiter, RateLimiterConfig
+            from app.policy.rate_limiter import RateLimiter, RateLimiterConfig
             limiter = RateLimiter(RateLimiterConfig(requests_per_second=0.001, burst=1))
             # Consume the only token
             limiter.allow("rate-test")

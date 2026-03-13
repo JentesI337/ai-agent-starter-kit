@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.handlers import run_handlers, session_handlers
+from app.transport.routers import runs as run_handlers, sessions as session_handlers
 from app.workflows import handlers as workflow_handlers
 from app.workflows.store import SqliteWorkflowStore, SqliteWorkflowAuditStore
-from app.services.idempotency_manager import IdempotencyManager
+from app.shared.idempotency.manager import IdempotencyManager
 
 
 class _RuntimeManager:

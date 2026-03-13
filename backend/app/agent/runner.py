@@ -17,14 +17,14 @@ import os
 from typing import Any
 
 from app.agent.runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
-from app.services.visualization import build_plan_progress_event, build_visualization_event, sanitize_mermaid_labels, validate_mermaid_node_count
+from app.monitoring.visualization import build_plan_progress_event, build_visualization_event, sanitize_mermaid_labels, validate_mermaid_node_count
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
-from app.services.compaction_service import CompactionService
-from app.services.tool_execution_manager import ToolExecutionManager
-from app.services.tool_registry import ToolRegistry
+from app.session.compaction import CompactionService
+from app.tools.execution.manager import ToolExecutionManager
+from app.tools.registry.registry import ToolRegistry
 from app.tool_policy import ToolPolicyDict
 
 _IMPLEMENTATION_RE = re.compile(
@@ -1770,7 +1770,7 @@ class AgentRunner:
             # Store reflection record
             if self._reflection_feedback_store is not None:
                 try:
-                    from app.services.reflection_feedback_store import ReflectionRecord
+                    from app.memory.reflection_store import ReflectionRecord
 
                     self._reflection_feedback_store.store(
                         ReflectionRecord(

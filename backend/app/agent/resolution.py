@@ -5,7 +5,7 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 
 from app.agent.factory_defaults import FACTORY_DEFAULTS
-from app.interfaces import OrchestratorApi
+from app.contracts import OrchestratorApi
 
 
 @dataclass(frozen=True)

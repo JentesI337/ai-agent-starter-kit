@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.errors import GuardrailViolation
-from app.services.directive_parser import parse_directives_from_message
+from app.reasoning.directive_parser import parse_directives_from_message
 
 
 def test_parse_directives_extracts_overrides_and_strips_prefix() -> None:

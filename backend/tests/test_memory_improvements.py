@@ -9,7 +9,7 @@ import pytest
 
 from app.agent_runner import AgentRunner
 from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
-from app.services.long_term_memory import (
+from app.memory.long_term import (
     EpisodicEntry,
     FailureEntry,
     LongTermMemoryStore,
@@ -321,7 +321,7 @@ class TestDistillationImprovements:
 
 class TestCompactionImprovements:
     def test_text_fallback_preserves_tool_metadata(self):
-        from app.services.compaction_service import CompactionService
+        from app.session.compaction import CompactionService
 
         svc = CompactionService(MagicMock())
         messages = [
@@ -335,13 +335,13 @@ class TestCompactionImprovements:
         assert "OK" in summary
 
     def test_text_fallback_uses_configurable_chars(self):
-        from app.services.compaction_service import CompactionService
+        from app.session.compaction import CompactionService
 
         svc = CompactionService(MagicMock())
         long_content = "x" * 500
         messages = [{"role": "user", "content": long_content}]
 
-        with patch("app.services.compaction_service.settings") as mock_settings:
+        with patch("app.session.compaction.settings") as mock_settings:
             mock_settings.runner_compaction_text_fallback_chars = 300
             summary = svc._text_fallback_summary(messages)
 

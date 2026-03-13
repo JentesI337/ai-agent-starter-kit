@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.tool_outcome_verifier import OutcomeVerdict, ToolOutcomeVerifier
+from app.tools.execution.outcome_verifier import OutcomeVerdict, ToolOutcomeVerifier
 
 
 @pytest.fixture

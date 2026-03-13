@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.model_routing.capability_profile import ModelCapabilityProfile
-from app.services.model_health_tracker import (
+from app.llm.routing.capability_profile import ModelCapabilityProfile
+from app.llm.health_tracker import (
     ModelHealthSnapshot,
     ModelHealthTracker,
 )
@@ -142,7 +142,7 @@ def test_stale_when_old() -> None:
         tracker = ModelHealthTracker(stale_after_seconds=1, min_samples=1)
         await _record_n(tracker, "m1", 5, latency_ms=50)
         real_mono = time.monotonic
-        with patch("app.services.model_health_tracker.time.monotonic", return_value=real_mono() + 100):
+        with patch("app.llm.health_tracker.time.monotonic", return_value=real_mono() + 100):
             snap = tracker.snapshot("m1")
         assert snap is not None
         assert snap.is_stale is True
@@ -183,7 +183,7 @@ def test_apply_returns_original_when_stale() -> None:
         await _record_n(tracker, "test-model", 5, latency_ms=200)
         profile = _make_profile()
         real_mono = time.monotonic
-        with patch("app.services.model_health_tracker.time.monotonic", return_value=real_mono() + 100):
+        with patch("app.llm.health_tracker.time.monotonic", return_value=real_mono() + 100):
             result = tracker.apply_to_profile(profile)
         assert result is profile
     asyncio.run(_run())

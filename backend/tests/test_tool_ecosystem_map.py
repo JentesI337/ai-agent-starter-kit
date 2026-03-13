@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.tool_ecosystem_map import (
+from app.tools.discovery.ecosystem_map import (
     ConversionEdge,
     EcoTool,
     ToolEcosystemMap,

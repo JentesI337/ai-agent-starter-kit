@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.services.error_taxonomy import classify_error
+from app.policy.error_taxonomy import classify_error
 
 
 @dataclass(frozen=True)

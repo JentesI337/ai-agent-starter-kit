@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.execution_pattern_detector import ExecutionPatternDetector, PatternAlert
+from app.quality.execution_pattern_detector import ExecutionPatternDetector, PatternAlert
 
 
 @pytest.fixture

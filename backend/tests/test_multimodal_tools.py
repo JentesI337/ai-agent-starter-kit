@@ -216,7 +216,7 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.routers.uploads import build_uploads_router
+            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
             app = FastAPI()
             app.include_router(build_uploads_router())
@@ -240,7 +240,7 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 100  # very small limit
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.routers.uploads import build_uploads_router
+            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
             app = FastAPI()
             app.include_router(build_uploads_router())
@@ -260,7 +260,7 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.routers.uploads import build_uploads_router
+            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
             app = FastAPI()
             app.include_router(build_uploads_router())

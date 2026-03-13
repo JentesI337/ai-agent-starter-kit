@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 
-from app.services.idempotency_manager import IdempotencyManager
-from app.services.idempotency_service import (
+from app.shared.idempotency.manager import IdempotencyManager
+from app.shared.idempotency.service import (
     idempotency_lookup_or_raise,
     idempotency_register,
     prune_idempotency_registry,

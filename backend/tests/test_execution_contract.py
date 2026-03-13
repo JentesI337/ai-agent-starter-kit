@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.execution_contract import (
+from app.quality.execution_contract import (
     ContractResult,
     ContractViolation,
     ExecutionContract,

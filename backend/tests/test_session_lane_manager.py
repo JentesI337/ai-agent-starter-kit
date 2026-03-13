@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.orchestrator.session_lane_manager import SessionLaneManager
+from app.orchestration.session_lane_manager import SessionLaneManager
 
 
 def test_on_released_error_does_not_mask_run_error() -> None:

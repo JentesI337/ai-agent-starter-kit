@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.audio_deps_service import check_audio_deps, install_audio_dep
+from app.media.audio_deps import check_audio_deps, install_audio_dep
 
 
 async def handle_deps_check(request: dict[str, Any]) -> dict[str, Any]:

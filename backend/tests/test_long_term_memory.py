@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-from app.services.long_term_memory import FailureEntry, LongTermMemoryStore, SemanticEntry
-from app.services.reflection_feedback_store import ReflectionFeedbackStore, ReflectionRecord
+from app.memory.long_term import FailureEntry, LongTermMemoryStore, SemanticEntry
+from app.memory.reflection_store import ReflectionFeedbackStore, ReflectionRecord
 
 
 def test_long_term_memory_add_failure_persists_row(tmp_path) -> None:

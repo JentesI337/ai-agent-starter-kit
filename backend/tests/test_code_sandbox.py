@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 
-from app.services.code_sandbox import CodeSandbox
+from app.sandbox.code_sandbox import CodeSandbox
 
 
 def test_code_sandbox_python_success(tmp_path) -> None:

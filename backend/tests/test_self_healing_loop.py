@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from app.services.self_healing_loop import (
+from app.quality.self_healing_loop import (
     HealingResult,
     RecoveryPlan,
     SelfHealingLoop,

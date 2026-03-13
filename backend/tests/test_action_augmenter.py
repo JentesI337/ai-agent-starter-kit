@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.action_augmenter import ActionAugmenter
+from app.reasoning.action_augmenter import ActionAugmenter
 
 
 async def _noop_emit(stage: str, details: dict | None = None) -> None:

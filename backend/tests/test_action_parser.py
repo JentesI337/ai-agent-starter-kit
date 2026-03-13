@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.action_parser import ActionParser
+from app.reasoning.action_parser import ActionParser
 
 
 class _FakeChat:

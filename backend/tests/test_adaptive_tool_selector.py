@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.adaptive_tool_selector import AdaptiveToolSelector, ToolScore
+from app.memory.adaptive_selector import AdaptiveToolSelector, ToolScore
 
 
 @pytest.fixture

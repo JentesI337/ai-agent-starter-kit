@@ -3,13 +3,11 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers import (
-    build_agents_router,
-    build_control_runs_router,
-    build_control_tools_router,
-    build_runtime_debug_router,
-    build_subruns_router,
-)
+from app.transport.routers.agents import build_agents_router
+from app.transport.routers.debug import build_runtime_debug_router
+from app.transport.routers.runs import build_control_runs_router
+from app.transport.routers.subruns import build_subruns_router
+from app.transport.routers.tools import build_control_tools_router
 
 
 def test_agents_router_wires_basic_routes() -> None:

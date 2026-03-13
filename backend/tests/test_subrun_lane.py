@@ -6,8 +6,8 @@ import json
 import pytest
 
 from app.errors import GuardrailViolation
-from app.interfaces.request_context import RequestContext
-from app.orchestrator.subrun_lane import SubrunLane
+from app.contracts.request_context import RequestContext
+from app.orchestration.subrun_lane import SubrunLane
 from app.state import StateStore
 
 

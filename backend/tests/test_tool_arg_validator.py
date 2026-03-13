@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.tool_arg_validator import ToolArgValidator
+from app.tools.execution.arg_validator import ToolArgValidator
 
 
 def _validator(block_commands: bool = False) -> ToolArgValidator:

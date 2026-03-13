@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.verification_service import VerificationService
+from app.quality.verification_service import VerificationService
 
 
 def test_verify_final_ok() -> None:

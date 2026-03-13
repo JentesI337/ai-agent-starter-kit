@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract
 from app.errors import LlmClientError
-from app.model_routing.router import ModelRouter
-from app.orchestrator.pipeline_runner import PipelineRunner
+from app.llm.routing.router import ModelRouter
+from app.orchestration.pipeline_runner import PipelineRunner
 from app.state import StateStore
 
 
@@ -1544,7 +1544,7 @@ def test_pipeline_runner_persistent_metrics_decay_prefers_recent_signal(tmp_path
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("app.orchestrator.pipeline_runner.time.time", lambda: 1000.0)
+    monkeypatch.setattr("app.orchestration.pipeline_runner.time.time", lambda: 1000.0)
 
     store = StateStore(persist_dir=str(state_dir))
     agent = _FakeAgent(failure_messages=["context overflow: prompt too long"])
@@ -1647,7 +1647,7 @@ def test_pipeline_runner_persistent_metrics_window_prefers_recent_trend(tmp_path
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("app.orchestrator.pipeline_runner.time.time", lambda: 1000.0)
+    monkeypatch.setattr("app.orchestration.pipeline_runner.time.time", lambda: 1000.0)
 
     store = StateStore(persist_dir=str(state_dir))
     agent = _FakeAgent(failure_messages=["context overflow: prompt too long"])

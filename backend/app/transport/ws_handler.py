@@ -18,18 +18,18 @@ from app.errors import (
     RuntimeSwitchError,
     ToolExecutionError,
 )
-from app.interfaces import RequestContext
+from app.contracts import RequestContext
 from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
-from app.orchestrator.events import build_lifecycle_event, classify_error
-from app.services.directive_parser import (
+from app.orchestration.events import build_lifecycle_event, classify_error
+from app.reasoning.directive_parser import (
     normalize_reasoning_level,
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
-from app.services.rate_limiter import get_ws_rate_limiter
-from app.services.request_normalization import normalize_prompt_mode, normalize_queue_mode
-from app.services.session_inbox_service import SessionInboxService
-from app.services.session_security import validate_session_id_format
+from app.policy.rate_limiter import get_ws_rate_limiter
+from app.reasoning.request_normalization import normalize_prompt_mode, normalize_queue_mode
+from app.session.inbox_service import SessionInboxService
+from app.session.security import validate_session_id_format
 from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
 
 EventPayload = dict[str, Any]

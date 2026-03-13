@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.tool_execution_manager import ToolExecutionConfig
+from app.tools.execution.manager import ToolExecutionConfig
 
 
 class _Settings:

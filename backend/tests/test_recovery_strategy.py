@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.orchestrator.recovery_strategy import (
+from app.orchestration.recovery_strategy import (
     PriorityRecoveryMetadata,
     RecoveryContext,
     RecoveryStrategyResolver,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.tool_call_gatekeeper import (
+from app.tools.execution.gatekeeper import (
     ToolCallGatekeeper,
     collect_policy_override_candidates,
     prepare_action_for_execution,

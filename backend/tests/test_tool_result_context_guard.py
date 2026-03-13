@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.tool_result_context_guard import enforce_tool_result_context_budget
+from app.tools.execution.result_context_guard import enforce_tool_result_context_budget
 
 
 def test_tool_result_context_guard_clips_oversized_result() -> None:

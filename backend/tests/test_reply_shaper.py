@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.reply_shaper import ReplyShaper
+from app.reasoning.reply_shaper import ReplyShaper
 
 TOOL_MARKERS = {"read_file", "write_file", "run_command"}
 

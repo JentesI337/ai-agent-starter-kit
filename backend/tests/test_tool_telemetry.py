@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from app.services.tool_telemetry import ToolSpan, ToolTelemetry
+from app.tools.telemetry import ToolSpan, ToolTelemetry
 
 # ── ToolSpan unit tests ──────────────────────────────────────────────
 

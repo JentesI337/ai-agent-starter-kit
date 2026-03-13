@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.control_fingerprints import (
+from app.shared.control_fingerprints import (
     build_run_start_fingerprint,
     build_workflow_execute_fingerprint,
 )

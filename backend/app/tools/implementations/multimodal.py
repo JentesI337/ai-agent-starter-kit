@@ -9,10 +9,10 @@ from pathlib import Path
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.pdf_service import PdfService
-from app.services.audio_service import AudioService
-from app.services.image_gen_service import ImageGenService
-from app.services.vision_service import VisionService
+from app.media.pdf_service import PdfService
+from app.media.audio_service import AudioService
+from app.media.image_gen_service import ImageGenService
+from app.media.vision_service import VisionService
 
 logger = logging.getLogger(__name__)
 

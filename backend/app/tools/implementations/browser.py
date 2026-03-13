@@ -6,7 +6,7 @@ import json
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.browser_pool import BrowserPool, validate_browser_url
+from app.browser.pool import BrowserPool, validate_browser_url
 
 
 class BrowserToolMixin:

@@ -30,7 +30,7 @@ class RuntimeComponents:
     def custom_agent_store(self) -> Any:
         """Backward-compatible accessor — wraps UnifiedAgentStore."""
         if self._custom_agent_store_compat is None:
-            from app.agents.agent_store import CustomAgentStoreCompat
+            from app.agent.store import CustomAgentStoreCompat
             self._custom_agent_store_compat = CustomAgentStoreCompat(self.agent_store)
         return self._custom_agent_store_compat
 

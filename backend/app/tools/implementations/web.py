@@ -12,7 +12,7 @@ import httpx
 from app.config import settings
 from app.content_security import wrap_external_content
 from app.errors import ToolExecutionError
-from app.services.web_search import WebSearchService, WebSearchResult, WebSearchResponse
+from app.tools.implementations.web_search import WebSearchService, WebSearchResult, WebSearchResponse
 from app.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,

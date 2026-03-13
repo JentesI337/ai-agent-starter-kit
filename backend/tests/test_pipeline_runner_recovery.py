@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract
-from app.orchestrator.pipeline_runner import PipelineRunner, RecoveryContext
+from app.orchestration.pipeline_runner import PipelineRunner, RecoveryContext
 from app.state import StateStore
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.config import settings
-from app.services.tool_policy_service import resolve_tool_policy
+from app.tools.provisioning.policy_service import resolve_tool_policy
 from app.tool_policy import ToolPolicyPayload, tool_policy_to_dict
 
 

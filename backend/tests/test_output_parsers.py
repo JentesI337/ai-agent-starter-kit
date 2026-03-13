@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from app.services.output_parsers import (
+from app.reasoning.output_parsers import (
     parse_eslint_json,
     parse_git_blame_porcelain,
     parse_git_log_full,

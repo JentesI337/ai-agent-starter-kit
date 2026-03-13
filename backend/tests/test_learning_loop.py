@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.adaptive_tool_selector import AdaptiveToolSelector
-from app.services.execution_pattern_detector import ExecutionPatternDetector
-from app.services.learning_loop import LearningLoop
-from app.services.tool_knowledge_base import ToolKnowledgeBase
+from app.memory.adaptive_selector import AdaptiveToolSelector
+from app.quality.execution_pattern_detector import ExecutionPatternDetector
+from app.memory.learning_loop import LearningLoop
+from app.tools.discovery.knowledge_base import ToolKnowledgeBase
 
 
 @pytest.fixture

@@ -28,7 +28,7 @@ def test_agent_tooling_web_search_formats_results(monkeypatch, tmp_path) -> None
             provider="duckduckgo",
         )
 
-    monkeypatch.setattr("app.services.web_search.WebSearchService.search", fake_search)
+    monkeypatch.setattr("app.tools.implementations.web_search.WebSearchService.search", fake_search)
     monkeypatch.setattr(settings, "web_search_provider", "duckduckgo")
     monkeypatch.setattr(settings, "web_search_api_key", "")
     monkeypatch.setattr(settings, "web_search_base_url", "")

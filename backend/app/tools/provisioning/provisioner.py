@@ -28,8 +28,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.environment_snapshot import EnvironmentSnapshot
-from app.services.provisioning_policy import ProvisioningPolicy
+from app.monitoring.environment_snapshot import EnvironmentSnapshot
+from app.policy.provisioning_policy import ProvisioningPolicy
 
 logger = logging.getLogger(__name__)
 

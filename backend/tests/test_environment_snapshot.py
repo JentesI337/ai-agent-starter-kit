@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app.services.environment_snapshot import (
+from app.monitoring.environment_snapshot import (
     EnvironmentSnapshot,
     _parse_npm_list,
     _parse_pip_freeze,

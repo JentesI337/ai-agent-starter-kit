@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from app.config import settings
-from app.services.tool_execution_manager import ToolExecutionConfig, ToolExecutionManager
+from app.tools.execution.manager import ToolExecutionConfig, ToolExecutionManager
 
 # ---------------------------------------------------------------------------
 # Helpers – standard fakes reused across tests

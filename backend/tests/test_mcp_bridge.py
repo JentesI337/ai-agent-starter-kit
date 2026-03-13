@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.mcp_bridge import McpBridge, McpServerConfig, McpToolDefinition
+from app.mcp.bridge import McpBridge, McpServerConfig, McpToolDefinition
 
 
 class _StubConnection:

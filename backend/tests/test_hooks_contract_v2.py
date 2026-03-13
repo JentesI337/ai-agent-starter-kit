@@ -4,7 +4,7 @@ import pytest
 
 from app.agent import HeadAgent
 from app.config import settings
-from app.services.hook_contract import resolve_hook_execution_contract
+from app.contracts.hook_contract import resolve_hook_execution_contract
 
 
 def test_resolve_hook_execution_contract_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:

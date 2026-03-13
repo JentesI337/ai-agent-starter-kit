@@ -13,10 +13,10 @@ from pathlib import Path
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.code_sandbox import CodeSandbox
-from app.services.repl_session_manager import ReplSessionManager
-from app.services.browser_pool import BrowserPool
-from app.services.vision_service import VisionService
+from app.sandbox.code_sandbox import CodeSandbox
+from app.sandbox.repl_session_manager import ReplSessionManager
+from app.browser.pool import BrowserPool
+from app.media.vision_service import VisionService
 from app.tool_catalog import TOOL_NAMES
 
 from app.tools.implementations.filesystem import FileSystemToolMixin

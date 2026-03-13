@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.agent_resolution import capability_route_agent, infer_request_capabilities
+from app.agent.resolution import capability_route_agent, infer_request_capabilities
 
 
 def test_infer_request_capabilities_for_review_preset() -> None:

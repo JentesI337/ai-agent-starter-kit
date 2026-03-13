@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
-from app.services.error_taxonomy import ErrorCategory, classify_error
+from app.policy.error_taxonomy import ErrorCategory, classify_error
 
 # ── Typed enums for strategy / retry-class ────────────────────────────
 

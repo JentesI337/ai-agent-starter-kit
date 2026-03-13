@@ -21,21 +21,21 @@ from app.control_models import (
     ControlRunWaitRequest,
 )
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
-from app.interfaces import RequestContext
-from app.orchestrator.events import build_lifecycle_event
-from app.orchestrator.run_state_machine import (
+from app.contracts import RequestContext
+from app.orchestration.events import build_lifecycle_event
+from app.orchestration.run_state_machine import (
     build_run_state_event,
     build_run_state_violation,
     build_stage_event,
     is_allowed_run_state_transition,
     resolve_run_state_from_stage,
 )
-from app.services.directive_parser import (
+from app.reasoning.directive_parser import (
     normalize_reasoning_level,
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
-from app.services.request_normalization import (
+from app.reasoning.request_normalization import (
     normalize_idempotency_key,
     normalize_preset,
     normalize_prompt_mode,

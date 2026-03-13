@@ -5,7 +5,7 @@ import json
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.services.code_sandbox import CodeSandbox
+from app.sandbox.code_sandbox import CodeSandbox
 
 
 class CodeExecToolMixin:

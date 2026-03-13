@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.services.rate_limiter import get_rest_rate_limiter
+from app.policy.rate_limiter import get_rest_rate_limiter
 
 OnStartupFn = Callable[[], None | Awaitable[None]]
 OnShutdownFn = Callable[[], None | Awaitable[None]]

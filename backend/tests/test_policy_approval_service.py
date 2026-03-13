@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.policy_approval_service import PolicyApprovalService
+from app.policy.approval_service import PolicyApprovalService
 
 
 def test_policy_approval_service_allow_and_wait() -> None:

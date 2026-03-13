@@ -1,5 +1,5 @@
 """Tests for ToolLoopDetector (Sprint R4)."""
-from app.services.tool_loop_detector import LoopDetectionConfig, LoopDetectionState, ToolLoopDetector
+from app.tools.execution.loop_detector import LoopDetectionConfig, LoopDetectionState, ToolLoopDetector
 import pytest
 
 

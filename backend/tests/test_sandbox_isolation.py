@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.code_sandbox import CodeSandbox
+from app.sandbox.code_sandbox import CodeSandbox
 
 
 def test_sandbox_blocks_network_access_by_default(tmp_path) -> None:

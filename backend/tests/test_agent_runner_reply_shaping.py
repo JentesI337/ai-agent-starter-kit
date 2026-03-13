@@ -7,8 +7,8 @@ import pytest
 
 from app.agent_runner import AgentRunner
 from app.agent_runner_types import ToolResult
-from app.services.reply_shaper import ReplyShaper
-from app.services.verification_service import VerificationService
+from app.reasoning.reply_shaper import ReplyShaper
+from app.quality.verification_service import VerificationService
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.errors import ToolExecutionError
-from app.services.intent_detector import IntentDetector
+from app.reasoning.intent_detector import IntentDetector
 
 
 def test_detect_extracts_command_and_forces_tool() -> None:
