@@ -374,7 +374,7 @@ def api_agents_list_unified() -> list[dict]:
 
 def _get_store():
     from app.agents.agent_store import UnifiedAgentStore
-    from app.main import agent_store
+    from app.transport.runtime_wiring import agent_store
     return agent_store
 
 
