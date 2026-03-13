@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 from app.connectors.base import ConnectorCredentials
-from app.services.state_encryption import decrypt_state, encrypt_state
+from app.state.encryption import decrypt_state, encrypt_state
 
 logger = logging.getLogger(__name__)
 
