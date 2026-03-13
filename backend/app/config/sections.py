@@ -17,11 +17,16 @@ class CoreSection(BaseModel):
     queue_mode_default: str = "wait"
     prompt_mode_default: str = "full"
     session_visibility_default: str = "tree"
+    reasoning_level_default: str = "medium"
+    reasoning_visibility_default: str = "off"
     structured_planning_enabled: bool = False
     plan_max_steps: int = 7
     plan_root_cause_replan_enabled: bool = True
     plan_coverage_warn_threshold: float = 0.15
     plan_coverage_fail_threshold: float = 0.0
+    prompt_section_limit_minimal: int = 2000
+    prompt_section_limit_subagent: int = 900
+    dynamic_temperature_reasoning_delta: float = 0.05
     failure_context_enabled: bool = False
     run_state_violation_hard_fail_enabled: bool = False
     config_strict_unknown_keys_enabled: bool = False

@@ -13,10 +13,11 @@ TEMPERATURE_BY_TASK_TYPE: dict[str, float] = {
 
 
 class DynamicTemperatureResolver:
-    def __init__(self, base_temperature: float, overrides: dict[str, float] | None = None):
+    def __init__(self, base_temperature: float, overrides: dict[str, float] | None = None, *, reasoning_delta: float = 0.05):
         self._base = self._clamp(base_temperature)
         merged = {**TEMPERATURE_BY_TASK_TYPE, **(overrides or {})}
         self._overrides = {str(key).strip().lower(): self._clamp(value) for key, value in merged.items() if str(key).strip()}
+        self._reasoning_delta = max(0.0, min(0.5, float(reasoning_delta)))
 
     @staticmethod
     def _clamp(value: float) -> float:
@@ -32,7 +33,7 @@ class DynamicTemperatureResolver:
 
         normalized_reasoning = (reasoning_level or "").strip().lower()
         if normalized_reasoning in {"high", "ultrathink"}:
-            return self._clamp(base - 0.05)
+            return self._clamp(base - self._reasoning_delta)
         if normalized_reasoning == "low":
-            return self._clamp(base + 0.05)
+            return self._clamp(base + self._reasoning_delta)
         return self._clamp(base)

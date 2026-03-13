@@ -115,7 +115,10 @@ class HeadAgent:
             command_timeout_seconds=settings.command_timeout_seconds,
         )
         self.model_registry = model_registry or ModelRegistry()
-        self.prompt_kernel_builder = PromptKernelBuilder()
+        self.prompt_kernel_builder = PromptKernelBuilder(
+            section_limit_minimal=settings.prompt_section_limit_minimal,
+            section_limit_subagent=settings.prompt_section_limit_subagent,
+        )
         self._spawn_subrun_handler = spawn_subrun_handler
         self._policy_approval_handler = policy_approval_handler
         self._agent_roster: str = ""

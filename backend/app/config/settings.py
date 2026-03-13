@@ -870,6 +870,8 @@ class Settings(BaseModel):
     )
     queue_mode_default: str = os.getenv("QUEUE_MODE_DEFAULT", "wait").strip().lower()
     prompt_mode_default: str = os.getenv("PROMPT_MODE_DEFAULT", "full").strip().lower()
+    reasoning_level_default: str = os.getenv("REASONING_LEVEL_DEFAULT", "medium").strip().lower()
+    reasoning_visibility_default: str = os.getenv("REASONING_VISIBILITY_DEFAULT", "off").strip().lower()
     session_inbox_max_queue_length: int = int(os.getenv("SESSION_INBOX_MAX_QUEUE_LENGTH", "100"))
     session_inbox_ttl_seconds: int = int(os.getenv("SESSION_INBOX_TTL_SECONDS", "600"))
     session_follow_up_max_deferrals: int = int(os.getenv("SESSION_FOLLOW_UP_MAX_DEFERRALS", "2"))
@@ -1126,6 +1128,9 @@ class Settings(BaseModel):
     dynamic_temperature_overrides: dict[str, float] = _parse_float_mapping_env(
         os.getenv("DYNAMIC_TEMPERATURE_OVERRIDES")
     )
+    dynamic_temperature_reasoning_delta: float = max(0.0, min(0.5, float(os.getenv("DYNAMIC_TEMPERATURE_REASONING_DELTA", "0.05"))))
+    prompt_section_limit_minimal: int = max(100, int(os.getenv("PROMPT_SECTION_LIMIT_MINIMAL", "2000")))
+    prompt_section_limit_subagent: int = max(100, int(os.getenv("PROMPT_SECTION_LIMIT_SUBAGENT", "900")))
     prompt_ab_enabled: bool = _parse_bool_env("PROMPT_AB_ENABLED", False)
     prompt_ab_registry_path: str = _resolve_path_from_workspace(
         os.getenv("PROMPT_AB_REGISTRY_PATH"),
@@ -1604,6 +1609,14 @@ def validate_environment_config(
     prompt_mode_default = str(getattr(selected_settings, "prompt_mode_default", "full") or "full").strip().lower()
     if prompt_mode_default not in {"full", "minimal", "subagent"}:
         config_errors.append("prompt_mode_default must be one of: full, minimal, subagent")
+
+    reasoning_level_default = str(getattr(selected_settings, "reasoning_level_default", "medium") or "medium").strip().lower()
+    if reasoning_level_default not in {"low", "medium", "high", "ultrathink", "adaptive"}:
+        config_errors.append("reasoning_level_default must be one of: low, medium, high, ultrathink, adaptive")
+
+    reasoning_visibility_default = str(getattr(selected_settings, "reasoning_visibility_default", "off") or "off").strip().lower()
+    if reasoning_visibility_default not in {"off", "summary", "stream"}:
+        config_errors.append("reasoning_visibility_default must be one of: off, summary, stream")
 
     hook_failure_policy_default = (
         str(getattr(selected_settings, "hook_failure_policy_default", "soft_fail") or "soft_fail").strip().lower()

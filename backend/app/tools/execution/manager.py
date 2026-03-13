@@ -45,6 +45,8 @@ class ToolExecutionConfig:
     result_max_chars: int = 6000
     smart_truncate_enabled: bool = True
     parallel_read_only_enabled: bool = False
+    prompt_section_limit_minimal: int = 2000
+    prompt_section_limit_subagent: int = 900
 
     @classmethod
     def from_settings(cls, app_settings: Settings) -> ToolExecutionConfig:
@@ -70,6 +72,8 @@ class ToolExecutionConfig:
             poll_no_progress_enabled=bool(getattr(app_settings, "tool_loop_detector_poll_no_progress_enabled", True)),
             poll_no_progress_threshold=max(2, int(getattr(app_settings, "tool_loop_poll_no_progress_threshold", 3))),
             warning_bucket_size=max(1, int(getattr(app_settings, "tool_loop_warning_bucket_size", 2))),
+            prompt_section_limit_minimal=max(100, int(getattr(app_settings, "prompt_section_limit_minimal", 2000))),
+            prompt_section_limit_subagent=max(100, int(getattr(app_settings, "prompt_section_limit_subagent", 900))),
         )
 
 
@@ -104,7 +108,10 @@ class ToolExecutionManager:
     ) -> None:
         self._config = config
         self._registry = registry
-        self._prompt_kernel_builder = PromptKernelBuilder()
+        self._prompt_kernel_builder = PromptKernelBuilder(
+            section_limit_minimal=config.prompt_section_limit_minimal if config else None,
+            section_limit_subagent=config.prompt_section_limit_subagent if config else None,
+        )
         self._outcome_verifier = ToolOutcomeVerifier()
         self._telemetry = ToolTelemetry()
         self._learning_loop = LearningLoop()

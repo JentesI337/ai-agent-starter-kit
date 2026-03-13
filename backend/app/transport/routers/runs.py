@@ -369,8 +369,8 @@ async def _run_background_message(
             default=settings.queue_mode_default,
         )
         effective_model = (model or directive_result.overrides.model or "").strip() or None
-        reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
-        reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+        reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level, default=settings.reasoning_level_default)
+        reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility, default=settings.reasoning_visibility_default)
 
         resolved_agent_id, selected_agent, selected_orchestrator = deps.resolve_agent(agent_id)
         applied_preset = normalize_preset(preset)
@@ -869,8 +869,8 @@ async def run_agent_test(request: Any, deps: AgentTestDependencies) -> dict:
         queue_mode_default=settings.queue_mode_default,
     )
     clean_message = directive_result.clean_content
-    reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
-    reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+    reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level, default=settings.reasoning_level_default)
+    reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility, default=settings.reasoning_visibility_default)
 
     selected_model = (request.model or directive_result.overrides.model or "").strip() or runtime_state.model
     if runtime_state.runtime == "local":

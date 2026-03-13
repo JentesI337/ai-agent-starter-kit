@@ -477,8 +477,8 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             tool_policy = None
         queue_mode = str(job.get("queue_mode") or deps.settings.queue_mode_default)
         prompt_mode = str(job.get("prompt_mode") or deps.settings.prompt_mode_default)
-        reasoning_level = normalize_reasoning_level(str(job.get("reasoning_level") or ""))
-        reasoning_visibility = normalize_reasoning_visibility(str(job.get("reasoning_visibility") or ""))
+        reasoning_level = normalize_reasoning_level(str(job.get("reasoning_level") or ""), default=deps.settings.reasoning_level_default)
+        reasoning_visibility = normalize_reasoning_visibility(str(job.get("reasoning_visibility") or ""), default=deps.settings.reasoning_visibility_default)
         applied_preset = str(job.get("preset") or "").strip().lower() or None
         incoming_also_allow = None
         if isinstance(tool_policy, dict):
@@ -1110,14 +1110,14 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 )
                 prompt_mode = normalize_prompt_mode(data.prompt_mode, default=deps.settings.prompt_mode_default)
                 requested_model = (data.model or directive_result.overrides.model or "").strip() or None
-                reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level)
-                reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility)
+                reasoning_level = normalize_reasoning_level(directive_result.overrides.reasoning_level, default=deps.settings.reasoning_level_default)
+                reasoning_visibility = normalize_reasoning_visibility(directive_result.overrides.reasoning_visibility, default=deps.settings.reasoning_visibility_default)
                 # BUG-6: Envelope-level fields take precedence over in-message text directives
                 # because they are more explicit (structured API vs. embedded prose).
                 if getattr(data, "reasoning_level", None):
-                    reasoning_level = normalize_reasoning_level(data.reasoning_level)
+                    reasoning_level = normalize_reasoning_level(data.reasoning_level, default=deps.settings.reasoning_level_default)
                 if getattr(data, "reasoning_visibility", None):
-                    reasoning_visibility = normalize_reasoning_visibility(data.reasoning_visibility)
+                    reasoning_visibility = normalize_reasoning_visibility(data.reasoning_visibility, default=deps.settings.reasoning_visibility_default)
                 if data.type in {"user_message", "clarification_response"}:
                     if data.type == "user_message":
                         pending_clarifications.pop(session_id, None)

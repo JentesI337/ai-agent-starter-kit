@@ -9,7 +9,7 @@ PromptMode = Literal["full", "minimal", "subagent"]
 
 _KERNEL_VERSION = "prompt-kernel.v1.1"
 
-_MODE_SECTION_LIMITS: dict[str, int | None] = {
+_DEFAULT_MODE_SECTION_LIMITS: dict[str, int | None] = {
     "full": None,
     "minimal": 2000,
     "subagent": 900,
@@ -48,6 +48,18 @@ class PromptKernel:
 
 
 class PromptKernelBuilder:
+    def __init__(
+        self,
+        *,
+        section_limit_minimal: int | None = None,
+        section_limit_subagent: int | None = None,
+    ) -> None:
+        self._mode_section_limits: dict[str, int | None] = {
+            "full": None,
+            "minimal": section_limit_minimal if section_limit_minimal is not None else _DEFAULT_MODE_SECTION_LIMITS["minimal"],
+            "subagent": section_limit_subagent if section_limit_subagent is not None else _DEFAULT_MODE_SECTION_LIMITS["subagent"],
+        }
+
     def build(
         self,
         *,
@@ -57,7 +69,7 @@ class PromptKernelBuilder:
     ) -> PromptKernel:
         normalized_type = (prompt_type or "general").strip().lower() or "general"
         normalized_mode = (prompt_mode or "full").strip().lower()
-        if normalized_mode not in _MODE_SECTION_LIMITS:
+        if normalized_mode not in self._mode_section_limits:
             normalized_mode = "full"
 
         ordered_sections = self._ordered_sections(sections=sections, prompt_mode=normalized_mode)
@@ -83,7 +95,7 @@ class PromptKernelBuilder:
         )
 
     def _ordered_sections(self, *, sections: dict[str, str], prompt_mode: str) -> list[tuple[str, str]]:
-        max_chars = _MODE_SECTION_LIMITS.get(prompt_mode)
+        max_chars = self._mode_section_limits.get(prompt_mode)
         ranked_items: list[tuple[int, str, str]] = []
         for key in sections:
             raw_value = sections.get(key)
