@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 import app.llm_client as llm_module
-from app.errors import LlmClientError
-from app.llm_client import LlmClient
+from app.llm.client import LlmClient
+from app.shared.errors import LlmClientError
 
 
 class _FakeResponse:

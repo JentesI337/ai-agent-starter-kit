@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
+from app.agent.runner_types import LoopState, StreamResult, ToolCall, ToolResult
 
 
 class TestToolCall:

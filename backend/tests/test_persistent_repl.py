@@ -321,10 +321,10 @@ async def test_manager_shutdown_all(tmp_path):
 @pytest.mark.asyncio
 async def test_code_execute_persistent_repl(tmp_path, monkeypatch):
     """code_execute with persistent=True uses ReplSessionManager."""
-    from app.tooling import AgentTooling
+    from app.tools.implementations.base import AgentTooling
 
     # Enable REPL in settings
-    monkeypatch.setattr("app.tooling.settings.repl_enabled", True)
+    monkeypatch.setattr("app.tools.implementations.base.settings.repl_enabled", True)
 
     tooling = AgentTooling(workspace_root=str(tmp_path))
     mgr = ReplSessionManager(max_sessions=3, sandbox_base=str(tmp_path))
@@ -357,9 +357,9 @@ async def test_code_execute_persistent_repl(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_code_execute_stateless_fallback(tmp_path, monkeypatch):
     """code_execute with persistent=False falls back to CodeSandbox."""
-    from app.tooling import AgentTooling
+    from app.tools.implementations.base import AgentTooling
 
-    monkeypatch.setattr("app.tooling.settings.repl_enabled", True)
+    monkeypatch.setattr("app.tools.implementations.base.settings.repl_enabled", True)
 
     tooling = AgentTooling(workspace_root=str(tmp_path))
     mgr = ReplSessionManager(max_sessions=3, sandbox_base=str(tmp_path))
@@ -381,9 +381,9 @@ async def test_code_execute_stateless_fallback(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_code_execute_non_python_stays_stateless(tmp_path, monkeypatch):
     """Non-Python languages always use stateless sandbox."""
-    from app.tooling import AgentTooling
+    from app.tools.implementations.base import AgentTooling
 
-    monkeypatch.setattr("app.tooling.settings.repl_enabled", True)
+    monkeypatch.setattr("app.tools.implementations.base.settings.repl_enabled", True)
 
     tooling = AgentTooling(workspace_root=str(tmp_path))
     mgr = ReplSessionManager(max_sessions=3, sandbox_base=str(tmp_path))
@@ -404,9 +404,9 @@ async def test_code_execute_non_python_stays_stateless(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_code_reset_tool(tmp_path, monkeypatch):
     """code_reset clears REPL state."""
-    from app.tooling import AgentTooling
+    from app.tools.implementations.base import AgentTooling
 
-    monkeypatch.setattr("app.tooling.settings.repl_enabled", True)
+    monkeypatch.setattr("app.tools.implementations.base.settings.repl_enabled", True)
 
     tooling = AgentTooling(workspace_root=str(tmp_path))
     mgr = ReplSessionManager(max_sessions=3, sandbox_base=str(tmp_path))
@@ -438,9 +438,9 @@ async def test_code_reset_tool(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_code_reset_disabled(tmp_path, monkeypatch):
     """code_reset when REPL is disabled returns info message."""
-    from app.tooling import AgentTooling
+    from app.tools.implementations.base import AgentTooling
 
-    monkeypatch.setattr("app.tooling.settings.repl_enabled", False)
+    monkeypatch.setattr("app.tools.implementations.base.settings.repl_enabled", False)
 
     tooling = AgentTooling(workspace_root=str(tmp_path))
     result = await tooling.code_reset()

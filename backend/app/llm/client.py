@@ -16,7 +16,7 @@ from app.config import settings
 from app.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
 from app.url_validator import UrlValidationError, validate_llm_base_url
 
-logger = logging.getLogger("app.llm_client")
+logger = logging.getLogger("app.llm.client")
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3

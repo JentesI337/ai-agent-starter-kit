@@ -21,14 +21,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config import settings
-from app.errors import ToolExecutionError
 from app.memory import MemoryStore
 from app.quality.self_healing_loop import (
     _RECOVERY_COMMAND_ALLOWLIST,
     RecoveryPlan,
     SelfHealingLoop,
 )
-from app.tooling import AgentTooling
+from app.shared.errors import ToolExecutionError
+from app.tools.implementations.base import AgentTooling
 
 # ── CFG-03: Shells removed from default allowlist ─────────────────────
 

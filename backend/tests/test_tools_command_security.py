@@ -5,8 +5,8 @@ import subprocess
 import pytest
 
 from app.config import settings
-from app.errors import ToolExecutionError
-from app.tooling import AgentTooling
+from app.shared.errors import ToolExecutionError
+from app.tools.implementations.base import AgentTooling
 
 
 def _make_tooling(tmp_path, monkeypatch) -> AgentTooling:

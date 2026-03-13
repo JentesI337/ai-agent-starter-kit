@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.shared.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 
 
 def test_error_classes_keep_message_string_compatibility() -> None:

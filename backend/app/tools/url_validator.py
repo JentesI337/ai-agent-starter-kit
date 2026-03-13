@@ -12,7 +12,7 @@ import logging
 import socket
 from urllib.parse import urlparse
 
-logger = logging.getLogger("app.url_validator")
+logger = logging.getLogger("app.tools.url_validator")
 
 # ── Blocked hostnames (cloud metadata, localhost, etc.) ──────────────────
 BLOCKED_HOSTNAMES: frozenset[str] = frozenset(

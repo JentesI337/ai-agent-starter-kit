@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from app.errors import GuardrailViolation
 from app.reasoning.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.session.inbox_service import SessionInboxService
+from app.shared.errors import GuardrailViolation
 
 
 def test_session_inbox_enqueue_dequeue_fifo() -> None:

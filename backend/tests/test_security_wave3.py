@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.app_setup import build_fastapi_app
 from app.config import Settings, _parse_bool_env
+from app.transport.app_factory import build_fastapi_app
 
 # ── CFG-05: debug_mode defaults to False ──────────────────────────────
 

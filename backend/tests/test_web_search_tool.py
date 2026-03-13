@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from app.config import settings
-from app.tooling import AgentTooling
+from app.tools.implementations.base import AgentTooling
 from app.tools.implementations.web import WebSearchResponse, WebSearchResult
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import ToolResult
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import ToolResult
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers

@@ -5,9 +5,9 @@ from dataclasses import dataclass
 import pytest
 from tests.async_test_guards import run_async_with_timeout
 
-from app.errors import GuardrailViolation, LlmClientError
 from app.orchestration.fallback_state_machine import FallbackRuntimeConfig, FallbackStateMachine
 from app.orchestration.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
+from app.shared.errors import GuardrailViolation, LlmClientError
 
 
 @dataclass

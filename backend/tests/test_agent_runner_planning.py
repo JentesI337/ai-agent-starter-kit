@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -345,7 +345,7 @@ class TestReflectionToolRetry:
 
         tool_defs = [{"type": "function", "function": {"name": "read_file"}}]
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_tool_retry_enabled = True
             mock_settings.runner_reflection_enabled = True
             mock_settings.runner_reflection_max_passes = 1

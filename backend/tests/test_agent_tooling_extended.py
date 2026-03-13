@@ -12,8 +12,8 @@ import app.tooling as tools_module
 import app.tools.implementations.code_execution as code_exec_module
 import app.tools.implementations.multimodal as multimodal_module
 import app.url_validator as url_validator_module
-from app.errors import ToolExecutionError
-from app.tooling import AgentTooling
+from app.shared.errors import ToolExecutionError
+from app.tools.implementations.base import AgentTooling
 
 
 def test_apply_patch_replaces_single_match(tmp_path: Path) -> None:

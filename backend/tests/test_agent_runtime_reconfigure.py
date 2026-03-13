@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.agent import HeadAgent
-from app.llm_client import LlmClient
+from app.llm.client import LlmClient
 from app.memory import MemoryStore
 
 

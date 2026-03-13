@@ -4,8 +4,8 @@ from __future__ import annotations
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import LoopState, ToolResult
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import LoopState, ToolResult
 from app.memory.long_term import (
     FailureEntry,
     LongTermMemoryStore,
@@ -242,7 +242,7 @@ class TestTurnSummary:
             ToolResult(tool_call_id=f"c{i}", tool_name=f"tool_{i}", content="x" * 200, is_error=False)
             for i in range(10)
         ]
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.memory_turn_summary_max_chars = 100
             summary = runner._build_turn_summary(results, iteration=1)
         assert len(summary) <= 100
@@ -253,7 +253,7 @@ class TestTurnSummary:
         item_assistant = MagicMock(role="assistant", content="hi")
         item_turn = MagicMock(role="turn_summary", content="[Turn 1] Tools: read_file (1 ok, 0 err)")
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.memory_include_turn_summaries = True
             msgs = runner._build_initial_messages(
                 memory_items=[item_user, item_assistant, item_turn],
@@ -270,7 +270,7 @@ class TestTurnSummary:
         item_user = MagicMock(role="user", content="hello")
         item_turn = MagicMock(role="turn_summary", content="[Turn 1] summary")
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.memory_include_turn_summaries = False
             msgs = runner._build_initial_messages(
                 memory_items=[item_user, item_turn],

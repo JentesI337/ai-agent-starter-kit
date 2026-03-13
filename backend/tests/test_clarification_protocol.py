@@ -9,7 +9,7 @@ from tests.async_test_guards import receive_json_with_timeout
 from tests.mock_contract_guards import assert_agent_run_mock_signature_compatible
 
 from app.main import agent, agent_registry, app, runtime_manager
-from app.runtime_manager import RuntimeState
+from app.transport.runtime_manager import RuntimeState
 
 
 def _set_local_runtime() -> None:

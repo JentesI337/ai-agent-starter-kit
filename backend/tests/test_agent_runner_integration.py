@@ -26,9 +26,9 @@ class TestFeatureFlagRouter:
         fresh_settings = _make_settings_with_loop(True)
 
         with patch("app.agent.settings", fresh_settings), \
-             patch("app.agent_runner.settings", fresh_settings):
+             patch("app.agent.runner.settings", fresh_settings):
             from app.agent import HeadAgent
-            from app.agent_runner import AgentRunner
+            from app.agent.runner import AgentRunner
 
             agent = HeadAgent(name="test-agent")
             assert isinstance(agent._agent_runner, AgentRunner)
@@ -39,7 +39,7 @@ class TestFeatureFlagRouter:
         fresh_settings = _make_settings_with_loop(True)
 
         with patch("app.agent.settings", fresh_settings), \
-             patch("app.agent_runner.settings", fresh_settings):
+             patch("app.agent.runner.settings", fresh_settings):
             from app.agent import HeadAgent
 
             agent = HeadAgent(name="test-agent")
@@ -64,7 +64,7 @@ class TestConfigureRuntimeUpdatesRunner:
         fresh_settings = _make_settings_with_loop(True)
 
         with patch("app.agent.settings", fresh_settings), \
-             patch("app.agent_runner.settings", fresh_settings):
+             patch("app.agent.runner.settings", fresh_settings):
             from app.agent import HeadAgent
 
             agent = HeadAgent(name="test-agent")

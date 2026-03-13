@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, runtime_manager
-from app.runtime_manager import RuntimeState
+from app.transport.runtime_manager import RuntimeState
 
 
 def _env_flag(name: str, default: str = "0") -> bool:

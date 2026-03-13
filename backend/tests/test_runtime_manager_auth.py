@@ -8,9 +8,9 @@ import pytest
 os.environ.setdefault("OLLAMA_BIN", "python")
 
 from app.config import settings
-from app.errors import RuntimeSwitchError
 from app.main import runtime_manager
-from app.runtime_manager import RuntimeState
+from app.shared.errors import RuntimeSwitchError
+from app.transport.runtime_manager import RuntimeState
 
 
 def _set_runtime(runtime: str) -> RuntimeState:

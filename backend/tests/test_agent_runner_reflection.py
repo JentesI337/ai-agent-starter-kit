@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import StreamResult, ToolResult
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import StreamResult, ToolResult
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -62,7 +62,7 @@ class TestReflectionLoop:
             return_value=StreamResult(text="Hello!", tool_calls=(), finish_reason="stop"),
         )
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_enabled = False
             mock_settings.runner_max_iterations = 25
             mock_settings.runner_max_tool_calls = 50
@@ -155,7 +155,7 @@ class TestReflectionLoop:
         )
         messages = [{"role": "system", "content": "sys"}]
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_max_passes = 2
             mock_settings.llm_model = "test-model"
 
@@ -208,7 +208,7 @@ class TestReflectionLoop:
             reflection_feedback_store=store,
         )
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_max_passes = 1
             mock_settings.llm_model = "test-model"
 
@@ -236,7 +236,7 @@ class TestReflectionLoop:
             reflection_feedback_store=None,
         )
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_max_passes = 1
             mock_settings.llm_model = "test-model"
 
@@ -265,7 +265,7 @@ class TestReflectionLoop:
         ])
         runner = _make_runner(reflection_service=reflection_svc)
 
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_reflection_max_passes = 1
             mock_settings.llm_model = "test-model"
 

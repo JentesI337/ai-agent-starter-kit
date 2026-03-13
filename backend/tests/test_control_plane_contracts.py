@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import agent, agent_registry, app, runtime_manager, state_store
-from app.runtime_manager import RuntimeState
+from app.transport.runtime_manager import RuntimeState
 
 
 def _set_local_runtime() -> None:

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agent_runner import AgentRunner, build_unified_system_prompt
-from app.agent_runner_types import LoopState, StreamResult, ToolCall
+from app.agent.runner import AgentRunner, build_unified_system_prompt
+from app.agent.runner_types import LoopState, StreamResult, ToolCall
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.agent_runner_types import PlanStep, PlanTracker
+from app.agent.runner_types import PlanStep, PlanTracker
 from app.monitoring.visualization import (
     build_visualization_event,
     plan_graph_to_mermaid,

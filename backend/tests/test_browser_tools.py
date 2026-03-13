@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 
 from app.browser.pool import BrowserPool, validate_browser_url
-from app.url_validator import UrlValidationError
+from app.tools.url_validator import UrlValidationError
 
 # ---------------------------------------------------------------------------
 # Helpers: local test HTTP server
@@ -357,7 +357,7 @@ class TestBrowserTools:
     async def tooling(self, tmp_path, test_server):
         from urllib.parse import urlparse
 
-        from app.tooling import AgentTooling
+        from app.tools.implementations.base import AgentTooling
         tools = AgentTooling(workspace_root=str(tmp_path))
         pool = BrowserPool(max_contexts=3, context_ttl_seconds=300)
         # Allow the local test server for SSRF bypass in route interceptor
@@ -443,14 +443,14 @@ class TestBrowserTools:
     @pytest.mark.asyncio
     async def test_browser_open_ssrf_blocked(self, tooling):
         tools, _ = tooling
-        from app.errors import ToolExecutionError
+        from app.shared.errors import ToolExecutionError
         with pytest.raises((UrlValidationError, ToolExecutionError)):
             await tools.browser_open("http://localhost:9999")
 
     @pytest.mark.asyncio
     async def test_browser_disabled(self, tmp_path):
-        from app.errors import ToolExecutionError
-        from app.tooling import AgentTooling
+        from app.shared.errors import ToolExecutionError
+        from app.tools.implementations.base import AgentTooling
         tools = AgentTooling(workspace_root=str(tmp_path))
         # No browser pool set
         with pytest.raises(ToolExecutionError, match="not available"):
@@ -466,7 +466,7 @@ class TestBrowserToolPolicy:
     """Test that browser tools are correctly placed in tool profiles."""
 
     def test_research_profile_has_browser_read_tools(self):
-        from app.tool_policy import TOOL_PROFILES
+        from app.tools.policy import TOOL_PROFILES
         research = TOOL_PROFILES["research"]
         assert research is not None
         assert "browser_open" in research
@@ -478,7 +478,7 @@ class TestBrowserToolPolicy:
         assert "browser_evaluate_js" not in research
 
     def test_coding_profile_has_all_browser_tools(self):
-        from app.tool_policy import TOOL_PROFILES
+        from app.tools.policy import TOOL_PROFILES
         coding = TOOL_PROFILES["coding"]
         assert coding is not None
         for tool in ("browser_open", "browser_click", "browser_type",
@@ -486,7 +486,7 @@ class TestBrowserToolPolicy:
             assert tool in coding
 
     def test_read_only_profile_has_no_browser_tools(self):
-        from app.tool_policy import TOOL_PROFILES
+        from app.tools.policy import TOOL_PROFILES
         read_only = TOOL_PROFILES["read_only"]
         assert read_only is not None
         for tool in ("browser_open", "browser_click", "browser_type",
@@ -503,13 +503,13 @@ class TestBrowserToolCatalog:
     """Test browser tools are registered in the catalog."""
 
     def test_browser_tools_in_catalog(self):
-        from app.tool_catalog import TOOL_NAMES
+        from app.tools.catalog import TOOL_NAMES
         for tool in ("browser_open", "browser_click", "browser_type",
                      "browser_screenshot", "browser_read_dom", "browser_evaluate_js"):
             assert tool in TOOL_NAMES
 
     def test_browser_tool_aliases(self):
-        from app.tool_catalog import TOOL_NAME_ALIASES
+        from app.tools.catalog import TOOL_NAME_ALIASES
         assert TOOL_NAME_ALIASES["browseropen"] == "browser_open"
         assert TOOL_NAME_ALIASES["screenshot"] == "browser_screenshot"
         assert TOOL_NAME_ALIASES["browser_js"] == "browser_evaluate_js"

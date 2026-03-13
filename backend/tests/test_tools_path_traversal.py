@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from app.errors import ToolExecutionError
-from app.tooling import AgentTooling
+from app.shared.errors import ToolExecutionError
+from app.tools.implementations.base import AgentTooling
 
 
 def _tooling(tmp_path: Path) -> AgentTooling:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.tooling import AgentTooling
+from app.tools.implementations.base import AgentTooling
 
 
 class TestProbeCommand:

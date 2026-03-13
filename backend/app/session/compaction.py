@@ -18,7 +18,7 @@ from typing import Any
 
 from app.config import settings
 
-logger = logging.getLogger("app.compaction")
+logger = logging.getLogger("app.session.compaction")
 
 # ── Constants ─────────────────────────────────────────────────────────
 

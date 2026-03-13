@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import StreamResult, ToolCall
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import StreamResult, ToolCall
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -253,7 +253,7 @@ class TestFeatureFlagAndConfigureRuntime:
 
     def test_runner_created_when_flag_true(self):
         """AgentRunner is constructed when USE_CONTINUOUS_LOOP=true."""
-        with patch("app.agent_runner.settings") as mock_settings:
+        with patch("app.agent.runner.settings") as mock_settings:
             mock_settings.runner_max_iterations = 25
             mock_settings.runner_max_tool_calls = 50
             mock_settings.runner_time_budget_seconds = 300

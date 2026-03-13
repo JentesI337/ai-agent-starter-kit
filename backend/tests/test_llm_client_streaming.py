@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agent_runner_types import StreamResult
-from app.llm_client import LlmClient
+from app.agent.runner_types import StreamResult
+from app.llm.client import LlmClient
 
 
 def _make_sse_line(data: dict) -> str:

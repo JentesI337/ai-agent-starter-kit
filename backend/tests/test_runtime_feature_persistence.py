@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.runtime_debug_endpoints import RuntimeDebugDependencies, api_runtime_update_features
+from app.transport.routers.debug import RuntimeDebugDependencies, api_runtime_update_features
 
 
 @dataclass

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from app.config import settings
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.tools.execution.manager import ToolExecutionConfig, ToolExecutionManager
 from app.tools.registry.registry import build_default_tool_registry
 

@@ -6,7 +6,7 @@ import pytest
 
 from app.agent import HeadAgent
 from app.config import settings
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 FULL_TOOLS = {
     "list_dir",

@@ -36,7 +36,7 @@ _IMPLEMENTATION_RE = re.compile(
     r"\b(?:implement|fix|refactor|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
 )
 
-logger = logging.getLogger("app.agent_runner")
+logger = logging.getLogger("app.agent.runner")
 
 SendEvent = Callable[[dict], Awaitable[None]]
 

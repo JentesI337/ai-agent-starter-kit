@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.url_validator import (
+from app.tools.url_validator import (
     BLOCKED_HOSTNAMES,
     UrlValidationError,
     apply_dns_pin,
@@ -95,7 +95,7 @@ class TestValidateIpIsPublic:
 class TestResolveHostnameIps:
     def test_resolution_failure_raises(self):
         with (
-            patch("app.url_validator.socket.getaddrinfo", side_effect=socket.gaierror("fail")),
+            patch("app.tools.url_validator.socket.getaddrinfo", side_effect=socket.gaierror("fail")),
             pytest.raises(UrlValidationError, match="resolution failed"),
         ):
             resolve_hostname_ips("nonexistent.invalid")
@@ -104,7 +104,7 @@ class TestResolveHostnameIps:
         fake_results = [
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443)),
         ]
-        with patch("app.url_validator.socket.getaddrinfo", return_value=fake_results):
+        with patch("app.tools.url_validator.socket.getaddrinfo", return_value=fake_results):
             ips = resolve_hostname_ips("example.com")
         assert ipaddress.ip_address("93.184.216.34") in ips
 
@@ -140,7 +140,7 @@ class TestApplyDnsPin:
 
 class TestEnforceSafeUrl:
     def test_http_scheme_ok(self):
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443)),
             ]
@@ -149,7 +149,7 @@ class TestEnforceSafeUrl:
 
     def test_https_scheme_returns_none(self):
         """HTTPS URLs skip DNS-pinning (TLS cert validation prevents rebinding)."""
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443)),
             ]
@@ -203,7 +203,7 @@ class TestEnforceSafeUrl:
         assert result is None  # IP literal, no DNS pinning needed
 
     def test_resolved_private_ip_blocked(self):
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.1", 443)),
             ]
@@ -244,7 +244,7 @@ class TestValidateLlmBaseUrl:
         assert result == "http://localhost:11434/v1"
 
     def test_public_url_ok(self):
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("104.18.32.7", 443)),
             ]
@@ -256,7 +256,7 @@ class TestValidateLlmBaseUrl:
             validate_llm_base_url("http://10.0.0.5:8080/v1")
 
     def test_dns_resolves_to_private_blocked(self):
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.100", 443)),
             ]
@@ -275,29 +275,29 @@ class TestLlmClientSsrf:
     """Verify that LlmClient rejects unsafe base URLs at construction time."""
 
     def test_metadata_url_rejected(self):
-        from app.errors import LlmClientError
-        from app.llm_client import LlmClient
+        from app.llm.client import LlmClient
+        from app.shared.errors import LlmClientError
 
         with pytest.raises(LlmClientError, match="validation failed"):
             LlmClient(base_url="http://169.254.169.254/latest", model="test")
 
     def test_private_ip_rejected(self):
-        from app.errors import LlmClientError
-        from app.llm_client import LlmClient
+        from app.llm.client import LlmClient
+        from app.shared.errors import LlmClientError
 
         with pytest.raises(LlmClientError, match="validation failed"):
             LlmClient(base_url="http://10.0.0.5:8080/v1", model="test")
 
     def test_localhost_allowed_for_dev(self):
-        from app.llm_client import LlmClient
+        from app.llm.client import LlmClient
 
         client = LlmClient(base_url="http://localhost:11434/v1", model="test")
         assert client.base_url == "http://localhost:11434/v1"
 
     def test_valid_public_url(self):
-        from app.llm_client import LlmClient
+        from app.llm.client import LlmClient
 
-        with patch("app.url_validator.socket.getaddrinfo") as mock_dns:
+        with patch("app.tools.url_validator.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("104.18.32.7", 443)),
             ]

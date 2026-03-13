@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.errors import GuardrailViolation
 from app.reasoning.directive_parser import parse_directives_from_message
+from app.shared.errors import GuardrailViolation
 
 
 def test_parse_directives_extracts_overrides_and_strips_prefix() -> None:

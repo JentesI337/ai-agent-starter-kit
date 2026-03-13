@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import ToolResult
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import ToolResult
 from app.quality.verification_service import VerificationService
 from app.reasoning.reply_shaper import ReplyShaper
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 # ---------------------------------------------------------------------------
 # Helpers

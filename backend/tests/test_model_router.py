@@ -7,9 +7,9 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract
-from app.errors import LlmClientError
 from app.llm.routing.router import ModelRouter
 from app.orchestration.pipeline_runner import PipelineRunner
+from app.shared.errors import LlmClientError
 from app.state import StateStore
 
 

@@ -10,9 +10,9 @@ os.environ.setdefault("OLLAMA_BIN", "python")
 from fastapi.testclient import TestClient
 from tests.async_test_guards import receive_json_with_timeout
 
-from app.errors import GuardrailViolation
 from app.main import agent, agent_registry, app, runtime_manager, subrun_lane
-from app.runtime_manager import RuntimeState
+from app.shared.errors import GuardrailViolation
+from app.transport.runtime_manager import RuntimeState
 
 
 def _set_local_runtime() -> None:

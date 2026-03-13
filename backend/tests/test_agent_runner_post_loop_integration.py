@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_runner import AgentRunner
-from app.agent_runner_types import StreamResult, ToolCall
+from app.agent.runner import AgentRunner
+from app.agent.runner_types import StreamResult, ToolCall
 from app.quality.verification_service import VerificationService
 from app.reasoning.reply_shaper import ReplyShaper
 
@@ -190,7 +190,7 @@ class TestPostLoopIntegration:
             ),
         ])
 
-        with patch("app.agent_runner.settings") as s:
+        with patch("app.agent.runner.settings") as s:
             s.runner_reflection_enabled = True
             s.runner_max_iterations = 25
             s.runner_max_tool_calls = 50

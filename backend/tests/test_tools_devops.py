@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.tools.implementations.devops import DevOpsToolMixin
 
 # ── Helpers ──────────────────────────────────────────────────────────

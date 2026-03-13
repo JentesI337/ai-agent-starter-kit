@@ -7,8 +7,8 @@ import pytest
 
 import app.tooling as tools_module
 import app.url_validator as url_validator_module
-from app.errors import ToolExecutionError
-from app.tooling import AgentTooling
+from app.shared.errors import ToolExecutionError
+from app.tools.implementations.base import AgentTooling
 
 
 class _FakeResponse:

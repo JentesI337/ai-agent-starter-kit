@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.config_sections import SECTION_REGISTRY, field_to_section
-from app.config_service import ConfigService
+from app.config.sections import SECTION_REGISTRY, field_to_section
+from app.config.service import ConfigService
 
 
 @pytest.fixture
