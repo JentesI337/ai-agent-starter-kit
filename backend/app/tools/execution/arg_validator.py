@@ -39,6 +39,9 @@ class ToolArgValidator:
             "delete_workflow": self._validate_delete_workflow_args,
             "build_workflow": self._validate_build_workflow_args,
             "explore_connector": self._validate_explore_connector_args,
+            # Agent management tools
+            "create_agent": self._validate_create_agent_args,
+            "list_agents": self._validate_noop_tool_args,
             # Multimodal tools
             "parse_pdf": self._validate_parse_pdf_args,
             "transcribe_audio": self._validate_transcribe_audio_args,
@@ -587,6 +590,38 @@ class ToolArgValidator:
         if err:
             return err
         normalized_args["connector_id"] = cid
+        return None
+
+    # ------------------------------------------------------------------
+    # Agent management tools
+    # ------------------------------------------------------------------
+
+    def _validate_create_agent_args(self, normalized_args: dict[str, object]) -> str | None:
+        name, err = self._require_str_arg(normalized_args, "name", max_len=120)
+        if err:
+            return err
+        normalized_args["name"] = name
+        desc, err = self._require_str_arg(normalized_args, "description", max_len=500)
+        if err:
+            return err
+        normalized_args["description"] = desc
+        if "role" in normalized_args:
+            role, err = self._require_str_arg(normalized_args, "role", max_len=32)
+            if err:
+                return err
+            if role not in ("specialist", "reviewer", "researcher", "coordinator"):
+                return "argument 'role' must be one of: specialist, reviewer, researcher, coordinator"
+            normalized_args["role"] = role
+        if "specialization" in normalized_args:
+            spec, err = self._require_str_arg(normalized_args, "specialization", max_len=200)
+            if err:
+                return err
+            normalized_args["specialization"] = spec
+        if "system_prompt" in normalized_args:
+            sp, err = self._require_str_arg(normalized_args, "system_prompt", max_len=4000)
+            if err:
+                return err
+            normalized_args["system_prompt"] = sp
         return None
 
     # ------------------------------------------------------------------
