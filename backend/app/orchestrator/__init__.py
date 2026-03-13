@@ -1,7 +1,5 @@
-from app.orchestrator.pipeline_runner import PipelineRunner
-from app.orchestrator.step_types import PipelineStep
+# DEPRECATED: module moved to app.orchestration.* (Phase 13)
+from app.orchestration.pipeline_runner import PipelineRunner  # noqa: F401
+from app.orchestration.step_types import PipelineStep  # noqa: F401
 
-__all__ = [
-    "PipelineRunner",
-    "PipelineStep",
-]
+__all__ = ["PipelineRunner", "PipelineStep"]

@@ -1,10 +1,2 @@
-from __future__ import annotations
-
-from enum import StrEnum
-
-
-class PipelineStep(StrEnum):
-    PLAN = "plan"
-    TOOL_SELECT = "tool_select"
-    TOOL_EXECUTE = "tool_execute"
-    SYNTHESIZE = "synthesize"
+# DEPRECATED: moved to app.orchestration.step_types (Phase 13)
+from app.orchestration.step_types import *  # noqa: F401, F403
