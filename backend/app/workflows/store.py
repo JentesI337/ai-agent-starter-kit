@@ -10,13 +10,14 @@ Follows the raw-sqlite3 + WAL + threading.Lock pattern from long_term_memory.py.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
 import sqlite3
 import threading
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -118,16 +119,13 @@ def _row_to_record(row: tuple) -> WorkflowRecord:
 
     tool_policy = None
     if tp_json:
-        try:
+        with contextlib.suppress(Exception):
             tool_policy = WorkflowToolPolicy.model_validate(json.loads(tp_json))
-        except Exception:
-            pass
 
     triggers: list[WorkflowTrigger] = []
     if triggers_json:
         try:
-            for t in json.loads(triggers_json):
-                triggers.append(WorkflowTrigger.model_validate(t))
+            triggers.extend(WorkflowTrigger.model_validate(t) for t in json.loads(triggers_json))
         except Exception:
             pass
 
@@ -183,7 +181,7 @@ class SqliteWorkflowStore:
         return _row_to_record(row) if row else None
 
     def create(self, record: WorkflowRecord) -> WorkflowRecord:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         record = record.model_copy(update={
             "created_at": now,
             "updated_at": now,
@@ -202,7 +200,7 @@ class SqliteWorkflowStore:
         return record
 
     def update(self, workflow_id: str, record: WorkflowRecord) -> WorkflowRecord:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock, sqlite3.connect(str(self._db_path)) as conn:
             existing_row = conn.execute(
                 f"SELECT {_SELECT_COLS} FROM workflows WHERE id = ? LIMIT 1",
@@ -323,10 +321,8 @@ class SqliteWorkflowRunStore:
         runs: list[dict[str, Any]] = []
         for row in rows:
             step_results = {}
-            try:
+            with contextlib.suppress(Exception):
                 step_results = json.loads(row[4]) if row[4] else {}
-            except Exception:
-                pass
             runs.append({
                 "run_id": row[0],
                 "status": row[5],
@@ -356,10 +352,8 @@ class SqliteWorkflowRunStore:
             pass
 
         context = {}
-        try:
+        with contextlib.suppress(Exception):
             context = json.loads(context_json) if context_json else {}
-        except Exception:
-            pass
 
         return WorkflowExecutionState(
             workflow_id=workflow_id,
@@ -389,10 +383,8 @@ class SqliteWorkflowRunStore:
     def unsubscribe(self, run_id: str, queue: asyncio.Queue) -> None:
         subs = self._subscribers.get(run_id)
         if subs:
-            try:
+            with contextlib.suppress(ValueError):
                 subs.remove(queue)
-            except ValueError:
-                pass
             if not subs:
                 del self._subscribers[run_id]
 
@@ -400,10 +392,8 @@ class SqliteWorkflowRunStore:
         self._event_buffers[run_id].append(event)
         subs = list(self._subscribers.get(run_id, []))
         for q in subs:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(event)
-            except asyncio.QueueFull:
-                pass
         if event.get("type") in ("workflow_completed", "workflow_failed"):
             self._event_buffers.pop(run_id, None)
 
@@ -444,7 +434,7 @@ class SqliteWorkflowAuditStore:
         _ensure_schema(self._db_path)
 
     def write_step(self, *, workflow_id: str, run_id: str, step_id: str, data: dict) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock, sqlite3.connect(str(self._db_path)) as conn:
             conn.execute(
                 """INSERT INTO workflow_audit (workflow_id, run_id, step_id, entry_type, data, created_at)
@@ -454,7 +444,7 @@ class SqliteWorkflowAuditStore:
             conn.commit()
 
     def write_summary(self, *, workflow_id: str, run_id: str, data: dict) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock, sqlite3.connect(str(self._db_path)) as conn:
             conn.execute(
                 """INSERT INTO workflow_audit (workflow_id, run_id, step_id, entry_type, data, created_at)

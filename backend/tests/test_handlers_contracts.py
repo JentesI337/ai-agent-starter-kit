@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
+from app.shared.idempotency.manager import IdempotencyManager
 from app.transport.routers import runs as run_handlers, sessions as session_handlers
 from app.workflows import handlers as workflow_handlers
-from app.workflows.store import SqliteWorkflowStore, SqliteWorkflowAuditStore
-from app.shared.idempotency.manager import IdempotencyManager
+from app.workflows.store import SqliteWorkflowStore
 
 
 class _RuntimeManager:
@@ -44,16 +43,16 @@ def _make_workflow_deps(tmp_path, **overrides):
     """Create WorkflowDependencies with sensible defaults for tests."""
     db_path = tmp_path / "workflow_store.db"
     wf_store = SqliteWorkflowStore(db_path=db_path)
-    defaults = dict(
-        settings=SimpleNamespace(),
-        workflow_store=wf_store,
-        audit_store=None,
-        idempotency_mgr=IdempotencyManager(ttl_seconds=60, max_entries=100),
-        run_agent=_noop_run_agent,
-        build_workflow_create_fingerprint=lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
-        build_workflow_execute_fingerprint=lambda **kw: f"wf-exec:{kw.get('workflow_id')}",
-        build_workflow_delete_fingerprint=lambda **kw: f"wf-del:{kw.get('workflow_id')}",
-    )
+    defaults = {
+        "settings": SimpleNamespace(),
+        "workflow_store": wf_store,
+        "audit_store": None,
+        "idempotency_mgr": IdempotencyManager(ttl_seconds=60, max_entries=100),
+        "run_agent": _noop_run_agent,
+        "build_workflow_create_fingerprint": lambda **kw: f"wf-create:{kw.get('name')}:{kw.get('base_agent_id')}:{kw.get('operation')}",
+        "build_workflow_execute_fingerprint": lambda **kw: f"wf-exec:{kw.get('workflow_id')}",
+        "build_workflow_delete_fingerprint": lambda **kw: f"wf-del:{kw.get('workflow_id')}",
+    }
     defaults.update(overrides)
     return workflow_handlers.WorkflowDependencies(**defaults)
 

@@ -1,14 +1,12 @@
 """Tests for reasoning quality improvements: planning, smart summarization, reflection retry."""
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.agent_runner import AgentRunner
-from app.agent_runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
-
+from app.agent_runner_types import PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -16,15 +14,15 @@ from app.agent_runner_types import LoopState, PlanStep, PlanTracker, StreamResul
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="You are a test agent.",
-        execute_tool_fn=AsyncMock(return_value="tool result"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file", "run_command"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "You are a test agent.",
+        "execute_tool_fn": AsyncMock(return_value="tool result"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file", "run_command"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 

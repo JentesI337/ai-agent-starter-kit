@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-from app.llm.routing.capability_profile import ModelCapabilityProfile
 from app.llm.health_tracker import (
     ModelHealthSnapshot,
     ModelHealthTracker,
 )
+from app.llm.routing.capability_profile import ModelCapabilityProfile
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
 
 from app.browser.pool import BrowserPool, validate_browser_url
 from app.url_validator import UrlValidationError
-
 
 # ---------------------------------------------------------------------------
 # Helpers: local test HTTP server
@@ -43,7 +41,7 @@ _TEST_HTML = """\
 
 
 class _TestHandler(SimpleHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         if self.path == "/redirect-internal":
             self.send_response(302)
             self.send_header("Location", "http://127.0.0.1:1/secret")
@@ -203,7 +201,7 @@ class TestBrowserPoolIntegration:
         pool = BrowserPool(max_contexts=3, context_ttl_seconds=300)
         self._allow_test_server(pool, test_server)
         try:
-            ctx, page = await pool.get_context("s1")
+            _ctx, page = await pool.get_context("s1")
             await page.goto(test_server)
             title = await page.title()
             assert title == "Test Page"
@@ -243,10 +241,10 @@ class TestBrowserPoolIntegration:
         pool = BrowserPool(max_contexts=2, context_ttl_seconds=300)
         self._allow_test_server(pool, test_server)
         try:
-            _, p1 = await pool.get_context("s1")
-            _, p2 = await pool.get_context("s2")
+            _, _p1 = await pool.get_context("s1")
+            _, _p2 = await pool.get_context("s2")
             # s1 is LRU, should be evicted when s3 is requested
-            _, p3 = await pool.get_context("s3")
+            _, _p3 = await pool.get_context("s3")
             assert "s1" not in pool._contexts
             assert "s2" in pool._contexts
             assert "s3" in pool._contexts
@@ -358,6 +356,7 @@ class TestBrowserTools:
     @pytest_asyncio.fixture()
     async def tooling(self, tmp_path, test_server):
         from urllib.parse import urlparse
+
         from app.tooling import AgentTooling
         tools = AgentTooling(workspace_root=str(tmp_path))
         pool = BrowserPool(max_contexts=3, context_ttl_seconds=300)
@@ -450,8 +449,8 @@ class TestBrowserTools:
 
     @pytest.mark.asyncio
     async def test_browser_disabled(self, tmp_path):
-        from app.tooling import AgentTooling
         from app.errors import ToolExecutionError
+        from app.tooling import AgentTooling
         tools = AgentTooling(workspace_root=str(tmp_path))
         # No browser pool set
         with pytest.raises(ToolExecutionError, match="not available"):

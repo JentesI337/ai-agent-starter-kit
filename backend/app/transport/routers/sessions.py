@@ -20,9 +20,9 @@ from app.control_models import (
     ControlSessionsSpawnRequest,
     ControlSessionsStatusRequest,
 )
+from app.reasoning.request_normalization import normalize_idempotency_key
 from app.transport.routers.runs import extract_final_message, normalize_contract_run_status
 from app.transport.routers.tools import normalize_tool_policy_payload
-from app.reasoning.request_normalization import normalize_idempotency_key
 
 JsonDict = dict
 

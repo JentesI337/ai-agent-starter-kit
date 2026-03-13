@@ -1,6 +1,6 @@
 """Tests for ToolBudgetManager (Sprint R4)."""
+
 from app.tools.provisioning.budget_manager import BudgetConfig, ToolBudgetManager
-import pytest
 
 
 class TestBudgetManager:

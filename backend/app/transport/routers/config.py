@@ -95,7 +95,7 @@ def handle_config_diff(request: dict[str, Any]) -> dict[str, Any]:
     overrides: dict[str, dict[str, dict[str, Any]]] = {}
     for section_key, fields in raw.items():
         section_overrides: dict[str, dict[str, Any]] = {}
-        for field_name, info in fields.items():
+        for field_name in fields:
             env_value = getattr(svc._settings, field_name, None)
             runtime_value = svc.get_value(section_key, field_name)
             section_overrides[field_name] = {

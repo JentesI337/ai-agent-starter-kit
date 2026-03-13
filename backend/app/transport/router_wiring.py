@@ -10,57 +10,13 @@ import logging
 from fastapi import FastAPI
 
 from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
+from app.agent.resolution import looks_like_coding_request
 from app.app_state import LazyObjectProxy
 from app.config import resolved_prompt_settings, settings
 from app.control_models import AgentTestRequest, RunStartRequest
 from app.control_router_wiring import include_control_routers
-from app.transport.routers import agents as agent_handlers
-from app.transport.routers import integrations as integration_handlers
-from app.transport.routers import policies as policy_handlers
-from app.transport.routers import runs as run_handlers
-from app.transport.routers import sessions as session_handlers
-from app.transport.routers import skills as skills_handlers
-from app.transport.routers import tools as tools_handlers
-from app.transport.routers.agents import (
-    handle_agents_config_get,
-    handle_agents_config_list,
-    handle_agents_config_reset,
-    handle_agents_config_update,
-)
-from app.transport.routers.audio_deps import (
-    handle_deps_check,
-    handle_deps_install,
-)
-from app.transport.routers.config import (
-    handle_config_diff,
-    handle_config_get,
-    handle_config_reset,
-    handle_config_sections,
-    handle_config_update,
-)
-from app.transport.routers.config import (
-    handle_execution_config_get,
-    handle_execution_config_update,
-    handle_execution_loop_detection_get,
-    handle_execution_loop_detection_update,
-)
-from app.transport.routers.tools import (
-    handle_tools_config_get,
-    handle_tools_config_list,
-    handle_tools_config_reset,
-    handle_tools_config_update,
-    handle_tools_security_patterns,
-    handle_tools_security_update,
-)
 from app.policy_store import PolicyStore
-from app.transport.routers.agents import build_agents_router
-from app.transport.routers.debug import build_runtime_debug_router
-from app.transport.routers.runs import build_run_api_router
-from app.transport.routers.subruns import build_subruns_router
-from app.transport.routers.uploads import build_uploads_router
-from app.transport.routers.ws_agent import build_ws_agent_router
-from app.transport.routers.runs import RunApiRouterHandlers
-from app.transport.routers.policies import build_policies_router
+from app.reasoning.request_normalization import normalize_preset
 from app.run_endpoints import (
     AgentTestDependencies,
     RunEndpointsDependencies,
@@ -78,8 +34,6 @@ from app.runtime_debug_endpoints import (
     api_test_ping,
     api_tool_telemetry_stats,
 )
-from app.agent.resolution import looks_like_coding_request
-from app.reasoning.request_normalization import normalize_preset
 from app.subrun_endpoints import (
     SubrunEndpointsDependencies,
     api_subruns_get,
@@ -88,9 +42,52 @@ from app.subrun_endpoints import (
     api_subruns_list,
     api_subruns_log,
 )
-from app.workflows import handlers as workflow_handlers
-from app.ws_handler import WsHandlerDependencies
 from app.transport import runtime_wiring
+from app.transport.routers import (
+    agents as agent_handlers,
+    integrations as integration_handlers,
+    policies as policy_handlers,
+    runs as run_handlers,
+    sessions as session_handlers,
+    skills as skills_handlers,
+    tools as tools_handlers,
+)
+from app.transport.routers.agents import (
+    build_agents_router,
+    handle_agents_config_get,
+    handle_agents_config_list,
+    handle_agents_config_reset,
+    handle_agents_config_update,
+)
+from app.transport.routers.audio_deps import (
+    handle_deps_check,
+    handle_deps_install,
+)
+from app.transport.routers.config import (
+    handle_config_diff,
+    handle_config_get,
+    handle_config_reset,
+    handle_config_sections,
+    handle_config_update,
+    handle_execution_config_get,
+    handle_execution_config_update,
+    handle_execution_loop_detection_get,
+    handle_execution_loop_detection_update,
+)
+from app.transport.routers.debug import build_runtime_debug_router
+from app.transport.routers.policies import build_policies_router
+from app.transport.routers.runs import RunApiRouterHandlers, build_run_api_router
+from app.transport.routers.subruns import build_subruns_router
+from app.transport.routers.tools import (
+    handle_tools_config_get,
+    handle_tools_config_list,
+    handle_tools_config_reset,
+    handle_tools_config_update,
+    handle_tools_security_patterns,
+    handle_tools_security_update,
+)
+from app.transport.routers.uploads import build_uploads_router
+from app.transport.routers.ws_agent import build_ws_agent_router
 from app.transport.runtime_wiring import (
     _effective_orchestrator_agent_ids,
     _get_runtime_components,
@@ -108,6 +105,8 @@ from app.transport.runtime_wiring import (
     state_store,
     subrun_lane,
 )
+from app.workflows import handlers as workflow_handlers
+from app.ws_handler import WsHandlerDependencies
 
 logger = logging.getLogger("app.main")
 

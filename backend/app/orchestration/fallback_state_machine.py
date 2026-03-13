@@ -17,8 +17,8 @@ from app.orchestration.recovery_strategy import RecoveryContext, RecoveryStrateg
 from app.tool_policy import ToolPolicyDict
 
 if TYPE_CHECKING:
-    from app.policy.circuit_breaker import CircuitBreakerRegistry, CircuitStateTransition
     from app.llm.health_tracker import ModelHealthTracker
+    from app.policy.circuit_breaker import CircuitBreakerRegistry, CircuitStateTransition
 
 
 class FallbackHooks(Protocol):

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
+import pytest
 
 from app.connectors.base import ConnectorConfig, ConnectorCredentials
 from app.connectors.connector_store import ConnectorStore
@@ -15,7 +16,6 @@ from app.tools.implementations.api_connectors import ApiConnectorToolMixin
 
 class MockTooling(ApiConnectorToolMixin):
     """Test harness for the mixin."""
-    pass
 
 
 @pytest.fixture

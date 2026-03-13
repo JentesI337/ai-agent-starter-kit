@@ -1,6 +1,7 @@
 # DEPRECATED: moved to app.agent.runner (Phase 12)
 # Proxy module that propagates attribute sets (e.g. from unittest.mock.patch)
 # to app.agent.runner so that patch("app.agent_runner.settings") works.
+import contextlib
 import sys
 import types
 
@@ -26,10 +27,8 @@ class _ProxyModule(types.ModuleType):
     def __delattr__(self, name):
         # mock.patch calls delattr on cleanup when the attr was not in __dict__
         # originally. Clean up the proxy and restore the real module's original.
-        try:
+        with contextlib.suppress(AttributeError):
             super().__delattr__(name)
-        except AttributeError:
-            pass
         if name in _originals:
             setattr(_real_module, name, _originals[name])
 

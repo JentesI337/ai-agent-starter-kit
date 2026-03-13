@@ -1,2 +1,2 @@
 # DEPRECATED: moved to app.transport.app_factory (Phase 14)
-from app.transport.app_factory import *  # noqa: F401, F403
+from app.transport.app_factory import *  # noqa: F403

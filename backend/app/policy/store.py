@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -57,7 +57,7 @@ class PolicyStore:
             return None
 
     def create(self, request: PolicyCreateRequest) -> PolicyDefinition:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         policy_id = self._normalize_id(request.name) or f"policy-{uuid.uuid4().hex[:8]}"
         # ensure unique
         if (self.persist_dir / f"{policy_id}.json").exists():
@@ -88,7 +88,7 @@ class PolicyStore:
         for key, value in patch.items():
             if key in merged and key not in ("id", "created_at"):
                 merged[key] = value
-        merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+        merged["updated_at"] = datetime.now(UTC).isoformat()
         definition = PolicyDefinition.model_validate(merged)
         file_path = self.persist_dir / f"{definition.id}.json"
         file_path.write_text(

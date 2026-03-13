@@ -14,7 +14,6 @@ import json
 import re
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Template resolution
 # ---------------------------------------------------------------------------
@@ -46,20 +45,14 @@ def _resolve_dot_path(obj: Any, path: str) -> Any:
         m = _ARRAY_INDEX_RE.match(part)
         if m:
             key, idx = m.group(1), int(m.group(2))
-            if isinstance(current, dict):
-                current = current.get(key)
-            else:
-                current = getattr(current, key, None)
+            current = current.get(key) if isinstance(current, dict) else getattr(current, key, None)
             if isinstance(current, (list, tuple)) and 0 <= idx < len(current):
                 current = current[idx]
             else:
                 return None
             continue
 
-        if isinstance(current, dict):
-            current = current.get(part)
-        else:
-            current = getattr(current, part, None)
+        current = current.get(part) if isinstance(current, dict) else getattr(current, part, None)
 
     return current
 
@@ -229,28 +222,38 @@ def _interpret(node: ast.AST, namespace: dict[str, Any]) -> Any:
         raise ValueError(f"Unsupported bool op: {type(node.op).__name__}")
     if isinstance(node, ast.Compare):
         left = _interpret(node.left, namespace)
-        for op, comparator in zip(node.ops, node.comparators):
+        for op, comparator in zip(node.ops, node.comparators, strict=False):
             right = _interpret(comparator, namespace)
             if isinstance(op, ast.Eq):
-                if not (left == right): return False
+                if left != right:
+                    return False
             elif isinstance(op, ast.NotEq):
-                if not (left != right): return False
+                if left == right:
+                    return False
             elif isinstance(op, ast.Lt):
-                if not (left < right): return False
+                if not (left < right):
+                    return False
             elif isinstance(op, ast.LtE):
-                if not (left <= right): return False
+                if not (left <= right):
+                    return False
             elif isinstance(op, ast.Gt):
-                if not (left > right): return False
+                if not (left > right):
+                    return False
             elif isinstance(op, ast.GtE):
-                if not (left >= right): return False
+                if not (left >= right):
+                    return False
             elif isinstance(op, ast.In):
-                if left not in right: return False
+                if left not in right:
+                    return False
             elif isinstance(op, ast.NotIn):
-                if left in right: return False
+                if left in right:
+                    return False
             elif isinstance(op, ast.Is):
-                if left is not right: return False
+                if left is not right:
+                    return False
             elif isinstance(op, ast.IsNot):
-                if left is right: return False
+                if left is right:
+                    return False
             else:
                 raise ValueError(f"Unsupported comparison: {type(op).__name__}")
             left = right

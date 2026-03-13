@@ -3,20 +3,19 @@ from __future__ import annotations
 
 import json
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.config_sections import SECTION_REGISTRY, SENSITIVE_FIELDS, field_to_section
+from app.config_sections import SECTION_REGISTRY, field_to_section
 from app.config_service import ConfigService
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_settings():
     """Create a mock settings object with all fields from section registry."""
     settings = MagicMock()
-    for section_key, model_cls in SECTION_REGISTRY.items():
+    for model_cls in SECTION_REGISTRY.values():
         for field_name, field_info in model_cls.model_fields.items():
             default = field_info.default
             if default is None and field_info.default_factory is not None:
@@ -26,7 +25,7 @@ def mock_settings():
     return settings
 
 
-@pytest.fixture()
+@pytest.fixture
 def config_service(mock_settings, tmp_path):
     overrides_path = tmp_path / "config_overrides.json"
     return ConfigService(mock_settings, overrides_path=overrides_path)

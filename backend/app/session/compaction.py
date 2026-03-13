@@ -122,7 +122,7 @@ class CompactionService:
                 f"{summary}"
             ),
         }
-        return [system, summary_msg] + keep_tail
+        return [system, summary_msg, *keep_tail]
 
     # ── LLM-based summary ─────────────────────────────────────────────
 

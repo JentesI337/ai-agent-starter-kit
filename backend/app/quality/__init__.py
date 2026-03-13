@@ -17,7 +17,7 @@ from app.quality.verification_service import VerificationResult, VerificationSer
 
 
 # Lazy imports for modules with heavy dependency chains.
-def __getattr__(name: str):  # noqa: N807
+def __getattr__(name: str):
     if name in ("ReflectionService", "ReflectionVerdict"):
         from app.quality import reflection_service as _rs
 

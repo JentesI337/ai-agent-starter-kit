@@ -1,11 +1,7 @@
 """Tests for the chain resolver — topological sort, type resolution, validation."""
 from __future__ import annotations
 
-import pytest
-
 from app.workflows.chain_resolver import (
-    ChainValidationError,
-    ResolvedNode,
     resolve_chain,
 )
 from app.workflows.contracts import DataType
@@ -68,7 +64,7 @@ class TestOrphanNode:
             WorkflowStepDef(id="orphan", type="transform"),
         ], "a")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         orphan_warnings = [w for w in warnings if w.code == "orphan_node"]
         assert len(orphan_warnings) == 1
         assert orphan_warnings[0].step_id == "orphan"
@@ -100,7 +96,7 @@ class TestForkJoin:
             WorkflowStepDef(id="b2", type="transform"),
         ], "fork1")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         error_codes = [w.code for w in warnings if w.severity == "error"]
         assert "unmatched_fork" in error_codes
 
@@ -119,7 +115,7 @@ class TestLoop:
             WorkflowStepDef(id="done", type="transform"),
         ], "loop1")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         errors = [w for w in warnings if w.severity == "error"]
         assert len(errors) == 0
 
@@ -130,7 +126,7 @@ class TestLoop:
             WorkflowStepDef(id="done", type="transform"),
         ], "loop1")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         error_codes = [w.code for w in warnings if w.severity == "error"]
         assert "missing_loop_body_entry" in error_codes
 
@@ -142,7 +138,7 @@ class TestLoop:
             WorkflowStepDef(id="b", type="transform", next_step="a"),
         ], "a")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         error_codes = [w.code for w in warnings if w.severity == "error"]
         assert "illegal_back_edge" in error_codes
 
@@ -158,7 +154,7 @@ class TestTypeIncompatible:
             WorkflowStepDef(id="b", type="agent"),
         ], "a")
 
-        resolved, warnings = resolve_chain(graph)
+        _resolved, warnings = resolve_chain(graph)
         type_warnings = [w for w in warnings if w.code == "type_incompatible"]
         # agent->agent: TEXT output to ANY input = compatible
         assert len(type_warnings) == 0

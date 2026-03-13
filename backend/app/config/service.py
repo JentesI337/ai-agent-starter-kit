@@ -23,7 +23,6 @@ from pydantic import BaseModel, ValidationError
 from app.config.sections import (
     SECTION_REGISTRY,
     SENSITIVE_FIELDS,
-    field_to_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,10 +104,10 @@ class ConfigService:
 
     def _apply_overrides_to_settings(self) -> None:
         """Apply all persistent + transient overrides to the Settings singleton."""
-        for section_key, overrides in self._persistent_overrides.items():
+        for overrides in self._persistent_overrides.values():
             for field_name, value in overrides.items():
                 self._set_settings_attr(field_name, value)
-        for section_key, overrides in self._transient_overrides.items():
+        for overrides in self._transient_overrides.values():
             for field_name, value in overrides.items():
                 self._set_settings_attr(field_name, value)
 
@@ -336,10 +335,9 @@ class ConfigService:
             for field_name in list(self._persistent_overrides.get(section_key, {})) + list(
                 self._transient_overrides.get(section_key, {})
             ):
-                env_value = getattr(self._settings, field_name, None)
-                effective = self.get_value(section_key, field_name)
+                getattr(self._settings, field_name, None)
+                self.get_value(section_key, field_name)
                 # Get original .env value (before overrides)
-                original = env_value  # Approximate — the settings object already has overrides applied
                 if field_name in self._persistent_overrides.get(section_key, {}):
                     override_val = self._persistent_overrides[section_key][field_name]
                     section_diff[field_name] = {
@@ -367,7 +365,7 @@ _init_lock = threading.Lock()
 
 def get_config_service() -> ConfigService:
     """Return the global ConfigService singleton. Creates it lazily."""
-    global _instance  # noqa: PLW0603
+    global _instance
     if _instance is not None:
         return _instance
     with _init_lock:
@@ -380,7 +378,7 @@ def get_config_service() -> ConfigService:
 
 def init_config_service(settings_obj: Any, *, overrides_path: str | Path | None = None) -> ConfigService:
     """Explicitly initialize the global ConfigService (called from startup)."""
-    global _instance  # noqa: PLW0603
+    global _instance
     with _init_lock:
         _instance = ConfigService(settings_obj, overrides_path=overrides_path)
         return _instance

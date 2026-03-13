@@ -8,8 +8,6 @@ Contexts are automatically evicted after a configurable inactivity timeout.
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import logging
 import time
 from collections import OrderedDict
@@ -18,7 +16,7 @@ from urllib.parse import urlparse
 
 from app.url_validator import UrlValidationError, enforce_safe_url
 
-logger = logging.getLogger("app.services.browser_pool")
+logger = logging.getLogger("app.browser.pool")
 
 # Schemes that are never allowed for browser navigation.
 _BLOCKED_SCHEMES: frozenset[str] = frozenset(
@@ -64,7 +62,7 @@ def validate_browser_url(url: str) -> str:
 class _ContextEntry:
     """Internal wrapper holding a BrowserContext and its metadata."""
 
-    __slots__ = ("context", "page", "last_used", "session_id")
+    __slots__ = ("context", "last_used", "page", "session_id")
 
     def __init__(self, context: Any, page: Any, session_id: str) -> None:
         self.context = context
@@ -123,7 +121,7 @@ class BrowserPool:
             raise RuntimeError(
                 "Playwright is not installed. "
                 "Run: pip install playwright && python -m playwright install chromium"
-            )
+            ) from None
 
         self._playwright = await async_playwright().start()
         try:

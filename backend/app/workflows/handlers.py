@@ -320,7 +320,7 @@ def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
         try:
             workflow_graph = WorkflowGraphDef.model_validate(raw_graph) if isinstance(raw_graph, dict) else raw_graph
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition") from None
     elif steps:
         workflow_graph = _build_workflow_graph_from_steps(steps, base_agent_id=base_agent_id)
 
@@ -391,7 +391,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         try:
             resolved_graph = WorkflowGraphDef.model_validate(raw_request_graph) if isinstance(raw_request_graph, dict) else raw_request_graph
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition")
+            raise HTTPException(status_code=400, detail="Invalid workflow_graph definition") from None
     else:
         resolved_graph = existing.workflow_graph
 

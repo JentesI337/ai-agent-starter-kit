@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +9,6 @@ import pytest
 
 from app.errors import ToolExecutionError
 from app.tools.implementations.devops import DevOpsToolMixin
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

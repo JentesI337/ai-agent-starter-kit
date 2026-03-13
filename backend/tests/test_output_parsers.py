@@ -21,7 +21,6 @@ from app.reasoning.output_parsers import (
     scan_text_for_secrets,
 )
 
-
 # ── Git parsers ──────────────────────────────────────────────────────
 
 

@@ -1,9 +1,9 @@
 """Tests for credential store."""
 from __future__ import annotations
 
-import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from app.connectors.base import ConnectorCredentials
 from app.connectors.credential_store import CredentialStore

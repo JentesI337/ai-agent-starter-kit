@@ -59,9 +59,7 @@ class ToolBudgetManager:
     def is_exhausted(self) -> bool:
         if self._call_count >= self.config.call_cap:
             return True
-        if self._start_time is not None and self.elapsed_seconds >= self.config.time_cap_seconds:
-            return True
-        return False
+        return bool(self._start_time is not None and self.elapsed_seconds >= self.config.time_cap_seconds)
 
     def exhaustion_reason(self) -> str | None:
         if self._call_count >= self.config.call_cap:

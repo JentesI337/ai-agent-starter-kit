@@ -1,10 +1,11 @@
 """Tests for connector framework."""
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.connectors.base import BaseConnector, ConnectorConfig, ConnectorCredentials
+import pytest
+
+from app.connectors.base import ConnectorConfig, ConnectorCredentials
 from app.connectors.generic_rest_connector import GenericRestConnector
 from app.connectors.github_connector import GitHubConnector
 from app.connectors.registry import ConnectorRegistry
@@ -52,14 +53,14 @@ class TestGenericRestConnector:
     def test_build_request_get(self):
         cfg = _make_config(base_url="https://api.example.com")
         conn = GenericRestConnector(cfg)
-        method, url, headers, body = conn.build_request("get", {"path": "/users"})
+        method, url, _headers, _body = conn.build_request("get", {"path": "/users"})
         assert method == "GET"
         assert url == "https://api.example.com/users"
 
     def test_build_request_post(self):
         cfg = _make_config(base_url="https://api.example.com")
         conn = GenericRestConnector(cfg)
-        method, url, headers, body = conn.build_request("post", {"path": "/users", "body": {"name": "test"}})
+        method, url, _headers, body = conn.build_request("post", {"path": "/users", "body": {"name": "test"}})
         assert method == "POST"
         assert url == "https://api.example.com/users"
         assert body == {"name": "test"}
@@ -84,14 +85,14 @@ class TestGitHubConnector:
     def test_build_request_repos_list(self):
         cfg = _make_config(connector_type="github", base_url="https://api.github.com")
         conn = GitHubConnector(cfg)
-        method, url, headers, body = conn.build_request("repos.list", {})
+        method, url, _headers, _body = conn.build_request("repos.list", {})
         assert method == "GET"
         assert url == "https://api.github.com/user/repos"
 
     def test_build_request_issues_list(self):
         cfg = _make_config(connector_type="github", base_url="https://api.github.com")
         conn = GitHubConnector(cfg)
-        method, url, headers, body = conn.build_request("issues.list", {"owner": "octocat", "repo": "hello"})
+        method, url, _headers, _body = conn.build_request("issues.list", {"owner": "octocat", "repo": "hello"})
         assert method == "GET"
         assert url == "https://api.github.com/repos/octocat/hello/issues"
 

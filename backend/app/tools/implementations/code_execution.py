@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 
 from app.config import settings
-from app.errors import ToolExecutionError
 from app.sandbox.code_sandbox import CodeSandbox
 
 

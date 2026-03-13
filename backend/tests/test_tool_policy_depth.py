@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from app.config import settings
-from app.tools.provisioning.policy_service import resolve_tool_policy
 from app.tool_policy import ToolPolicyPayload, tool_policy_to_dict
+from app.tools.provisioning.policy_service import resolve_tool_policy
 
 
 def test_agent_depth_policy_blocks_spawn_subrun_for_deep_runs() -> None:

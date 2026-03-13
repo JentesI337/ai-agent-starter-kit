@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.transport.routers import runs as run_handlers
 from app.orchestration.run_state_machine import is_allowed_run_state_transition, resolve_run_state_from_stage
+from app.transport.routers import runs as run_handlers
 
 
 class _StateStore:

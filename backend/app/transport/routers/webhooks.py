@@ -32,7 +32,7 @@ def build_webhooks_router() -> APIRouter:
             from app.workflows import handlers as workflow_handlers
             from app.workflows.store import get_workflow_store
         except RuntimeError:
-            raise HTTPException(status_code=503, detail="Workflow system not ready")
+            raise HTTPException(status_code=503, detail="Workflow system not ready") from None
 
         import re as _re
         normalized_id = _re.sub(r"-+", "-", _re.sub(r"[^a-z0-9_-]+", "-", workflow_id.strip().lower())).strip("-")[:80]
@@ -82,7 +82,7 @@ def build_webhooks_router() -> APIRouter:
             )
         except Exception:
             logger.exception("webhook_trigger_execute_failed workflow_id=%s", workflow_id)
-            raise HTTPException(status_code=500, detail="Workflow execution failed")
+            raise HTTPException(status_code=500, detail="Workflow execution failed") from None
 
         run_id = result.get("runId") or result.get("run_id") or str(uuid.uuid4())
         return {

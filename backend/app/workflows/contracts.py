@@ -5,13 +5,12 @@ Used by the chain resolver for design-time validation.
 """
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class DataType(str, Enum):
+class DataType(StrEnum):
     TEXT = "text"
     JSON = "json"
     FILE = "file"
@@ -23,7 +22,7 @@ class DataType(str, Enum):
     PASSTHROUGH = "passthrough"
 
 
-class EdgeKind(str, Enum):
+class EdgeKind(StrEnum):
     DEFAULT = "default"
     TRUE = "true"
     FALSE = "false"

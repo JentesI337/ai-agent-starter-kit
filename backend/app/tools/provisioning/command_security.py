@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 import threading
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # BUILTIN patterns -- these can never be removed, only extended

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections import OrderedDict
 from pathlib import Path
 
@@ -106,7 +105,7 @@ class ReplSessionManager:
         """Shut down every active REPL.  Returns the number of sessions closed."""
         async with self._lock:
             count = len(self._sessions)
-            for sid, repl in list(self._sessions.items()):
+            for _sid, repl in list(self._sessions.items()):
                 await self._safe_shutdown(repl)
             self._sessions.clear()
             logger.info("repl_session_manager_shutdown_all closed=%d", count)

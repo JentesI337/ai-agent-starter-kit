@@ -9,46 +9,46 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.agent.record import UnifiedAgentRecord
 
 from app.agent.runner import AgentRunner, build_unified_system_prompt
 from app.config import load_cognitive_framework, settings
+from app.contracts.hook_contract import resolve_hook_execution_contract
 from app.contracts.tool_protocol import ToolProvider
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
-from app.llm_client import LlmClient
-from app.memory import MemoryStore
 from app.llm.routing import ModelRegistry
+from app.llm_client import LlmClient
+from app.mcp.bridge import McpBridge
+from app.memory import MemoryStore
+from app.memory.failure_retriever import FailureRetriever
+from app.memory.long_term import FailureEntry, LongTermMemoryStore
+from app.memory.reflection_store import ReflectionFeedbackStore
+from app.monitoring.platform_info import detect_platform
 from app.orchestration.events import build_lifecycle_event
+from app.quality.reflection_service import ReflectionService
+from app.quality.verification_service import VerificationService
 from app.reasoning.action_augmenter import ActionAugmenter
 from app.reasoning.action_parser import ActionParser
-from app.memory.failure_retriever import FailureRetriever
-from app.contracts.hook_contract import resolve_hook_execution_contract
 from app.reasoning.intent_detector import IntentDetector
-from app.memory.long_term import FailureEntry, LongTermMemoryStore
-from app.mcp.bridge import McpBridge
-from app.monitoring.platform_info import detect_platform
 from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
-from app.memory.reflection_store import ReflectionFeedbackStore, ReflectionRecord
-from app.quality.reflection_service import ReflectionService
 from app.reasoning.reply_shaper import ReplyShaper
-from app.reasoning.request_normalization import normalize_prompt_mode
-from app.tools.execution.arg_validator import ToolArgValidator
-from app.tools.execution.gatekeeper import (
-    collect_policy_override_candidates,
-)
-from app.tools.execution.manager import ToolExecutionManager
-from app.tools.registry.registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
-from app.tools.execution.result_context_guard import enforce_tool_result_context_budget
-from app.tools.execution.retry_strategy import ToolRetryStrategy
-from app.quality.verification_service import VerificationService
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
 from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tool_policy import ToolPolicyDict
 from app.tooling import AgentTooling, find_command_safety_violation
+from app.tools.execution.arg_validator import ToolArgValidator
+from app.tools.execution.gatekeeper import (
+    collect_policy_override_candidates,
+)
+from app.tools.execution.manager import ToolExecutionManager
+from app.tools.execution.retry_strategy import ToolRetryStrategy
+from app.tools.registry.registry import ToolExecutionPolicy, ToolRegistry, ToolRegistryFactory
 
 SendEvent = Callable[[dict], Awaitable[None]]
 SpawnSubrunHandler = Callable[..., Awaitable[str | dict]]
@@ -97,7 +97,7 @@ class HeadAgent:
         model_registry: ModelRegistry | None = None,
         spawn_subrun_handler: SpawnSubrunHandler | None = None,
         policy_approval_handler: PolicyApprovalHandler | None = None,
-        agent_record: "UnifiedAgentRecord | None" = None,
+        agent_record: UnifiedAgentRecord | None = None,
     ):
         self.name = name or settings.agent_name
         self.role = role
@@ -1860,7 +1860,7 @@ class HeadAgent:
         )
         try:
             await asyncio.wait_for(self._debug_continue_event.wait(), timeout=300.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Auto-resume after timeout to prevent indefinite blocking
             self._debug_continue_event.set()
 

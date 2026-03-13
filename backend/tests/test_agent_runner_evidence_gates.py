@@ -3,11 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from app.agent_runner import AgentRunner
 from app.agent_runner_types import ToolResult
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -15,15 +12,15 @@ from app.agent_runner_types import ToolResult
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="test",
-        execute_tool_fn=AsyncMock(return_value="ok"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "test",
+        "execute_tool_fn": AsyncMock(return_value="ok"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 

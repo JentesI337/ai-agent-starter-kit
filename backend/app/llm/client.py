@@ -5,8 +5,12 @@ import json
 import logging
 import random
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from app.agent_runner_types import StreamResult
 
 from app.config import settings
 from app.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
@@ -517,7 +521,7 @@ class LlmClient:
         model: str | None = None,
         temperature: float | None = None,
         on_text_chunk: Callable[[str], Awaitable[None]] | None = None,
-    ) -> "StreamResult":
+    ) -> StreamResult:
         """Stream an LLM response, collecting text and tool_calls.
 
         Accepts a full messages array (not just system+user like older methods).
@@ -675,7 +679,7 @@ class LlmClient:
         model: str,
         temperature: float | None = None,
         on_text_chunk: Callable[[str], Awaitable[None]] | None = None,
-    ) -> "StreamResult":
+    ) -> StreamResult:
         """Non-streaming fallback for Ollama native API."""
         from app.agent_runner_types import StreamResult
 

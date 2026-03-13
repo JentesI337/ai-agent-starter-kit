@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def _next_cron_time(cron_expr: str, after: datetime) -> datetime | None:
 
     try:
         it = croniter(cron_expr, after)
-        return it.get_next(datetime).replace(tzinfo=timezone.utc)
+        return it.get_next(datetime).replace(tzinfo=UTC)
     except (ValueError, KeyError) as exc:
         logger.warning("invalid_cron_expression expr=%s error=%s", cron_expr, exc)
         return None
@@ -55,7 +55,7 @@ async def _tick() -> None:
     except RuntimeError:
         return  # system not ready yet
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for record in deps.workflow_store.list():
         for t in record.triggers:
@@ -76,7 +76,7 @@ async def _tick() -> None:
             try:
                 next_dt = datetime.fromisoformat(t.next_run_at)
                 if next_dt.tzinfo is None:
-                    next_dt = next_dt.replace(tzinfo=timezone.utc)
+                    next_dt = next_dt.replace(tzinfo=UTC)
             except (ValueError, TypeError):
                 continue
 
@@ -112,7 +112,7 @@ async def _execute_scheduled_workflow(record) -> None:
 
     execute_request = ControlWorkflowsExecuteRequest(
         workflow_id=record.id,
-        message=f"Scheduled execution at {datetime.now(timezone.utc).isoformat()}",
+        message=f"Scheduled execution at {datetime.now(UTC).isoformat()}",
     )
     try:
         result = await api_control_workflows_execute(

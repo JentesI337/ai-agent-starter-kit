@@ -105,5 +105,5 @@ async def install_audio_dep(package_name: str) -> dict:
         return {"name": package_name, "success": False, "message": proc.stderr.strip()[:500]}
     except subprocess.TimeoutExpired:
         return {"name": package_name, "success": False, "message": "Installation timed out"}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"name": package_name, "success": False, "message": str(exc)[:500]}

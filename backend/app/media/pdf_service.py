@@ -98,8 +98,8 @@ code {{ font-family: monospace; }}
         tmp_html = output_path.with_suffix(".tmp.html")
         try:
             tmp_html.write_text(full_html, encoding="utf-8")
-            subprocess.run(
-                ["pandoc", str(tmp_html), "-o", str(output_path), "--pdf-engine=wkhtmltopdf"],
+            subprocess.run(  # noqa: S603
+                ["pandoc", str(tmp_html), "-o", str(output_path), "--pdf-engine=wkhtmltopdf"],  # noqa: S607
                 check=True,
                 capture_output=True,
                 timeout=60,

@@ -59,9 +59,10 @@ def build_read_only_policy(
     deny_set = set(mandatory_deny or _BASE_WRITE_DENY)
     requested_allow: list[str] = []
     if isinstance(incoming, dict):
-        for item in incoming.get("allow") or []:
-            if isinstance(item, str) and item.strip():
-                requested_allow.append(item.strip())
+        requested_allow.extend(
+            item.strip() for item in incoming.get("allow") or []
+            if isinstance(item, str) and item.strip()
+        )
         for item in incoming.get("deny") or []:
             if isinstance(item, str) and item.strip():
                 deny_set.add(item.strip())

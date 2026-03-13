@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from app.tools.provisioning.package_manager_adapter import NpmAdapter
 from app.tools.discovery.engine import DiscoveryResult, ToolDiscoveryEngine
 from app.tools.discovery.knowledge_base import ToolKnowledgeBase
+from app.tools.provisioning.package_manager_adapter import NpmAdapter
 
 
 @pytest.fixture

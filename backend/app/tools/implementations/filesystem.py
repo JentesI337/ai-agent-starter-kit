@@ -37,7 +37,7 @@ class FileSystemToolMixin:
             try:
                 target.write_bytes(b64_mod.b64decode(content))
             except Exception as exc:
-                raise ToolExecutionError(f"Invalid base64 content: {exc}")
+                raise ToolExecutionError(f"Invalid base64 content: {exc}") from exc
         else:
             target.write_text(content, encoding="utf-8")
         return f"Wrote file: {target}"

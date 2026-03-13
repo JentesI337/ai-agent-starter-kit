@@ -12,12 +12,12 @@ class ConnectorRegistry:
         self._register_builtins()
 
     def _register_builtins(self) -> None:
+        from app.connectors.generic_rest_connector import GenericRestConnector
         from app.connectors.github_connector import GitHubConnector
+        from app.connectors.google_connector import GoogleConnector
         from app.connectors.jira_connector import JiraConnector
         from app.connectors.slack_connector import SlackConnector
-        from app.connectors.google_connector import GoogleConnector
         from app.connectors.x_connector import XConnector
-        from app.connectors.generic_rest_connector import GenericRestConnector
 
         self._types["github"] = GitHubConnector
         self._types["jira"] = JiraConnector

@@ -11,10 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent_runner import AgentRunner
-from app.agent_runner_types import StreamResult, ToolCall, ToolResult
-from app.reasoning.reply_shaper import ReplyShaper
+from app.agent_runner_types import StreamResult, ToolCall
 from app.quality.verification_service import VerificationService
-
+from app.reasoning.reply_shaper import ReplyShaper
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -22,15 +21,15 @@ from app.quality.verification_service import VerificationService
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="test",
-        execute_tool_fn=AsyncMock(return_value="ok"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file", "write_file", "run_command", "spawn_subrun"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "test",
+        "execute_tool_fn": AsyncMock(return_value="ok"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file", "write_file", "run_command", "spawn_subrun"}),
+    }
     defaults.update(overrides)
     runner = AgentRunner(**defaults)
     runner.memory.get_items.return_value = []

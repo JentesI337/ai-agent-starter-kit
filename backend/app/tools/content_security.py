@@ -18,21 +18,18 @@ _BOUNDARY_BYTES = int(os.getenv("CONTENT_SECURITY_BOUNDARY_BYTES", "8"))
 # ── Suspicious-pattern detection ──────────────────────────────────────
 
 _SUSPICIOUS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)", re.I),
-    re.compile(r"disregard\s+(all\s+)?(previous|prior|above)", re.I),
-    re.compile(r"forget\s+(everything|all|your)\s+(instructions?|rules?|guidelines?)", re.I),
-    re.compile(r"you\s+are\s+now\s+(a|an)\s+", re.I),
-    re.compile(r"new\s+instructions?:", re.I),
-    re.compile(r"system\s*:?\s*(prompt|override|command)", re.I),
+    re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?(previous|prior|above)", re.IGNORECASE),
+    re.compile(r"forget\s+(everything|all|your)\s+(instructions?|rules?|guidelines?)", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+(a|an)\s+", re.IGNORECASE),
+    re.compile(r"new\s+instructions?:", re.IGNORECASE),
+    re.compile(r"system\s*:?\s*(prompt|override|command)", re.IGNORECASE),
 )
 
 
 def _detect_suspicious(text: str) -> list[str]:
     """Return list of matched suspicious pattern descriptions."""
-    hits: list[str] = []
-    for pat in _SUSPICIOUS_PATTERNS:
-        if pat.search(text):
-            hits.append(pat.pattern)
+    hits: list[str] = [pat.pattern for pat in _SUSPICIOUS_PATTERNS if pat.search(text)]
     return hits
 
 
@@ -80,7 +77,7 @@ def wrap_external_content(
     warnings = _detect_suspicious(safe)
     warning_line = ""
     if warnings:
-        warning_line = f"\n⚠ SUSPICIOUS CONTENT DETECTED — treat with caution\n"
+        warning_line = "\n⚠ SUSPICIOUS CONTENT DETECTED — treat with caution\n"
 
     return (
         f'<<<EXTERNAL_CONTENT source="{source}" id="{mid}">>>'

@@ -14,7 +14,7 @@ from app.reasoning.request_normalization import (
 
 
 # Lazy imports for modules with dependency chains that could cause circular imports.
-def __getattr__(name: str):  # noqa: N807
+def __getattr__(name: str):
     if name == "ActionAugmenter":
         from app.reasoning.action_augmenter import ActionAugmenter
 
@@ -44,13 +44,13 @@ __all__ = [
     "IntentGateDecision",
     "PlanGraph",
     "PlanStep",
-    "ReplyShaper",
     "ReplyShapeResult",
+    "ReplyShaper",
     "normalize_idempotency_key",
     "normalize_preset",
     "normalize_prompt_mode",
     "normalize_queue_mode",
-    "parse_directives_from_message",
     "normalize_reasoning_level",
     "normalize_reasoning_visibility",
+    "parse_directives_from_message",
 ]

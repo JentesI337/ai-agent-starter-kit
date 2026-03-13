@@ -8,16 +8,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.app_state import LazyObjectProxy
 from app.config import settings
-from app.transport.routers import agents as agent_handlers
-from app.transport.routers import policies as policy_handlers
-from app.transport.routers import runs as run_handlers
-from app.transport.routers import sessions as session_handlers
-from app.transport.routers import skills as skills_handlers
-from app.transport.routers import tools as tools_handlers
-from app.workflows import handlers as workflow_handlers
-from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.shared.control_fingerprints import (
     build_run_start_fingerprint as _build_run_start_fingerprint,
     build_session_patch_fingerprint as _build_session_patch_fingerprint,
@@ -25,6 +18,14 @@ from app.shared.control_fingerprints import (
     build_workflow_create_fingerprint as _build_workflow_create_fingerprint,
     build_workflow_delete_fingerprint as _build_workflow_delete_fingerprint,
     build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
+)
+from app.transport.routers import (
+    agents as agent_handlers,
+    policies as policy_handlers,
+    runs as run_handlers,
+    sessions as session_handlers,
+    skills as skills_handlers,
+    tools as tools_handlers,
 )
 from app.transport.runtime_wiring import (
     _effective_orchestrator_agent_ids,
@@ -37,18 +38,18 @@ from app.transport.runtime_wiring import (
     control_plane_state,
     custom_agent_store,
     idempotency_mgr,
-    orchestrator_registry,
     policy_approval_service,
     runtime_manager,
     session_query_service,
     state_store,
 )
+from app.workflows import handlers as workflow_handlers
 
 logger = logging.getLogger("app.main")
 
 
 def _get_workflow_store_lazy():
-    from app.workflows.store import get_workflow_store, init_workflow_sqlite_stores, _wf_store as _wfs_instance
+    from app.workflows.store import _wf_store as _wfs_instance, get_workflow_store, init_workflow_sqlite_stores
     if _wfs_instance is None:
         _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
         init_workflow_sqlite_stores(db_path=_workflow_db_path)
@@ -56,7 +57,7 @@ def _get_workflow_store_lazy():
 
 
 def _get_workflow_audit_store_lazy():
-    from app.workflows.store import get_workflow_audit_store, init_workflow_sqlite_stores, _audit_store as _as_instance
+    from app.workflows.store import _audit_store as _as_instance, get_workflow_audit_store, init_workflow_sqlite_stores
     if _as_instance is None:
         _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
         init_workflow_sqlite_stores(db_path=_workflow_db_path)

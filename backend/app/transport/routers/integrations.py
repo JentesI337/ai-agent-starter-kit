@@ -14,8 +14,8 @@ from app.connectors.base import ConnectorConfig, ConnectorCredentials
 from app.connectors.connector_store import ConnectorStore
 from app.connectors.credential_store import CredentialStore
 from app.connectors.oauth2_flow import (
-    OAuth2Config,
     OAUTH2_PRESETS,
+    OAuth2Config,
     complete_flow,
     exchange_code_for_tokens,
     get_pending_flow,

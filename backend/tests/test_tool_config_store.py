@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import pytest
 
-from app.tools.registry.config_store import ToolConfigStore
 from app.tools.provisioning.command_security import (
     BUILTIN_COMMAND_SAFETY_PATTERNS,
     add_pattern,
     find_command_safety_violation,
     get_all_patterns,
 )
+from app.tools.registry.config_store import ToolConfigStore
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path):
     return ToolConfigStore(persist_path=tmp_path / "tool_configs.json")
 

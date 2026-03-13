@@ -16,5 +16,4 @@ async def handle_deps_install(request: dict[str, Any]) -> dict[str, Any]:
     package = str(request.get("package") or "").strip()
     if not package:
         return {"name": "", "success": False, "message": "package is required"}
-    result = await install_audio_dep(package)
-    return result
+    return await install_audio_dep(package)

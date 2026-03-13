@@ -5,7 +5,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import monotonic
 from uuid import uuid4
 
@@ -14,15 +14,15 @@ from app.errors import ToolExecutionError
 from app.memory.learning_loop import LearningLoop
 from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
 from app.reasoning.request_normalization import normalize_prompt_mode
-from app.tools.execution.gatekeeper import ToolCallGatekeeper, prepare_action_for_execution
-from app.tools.execution.outcome_verifier import ToolOutcomeVerifier
-from app.tools.registry.registry import ToolRegistry
-from app.tools.telemetry import ToolTelemetry
 from app.skills.retrieval import (
     ReliableRetrievalConfig,
     ReliableRetrievalService,
     format_retrieval_sources_for_prompt,
 )
+from app.tools.execution.gatekeeper import ToolCallGatekeeper, prepare_action_for_execution
+from app.tools.execution.outcome_verifier import ToolOutcomeVerifier
+from app.tools.registry.registry import ToolRegistry
+from app.tools.telemetry import ToolTelemetry
 
 STEER_INTERRUPTED_MARKER = "__STEER_INTERRUPTED__"
 
@@ -1267,7 +1267,7 @@ class ToolExecutionManager:
                         "durationMs": tool_elapsed_ms,
                         "exitCode": 0,
                         "blocked": False,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 )
                 await self._safe_invoke_hooks(

@@ -58,7 +58,7 @@ class DevOpsToolMixin:
                 timeout=self.command_timeout_seconds,
             )
         except FileNotFoundError:
-            raise ToolExecutionError("'git' is not installed or not on PATH.")
+            raise ToolExecutionError("'git' is not installed or not on PATH.") from None
         if result.returncode != 0 and not allow_failure:
             raise ToolExecutionError(
                 (result.stderr or result.stdout or "git command failed").strip()[:2000]
@@ -81,9 +81,9 @@ class DevOpsToolMixin:
             )
         except FileNotFoundError:
             hint = f" Install with: {install_hint}" if install_hint else ""
-            raise ToolExecutionError(f"'{argv[0]}' is not installed or not on PATH.{hint}")
+            raise ToolExecutionError(f"'{argv[0]}' is not installed or not on PATH.{hint}") from None
         except subprocess.TimeoutExpired:
-            raise ToolExecutionError(f"Command timed out after {timeout or self.command_timeout_seconds}s: {' '.join(argv[:3])}")
+            raise ToolExecutionError(f"Command timed out after {timeout or self.command_timeout_seconds}s: {' '.join(argv[:3])}") from None
         if result.returncode != 0 and not allow_failure:
             raise ToolExecutionError(
                 (result.stderr or result.stdout or f"Command failed: {' '.join(argv[:3])}").strip()[:2000]
@@ -104,7 +104,7 @@ class DevOpsToolMixin:
         max_count: str | int = 20,
         author: str | None = None,
         since: str | None = None,
-        format: str = "short",
+        format: str = "short",  # noqa: A002
     ) -> str:
         count = min(int(max_count), 100)
         fmt_map = {
@@ -211,7 +211,7 @@ class DevOpsToolMixin:
         self,
         runner: str = "auto",
         path: str | None = None,
-        filter: str | None = None,
+        filter: str | None = None,  # noqa: A002
         verbose: str | bool = False,
     ) -> str:
         verbose = str(verbose).lower() in ("true", "1", "yes") if isinstance(verbose, str) else verbose
@@ -228,16 +228,15 @@ class DevOpsToolMixin:
 
         if runner == "pytest":
             return self._run_pytest(path, filter, verbose)
-        elif runner == "jest":
+        if runner == "jest":
             return self._run_jest(path, filter, verbose)
-        elif runner == "go":
+        if runner == "go":
             return self._run_go_test(path, filter, verbose)
-        elif runner == "cargo":
+        if runner == "cargo":
             return self._run_cargo_test(path, filter, verbose)
-        elif runner == "mocha":
+        if runner == "mocha":
             return self._run_mocha(path, filter, verbose)
-        else:
-            raise ToolExecutionError(f"Unknown test runner: {runner}")
+        raise ToolExecutionError(f"Unknown test runner: {runner}")
 
     def _run_pytest(self, path: str | None, filter_pat: str | None, verbose: bool) -> str:
         argv = ["python", "-m", "pytest", "-q", "--tb=short", "--no-header"]
@@ -334,16 +333,15 @@ class DevOpsToolMixin:
 
         if tool == "eslint":
             return self._run_eslint(path, fix)
-        elif tool == "ruff":
+        if tool == "ruff":
             return self._run_ruff(path, fix)
-        elif tool in ("mypy", "pyright"):
+        if tool in ("mypy", "pyright"):
             return self._run_mypy(path, tool)
-        elif tool == "tsc":
+        if tool == "tsc":
             return self._run_tsc(path)
-        elif tool == "flake8":
+        if tool == "flake8":
             return self._run_flake8(path)
-        else:
-            raise ToolExecutionError(f"Unknown linter: {tool}")
+        raise ToolExecutionError(f"Unknown linter: {tool}")
 
     def _run_eslint(self, path: str | None, fix: bool) -> str:
         argv = ["npx", "eslint", "--format", "json"]
@@ -351,7 +349,7 @@ class DevOpsToolMixin:
             argv.append("--fix")
         argv.append(path or ".")
 
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60, install_hint="npm install --save-dev eslint",
         )
         diagnostics = parse_eslint_json(stdout)
@@ -370,7 +368,7 @@ class DevOpsToolMixin:
             argv.append("--fix")
         argv.append(path or ".")
 
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60, install_hint="pip install ruff",
         )
         diagnostics = parse_ruff_json(stdout)
@@ -387,7 +385,7 @@ class DevOpsToolMixin:
         argv = [tool_name]
         argv.append(path or ".")
 
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=120, install_hint=f"pip install {tool_name}",
         )
         diagnostics = parse_mypy_json(stdout)
@@ -405,7 +403,7 @@ class DevOpsToolMixin:
         if path:
             argv.extend(["--project", path])
 
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60, install_hint="npm install --save-dev typescript",
         )
         diagnostics = parse_tsc_output(stdout + stderr)
@@ -420,7 +418,7 @@ class DevOpsToolMixin:
 
     def _run_flake8(self, path: str | None) -> str:
         argv = ["flake8", path or "."]
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60, install_hint="pip install flake8",
         )
         # flake8 output format: file:line:col: code message
@@ -473,7 +471,7 @@ class DevOpsToolMixin:
                     pass
             return self._truncate(f"exit_code: {rc}\n\n{stdout}\n{stderr}".strip())
 
-        elif runner == "jest":
+        if runner == "jest":
             argv = ["npx", "jest", "--coverage", "--coverageReporters=json-summary"]
             if path:
                 argv.append(path)
@@ -539,16 +537,15 @@ class DevOpsToolMixin:
 
         if manager in ("npm", "yarn", "pnpm"):
             return self._npm_audit(severity)
-        elif manager in ("pip", "pipenv"):
+        if manager in ("pip", "pipenv"):
             return self._pip_audit(severity)
-        else:
-            return f"Audit not supported for: {manager}. Use run_command instead."
+        return f"Audit not supported for: {manager}. Use run_command instead."
 
     def _npm_audit(self, severity: str) -> str:
         argv = ["npm", "audit", "--json"]
         if severity in ("high", "critical"):
             argv.extend(["--audit-level", severity])
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60,
         )
         vulns = parse_npm_audit_json(stdout)
@@ -564,7 +561,7 @@ class DevOpsToolMixin:
 
     def _pip_audit(self, severity: str) -> str:
         argv = ["pip-audit", "--format", "json"]
-        stdout, stderr, rc = self._run_subprocess(
+        stdout, _stderr, _rc = self._run_subprocess(
             argv, allow_failure=True, timeout=60, install_hint="pip install pip-audit",
         )
         vulns = parse_pip_audit_json(stdout)
@@ -581,7 +578,7 @@ class DevOpsToolMixin:
 
         if manager in ("npm", "yarn", "pnpm"):
             argv = ["npm", "outdated", "--json"]
-            stdout, stderr, rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
+            stdout, stderr, _rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
             try:
                 data = json.loads(stdout)
                 packages = []
@@ -598,7 +595,7 @@ class DevOpsToolMixin:
 
         elif manager in ("pip", "pipenv"):
             argv = ["pip", "list", "--outdated", "--format", "json"]
-            stdout, stderr, rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
+            stdout, stderr, _rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
             try:
                 data = json.loads(stdout)
                 packages = [
@@ -620,27 +617,26 @@ class DevOpsToolMixin:
             argv = ["npm", "ls", "--all"]
             if package:
                 argv.append(package)
-            stdout, stderr, rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
+            stdout, _stderr, _rc = self._run_subprocess(argv, allow_failure=True, timeout=60)
             return self._truncate(stdout.strip())
 
-        elif manager in ("pip", "pipenv"):
+        if manager in ("pip", "pipenv"):
             argv = ["pip", "show"]
             if package:
                 argv.append(package)
-                stdout, stderr, rc = self._run_subprocess(argv, allow_failure=True, timeout=30)
+                stdout, _stderr, _rc = self._run_subprocess(argv, allow_failure=True, timeout=30)
                 return self._truncate(stdout.strip())
-            else:
-                # pipdeptree if available, else pip list
-                try:
-                    stdout, stderr, rc = self._run_subprocess(
-                        ["pipdeptree"], allow_failure=True, timeout=30,
-                    )
-                    return self._truncate(stdout.strip())
-                except ToolExecutionError:
-                    stdout, stderr, rc = self._run_subprocess(
-                        ["pip", "list"], allow_failure=True, timeout=30,
-                    )
-                    return self._truncate(stdout.strip())
+            # pipdeptree if available, else pip list
+            try:
+                stdout, _stderr, _rc = self._run_subprocess(
+                    ["pipdeptree"], allow_failure=True, timeout=30,
+                )
+                return self._truncate(stdout.strip())
+            except ToolExecutionError:
+                stdout, _stderr, _rc = self._run_subprocess(
+                    ["pip", "list"], allow_failure=True, timeout=30,
+                )
+                return self._truncate(stdout.strip())
 
         return f"Dependency tree not supported for: {manager}. Use run_command instead."
 
@@ -674,7 +670,7 @@ class DevOpsToolMixin:
 
         if tool == "builtin":
             return self._builtin_secrets_scan(scan_path)
-        elif tool == "gitleaks":
+        if tool == "gitleaks":
             stdout, stderr, rc = self._run_subprocess(
                 ["gitleaks", "detect", "--source", scan_path, "--report-format", "json", "--no-git"],
                 allow_failure=True, timeout=120, install_hint="brew install gitleaks",
@@ -736,19 +732,15 @@ class DevOpsToolMixin:
             # Try to detect: bandit for Python, semgrep for general
             pyproject = self.workspace_root / "pyproject.toml"
             req = self.workspace_root / "requirements.txt"
-            if pyproject.exists() or req.exists():
-                tool = "bandit"
-            else:
-                tool = "semgrep"
+            tool = "bandit" if pyproject.exists() or req.exists() else "semgrep"
 
         if tool == "bandit":
             argv = ["bandit", "-r", "-f", "json"]
             if severity:
-                sev_map = {"low": "l", "medium": "m", "high": "h"}
                 argv.extend(["-ll" if severity == "high" else "-l"])
             argv.append(scan_path)
 
-            stdout, stderr, rc = self._run_subprocess(
+            stdout, stderr, _rc = self._run_subprocess(
                 argv, allow_failure=True, timeout=120, install_hint="pip install bandit",
             )
             try:
@@ -775,7 +767,7 @@ class DevOpsToolMixin:
 
         elif tool == "semgrep":
             argv = ["semgrep", "--json", "--config", "auto", scan_path]
-            stdout, stderr, rc = self._run_subprocess(
+            stdout, stderr, _rc = self._run_subprocess(
                 argv, allow_failure=True, timeout=180, install_hint="pip install semgrep",
             )
             try:

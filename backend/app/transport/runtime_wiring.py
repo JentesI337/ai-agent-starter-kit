@@ -14,25 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from app.agent import HeadAgent
-from app.agent.store import UnifiedAgentStore
-from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.agent.adapter import UnifiedAgentAdapter
-from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
-from app.config import settings, validate_environment_config
-from app.config_service import init_config_service
-from app.connectors.connector_store import get_connector_store, init_connector_store
-from app.connectors.credential_store import get_credential_store, init_credential_store
-from app.connectors.registry import ConnectorRegistry
-from app.transport.routers import integrations as integration_handlers
-from app.contracts.agent_contract import AgentContract
-from app.errors import GuardrailViolation, PolicyApprovalCancelledError
-from app.contracts import OrchestratorApi
-from app.orchestration.events import build_lifecycle_event
-from app.orchestration.subrun_lane import SubrunLane
-from app.runtime_manager import RuntimeManager
-from app.policy.approval_service import PolicyApprovalService
-from app.session.query_service import SessionQueryService
-from app.policy.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
+from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.agent.resolution import (
     capability_route_agent,
     effective_orchestrator_agent_ids as _effective_orchestrator_agent_ids_impl,
@@ -41,14 +24,31 @@ from app.agent.resolution import (
     resolve_agent as _resolve_agent_impl,
     sync_custom_agents as _sync_custom_agents_impl,
 )
-from app.policy.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
-from app.shared.idempotency.manager import IdempotencyManager
-from app.sandbox.repl_session_manager import ReplSessionManager
+from app.agent.store import UnifiedAgentStore
+from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.browser.pool import BrowserPool
+from app.config import settings, validate_environment_config
+from app.config_service import init_config_service
+from app.connectors.connector_store import get_connector_store, init_connector_store
+from app.connectors.credential_store import get_credential_store, init_credential_store
+from app.connectors.registry import ConnectorRegistry
+from app.contracts import OrchestratorApi
+from app.contracts.agent_contract import AgentContract
+from app.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.llm.health_tracker import ModelHealthTracker
+from app.orchestration.events import build_lifecycle_event
+from app.orchestration.subrun_lane import SubrunLane
+from app.policy.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
+from app.policy.approval_service import PolicyApprovalService
+from app.policy.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
+from app.runtime_manager import RuntimeManager
+from app.sandbox.repl_session_manager import ReplSessionManager
+from app.session.query_service import SessionQueryService
+from app.shared.idempotency.manager import IdempotencyManager
 from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
 from app.state import SqliteStateStore, StateStore
 from app.tools.registry.config_store import init_tool_config_store
+from app.transport.routers import integrations as integration_handlers
 
 logger = logging.getLogger("app.main")
 
@@ -187,7 +187,7 @@ def _shutdown_sequence() -> None:
         try:
             loop = _aio.get_event_loop()
             if loop.is_running():
-                loop.create_task(_repl_session_manager.shutdown_all())
+                loop.create_task(_repl_session_manager.shutdown_all())  # noqa: RUF006
             else:
                 loop.run_until_complete(_repl_session_manager.shutdown_all())
         except Exception:
@@ -198,7 +198,7 @@ def _shutdown_sequence() -> None:
         try:
             loop = _aio2.get_event_loop()
             if loop.is_running():
-                loop.create_task(_browser_pool.shutdown())
+                loop.create_task(_browser_pool.shutdown())  # noqa: RUF006
             else:
                 loop.run_until_complete(_browser_pool.shutdown())
         except Exception:
@@ -320,8 +320,8 @@ _browser_pool: BrowserPool | None = None
 
 
 def _initialize_runtime_components(components: RuntimeComponents) -> None:
-    global _repl_session_manager  # noqa: PLW0603
-    global _browser_pool  # noqa: PLW0603
+    global _repl_session_manager
+    global _browser_pool
 
     _sync_custom_agents(components)
 
@@ -831,4 +831,4 @@ def _looks_like_review_request(message: str) -> bool:
 
 
 # Re-export for backward compat (used by test_main_startup_config_validation via monkeypatch)
-looks_like_coding_request = looks_like_coding_request
+looks_like_coding_request = looks_like_coding_request  # noqa: PLW0127

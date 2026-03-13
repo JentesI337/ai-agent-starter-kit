@@ -291,10 +291,7 @@ class CustomAgentStoreCompat:
         data = _compat_request_to_dict(request, id_factory)
         agent_id = data.get("agent_id", "")
         existing = self._store.get(agent_id)
-        if existing is not None:
-            record = self._store.update(agent_id, data)
-        else:
-            record = self._store.create(data)
+        record = self._store.update(agent_id, data) if existing is not None else self._store.create(data)
         return _record_to_compat(record)
 
     def delete(self, agent_id: str) -> bool:
@@ -373,7 +370,7 @@ def _compat_request_to_dict(request, id_factory=None) -> dict[str, Any]:
     additional_allow = [s.strip() for s in (tp.get("allow") or []) if isinstance(s, str) and s.strip()] if isinstance(tp, dict) else []
     additional_deny = [s.strip() for s in (tp.get("deny") or []) if isinstance(s, str) and s.strip()] if isinstance(tp, dict) else []
 
-    base_agent_id = (getattr(request, "base_agent_id", None) or "head-agent").strip().lower()
+    (getattr(request, "base_agent_id", None) or "head-agent").strip().lower()
 
     return {
         "agent_id": agent_id,

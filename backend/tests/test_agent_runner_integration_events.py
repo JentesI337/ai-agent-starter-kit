@@ -5,9 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_runner import AgentRunner, build_unified_system_prompt
+from app.agent_runner import AgentRunner
 from app.agent_runner_types import StreamResult, ToolCall
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -15,15 +14,15 @@ from app.agent_runner_types import StreamResult, ToolCall
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="You are a test agent.",
-        execute_tool_fn=AsyncMock(return_value="ok"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "You are a test agent.",
+        "execute_tool_fn": AsyncMock(return_value="ok"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file"}),
+    }
     defaults.update(overrides)
     runner = AgentRunner(**defaults)
     runner.memory.get_items.return_value = []
@@ -46,15 +45,12 @@ class TestTokenEventCompatibility:
     async def test_stream_emits_token_type(self):
         """Streaming chunks emit {type: 'token', token: ...} not 'stream'."""
         runner = _make_runner()
-        captured_chunks: list[str] = []
 
         async def on_chunk(chunk_text: str):
             """LlmClient calls on_text_chunk with each chunk."""
-            pass
 
         # Capture send_event calls
         send = AsyncMock()
-        chunks_sent = []
 
         async def fake_stream(*, messages, tools, model, on_text_chunk):
             if on_text_chunk:

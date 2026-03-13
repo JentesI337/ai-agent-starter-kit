@@ -7,10 +7,10 @@ import re
 import time
 from typing import Any
 
-from app.connectors.base import ConnectorConfig, ConnectorCredentials
+from app.connectors.base import ConnectorConfig
 from app.connectors.connector_store import ConnectorStore
 from app.connectors.credential_store import CredentialStore
-from app.connectors.oauth2_flow import OAuth2Config, OAUTH2_PRESETS, refresh_oauth2_token
+from app.connectors.oauth2_flow import OAUTH2_PRESETS, OAuth2Config, refresh_oauth2_token
 from app.connectors.registry import ConnectorRegistry
 from app.content_security import wrap_external_content
 from app.policy.rate_limiter import RateLimiter, RateLimiterConfig
@@ -110,23 +110,22 @@ class ApiConnectorToolMixin:
         credentials = self._credential_store.retrieve(connector)
 
         # Check token expiry
-        if credentials and credentials.expires_at:
-            if time.time() > credentials.expires_at:
-                if config.auto_refresh_token and credentials.refresh_token:
-                    try:
-                        preset = OAUTH2_PRESETS.get(config.connector_type, {})
-                        if preset and config.oauth2_client_id:
-                            oauth_cfg = OAuth2Config(
-                                client_id=config.oauth2_client_id,
-                                scopes=config.oauth2_scopes,
-                                **preset,
-                            )
-                            credentials = await refresh_oauth2_token(oauth_cfg, credentials)
-                            self._credential_store.store(connector, credentials)
-                    except Exception as exc:
-                        return f"Error: Token refresh failed: {exc}"
-                else:
-                    return "Error: Access token has expired. Re-authenticate from the Integrations page."
+        if credentials and credentials.expires_at and time.time() > credentials.expires_at:
+            if config.auto_refresh_token and credentials.refresh_token:
+                try:
+                    preset = OAUTH2_PRESETS.get(config.connector_type, {})
+                    if preset and config.oauth2_client_id:
+                        oauth_cfg = OAuth2Config(
+                            client_id=config.oauth2_client_id,
+                            scopes=config.oauth2_scopes,
+                            **preset,
+                        )
+                        credentials = await refresh_oauth2_token(oauth_cfg, credentials)
+                        self._credential_store.store(connector, credentials)
+                except Exception as exc:
+                    return f"Error: Token refresh failed: {exc}"
+            else:
+                return "Error: Access token has expired. Re-authenticate from the Integrations page."
 
         # Create and call connector
         try:

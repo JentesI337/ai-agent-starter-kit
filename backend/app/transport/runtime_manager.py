@@ -219,13 +219,13 @@ class RuntimeManager:
             env = os.environ.copy()
             env["OLLAMA_HOST"] = f"127.0.0.1:{port}"
             if os.name == "nt":
-                self._gateway_process = subprocess.Popen(
+                self._gateway_process = subprocess.Popen(  # noqa: S603
                     [self._ollama_cmd, "serve"],
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                     env=env,
                 )
             else:
-                self._gateway_process = subprocess.Popen(
+                self._gateway_process = subprocess.Popen(  # noqa: S603
                     [self._ollama_cmd, "serve"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

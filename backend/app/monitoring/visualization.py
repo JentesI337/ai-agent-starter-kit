@@ -73,8 +73,7 @@ def sanitize_mermaid_labels(code: str) -> str:
     this.  Already-quoted labels are left unchanged.
     """
     code = _UNQUOTED_RECT_LABEL.sub(r'\1["\2"]', code)
-    code = _UNQUOTED_DIAMOND_LABEL.sub(r'\1{"\2"}', code)
-    return code
+    return _UNQUOTED_DIAMOND_LABEL.sub(r'\1{"\2"}', code)
 
 
 def validate_mermaid_node_count(mermaid_code: str, max_nodes: int = 500) -> None:
@@ -113,8 +112,10 @@ def plan_tracker_to_mermaid(tracker: PlanTracker) -> str:
         lines.append(f'  s{step.index}["{step.index + 1}. {label}"]{cls_suffix}')
 
     # Sequential edges
-    for i in range(len(tracker.steps) - 1):
-        lines.append(f"  s{tracker.steps[i].index} --> s{tracker.steps[i + 1].index}")
+    lines.extend(
+        f"  s{tracker.steps[i].index} --> s{tracker.steps[i + 1].index}"
+        for i in range(len(tracker.steps) - 1)
+    )
 
     lines.append(f"  {_CLASS_DEFS}")
     return "\n".join(lines)
@@ -139,9 +140,11 @@ def plan_graph_to_mermaid(graph: PlanGraph) -> str:
         lines.append(f'  {step.step_id}["{label}"]{cls_suffix}')
 
     # Dependency edges (true DAG)
-    for step in graph.steps:
-        for dep in step.depends_on:
-            lines.append(f"  {dep} --> {step.step_id}")
+    lines.extend(
+        f"  {dep} --> {step.step_id}"
+        for step in graph.steps
+        for dep in step.depends_on
+    )
 
     # Fallback: sequential edges for steps with no dependencies (except the first)
     step_ids_with_deps = {s.step_id for s in graph.steps if s.depends_on}

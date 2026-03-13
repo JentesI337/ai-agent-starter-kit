@@ -5,13 +5,12 @@ import base64
 import json
 import logging
 import mimetypes
-from pathlib import Path
 
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.media.pdf_service import PdfService
 from app.media.audio_service import AudioService
 from app.media.image_gen_service import ImageGenService
+from app.media.pdf_service import PdfService
 from app.media.vision_service import VisionService
 
 logger = logging.getLogger(__name__)

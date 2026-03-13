@@ -12,7 +12,7 @@ import httpx
 from app.config import settings
 from app.content_security import wrap_external_content
 from app.errors import ToolExecutionError
-from app.tools.implementations.web_search import WebSearchService, WebSearchResult, WebSearchResponse
+from app.tools.implementations.web_search import WebSearchResponse, WebSearchResult, WebSearchService
 from app.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,
@@ -24,10 +24,10 @@ from app.url_validator import (
 
 # Re-export for backward compat
 __all__ = [
-    "WebToolMixin",
-    "WebSearchService",
-    "WebSearchResult",
     "WebSearchResponse",
+    "WebSearchResult",
+    "WebSearchService",
+    "WebToolMixin",
 ]
 
 

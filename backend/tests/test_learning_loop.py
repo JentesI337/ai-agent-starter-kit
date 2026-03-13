@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from app.memory.adaptive_selector import AdaptiveToolSelector
-from app.quality.execution_pattern_detector import ExecutionPatternDetector
 from app.memory.learning_loop import LearningLoop
+from app.quality.execution_pattern_detector import ExecutionPatternDetector
 from app.tools.discovery.knowledge_base import ToolKnowledgeBase
 
 

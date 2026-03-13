@@ -16,8 +16,8 @@ from app.tools.provisioning.package_manager_adapter import (
 from app.tools.provisioning.provisioner import AuditEntry, ProvisionResult, ToolProvisioner
 
 __all__ = [
-    "AuditEntry",
     "BUILTIN_COMMAND_SAFETY_PATTERNS",
+    "AuditEntry",
     "BudgetConfig",
     "PackageCandidate",
     "PackageManagerAdapter",
@@ -47,7 +47,7 @@ _POLICY_SERVICE_NAMES = {
     "resolve_tool_policy_with_preset",
 }
 
-__all__ += sorted(_POLICY_SERVICE_NAMES)
+__all__ += sorted(_POLICY_SERVICE_NAMES)  # noqa: PLE0605
 
 
 def __getattr__(name: str):

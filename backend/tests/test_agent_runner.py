@@ -1,14 +1,12 @@
 """Unit tests for AgentRunner — continuous streaming tool loop."""
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.agent_runner import AgentRunner, build_unified_system_prompt
-from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
-
+from app.agent_runner_types import LoopState, StreamResult, ToolCall
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -17,15 +15,15 @@ from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
 
 def _make_runner(**overrides) -> AgentRunner:
     """Create an AgentRunner with all required dependencies mocked."""
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="You are a test agent.",
-        execute_tool_fn=AsyncMock(return_value="tool result"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file", "run_command"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "You are a test agent.",
+        "execute_tool_fn": AsyncMock(return_value="tool result"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file", "run_command"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 
@@ -195,7 +193,7 @@ class TestCompactMessages:
         ]
         result = runner._compact_messages(msgs)
         # Tool result in the old section should be truncated
-        tool_msg = [m for m in result if m["role"] == "tool"][0]
+        tool_msg = next(m for m in result if m["role"] == "tool")
         assert len(tool_msg["content"]) < len(long_content)
         assert "(truncated)" in tool_msg["content"]
 

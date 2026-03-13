@@ -5,7 +5,6 @@ import asyncio
 import io
 import json
 import logging
-import subprocess
 import wave
 from pathlib import Path
 
@@ -106,13 +105,14 @@ class AudioService:
             response.raise_for_status()
             data = response.json()
 
-        segments = []
-        for seg in data.get("segments", []):
-            segments.append({
+        segments = [
+            {
                 "start": float(seg.get("start", 0)),
                 "end": float(seg.get("end", 0)),
                 "text": str(seg.get("text", "")),
-            })
+            }
+            for seg in data.get("segments", [])
+        ]
 
         return {
             "text": str(data.get("text", "")),
@@ -136,13 +136,14 @@ class AudioService:
 
         data = json.loads(json_path.read_text(encoding="utf-8"))
 
-        segments = []
-        for seg in data.get("segments", []):
-            segments.append({
+        segments = [
+            {
                 "start": float(seg.get("start", 0)),
                 "end": float(seg.get("end", 0)),
                 "text": str(seg.get("text", "")),
-            })
+            }
+            for seg in data.get("segments", [])
+        ]
 
         return {
             "text": str(data.get("text", "")),
@@ -172,7 +173,7 @@ class AudioService:
         # Try piper first
         try:
             return await self._synthesize_piper(text)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Piper TTS failed: %s — trying espeak fallback", exc)
 
         # Fallback to espeak CLI
@@ -200,8 +201,8 @@ class AudioService:
 
     def _synthesize_piper_sync(self, text: str) -> bytes:
         """Blocking piper synthesis — runs in executor."""
-        import numpy as np  # noqa: PLC0415
-        from piper.voice import PiperVoice  # noqa: PLC0415
+        import numpy as np
+        from piper.voice import PiperVoice
 
         model_path = self._resolve_piper_model()
         piper_voice = PiperVoice.load(str(model_path))
@@ -231,7 +232,7 @@ class AudioService:
 
     def _resolve_piper_model(self) -> Path:
         """Resolve piper voice model path, downloading if necessary."""
-        import re  # noqa: PLC0415
+        import re
 
         voices_dir = _get_piper_voices_dir()
 
@@ -247,7 +248,7 @@ class AudioService:
         # Auto-download the voice model
         logger.info("Downloading piper voice model: %s", voice_name)
         try:
-            from piper.download_voices import download_voice  # noqa: PLC0415
+            from piper.download_voices import download_voice
             download_voice(voice_name, voices_dir)
         except Exception as exc:
             raise ValueError(

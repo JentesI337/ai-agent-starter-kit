@@ -3,6 +3,7 @@
 Proxy package: propagates attribute sets (e.g. from unittest.mock.patch)
 to app.agent.head_agent so that patch("app.agent.settings") works.
 """
+import contextlib
 import sys
 import types
 
@@ -37,21 +38,19 @@ class _AgentPackage(types.ModuleType):
             # Propagate to head_agent so the actual code sees the change
             try:
                 ha = self._ensure_head_agent()
-                setattr(ha, "settings", value)
+                ha.settings = value
             except Exception:
                 pass
 
     def __delattr__(self, name):
         # mock.patch calls delattr on cleanup when the attr was not in __dict__
         # originally. Clean up the proxy and restore the real module's original.
-        try:
+        with contextlib.suppress(AttributeError):
             super().__delattr__(name)
-        except AttributeError:
-            pass
         if name in self._originals:
             try:
                 ha = self._ensure_head_agent()
-                setattr(ha, "settings", self._originals[name])
+                ha.settings = self._originals[name]
             except Exception:
                 pass
 

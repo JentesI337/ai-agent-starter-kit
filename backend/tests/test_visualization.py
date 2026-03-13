@@ -3,15 +3,13 @@
 import pytest
 
 from app.agent_runner_types import PlanStep, PlanTracker
-from app.reasoning.plan_graph import PlanGraph
-from app.reasoning.plan_graph import PlanStep as GraphStep
 from app.monitoring.visualization import (
     build_visualization_event,
     plan_graph_to_mermaid,
     plan_tracker_to_mermaid,
     validate_mermaid_node_count,
 )
-
+from app.reasoning.plan_graph import PlanGraph, PlanStep as GraphStep
 
 # ── build_visualization_event ─────────────────────────────
 

@@ -9,7 +9,6 @@ import json
 import re
 from typing import Any
 
-
 # ── Git parsers ──────────────────────────────────────────────────────
 
 _GIT_LOG_SEP = "---GIT_LOG_ENTRY---"
@@ -23,7 +22,7 @@ def parse_git_log_short(raw: str) -> list[dict[str, str]]:
     """Parse output of ``git log --format=GIT_LOG_FORMAT_SHORT``."""
     entries: list[dict[str, str]] = []
     for block in raw.split(_GIT_LOG_SEP):
-        lines = [l for l in block.strip().splitlines() if l.strip()]
+        lines = [line for line in block.strip().splitlines() if line.strip()]
         if len(lines) < 4:
             continue
         entries.append({
@@ -39,7 +38,7 @@ def parse_git_log_full(raw: str) -> list[dict[str, str]]:
     """Parse output of ``git log --format=GIT_LOG_FORMAT_FULL``."""
     entries: list[dict[str, str]] = []
     for block in raw.split(_GIT_LOG_SEP):
-        lines = [l for l in block.strip().splitlines() if l.strip()]
+        lines = [line for line in block.strip().splitlines() if line.strip()]
         if len(lines) < 5:
             continue
         entries.append({
@@ -131,13 +130,12 @@ def parse_pytest_output(raw: str) -> dict[str, Any]:
         if m:
             current_test = line.strip()
         # Capture assertion errors
-        if "AssertionError" in line or "assert " in line:
-            if current_test:
-                result["errors"].append({
-                    "test": current_test,
-                    "message": line.strip(),
-                })
-                current_test = ""
+        if ("AssertionError" in line or "assert " in line) and current_test:
+            result["errors"].append({
+                "test": current_test,
+                "message": line.strip(),
+            })
+            current_test = ""
     return result
 
 
@@ -177,15 +175,14 @@ def parse_eslint_json(raw: str) -> list[dict[str, Any]]:
         return diagnostics
     for file_entry in data:
         filepath = file_entry.get("filePath", "?")
-        for msg in file_entry.get("messages", []):
-            diagnostics.append({
-                "file": filepath,
-                "line": msg.get("line", 0),
-                "column": msg.get("column", 0),
-                "severity": "error" if msg.get("severity", 0) == 2 else "warning",
-                "message": msg.get("message", ""),
-                "rule": msg.get("ruleId", ""),
-            })
+        diagnostics.extend({
+            "file": filepath,
+            "line": msg.get("line", 0),
+            "column": msg.get("column", 0),
+            "severity": "error" if msg.get("severity", 0) == 2 else "warning",
+            "message": msg.get("message", ""),
+            "rule": msg.get("ruleId", ""),
+        } for msg in file_entry.get("messages", []))
     return diagnostics
 
 
@@ -356,15 +353,14 @@ def parse_pip_audit_json(raw: str) -> list[dict[str, Any]]:
         return vulns
 
     for entry in data:
-        for vuln in entry.get("vulns", []):
-            vulns.append({
-                "package": entry.get("name", "?"),
-                "version": entry.get("version", "?"),
-                "severity": vuln.get("fix_versions", ["unknown"])[0] if vuln.get("fix_versions") else "unknown",
-                "id": vuln.get("id", ""),
-                "description": vuln.get("description", "")[:200],
-                "fix_versions": vuln.get("fix_versions", []),
-            })
+        vulns.extend({
+            "package": entry.get("name", "?"),
+            "version": entry.get("version", "?"),
+            "severity": vuln.get("fix_versions", ["unknown"])[0] if vuln.get("fix_versions") else "unknown",
+            "id": vuln.get("id", ""),
+            "description": vuln.get("description", "")[:200],
+            "fix_versions": vuln.get("fix_versions", []),
+        } for vuln in entry.get("vulns", []))
     return vulns
 
 

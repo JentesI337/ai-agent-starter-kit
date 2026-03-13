@@ -8,22 +8,21 @@ import pytest
 from app.agent_runner import AgentRunner
 from app.agent_runner_types import StreamResult, ToolResult
 
-
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="test",
-        execute_tool_fn=AsyncMock(return_value="ok"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "test",
+        "execute_tool_fn": AsyncMock(return_value="ok"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 
@@ -75,7 +74,7 @@ class TestReflectionLoop:
             mock_settings.runner_tool_result_max_chars = 5000
             mock_settings.runner_reflection_max_passes = 1
 
-            result = await runner.run(
+            await runner.run(
                 user_message="Hello",
                 send_event=AsyncMock(),
                 session_id="s1",
@@ -111,7 +110,7 @@ class TestReflectionLoop:
         runner.client.stream_chat_with_tools = AsyncMock(
             return_value=StreamResult(text="OK", tool_calls=(), finish_reason="stop"),
         )
-        result = await runner.run(
+        await runner.run(
             user_message="ping",
             send_event=AsyncMock(),
             session_id="s1",

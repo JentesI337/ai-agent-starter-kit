@@ -1,7 +1,7 @@
 """Memory domain — session memory, long-term memory, failure retrieval, and learning."""
 
 from app.memory.adaptive_selector import AdaptiveToolSelector, ToolScore
-from app.memory.failure_retriever import FailureRetriever, FailureRetrievalItem
+from app.memory.failure_retriever import FailureRetrievalItem, FailureRetriever
 from app.memory.learning_loop import LearningLoop
 from app.memory.long_term import (
     EpisodicEntry,
@@ -16,8 +16,8 @@ __all__ = [
     "AdaptiveToolSelector",
     "EpisodicEntry",
     "FailureEntry",
-    "FailureRetriever",
     "FailureRetrievalItem",
+    "FailureRetriever",
     "LearningLoop",
     "LongTermMemoryStore",
     "MemoryItem",

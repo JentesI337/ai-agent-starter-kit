@@ -136,7 +136,7 @@ async def test_checkpoint_resumes_on_continue():
             await asyncio.sleep(0.1)
             agent._debug_continue_event.set()
 
-        asyncio.create_task(unblock_after_delay())
+        _task = asyncio.create_task(unblock_after_delay())  # noqa: RUF006
         await asyncio.wait_for(
             agent._debug_checkpoint("context", send_event, "req-2", "sess-2"),
             timeout=2.0,

@@ -86,6 +86,18 @@ ignore = [
     "S104",     # hardcoded-bind-all-interfaces — intentional for dev server
     "S108",     # hardcoded-temp-file — docker sandbox paths are safe
     "S311",     # pseudo-random — not used for crypto, only jitter/backoff
+    "S105",     # possible-hardcoded-password — false positives on field names like token_type
+    "SIM102",   # collapsible-if — nested ifs are often clearer with early returns
+    "SIM105",   # suppressible-exception — explicit try/except is clearer
+    "SIM117",   # multiple-with-statements — nested withs are sometimes clearer
+    "RET504",   # unnecessary-assign — explicit assign before return aids debugging
+    "RET505",   # superfluous-else-return — explicit else aids readability
+    "RET507",   # superfluous-else-continue — explicit else aids readability
+    "PLW2901",  # redefined-loop-name — idiomatic for strip/transform patterns
+    "ASYNC220", # async-subprocess-popen — blocking Popen in async is intentional
+    "ASYNC221", # async-subprocess — blocking subprocess in async is intentional (short calls)
+    "ASYNC230", # async-open — blocking file I/O in async is intentional (small files)
+    "ASYNC240", # async-pathlib — blocking pathlib in async is intentional (small checks)
 ]
 
 # Auto-fixable categories
@@ -95,12 +107,15 @@ unfixable = []
 # Allow __all__ and __init__ unused imports
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
-"tests/**/*.py" = ["S101", "S106", "S108", "PLR2004", "T201"]
+"tests/**/*.py" = ["S101", "S106", "S108", "PLR2004", "T201", "S306"]
 # Subprocess wrappers have their own security controls
 "app/tools.py" = ["S603", "S607", "PLW1510"]
-"app/runtime_manager.py" = ["S603", "ASYNC220"]
+"app/tools/implementations/shell.py" = ["S603", "S607", "PLW1510"]
+"app/tools/implementations/devops.py" = ["S603", "S607", "PLW1510"]
+"app/media/audio_deps.py" = ["S603", "PLW1510"]
 # SQL uses parameterized queries despite dynamic WHERE clauses
-"app/services/long_term_memory.py" = ["S608"]
+"app/memory/long_term.py" = ["S608"]
+"app/workflows/store.py" = ["S608"]
 
 # isort config
 [tool.ruff.lint.isort]

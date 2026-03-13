@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Header, HTTPException
 
 from app.config import settings
+from app.contracts import RequestContext
 from app.control_models import (
     ControlRunsAuditRequest,
     ControlRunsEventsRequest,
@@ -21,7 +22,6 @@ from app.control_models import (
     ControlRunWaitRequest,
 )
 from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
-from app.contracts import RequestContext
 from app.orchestration.events import build_lifecycle_event
 from app.orchestration.run_state_machine import (
     build_run_state_event,

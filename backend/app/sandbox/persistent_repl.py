@@ -13,7 +13,6 @@ import platform
 import shutil
 import tempfile
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -298,7 +297,7 @@ class PersistentRepl:
                     self._send_and_receive(code),
                     timeout=self.timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 duration_ms = int((time.monotonic() - t0) * 1000)
                 await self._kill_proc()
                 return ReplResult(
@@ -341,9 +340,9 @@ class PersistentRepl:
         import json as _json
         import struct
 
-        assert self._proc is not None  # noqa: S101
-        assert self._proc.stdin is not None  # noqa: S101
-        assert self._proc.stdout is not None  # noqa: S101
+        assert self._proc is not None
+        assert self._proc.stdin is not None
+        assert self._proc.stdout is not None
 
         payload = code.encode("utf-8")
         header = struct.pack(">I", len(payload))
@@ -370,7 +369,7 @@ class PersistentRepl:
             proc.terminate()
             try:
                 await asyncio.wait_for(proc.wait(), timeout=3)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await asyncio.wait_for(proc.wait(), timeout=2)
         except ProcessLookupError:

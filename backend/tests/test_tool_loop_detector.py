@@ -1,9 +1,10 @@
 """Tests for ToolLoopDetector (Sprint R4)."""
-from app.tools.execution.loop_detector import LoopDetectionConfig, LoopDetectionState, ToolLoopDetector
 import pytest
 
+from app.tools.execution.loop_detector import LoopDetectionConfig, LoopDetectionState, ToolLoopDetector
 
-@pytest.fixture()
+
+@pytest.fixture
 def detector():
     return ToolLoopDetector(LoopDetectionConfig())
 
@@ -37,6 +38,6 @@ class TestPingPong:
 class TestCircuitBreaker:
     def test_circuit_breaks_after_threshold(self, detector):
         state = LoopDetectionState()
-        for i in range(20):
+        for _i in range(20):
             detector.check(state, "read_file", "fp1")
         assert state.circuit_broken

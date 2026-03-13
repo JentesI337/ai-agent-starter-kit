@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
+import importlib.util
 import json
 import platform
+
 import pytest
 
-from app.sandbox.persistent_repl import PersistentRepl, ReplResult
+from app.sandbox.persistent_repl import PersistentRepl
 from app.sandbox.repl_session_manager import ReplSessionManager
 
-_has_pandas = False
-try:
-    import pandas
-    _has_pandas = True
-except ImportError:
-    pass
+_has_pandas = importlib.util.find_spec("pandas") is not None
 
 
 # ---------------------------------------------------------------------------

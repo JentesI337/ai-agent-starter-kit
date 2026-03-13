@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 
 from app.errors import ToolExecutionError
 
@@ -43,8 +42,8 @@ class WorkflowToolMixin:
         steps = [line for line in raw_lines if line]
 
         try:
-            from app.workflows import handlers as workflow_handlers
             from app.control_models import ControlWorkflowsCreateRequest
+            from app.workflows import handlers as workflow_handlers
 
             request = ControlWorkflowsCreateRequest(
                 name=name,

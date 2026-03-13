@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from app.transport.routers.agents import (
+    build_control_agent_config_router,
+)
 from app.transport.routers.config import (
     build_control_config_router,
     build_control_execution_config_router,
-)
-from app.transport.routers.agents import (
-    build_control_agent_config_router,
 )
 from app.transport.routers.integrations import (
     build_control_integrations_router,
@@ -260,14 +260,14 @@ def include_all_routers(
     # R5: Integrations router
     if integrations_connectors_list_handler is not None:
         from app.transport.routers.integrations import (
-            handle_connectors_list,
-            handle_connectors_get,
             handle_connectors_create,
-            handle_connectors_update,
             handle_connectors_delete,
+            handle_connectors_get,
+            handle_connectors_list,
             handle_connectors_test,
-            handle_oauth_start,
+            handle_connectors_update,
             handle_oauth_callback,
+            handle_oauth_start,
             handle_oauth_status,
         )
         app.include_router(

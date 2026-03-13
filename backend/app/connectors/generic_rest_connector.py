@@ -34,7 +34,7 @@ class GenericRestConnector(BaseConnector):
         body = params.pop("body", None)
         # Remaining params become query params for GET, body for others
         if http_method == "GET" and not body:
-            body = params if params else None
+            body = params or None
         elif body is None and params:
             body = params
         return http_method, url, headers, body

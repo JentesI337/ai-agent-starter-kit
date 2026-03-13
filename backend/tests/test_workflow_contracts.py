@@ -1,16 +1,9 @@
 """Tests for the workflow contracts registry and type compatibility."""
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from app.workflows.contracts import (
     NODE_CONTRACTS,
     DataType,
-    EdgeKind,
-    NodeContract,
-    PortDef,
     get_contract,
     type_compatible,
 )

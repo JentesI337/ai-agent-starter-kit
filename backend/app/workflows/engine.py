@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +65,7 @@ class WorkflowEngine:
         if existing_state is not None:
             state = existing_state
             state.status = "running"
-            state.started_at = datetime.now(timezone.utc).isoformat()
+            state.started_at = datetime.now(UTC).isoformat()
             state.context = {"input": {"message": initial_message}}
         else:
             state = WorkflowExecutionState(
@@ -73,17 +73,17 @@ class WorkflowEngine:
                 run_id=run_id,
                 session_id=session_id,
                 status="running",
-                started_at=datetime.now(timezone.utc).isoformat(),
+                started_at=datetime.now(UTC).isoformat(),
                 context={"input": {"message": initial_message}},
             )
 
-        exec_kwargs = dict(
-            graph=graph,
-            state=state,
-            run_id=run_id,
-            session_id=session_id,
-            send_event=send_event,
-        )
+        exec_kwargs = {
+            "graph": graph,
+            "state": state,
+            "run_id": run_id,
+            "session_id": session_id,
+            "send_event": send_event,
+        }
 
         if mode == "parallel":
             return await self._execute_parallel(**exec_kwargs)
@@ -112,12 +112,14 @@ class WorkflowEngine:
             s = graph.get_step(sid)
             if not s:
                 continue
-            for target in [s.next_step, s.on_true, s.on_false, s.loop_body_entry]:
-                if target and target not in reachable:
-                    visit_queue.append(target)
-            for target in (s.next_steps or []):
-                if target not in reachable:
-                    visit_queue.append(target)
+            visit_queue.extend(
+                target for target in [s.next_step, s.on_true, s.on_false, s.loop_body_entry]
+                if target and target not in reachable
+            )
+            visit_queue.extend(
+                target for target in (s.next_steps or [])
+                if target not in reachable
+            )
 
         if len(reachable) < len(graph.steps):
             logger.warning("workflow_chain_broken: %d/%d steps reachable, repairing",
@@ -178,7 +180,7 @@ class WorkflowEngine:
             state.status = "completed"
 
         state.current_step_id = None
-        state.completed_at = datetime.now(timezone.utc).isoformat()
+        state.completed_at = datetime.now(UTC).isoformat()
 
         self._write_summary_audit(state, graph)
 
@@ -255,7 +257,7 @@ class WorkflowEngine:
         has_errors = any(r.status == "error" for r in state.step_results.values())
         state.status = "failed" if has_errors else "completed"
         state.current_step_id = None
-        state.completed_at = datetime.now(timezone.utc).isoformat()
+        state.completed_at = datetime.now(UTC).isoformat()
 
         self._write_summary_audit(state, graph)
 
@@ -288,15 +290,15 @@ class WorkflowEngine:
                     session_id=session_id,
                     send_event=send_event,
                 )
-            elif step_def.type == "connector":
+            if step_def.type == "connector":
                 return await self._execute_connector_step(step_def, state)
-            elif step_def.type == "transform":
+            if step_def.type == "transform":
                 return self._execute_transform_step(step_def, state)
-            elif step_def.type == "condition":
+            if step_def.type == "condition":
                 return self._execute_condition_step(step_def, state)
-            elif step_def.type == "delay":
+            if step_def.type == "delay":
                 return await self._execute_delay_step(step_def)
-            elif step_def.type == "fork":
+            if step_def.type == "fork":
                 return await self._execute_fork_step(
                     step_def=step_def,
                     state=state,
@@ -305,15 +307,14 @@ class WorkflowEngine:
                     session_id=session_id,
                     send_event=send_event,
                 )
-            elif step_def.type == "join":
+            if step_def.type == "join":
                 return self._execute_join_step(step_def, state)
-            elif step_def.type == "loop":
+            if step_def.type == "loop":
                 return self._execute_loop_step(step_def, state)
-            elif step_def.type in ("trigger", "end"):
+            if step_def.type in ("trigger", "end"):
                 return self._execute_passthrough_step(step_def, state)
-            else:
-                return StepResult(step_id=step_def.id, status="error", error=f"Unknown step type: {step_def.type}")
-        except asyncio.TimeoutError:
+            return StepResult(step_id=step_def.id, status="error", error=f"Unknown step type: {step_def.type}")
+        except TimeoutError:
             return StepResult(step_id=step_def.id, status="timeout", error="Step timed out")
         except Exception as exc:
             logger.exception("workflow_step_error step_id=%s", step_def.id)
@@ -556,7 +557,7 @@ class WorkflowEngine:
 
         # Pass through input to all branches
         input_data = None
-        for sid, ctx in state.context.items():
+        for ctx in state.context.values():
             if isinstance(ctx, dict) and "output" in ctx:
                 input_data = ctx["output"]
 

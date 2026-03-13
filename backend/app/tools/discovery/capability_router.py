@@ -1,9 +1,7 @@
 """Extracted capability inference logic from ToolExecutionManager."""
 from __future__ import annotations
 
-import re
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.agent import HeadAgent
 
-
 # ── All-tools-failed evidence gate helpers ───────────────────────────
 
 

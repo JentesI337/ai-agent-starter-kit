@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.errors import GuardrailViolation
-from app.tools.catalog import TOOL_NAME_SET, TOOL_NAMES
+from app.tools.catalog import TOOL_NAMES
 from app.tools.policy import ToolPolicyDict
 
 PRESET_TOOL_POLICIES: dict[str, ToolPolicyDict] = {

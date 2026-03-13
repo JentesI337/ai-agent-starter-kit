@@ -145,7 +145,7 @@ def build_control_workflows_router(
                 while True:
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         yield ": keepalive\n\n"
                         continue
 
@@ -177,8 +177,8 @@ def build_control_workflows_router(
     @router.post("/api/control/workflows.templates.list")
     async def workflow_templates_list():
         """Return all available workflow templates."""
-        from pathlib import Path as _Path
         import json as _json
+        from pathlib import Path as _Path
 
         templates_dir = _Path(__file__).resolve().parent.parent.parent / "workflow_templates"
         items = []
@@ -204,8 +204,8 @@ def build_control_workflows_router(
         x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     ):
         """Create a workflow from a template."""
-        from pathlib import Path as _Path
         import json as _json
+        from pathlib import Path as _Path
 
         template_id = body.get("template_id", "")
         overrides = body.get("overrides", {})

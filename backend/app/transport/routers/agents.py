@@ -296,9 +296,9 @@ def api_agent_patch(agent_id: str, patch: dict) -> dict:
     try:
         record = store.update(normalized, patch)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}") from None
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
     deps.sync_custom_agents()
     return _record_to_api(record)
@@ -312,7 +312,7 @@ def api_agent_create(data: dict) -> dict:
     try:
         record = store.create(data)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
     deps.sync_custom_agents()
     return _record_to_api(record)
@@ -327,7 +327,7 @@ def api_agent_delete(agent_id: str) -> dict:
     try:
         deleted = store.delete(normalized)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
@@ -345,7 +345,7 @@ def api_agent_reset(agent_id: str) -> dict:
     try:
         record = store.reset(normalized)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"No factory default for agent: {agent_id}")
+        raise HTTPException(status_code=404, detail=f"No factory default for agent: {agent_id}") from None
 
     deps.sync_custom_agents()
     return _record_to_api(record)
@@ -373,7 +373,6 @@ def api_agents_list_unified() -> list[dict]:
 # === Agent config handlers (from agent_config_handlers.py) ===
 
 def _get_store():
-    from app.agent.store import UnifiedAgentStore
     from app.transport.runtime_wiring import agent_store
     return agent_store
 
@@ -381,16 +380,17 @@ def _get_store():
 def handle_agents_config_list(request: dict[str, Any]) -> dict[str, Any]:
     store = _get_store()
     records = store.list_all()
-    agents: list[dict] = []
-    for record in records:
-        agents.append({
+    agents: list[dict] = [
+        {
             "agent_id": record.agent_id,
             **record.constraints.model_dump(),
             "read_only": record.tool_policy.read_only,
             "mandatory_deny_tools": record.tool_policy.mandatory_deny,
             "additional_deny_tools": record.tool_policy.additional_deny,
             "additional_allow_tools": record.tool_policy.additional_allow,
-        })
+        }
+        for record in records
+    ]
     return {"agents": agents}
 
 

@@ -11,7 +11,7 @@ from app.session.security import (
 # Access via app.session.compaction or app.session.query_service directly.
 
 
-def __getattr__(name: str):  # noqa: N807
+def __getattr__(name: str):
     if name in (
         "CHARS_PER_TOKEN",
         "COMPACTION_SAFETY_MARGIN",

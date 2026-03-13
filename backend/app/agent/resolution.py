@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
@@ -95,13 +96,11 @@ def sync_custom_agents(
         if base_adapter is not None:
             configure = getattr(base_adapter, "_delegate", None)
             if configure is not None and hasattr(configure, "_base_url"):
-                try:
+                with contextlib.suppress(Exception):
                     delegate.configure_runtime(
                         base_url=configure._base_url,
                         model=configure._model,
                     )
-                except Exception:
-                    pass
 
         components.agent_registry[custom_id] = adapter
         components.orchestrator_registry[custom_id] = OrchestratorApi(

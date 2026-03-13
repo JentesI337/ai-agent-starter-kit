@@ -2,20 +2,14 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.agent_runner import AgentRunner
-from app.agent_runner_types import LoopState, StreamResult, ToolCall, ToolResult
+from app.agent_runner_types import LoopState, ToolResult
 from app.memory.long_term import (
-    EpisodicEntry,
     FailureEntry,
     LongTermMemoryStore,
-    SemanticEntry,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -28,15 +22,15 @@ def _make_ltm(*, fts_enabled: bool = True) -> LongTermMemoryStore:
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="You are a test agent.",
-        execute_tool_fn=AsyncMock(return_value="tool result"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file", "run_command"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "You are a test agent.",
+        "execute_tool_fn": AsyncMock(return_value="tool result"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file", "run_command"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 

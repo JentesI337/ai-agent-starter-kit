@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.errors import ToolExecutionError
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -216,8 +215,9 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
+
+            from app.transport.routers.uploads import build_uploads_router
             app = FastAPI()
             app.include_router(build_uploads_router())
             client = TestClient(app)
@@ -240,8 +240,9 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 100  # very small limit
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
+
+            from app.transport.routers.uploads import build_uploads_router
             app = FastAPI()
             app.include_router(build_uploads_router())
             client = TestClient(app)
@@ -260,8 +261,9 @@ class TestUploadEndpoint:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 
-            from app.transport.routers.uploads import build_uploads_router
             from fastapi import FastAPI
+
+            from app.transport.routers.uploads import build_uploads_router
             app = FastAPI()
             app.include_router(build_uploads_router())
             client = TestClient(app)

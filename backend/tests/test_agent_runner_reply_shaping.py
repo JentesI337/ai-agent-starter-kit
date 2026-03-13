@@ -7,9 +7,8 @@ import pytest
 
 from app.agent_runner import AgentRunner
 from app.agent_runner_types import ToolResult
-from app.reasoning.reply_shaper import ReplyShaper
 from app.quality.verification_service import VerificationService
-
+from app.reasoning.reply_shaper import ReplyShaper
 
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
@@ -17,15 +16,15 @@ from app.quality.verification_service import VerificationService
 
 
 def _make_runner(**overrides) -> AgentRunner:
-    defaults = dict(
-        client=MagicMock(),
-        memory=MagicMock(),
-        tool_registry=MagicMock(),
-        tool_execution_manager=MagicMock(),
-        system_prompt="test",
-        execute_tool_fn=AsyncMock(return_value="ok"),
-        allowed_tools_resolver=MagicMock(return_value={"read_file"}),
-    )
+    defaults = {
+        "client": MagicMock(),
+        "memory": MagicMock(),
+        "tool_registry": MagicMock(),
+        "tool_execution_manager": MagicMock(),
+        "system_prompt": "test",
+        "execute_tool_fn": AsyncMock(return_value="ok"),
+        "allowed_tools_resolver": MagicMock(return_value={"read_file"}),
+    }
     defaults.update(overrides)
     return AgentRunner(**defaults)
 
@@ -96,7 +95,7 @@ class TestReplyShaping:
 class TestVerification:
     def test_empty_text_replaced(self):
         vs = VerificationService()
-        runner = _make_runner(verification_service=vs)
+        _make_runner(verification_service=vs)
         check = vs.verify_final(user_message="test", final_text="")
         assert not check.ok
 

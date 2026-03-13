@@ -4,9 +4,9 @@ from __future__ import annotations
 import base64
 import json
 
+from app.browser.pool import BrowserPool, validate_browser_url
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.browser.pool import BrowserPool, validate_browser_url
 
 
 class BrowserToolMixin:
@@ -165,8 +165,7 @@ class BrowserToolMixin:
         parts = [f"Text content ({target}):", text]
         if links:
             parts.append("\nLinks:")
-            for link in links:
-                parts.append(f"  [{link['text']}]({link['href']})")
+            parts.extend(f"  [{link['text']}]({link['href']})" for link in links)
         if fields:
             parts.append("\nForm fields:")
             for f in fields:

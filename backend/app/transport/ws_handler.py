@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.contracts import RequestContext
 from app.errors import (
     ClientDisconnectedError,
     GuardrailViolation,
@@ -18,15 +19,14 @@ from app.errors import (
     RuntimeSwitchError,
     ToolExecutionError,
 )
-from app.contracts import RequestContext
 from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestration.events import build_lifecycle_event, classify_error
+from app.policy.rate_limiter import get_ws_rate_limiter
 from app.reasoning.directive_parser import (
     normalize_reasoning_level,
     normalize_reasoning_visibility,
     parse_directives_from_message,
 )
-from app.policy.rate_limiter import get_ws_rate_limiter
 from app.reasoning.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.session.inbox_service import SessionInboxService
 from app.session.security import validate_session_id_format

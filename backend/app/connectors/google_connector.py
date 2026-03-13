@@ -34,7 +34,7 @@ class GoogleConnector(BaseConnector):
 
         base = self.config.base_url.rstrip("/")
         url = f"{base}{path}"
-        return http_method, url, {}, params if params else None
+        return http_method, url, {}, params or None
 
     def available_methods(self) -> list[dict[str, Any]]:
         return [

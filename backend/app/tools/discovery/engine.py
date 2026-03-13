@@ -18,12 +18,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.tools.discovery.knowledge_base import ToolKnowledgeBase
 from app.tools.provisioning.package_manager_adapter import (
     PackageCandidate,
     PackageManagerAdapter,
     get_platform_adapters,
 )
-from app.tools.discovery.knowledge_base import ToolKnowledgeBase
 
 logger = logging.getLogger(__name__)
 

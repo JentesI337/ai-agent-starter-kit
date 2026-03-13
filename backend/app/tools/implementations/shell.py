@@ -5,7 +5,6 @@ import contextlib
 import re
 import shlex
 import subprocess
-import threading
 import uuid
 from pathlib import Path
 

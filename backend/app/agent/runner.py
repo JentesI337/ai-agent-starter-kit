@@ -9,23 +9,28 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-import os
 from typing import Any
 
-from app.agent.runner_types import LoopState, PlanStep, PlanTracker, StreamResult, ToolCall, ToolResult
-from app.monitoring.visualization import build_plan_progress_event, build_visualization_event, sanitize_mermaid_labels, validate_mermaid_node_count
+from app.agent.runner_types import LoopState, PlanStep, PlanTracker, ToolCall, ToolResult
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
 from app.llm_client import LlmClient
 from app.memory import MemoryStore
+from app.monitoring.visualization import (
+    build_plan_progress_event,
+    build_visualization_event,
+    sanitize_mermaid_labels,
+    validate_mermaid_node_count,
+)
 from app.session.compaction import CompactionService
+from app.tool_policy import ToolPolicyDict
 from app.tools.execution.manager import ToolExecutionManager
 from app.tools.registry.registry import ToolRegistry
-from app.tool_policy import ToolPolicyDict
 
 _IMPLEMENTATION_RE = re.compile(
     r"\b(?:implement|fix|refactor|coding|bugfix|bug\s*fix|feature)\b", re.IGNORECASE
@@ -564,11 +569,11 @@ class AgentRunner:
                     r for r in tool_results if r.tool_name in _WEB_TOOL_NAMES
                 ]
                 if web_calls_this_turn:
-                    def _is_empty_web_result(r: ToolResult) -> bool:
+                    def _is_empty_web_result(r: ToolResult, _indicators: tuple = _EMPTY_INDICATORS) -> bool:
                         if r.is_error:
                             return True
                         lower = r.content.lower()
-                        return any(ind in lower for ind in _EMPTY_INDICATORS)
+                        return any(ind in lower for ind in _indicators)
 
                     all_empty_or_error = all(
                         _is_empty_web_result(r) for r in web_calls_this_turn
@@ -652,9 +657,8 @@ class AgentRunner:
                         logger.debug("LLM compaction on overflow failed, using text fallback", exc_info=True)
                         messages = self._compact_messages(messages)
                     continue
-                else:
-                    loop_state.budget_exhausted = True
-                    break
+                loop_state.budget_exhausted = True
+                break
 
             # Unknown finish_reason → break safely
             if stream_result.text:
@@ -669,15 +673,7 @@ class AgentRunner:
         if loop_state.budget_exhausted and not final_text:
             try:
                 stream_result = await self.client.stream_chat_with_tools(
-                    messages=messages + [
-                        {
-                            "role": "user",
-                            "content": (
-                                "[SYSTEM] Please provide your final answer based on "
-                                "what you have accomplished so far."
-                            ),
-                        }
-                    ],
+                    messages=[*messages, {"role": "user", "content": "[SYSTEM] Please provide your final answer based on " "what you have accomplished so far."}],
                     tools=None,
                     model=model,
                     on_text_chunk=lambda chunk: send_event({"type": "token", "agent": self._agent_name, "token": chunk}),
@@ -728,15 +724,14 @@ class AgentRunner:
                 tool_definitions=tool_definitions,
                 effective_allowed_tools=effective_allowed_tools,
             )
-        elif self._reflection_service and settings.runner_reflection_enabled:
-            if self._emit_lifecycle:
-                await self._emit_lifecycle(
-                    send_event,
-                    stage="reflection_skipped",
-                    request_id=request_id,
-                    session_id=session_id,
-                    details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
-                )
+        elif self._reflection_service and settings.runner_reflection_enabled and self._emit_lifecycle:
+            await self._emit_lifecycle(
+                send_event,
+                stage="reflection_skipped",
+                request_id=request_id,
+                session_id=session_id,
+                details={"reason": "final_too_short", "final_chars": len((final_text or "").strip())},
+            )
 
         # Debug checkpoint: reply_shaping
         if self._debug_checkpoint_fn:
@@ -803,7 +798,7 @@ class AgentRunner:
                 except Exception:
                     logger.debug("Session distillation failed", exc_info=True)
 
-            _asyncio.create_task(_distill_bg())
+            _task = _asyncio.create_task(_distill_bg())  # noqa: RUF006
 
         if self._emit_lifecycle:
             await self._emit_lifecycle(
@@ -1182,11 +1177,7 @@ class AgentRunner:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if any(marker in stripped for marker in ("http://", "https://", "://", "##", "#")):
-                    important_lines.append(line)
-                elif re.match(r"^\d+[\.\)]\s", stripped):
-                    important_lines.append(line)
-                elif stripped.startswith(("-", "*")) and len(stripped) > 3:
+                if any(marker in stripped for marker in ("http://", "https://", "://", "##", "#")) or re.match(r"^\d+[\.\)]\s", stripped) or (stripped.startswith(("-", "*")) and len(stripped) > 3):
                     important_lines.append(line)
             if important_lines:
                 extracted = "\n".join(important_lines)
@@ -1214,9 +1205,7 @@ class AgentRunner:
                 if not stripped:
                     continue
                 lowered = stripped.lower()
-                if any(kw in lowered for kw in ("error", "exception", "warning", "fail", "traceback")):
-                    priority_lines.append(line)
-                elif re.match(r"^(def |class |function |import |from |export )", stripped):
+                if any(kw in lowered for kw in ("error", "exception", "warning", "fail", "traceback")) or re.match(r"^(def |class |function |import |from |export )", stripped):
                     priority_lines.append(line)
             head_n = 15
             tail_n = 15
@@ -1446,7 +1435,7 @@ class AgentRunner:
             else:
                 compacted.append(msg)
 
-        return [system] + compacted + keep_tail
+        return [system, *compacted, *keep_tail]
 
     # ──────────────────────────────────────────────────────────────────
     # Tool-result conversion
@@ -1854,12 +1843,11 @@ class AgentRunner:
                                 session_id=session_id,
                                 request_id=request_id,
                             )
-                            for rtr in retry_tool_results:
-                                messages.append({
+                            messages.extend({
                                     "role": "tool",
                                     "tool_call_id": rtr.tool_call_id,
                                     "content": rtr.content,
-                                })
+                                } for rtr in retry_tool_results)
                             continue
                         # Unknown finish reason
                         if stream_result.text:

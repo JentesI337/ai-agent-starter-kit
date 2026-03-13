@@ -11,33 +11,30 @@ import threading
 import uuid
 from pathlib import Path
 
+from app.browser.pool import BrowserPool
 from app.config import settings
 from app.errors import ToolExecutionError
-from app.sandbox.code_sandbox import CodeSandbox
 from app.sandbox.repl_session_manager import ReplSessionManager
-from app.browser.pool import BrowserPool
-from app.media.vision_service import VisionService
 from app.tool_catalog import TOOL_NAMES
-
+from app.tools.implementations.api_connectors import ApiConnectorToolMixin
+from app.tools.implementations.browser import BrowserToolMixin
+from app.tools.implementations.code_execution import CodeExecToolMixin
+from app.tools.implementations.devops import DevOpsToolMixin
 from app.tools.implementations.filesystem import FileSystemToolMixin
+from app.tools.implementations.multimodal import MultimodalToolMixin
 from app.tools.implementations.shell import (
-    ShellToolMixin,
     COMMAND_SAFETY_PATTERNS,
+    ShellToolMixin,
     find_command_safety_violation,
     find_semantic_command_safety_violation,
 )
 from app.tools.implementations.web import WebToolMixin
-from app.tools.implementations.browser import BrowserToolMixin
-from app.tools.implementations.code_execution import CodeExecToolMixin
-from app.tools.implementations.api_connectors import ApiConnectorToolMixin
-from app.tools.implementations.multimodal import MultimodalToolMixin
-from app.tools.implementations.devops import DevOpsToolMixin
 from app.tools.implementations.workflow import WorkflowToolMixin
 
 # Re-export for backward compat
 __all__ = [
-    "AgentTooling",
     "COMMAND_SAFETY_PATTERNS",
+    "AgentTooling",
     "find_command_safety_violation",
     "find_semantic_command_safety_violation",
 ]

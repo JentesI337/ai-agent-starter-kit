@@ -6,7 +6,7 @@ plus a list of validation warnings/errors.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Literal
 
 from app.workflows.contracts import (
@@ -102,7 +102,7 @@ def _detect_back_edges(
 ) -> set[tuple[str, str]]:
     """DFS coloring to detect back-edges."""
     WHITE, GRAY, BLACK = 0, 1, 2
-    color: dict[str, int] = {sid: WHITE for sid in all_ids}
+    color: dict[str, int] = dict.fromkeys(all_ids, WHITE)
     back_edges: set[tuple[str, str]] = set()
 
     def dfs(node: str) -> None:
@@ -138,7 +138,7 @@ def _topo_sort(
     """Kahn's algorithm on forward edges (excluding back-edges)."""
     # Adjust in-degree by removing back-edges
     adjusted_in_degree = dict(in_degree)
-    for src, dst in back_edges:
+    for _src, dst in back_edges:
         adjusted_in_degree[dst] = max(0, adjusted_in_degree.get(dst, 0) - 1)
 
     queue: deque[str] = deque()
@@ -168,9 +168,7 @@ def _topo_sort(
                 queue.append(target)
 
     # Append any remaining (unreachable) nodes
-    for sid in all_ids:
-        if sid not in visited:
-            result.append(sid)
+    result.extend(sid for sid in all_ids if sid not in visited)
 
     return result
 
@@ -189,10 +187,9 @@ def _match_fork_join_pairs(
             continue
         if step.type == "fork":
             stack.append(sid)
-        elif step.type == "join":
-            if stack:
-                fork_id = stack.pop()
-                pairs[fork_id] = sid
+        elif step.type == "join" and stack:
+            fork_id = stack.pop()
+            pairs[fork_id] = sid
             # If no fork on stack, it's an unmatched join (caught in validation)
 
     return pairs
@@ -265,25 +262,29 @@ def resolve_chain(
 
     # Check for unmatched forks
     fork_ids = {s.id for s in graph.steps if s.type == "fork"}
-    for fid in fork_ids:
-        if fid not in fork_join_pairs:
-            warnings.append(ChainValidationError(
-                step_id=fid,
-                code="unmatched_fork",
-                message=f"Fork '{fid}' has no matching join node",
-                severity="error",
-            ))
+    warnings.extend(
+        ChainValidationError(
+            step_id=fid,
+            code="unmatched_fork",
+            message=f"Fork '{fid}' has no matching join node",
+            severity="error",
+        )
+        for fid in fork_ids
+        if fid not in fork_join_pairs
+    )
 
     # Check for unmatched joins
     join_ids = {s.id for s in graph.steps if s.type == "join"}
-    for jid in join_ids:
-        if jid not in join_to_fork:
-            warnings.append(ChainValidationError(
-                step_id=jid,
-                code="unmatched_join",
-                message=f"Join '{jid}' has no matching fork node",
-                severity="warning",
-            ))
+    warnings.extend(
+        ChainValidationError(
+            step_id=jid,
+            code="unmatched_join",
+            message=f"Join '{jid}' has no matching fork node",
+            severity="warning",
+        )
+        for jid in join_ids
+        if jid not in join_to_fork
+    )
 
     # 5. Build reverse adjacency for inbound tracking
     reverse: dict[str, list[tuple[str, EdgeKind]]] = defaultdict(list)
@@ -400,7 +401,7 @@ def resolve_chain(
             continue
 
         target_type = contract.inputs[0].data_type
-        for src, kind in reverse.get(sid, []):
+        for src, _kind in reverse.get(sid, []):
             src_type = resolved_types.get(src, DataType.ANY)
             if not type_compatible(src_type, target_type):
                 warnings.append(ChainValidationError(

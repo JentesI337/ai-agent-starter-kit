@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from app.config import settings
-from app.tools.implementations.web import WebSearchResponse, WebSearchResult
 from app.tooling import AgentTooling
+from app.tools.implementations.web import WebSearchResponse, WebSearchResult
 
 
 def test_agent_tooling_web_search_formats_results(monkeypatch, tmp_path) -> None:
