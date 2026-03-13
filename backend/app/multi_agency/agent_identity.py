@@ -96,7 +96,7 @@ class AgentIdentityCard:
 
 def _build_default_identities() -> dict[str, AgentIdentityCard]:
     """Build identity cards from the factory default definitions."""
-    from app.agents.factory_defaults import FACTORY_DEFAULTS
+    from app.agent.factory_defaults import FACTORY_DEFAULTS
 
     result: dict[str, AgentIdentityCard] = {}
     for agent_id, defn in FACTORY_DEFAULTS.items():
