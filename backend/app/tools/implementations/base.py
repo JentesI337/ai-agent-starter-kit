@@ -143,7 +143,7 @@ class AgentTooling(
         name: str,
         description: str,
         steps: str | list,
-        base_agent_id: str = "head-agent",
+        base_agent_id: str | None = None,
     ) -> str:
         from app.workflows.store import get_workflow_store
         store = get_workflow_store()

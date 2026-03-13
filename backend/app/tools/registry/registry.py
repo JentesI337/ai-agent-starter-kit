@@ -802,7 +802,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                     "base_agent_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Base agent to derive from. Defaults to head-agent.",
+                        "description": "Optional agent ID to associate with the workflow. By default no agent is linked — use agent nodes within the workflow instead.",
                     },
                 },
                 "required": ["name", "description", "steps"],

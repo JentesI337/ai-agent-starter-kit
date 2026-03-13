@@ -116,7 +116,7 @@ class WorkflowRecord(BaseModel):
     id: str
     name: str
     description: str = ""
-    base_agent_id: str = "head-agent"
+    base_agent_id: str | None = None
     execution_mode: Literal["parallel", "sequential"] = "parallel"
     workflow_graph: WorkflowGraphDef | None = None
     tool_policy: WorkflowToolPolicy | None = None

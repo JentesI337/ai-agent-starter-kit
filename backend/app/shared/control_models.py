@@ -181,7 +181,7 @@ class ControlWorkflowsCreateRequest(BaseModel):
     id: str | None = None
     name: str
     description: str = ""
-    base_agent_id: str = PRIMARY_AGENT_ID
+    base_agent_id: str | None = None
     steps: list[str] = Field(default_factory=list)
     execution_mode: str | None = None
     workflow_graph: dict | None = None

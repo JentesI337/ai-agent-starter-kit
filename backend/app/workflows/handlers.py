@@ -184,7 +184,7 @@ def _register_idempotent_workflow_delete(*, idempotency_key: str | None, fingerp
 # Graph construction helpers
 # ---------------------------------------------------------------------------
 
-def _build_workflow_graph_from_steps(steps: list[str], base_agent_id: str = "head-agent") -> WorkflowGraphDef | None:
+def _build_workflow_graph_from_steps(steps: list[str], base_agent_id: str | None = None) -> WorkflowGraphDef | None:
     """Build a linear WorkflowGraphDef from a flat step list (backward compat)."""
     if not steps:
         return None
@@ -198,7 +198,7 @@ def _build_workflow_graph_from_steps(steps: list[str], base_agent_id: str = "hea
             label=f"Step {i + 1}",
             instruction=instruction,
             next_step=next_id,
-            agent_id=base_agent_id or "head-agent",
+            agent_id=base_agent_id,
         ))
     return WorkflowGraphDef(steps=graph_steps, entry_step_id="step-1")
 
@@ -276,9 +276,7 @@ def _get_workflow_minimal(*, workflow_id: str) -> dict:
 def _create_workflow_minimal(*, request: ControlWorkflowsCreateRequest) -> dict:
     deps = _require_deps()
 
-    base_agent_id = _normalize_workflow_id(request.base_agent_id) if request.base_agent_id else "head-agent"
-    if not base_agent_id:
-        base_agent_id = "head-agent"
+    base_agent_id = _normalize_workflow_id(request.base_agent_id) if request.base_agent_id else None
 
     steps = [step.strip() for step in (request.steps or []) if isinstance(step, str) and step.strip()]
     raw_id = (request.id or "").strip()
@@ -380,7 +378,7 @@ def _update_workflow_minimal(*, request: ControlWorkflowsUpdateRequest) -> dict:
         raise GuardrailViolation("Workflow name must not be empty.")
 
     resolved_description = existing.description if request.description is None else (request.description or "").strip()
-    resolved_base_agent = existing.base_agent_id if request.base_agent_id is None else (_normalize_workflow_id(request.base_agent_id) or "head-agent")
+    resolved_base_agent = existing.base_agent_id if request.base_agent_id is None else (_normalize_workflow_id(request.base_agent_id) or None)
 
     resolved_execution_mode = existing.execution_mode if getattr(request, "execution_mode", None) is None else (request.execution_mode or "parallel").strip().lower()
     if resolved_execution_mode not in ("parallel", "sequential"):
