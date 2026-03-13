@@ -20,7 +20,7 @@ from app.control_models import (
     ControlWorkflowsUpdateRequest,
 )
 from app.errors import GuardrailViolation
-from app.services.request_normalization import normalize_idempotency_key
+from app.reasoning.request_normalization import normalize_idempotency_key
 from app.workflows.engine import RunAgentFn
 from app.workflows.models import (
     WorkflowGraphDef,
