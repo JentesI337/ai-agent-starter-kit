@@ -212,7 +212,7 @@ class TestUploadEndpoint:
     async def test_upload_valid(self, tmp_path):
         """Upload a small file and verify response."""
         from fastapi.testclient import TestClient
-        with patch("app.routers.uploads.settings") as mock_settings:
+        with patch("app.transport.routers.uploads.settings") as mock_settings:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 
@@ -236,7 +236,7 @@ class TestUploadEndpoint:
     async def test_upload_too_large(self, tmp_path):
         """Reject files exceeding max size."""
         from fastapi.testclient import TestClient
-        with patch("app.routers.uploads.settings") as mock_settings:
+        with patch("app.transport.routers.uploads.settings") as mock_settings:
             mock_settings.multimodal_upload_max_bytes = 100  # very small limit
             mock_settings.workspace_root = str(tmp_path)
 
@@ -256,7 +256,7 @@ class TestUploadEndpoint:
     async def test_upload_bad_mime(self, tmp_path):
         """Reject unsupported MIME types."""
         from fastapi.testclient import TestClient
-        with patch("app.routers.uploads.settings") as mock_settings:
+        with patch("app.transport.routers.uploads.settings") as mock_settings:
             mock_settings.multimodal_upload_max_bytes = 20 * 1024 * 1024
             mock_settings.workspace_root = str(tmp_path)
 

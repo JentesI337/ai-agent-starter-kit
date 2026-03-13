@@ -35,9 +35,9 @@ def test_runtime_feature_update_persists_to_env_file(monkeypatch, tmp_path) -> N
     )
     deps = RuntimeDebugDependencies(runtime_manager=manager, settings=None, resolved_prompt_settings=lambda _: {})
 
-    import app.runtime_debug_endpoints as runtime_debug_endpoints
+    import app.transport.routers.debug as _debug_mod
 
-    monkeypatch.setattr(runtime_debug_endpoints, "BACKEND_ENV_FILE", env_file)
+    monkeypatch.setattr(_debug_mod, "BACKEND_ENV_FILE", env_file)
 
     response = api_runtime_update_features(
         deps,
@@ -89,9 +89,9 @@ def test_runtime_feature_update_persists_long_term_memory_db_path(monkeypatch, t
 
     deps = RuntimeDebugDependencies(runtime_manager=manager, settings=settings, resolved_prompt_settings=lambda _: {})
 
-    import app.runtime_debug_endpoints as runtime_debug_endpoints
+    import app.transport.routers.debug as _debug_mod
 
-    monkeypatch.setattr(runtime_debug_endpoints, "BACKEND_ENV_FILE", env_file)
+    monkeypatch.setattr(_debug_mod, "BACKEND_ENV_FILE", env_file)
 
     response = api_runtime_update_features(
         deps,
