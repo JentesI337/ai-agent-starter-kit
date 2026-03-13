@@ -29,6 +29,7 @@ from app.tools.implementations.shell import (
     find_semantic_command_safety_violation,
 )
 from app.tools.implementations.web import WebToolMixin
+from app.tools.implementations.agent_management import AgentManagementToolMixin
 from app.tools.implementations.workflow import WorkflowToolMixin
 
 # Re-export for backward compat
@@ -50,6 +51,7 @@ class AgentTooling(
     MultimodalToolMixin,
     DevOpsToolMixin,
     WorkflowToolMixin,
+    AgentManagementToolMixin,
 ):
     """Assembled tool implementation class.
 

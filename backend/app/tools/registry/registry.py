@@ -787,7 +787,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             optional_args=("base_agent_id",),
             timeout_seconds=10.0,
             max_retries=0,
-            description="Create a new workflow agent at runtime. The agent is persisted and immediately available for use.",
+            description="Create a new multi-step workflow (pipeline). Use this for repeatable processes with ordered steps — NOT for creating agents or specialists. For creating agents, use create_agent instead.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -810,22 +810,80 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("workflow_management",),
         ),
-        "delete_workflow": ToolSpec(
-            name="delete_workflow",
-            required_args=("workflow_id",),
-            optional_args=(),
-            timeout_seconds=5.0,
+        # ------------------------------------------------------------------
+        # Agent management tools
+        # ------------------------------------------------------------------
+        "create_agent": ToolSpec(
+            name="create_agent",
+            required_args=("name", "description"),
+            optional_args=("role", "specialization", "capabilities", "system_prompt", "preferred_tools", "forbidden_tools"),
+            timeout_seconds=10.0,
             max_retries=0,
-            description="Delete a previously created workflow agent by its ID.",
+            description=(
+                "Create a new persistent specialist agent. The agent is immediately available "
+                "for delegation via spawn_subrun. Use this when the user asks to create a new agent, "
+                "specialist, or expert — NOT for workflows. Agents are persistent entities with "
+                "a role and capabilities. Workflows are multi-step processes."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "workflow_id": {"type": "string", "minLength": 1, "description": "The workflow agent ID to delete."},
+                    "name": {
+                        "type": "string", "minLength": 1, "maxLength": 120,
+                        "description": "Human-readable agent name (e.g. 'Python Expert', 'Data Analyst').",
+                    },
+                    "description": {
+                        "type": "string", "minLength": 1, "maxLength": 500,
+                        "description": "What this agent specializes in and when to use it.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["specialist", "reviewer", "researcher", "coordinator"],
+                        "description": "Agent role. Defaults to 'specialist'.",
+                    },
+                    "specialization": {
+                        "type": "string",
+                        "description": "Domain specialization (e.g. 'machine learning', 'database optimization').",
+                    },
+                    "capabilities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of capability tags (e.g. ['python', 'data_analysis', 'visualization']).",
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "description": "Custom system prompt that defines the agent's personality and instructions.",
+                    },
+                    "preferred_tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tools the agent should prefer using.",
+                    },
+                    "forbidden_tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tools the agent must not use.",
+                    },
                 },
-                "required": ["workflow_id"],
+                "required": ["name", "description"],
                 "additionalProperties": False,
             },
-            capabilities=("workflow_management",),
+            capabilities=("agent_management", "orchestration"),
+        ),
+        "list_agents": ToolSpec(
+            name="list_agents",
+            required_args=(),
+            optional_args=(),
+            timeout_seconds=5.0,
+            max_retries=0,
+            description="List all available agents (built-in and custom) with their roles, capabilities and descriptions.",
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+            capabilities=("agent_management",),
         ),
         # ------------------------------------------------------------------
         # build_workflow (NL → workflow)
@@ -836,7 +894,7 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             optional_args=("description", "execution_mode"),
             timeout_seconds=15.0,
             max_retries=0,
-            description="Create a workflow from a natural language description. Each line in steps_description becomes a workflow step.",
+            description="Create a workflow from a natural language description. Each line in steps_description becomes a workflow step. Use this for repeatable multi-step processes — NOT for creating agents. For agents, use create_agent.",
             parameters={
                 "type": "object",
                 "properties": {

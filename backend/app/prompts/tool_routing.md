@@ -393,17 +393,51 @@ Always verify version numbers against the project's lockfile or `package.json`.
 - Delegate a self-contained, long-running, or complex sub-task to a separate agent instance
 - Parallel workstreams that don't share state
 - Tasks where you'd otherwise chain 10+ tool calls that are logically independent
+- Running a task using a specific specialist agent (pass the `agent_id`)
 
 **When NOT to use:**
 - Simple single-tool operations → use the tool directly
 - Tasks that depend on results already in the current context → do them inline
 - When the sub-task is trivial (< 3 tool calls) → do it inline
+- When the user asks to *create* a new agent → use `create_agent` instead
 
 **Required:** The sub-agent prompt must be **fully self-contained**:
 - Embed all relevant context (goal, constraints, tool outputs needed, output format)
 - Do NOT assume the sub-agent has access to the parent's tool history
 - State all constraints explicitly: `"Do NOT do X"`, `"ONLY produce Y"`
 - Set a meaningful `run_label` for observability
+
+---
+
+## create_agent
+
+**When to use:**
+- The user asks to create a new agent, specialist, or expert
+- Building a persistent helper with a specific role and domain expertise
+- Setting up a reusable specialist that can be delegated to later via `spawn_subrun`
+
+**When NOT to use:**
+- The user asks to create a workflow / pipeline / process → use `create_workflow` or `build_workflow`
+- One-off delegation of a task → use `spawn_subrun` directly
+- Listing existing agents → use `list_agents`
+
+**Key distinction — Agent vs. Workflow:**
+- **Agent** = a persistent specialist entity with a role, expertise, and capabilities. It answers questions and performs tasks in its domain. Created with `create_agent`.
+- **Workflow** = a repeatable multi-step process (pipeline). It defines a sequence of steps that are executed in order. Created with `create_workflow` or `build_workflow`.
+
+**Output note:** Returns the new agent_id. The agent is immediately available for delegation.
+
+---
+
+## list_agents
+
+**When to use:**
+- The user asks what agents/specialists are available
+- Before creating an agent, to check if a similar one already exists
+- When deciding which agent_id to use with `spawn_subrun`
+
+**When NOT to use:**
+- Listing workflows → the Workflows page in the UI handles that
 
 ---
 
@@ -489,3 +523,5 @@ Always prefer the canonical name in your tool calls.
 | Run Python with persistent state | `code_execute` |
 | Clear REPL session | `code_reset` |
 | Delegate a complex sub-task | `spawn_subrun` |
+| Create a new specialist agent | `create_agent` |
+| List available agents | `list_agents` |

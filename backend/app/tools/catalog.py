@@ -30,7 +30,9 @@ TOOL_NAMES: tuple[str, ...] = (
     "emit_visualization",
     "spawn_subrun",
     "create_workflow",
-    "delete_workflow",
+    # Agent management tools
+    "create_agent",
+    "list_agents",
     # API connector tools
     "api_call",
     "api_list_connectors",
@@ -224,4 +226,12 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "tts": "generate_audio",
     "exportpdf": "export_pdf",
     "markdown_to_pdf": "export_pdf",
+    # Agent management aliases
+    "createagent": "create_agent",
+    "new_agent": "create_agent",
+    "add_agent": "create_agent",
+    "create_specialist": "create_agent",
+    "listagents": "list_agents",
+    "get_agents": "list_agents",
+    "show_agents": "list_agents",
 }
