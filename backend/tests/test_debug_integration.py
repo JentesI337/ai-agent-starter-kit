@@ -62,7 +62,7 @@ async def test_breakpoint_pause_continue_cycle():
     agent._debug_breakpoints = {"planning"}
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
 
         # Checkpoint should block
@@ -95,7 +95,7 @@ async def test_multiple_breakpoints_sequential():
     agent._debug_breakpoints = {"context", "planning"}
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
 
         # First breakpoint: context
@@ -153,7 +153,7 @@ async def test_debug_events_filtered_when_debug_mode_false():
     agent = MagicMock(spec=HeadAgent)
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = False
         await HeadAgent._emit_lifecycle(
             agent,

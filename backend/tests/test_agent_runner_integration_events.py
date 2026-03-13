@@ -245,27 +245,11 @@ class TestDistillationAndLTM:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S3-12: Feature-Flag Toggle & configure_runtime
+# S3-12: Constructor & configure_runtime
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestFeatureFlagAndConfigureRuntime:
-
-    def test_runner_created_when_flag_true(self):
-        """AgentRunner is constructed when USE_CONTINUOUS_LOOP=true."""
-        with patch("app.agent.runner.settings") as mock_settings:
-            mock_settings.runner_max_iterations = 25
-            mock_settings.runner_max_tool_calls = 50
-            mock_settings.runner_time_budget_seconds = 300
-            mock_settings.runner_loop_detection_enabled = True
-            mock_settings.runner_loop_detection_threshold = 3
-            mock_settings.runner_compaction_enabled = True
-            mock_settings.runner_compaction_tail_keep = 4
-            mock_settings.runner_tool_result_max_chars = 5000
-
-            runner = _make_runner(agent_name="test-agent")
-
-        assert runner._agent_name == "test-agent"
+class TestConstructorAndConfigureRuntime:
 
     def test_constructor_params_stored(self):
         """New Sprint 3 constructor params are properly stored."""

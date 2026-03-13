@@ -672,15 +672,6 @@ def test_orchestration_evidence_accepts_subrun_announce_complete() -> None:
     assert agent._has_orchestration_evidence(tool_results) is True
 
 
-def test_intent_gate_does_not_treat_build_research_as_shell_command() -> None:
-    agent = HeadAgent()
-
-    decision = agent._detect_intent_gate("build a big research report about llms and write it to markdown")
-
-    assert decision.intent is None
-    assert decision.extracted_command is None
-
-
 def test_augment_actions_does_not_add_spawn_subrun_without_llm() -> None:
     """Orchestration augmentation was removed from the action augmenter.
     The LLM decides whether to delegate via spawn_subrun based on its system prompt.
@@ -1557,8 +1548,6 @@ def test_head_and_coder_agents_use_distinct_prompt_profiles() -> None:
 
     assert head.role == "head-agent"
     assert coder.role == "coding-agent"
-    assert head.prompt_profile.plan_prompt == settings.head_agent_plan_prompt
-    assert coder.prompt_profile.plan_prompt == settings.coder_agent_plan_prompt
     assert head.prompt_profile.final_prompt == settings.head_agent_final_prompt
     assert coder.prompt_profile.final_prompt == settings.coder_agent_final_prompt
 

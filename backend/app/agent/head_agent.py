@@ -69,17 +69,8 @@ class ReplyShapeResult:
 
 
 @dataclass(frozen=True)
-class IntentGateDecision:
-    intent: str | None
-    confidence: str
-    extracted_command: str | None
-    missing_slots: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class PromptProfile:
     system_prompt: str
-    plan_prompt: str
     tool_selector_prompt: str
     tool_repair_prompt: str
     final_prompt: str
@@ -344,7 +335,6 @@ class HeadAgent:
             ps = record.prompts
             return PromptProfile(
                 system_prompt=ps.system.strip() or getattr(settings, ps.fallback_system_key, ""),
-                plan_prompt=ps.plan.strip() or getattr(settings, ps.fallback_plan_key, ""),
                 tool_selector_prompt=ps.tool_selector.strip() or getattr(settings, ps.fallback_tool_selector_key, ""),
                 tool_repair_prompt=ps.tool_repair.strip() or getattr(settings, ps.fallback_tool_repair_key, ""),
                 final_prompt=ps.final.strip() or getattr(settings, ps.fallback_final_key, ""),
@@ -358,7 +348,6 @@ class HeadAgent:
             )
         return PromptProfile(
             system_prompt=settings.head_agent_system_prompt,
-            plan_prompt=settings.head_agent_plan_prompt,
             tool_selector_prompt=settings.head_agent_tool_selector_prompt,
             tool_repair_prompt=settings.head_agent_tool_repair_prompt,
             final_prompt=settings.head_agent_final_prompt,
@@ -1019,17 +1008,6 @@ class HeadAgent:
         return self.tool_registry.build_function_calling_tools(
             allowed_tools=allowed_tools,
             provider=provider,
-        )
-
-    def _detect_intent_gate(self, user_message: str) -> IntentGateDecision:
-        # Neutralised: LLM-based tool selection handles intent classification.
-        # The IntentDetector instance is kept alive for ActionAugmenter convenience
-        # methods (is_web_research_task, is_subrun_orchestration_task, etc.).
-        return IntentGateDecision(
-            intent=None,
-            confidence="low",
-            extracted_command=None,
-            missing_slots=(),
         )
 
     def _looks_like_shell_command(self, candidate: str) -> bool:

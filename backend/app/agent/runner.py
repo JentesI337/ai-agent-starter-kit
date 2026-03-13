@@ -1,8 +1,7 @@
 """AgentRunner — Continuous Streaming Tool Loop.
 
-Replaces the 3-phase pipeline (Planner → ToolSelector → Synthesizer) with a
-single continuous loop where the LLM decides when to use tools and when to
-answer.  Activated via ``USE_CONTINUOUS_LOOP=true`` feature flag.
+Primary execution engine: a single continuous loop where the LLM decides
+when to use tools and when to answer.
 """
 
 from __future__ import annotations

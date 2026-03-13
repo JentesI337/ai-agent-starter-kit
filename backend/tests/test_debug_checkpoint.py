@@ -55,7 +55,7 @@ async def test_checkpoint_no_op_when_inactive():
     agent = _make_agent(debug_mode_active=False)
     agent._debug_breakpoints = {"planning"}
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
         await agent._debug_checkpoint("planning", AsyncMock(), "req-1", "sess-1")
 
@@ -81,7 +81,7 @@ async def test_checkpoint_passes_through_when_phase_not_in_breakpoints():
     agent = _make_agent(debug_mode_active=True)
     agent._debug_breakpoints = {"synthesis"}  # planning is NOT a breakpoint
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
         # Should complete without blocking
         await asyncio.wait_for(
@@ -100,7 +100,7 @@ async def test_checkpoint_blocks_on_registered_breakpoint():
 
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
 
         # Start checkpoint coroutine — it should block
@@ -129,7 +129,7 @@ async def test_checkpoint_resumes_on_continue():
     agent._debug_breakpoints = {"context"}
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
 
         async def unblock_after_delay() -> None:
@@ -153,7 +153,7 @@ async def test_checkpoint_times_out_gracefully():
     agent._debug_breakpoints = {"synthesis"}
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
         # Patch wait_for to use a very short timeout
         with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
@@ -177,7 +177,7 @@ async def test_emit_lifecycle_filters_debug_events_when_debug_mode_off():
     agent = MagicMock(spec=HeadAgent)
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = False
         await HeadAgent._emit_lifecycle(
             agent,
@@ -200,7 +200,7 @@ async def test_emit_lifecycle_passes_debug_events_when_debug_mode_on():
     agent.name = "test-agent"
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = True
         await HeadAgent._emit_lifecycle(
             agent,
@@ -223,7 +223,7 @@ async def test_emit_lifecycle_always_passes_non_debug_events():
     agent.name = "test-agent"
     send_event = AsyncMock()
 
-    with patch("app.agent.settings") as mock_settings:
+    with patch("app.agent.head_agent.settings") as mock_settings:
         mock_settings.debug_mode = False
         await HeadAgent._emit_lifecycle(
             agent,

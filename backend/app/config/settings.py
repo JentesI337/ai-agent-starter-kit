@@ -184,17 +184,14 @@ def load_cognitive_framework(agent_id: str) -> str:
 
 PROMPT_SETTING_KEYS: tuple[str, ...] = (
     "head_agent_system_prompt",
-    "head_agent_plan_prompt",
     "head_agent_tool_selector_prompt",
     "head_agent_tool_repair_prompt",
     "head_agent_final_prompt",
     "coder_agent_system_prompt",
-    "coder_agent_plan_prompt",
     "coder_agent_tool_selector_prompt",
     "coder_agent_tool_repair_prompt",
     "coder_agent_final_prompt",
     "agent_system_prompt",
-    "agent_plan_prompt",
     "agent_tool_selector_prompt",
     "agent_tool_repair_prompt",
     "agent_final_prompt",
@@ -241,29 +238,6 @@ class Settings(BaseModel):
             "- Be concise in output but thorough in reasoning."
         ),
         "HEAD_AGENT_SYSTEM_PROMPT",
-        "AGENT_SYSTEM_PROMPT",
-    )
-    head_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a planning agent. Your job is to create execution plans.\n\n"
-            "Planning protocol:\n"
-            "1. CLASSIFY the request: Is this trivial (greeting, yes/no), moderate (single task), or complex (multi-step)?\n"
-            "2. For TRIVIAL: Return 'direct_answer' — no tools needed.\n"
-            "3. For MODERATE: Return 1-3 actionable steps with specific tool calls.\n"
-            "4. For COMPLEX: Return a dependency graph:\n"
-            "   - Which steps can run in parallel?\n"
-            "   - Which steps depend on results from earlier steps?\n"
-            "   - What's the fallback if a step fails?\n\n"
-            "Each step must specify:\n"
-            "- WHAT to do (concrete action)\n"
-            "- WHY (how it serves the goal)\n"
-            "- TOOL (which tool to use, or 'none')\n"
-            "- DEPENDS_ON (which earlier step, or 'none')\n\n"
-            "If the request is ambiguous, add a 'CLARIFICATION_NEEDED' flag with what you'd ask the user."
-        ),
-        "HEAD_AGENT_PLAN_PROMPT",
-        "HEAD_AGENT_SYSTEM_PROMPT",
-        "AGENT_PLAN_PROMPT",
         "AGENT_SYSTEM_PROMPT",
     )
     head_agent_tool_selector_prompt: str = _resolve_prompt(
@@ -318,30 +292,6 @@ class Settings(BaseModel):
         ),
         "CODER_AGENT_SYSTEM_PROMPT",
     )
-    coder_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a planning agent. Your job is to create execution plans.\n\n"
-            "Planning protocol:\n"
-            "1. CLASSIFY the request: Is this trivial (greeting, yes/no), moderate (single task), or complex (multi-step)?\n"
-            "2. For TRIVIAL: Return 'direct_answer' — no tools needed.\n"
-            "3. For MODERATE: Return 1-3 actionable steps with specific tool calls.\n"
-            "4. For COMPLEX: Return a dependency graph:\n"
-            "   - Which steps can run in parallel?\n"
-            "   - Which steps depend on results from earlier steps?\n"
-            "   - What's the fallback if a step fails?\n\n"
-            "Each step must specify:\n"
-            "- WHAT to do (concrete action)\n"
-            "- WHY (how it serves the goal)\n"
-            "- TOOL (which tool to use, or 'none')\n"
-            "- DEPENDS_ON (which earlier step, or 'none')\n\n"
-            "Fallback rule for scaffolding commands: If a step uses run_command to scaffold or install "
-            "(e.g. npm, ng, npx, pip), always add an explicit fallback step that writes the key files "
-            "directly with write_file in case the command times out or is blocked by policy.\n\n"
-            "If the request is ambiguous, add a 'CLARIFICATION_NEEDED' flag with what you'd ask the user."
-        ),
-        "CODER_AGENT_PLAN_PROMPT",
-        "CODER_AGENT_SYSTEM_PROMPT",
-    )
     coder_agent_tool_selector_prompt: str = _resolve_prompt(
         "You select tools for a coding task. Strictly follow output format requirements.",
         "CODER_AGENT_TOOL_SELECTOR_PROMPT",
@@ -388,27 +338,6 @@ class Settings(BaseModel):
             "- Prefer depth over breadth — a thorough answer to the right question beats a shallow answer to many.\n"
             "- Be concise in output but thorough in reasoning."
         ),
-        "AGENT_SYSTEM_PROMPT",
-    )
-    agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a planning agent. Your job is to create execution plans.\n\n"
-            "Planning protocol:\n"
-            "1. CLASSIFY the request: Is this trivial (greeting, yes/no), moderate (single task), or complex (multi-step)?\n"
-            "2. For TRIVIAL: Return 'direct_answer' — no tools needed.\n"
-            "3. For MODERATE: Return 1-3 actionable steps with specific tool calls.\n"
-            "4. For COMPLEX: Return a dependency graph:\n"
-            "   - Which steps can run in parallel?\n"
-            "   - Which steps depend on results from earlier steps?\n"
-            "   - What's the fallback if a step fails?\n\n"
-            "Each step must specify:\n"
-            "- WHAT to do (concrete action)\n"
-            "- WHY (how it serves the goal)\n"
-            "- TOOL (which tool to use, or 'none')\n"
-            "- DEPENDS_ON (which earlier step, or 'none')\n\n"
-            "If the request is ambiguous, add a 'CLARIFICATION_NEEDED' flag with what you'd ask the user."
-        ),
-        "AGENT_PLAN_PROMPT",
         "AGENT_SYSTEM_PROMPT",
     )
     agent_tool_selector_prompt: str = _resolve_prompt(
@@ -459,19 +388,6 @@ class Settings(BaseModel):
         ),
         "RESEARCHER_AGENT_SYSTEM_PROMPT",
     )
-    researcher_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a research planning agent. Create a research plan.\n\n"
-            "Planning protocol:\n"
-            "1. IDENTIFY the research question and sub-questions.\n"
-            "2. DETERMINE sources: Which files, URLs, or data to consult?\n"
-            "3. PLAN search strategy: breadth-first survey, then targeted deep-dives.\n"
-            "4. For each step: specify WHAT to search, WHERE to look, WHY it matters.\n"
-            "5. Include cross-reference steps to validate findings."
-        ),
-        "RESEARCHER_AGENT_PLAN_PROMPT",
-        "RESEARCHER_AGENT_SYSTEM_PROMPT",
-    )
     researcher_agent_tool_selector_prompt: str = _resolve_prompt(
         (
             "You select tools for research tasks. Prefer read-only tools: "
@@ -517,19 +433,6 @@ class Settings(BaseModel):
         ),
         "ARCHITECT_AGENT_SYSTEM_PROMPT",
     )
-    architect_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are an architecture planning agent. Create an analysis plan.\n\n"
-            "Planning protocol:\n"
-            "1. SCOPE: Define what architectural aspects to analyze.\n"
-            "2. SURVEY: List files, modules, and dependencies to examine.\n"
-            "3. ANALYZE: Plan trade-off evaluation steps.\n"
-            "4. OUTPUT: Plan ADR structure.\n"
-            "Each step must specify WHAT to analyze and WHY."
-        ),
-        "ARCHITECT_AGENT_PLAN_PROMPT",
-        "ARCHITECT_AGENT_SYSTEM_PROMPT",
-    )
     architect_agent_final_prompt: str = _resolve_prompt(
         (
             "You are an architecture synthesis agent generating the final answer.\n\n"
@@ -565,19 +468,6 @@ class Settings(BaseModel):
             "- Only run test commands (pytest, npm test, etc.) — no arbitrary commands.\n"
             "- Mock external dependencies, test behavior not implementation."
         ),
-        "TEST_AGENT_SYSTEM_PROMPT",
-    )
-    test_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a test planning agent. Create a test plan.\n\n"
-            "Planning protocol:\n"
-            "1. IDENTIFY the target function/module to test.\n"
-            "2. LIST test categories: happy path, edge cases, error cases.\n"
-            "3. For each test case: specify INPUT, EXPECTED OUTPUT, and ASSERTION.\n"
-            "4. Identify what needs to be mocked.\n"
-            "5. Plan test execution strategy."
-        ),
-        "TEST_AGENT_PLAN_PROMPT",
         "TEST_AGENT_SYSTEM_PROMPT",
     )
     test_agent_final_prompt: str = _resolve_prompt(
@@ -752,18 +642,6 @@ class Settings(BaseModel):
         ),
         "FINTECH_AGENT_SYSTEM_PROMPT",
     )
-    fintech_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a FinTech planning agent.\n\n"
-            "Plan structure:\n"
-            "1. Identify applicable regulations and standards.\n"
-            "2. Map payment/transaction flows to analyze.\n"
-            "3. List audit-trail and logging requirements.\n"
-            "4. Prioritize findings by compliance-risk severity."
-        ),
-        "FINTECH_AGENT_PLAN_PROMPT",
-        "FINTECH_AGENT_SYSTEM_PROMPT",
-    )
     fintech_agent_final_prompt: str = _resolve_prompt(
         (
             "You are a FinTech synthesis agent generating the final answer.\n\n"
@@ -796,18 +674,6 @@ class Settings(BaseModel):
             "- Pseudonymization/anonymization required for analytics.\n"
             "- You are strictly read-only — highest security tier."
         ),
-        "HEALTHTECH_AGENT_SYSTEM_PROMPT",
-    )
-    healthtech_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a HealthTech planning agent.\n\n"
-            "Plan structure:\n"
-            "1. Map data flows touching PHI/PII.\n"
-            "2. Identify consent and access-control checkpoints.\n"
-            "3. Review HL7 FHIR / DICOM interface implementations.\n"
-            "4. Assess anonymization and audit-trail completeness."
-        ),
-        "HEALTHTECH_AGENT_PLAN_PROMPT",
         "HEALTHTECH_AGENT_SYSTEM_PROMPT",
     )
     healthtech_agent_final_prompt: str = _resolve_prompt(
@@ -844,18 +710,6 @@ class Settings(BaseModel):
         ),
         "LEGALTECH_AGENT_SYSTEM_PROMPT",
     )
-    legaltech_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are a LegalTech planning agent.\n\n"
-            "Plan structure:\n"
-            "1. Identify applicable legal frameworks and regulations.\n"
-            "2. Map data processing activities and legal bases.\n"
-            "3. Scan dependency licenses for compatibility.\n"
-            "4. Assess cross-border data transfer mechanisms."
-        ),
-        "LEGALTECH_AGENT_PLAN_PROMPT",
-        "LEGALTECH_AGENT_SYSTEM_PROMPT",
-    )
     legaltech_agent_final_prompt: str = _resolve_prompt(
         (
             "You are a LegalTech synthesis agent generating the final answer.\n\n"
@@ -890,18 +744,6 @@ class Settings(BaseModel):
         ),
         "ECOMMERCE_AGENT_SYSTEM_PROMPT",
     )
-    ecommerce_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are an E-Commerce planning agent.\n\n"
-            "Plan structure:\n"
-            "1. Map product catalog and category model.\n"
-            "2. Analyze checkout and payment flow.\n"
-            "3. Review inventory sync and order lifecycle.\n"
-            "4. Identify SEO and performance optimization opportunities."
-        ),
-        "ECOMMERCE_AGENT_PLAN_PROMPT",
-        "ECOMMERCE_AGENT_SYSTEM_PROMPT",
-    )
     ecommerce_agent_final_prompt: str = _resolve_prompt(
         (
             "You are an E-Commerce synthesis agent generating the final answer.\n\n"
@@ -934,18 +776,6 @@ class Settings(BaseModel):
             "- Edge vs cloud trade-offs: latency, bandwidth, reliability.\n"
             "- Predictive maintenance models need explainability."
         ),
-        "INDUSTRYTECH_AGENT_SYSTEM_PROMPT",
-    )
-    industrytech_agent_plan_prompt: str = _resolve_prompt(
-        (
-            "You are an IndustryTech planning agent.\n\n"
-            "Plan structure:\n"
-            "1. Map sensor/device network and protocols.\n"
-            "2. Analyze data pipeline from edge to cloud.\n"
-            "3. Review safety and security posture (IEC 62443).\n"
-            "4. Assess predictive-maintenance model integration."
-        ),
-        "INDUSTRYTECH_AGENT_PLAN_PROMPT",
         "INDUSTRYTECH_AGENT_SYSTEM_PROMPT",
     )
     industrytech_agent_final_prompt: str = _resolve_prompt(
