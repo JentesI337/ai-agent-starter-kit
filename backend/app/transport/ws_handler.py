@@ -19,7 +19,7 @@ from app.errors import (
     RuntimeSwitchError,
     ToolExecutionError,
 )
-from app.models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
+from app.transport.ws_models import SUPPORTED_WS_INBOUND_TYPES, WsInboundEnvelope, parse_ws_inbound_message, peek_ws_inbound_type
 from app.orchestration.events import build_lifecycle_event, classify_error
 from app.policy.rate_limiter import get_ws_rate_limiter
 from app.reasoning.directive_parser import (

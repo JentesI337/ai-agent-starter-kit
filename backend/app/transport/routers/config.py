@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body
 
-from app.config_service import get_config_service
+from app.config.service import get_config_service
 
 JsonDict = dict
 
@@ -113,7 +113,7 @@ def handle_config_reset(request: dict[str, Any]) -> dict[str, Any]:
         return {"error": "sectionKey is required"}
     svc = get_config_service()
     # Collect field names that had overrides before reset
-    from app.config_sections import SECTION_REGISTRY
+    from app.config.sections import SECTION_REGISTRY
     model_cls = SECTION_REGISTRY.get(section_key)
     reset_fields = list(model_cls.model_fields.keys()) if model_cls else []
     ok = svc.reset_section(section_key)
@@ -154,7 +154,7 @@ def handle_execution_config_update(request: dict[str, Any]) -> dict[str, Any]:
     results = []
     for field, value in updates.items():
         # Route to the right section
-        from app.config_sections import field_to_section
+        from app.config.sections import field_to_section
         section_key = field_to_section(field)
         if section_key:
             result = svc.update_value(section_key, field, value)

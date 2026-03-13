@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-import app.llm_client as llm_module
+import app.llm.client as llm_module
 from app.llm.client import LlmClient
 from app.shared.errors import LlmClientError
 

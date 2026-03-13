@@ -13,7 +13,7 @@ from app.control_models import (
     ControlPolicyApprovalsDecideRequest,
     ControlPolicyApprovalsPendingRequest,
 )
-from app.policy_store import PolicyCreateRequest, PolicyStore
+from app.policy.store import PolicyCreateRequest, PolicyStore
 
 JsonDict = dict
 

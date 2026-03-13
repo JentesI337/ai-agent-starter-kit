@@ -22,7 +22,7 @@ from app.connectors.oauth2_flow import (
     start_oauth_flow,
 )
 from app.connectors.registry import ConnectorRegistry
-from app.url_validator import UrlValidationError, enforce_safe_url
+from app.tools.url_validator import UrlValidationError, enforce_safe_url
 
 logger = logging.getLogger(__name__)
 

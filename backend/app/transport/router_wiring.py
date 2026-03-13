@@ -11,20 +11,20 @@ from fastapi import FastAPI
 
 from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
 from app.agent.resolution import looks_like_coding_request
-from app.app_state import LazyObjectProxy
+from app.transport.app_state import LazyObjectProxy
 from app.config import resolved_prompt_settings, settings
 from app.control_models import AgentTestRequest, RunStartRequest
-from app.control_router_wiring import include_control_routers
-from app.policy_store import PolicyStore
+from app.transport.routers import include_control_routers
+from app.policy.store import PolicyStore
 from app.reasoning.request_normalization import normalize_preset
-from app.run_endpoints import (
+from app.transport.routers.runs import (
     AgentTestDependencies,
     RunEndpointsDependencies,
     run_agent_test,
     start_run as run_endpoint_start,
     wait_run as run_endpoint_wait,
 )
-from app.runtime_debug_endpoints import (
+from app.transport.routers.debug import (
     RuntimeDebugDependencies,
     api_calibration_recommendations,
     api_resolved_prompt_settings,
@@ -34,7 +34,7 @@ from app.runtime_debug_endpoints import (
     api_test_ping,
     api_tool_telemetry_stats,
 )
-from app.subrun_endpoints import (
+from app.transport.routers.subruns import (
     SubrunEndpointsDependencies,
     api_subruns_get,
     api_subruns_kill,
@@ -106,7 +106,7 @@ from app.transport.runtime_wiring import (
     subrun_lane,
 )
 from app.workflows import handlers as workflow_handlers
-from app.ws_handler import WsHandlerDependencies
+from app.transport.ws_handler import WsHandlerDependencies
 
 logger = logging.getLogger("app.main")
 

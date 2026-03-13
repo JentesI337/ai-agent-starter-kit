@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_AGENT_ID
-from app.app_state import LazyObjectProxy
+from app.transport.app_state import LazyObjectProxy
 from app.config import settings
 from app.shared.control_fingerprints import (
     build_run_start_fingerprint as _build_run_start_fingerprint,

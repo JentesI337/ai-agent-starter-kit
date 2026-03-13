@@ -95,6 +95,6 @@ def __getattr__(name: str):
     # Backward compat: app.tooling (formerly app.tools module)
     if name in ("AgentTooling", "find_command_safety_violation",
                 "find_semantic_command_safety_violation", "COMMAND_SAFETY_PATTERNS"):
-        import app.tooling as _m
+        from app.tools.implementations import base as _m
         return getattr(_m, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

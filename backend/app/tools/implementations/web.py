@@ -10,10 +10,10 @@ from urllib.parse import urljoin
 import httpx
 
 from app.config import settings
-from app.content_security import wrap_external_content
+from app.tools.content_security import wrap_external_content
 from app.errors import ToolExecutionError
 from app.tools.implementations.web_search import WebSearchResponse, WebSearchResult, WebSearchService
-from app.url_validator import (
+from app.tools.url_validator import (
     UrlValidationError,
     apply_dns_pin as _shared_apply_dns_pin,
     enforce_safe_url as _shared_enforce_safe_url,

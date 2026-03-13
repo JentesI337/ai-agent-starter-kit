@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 
 from app.config import settings
 from app.contracts import RequestContext
-from app.control_models import (
+from app.shared.control_models import (
     ControlRunsAuditRequest,
     ControlRunsEventsRequest,
     ControlRunsGetRequest,
@@ -21,7 +21,7 @@ from app.control_models import (
     ControlRunStartRequest,
     ControlRunWaitRequest,
 )
-from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.shared.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 from app.orchestration.events import build_lifecycle_event
 from app.orchestration.run_state_machine import (
     build_run_state_event,
@@ -41,7 +41,7 @@ from app.reasoning.request_normalization import (
     normalize_prompt_mode,
     normalize_queue_mode,
 )
-from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
+from app.tools.policy import ToolPolicyDict, tool_policy_to_dict
 
 JsonDict = dict
 

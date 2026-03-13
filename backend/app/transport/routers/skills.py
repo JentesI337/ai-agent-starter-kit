@@ -12,7 +12,7 @@ from time import monotonic
 from fastapi import HTTPException
 
 from app.config import settings
-from app.control_models import (
+from app.shared.control_models import (
     ControlSkillCreateRequest,
     ControlSkillDeleteRequest,
     ControlSkillGetRequest,

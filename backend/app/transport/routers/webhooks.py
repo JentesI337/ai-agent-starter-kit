@@ -69,7 +69,7 @@ def build_webhooks_router() -> APIRouter:
             payload = {"raw": body.decode("utf-8", errors="replace")}
 
         # Execute the workflow
-        from app.control_models import ControlWorkflowsExecuteRequest
+        from app.shared.control_models import ControlWorkflowsExecuteRequest
         execute_request = ControlWorkflowsExecuteRequest(
             workflow_id=workflow_id,
             message=json.dumps(payload, default=str),

@@ -19,7 +19,7 @@ from typing import Any
 from app.agent.runner_types import LoopState, PlanStep, PlanTracker, ToolCall, ToolResult
 from app.config import settings
 from app.errors import PolicyApprovalCancelledError
-from app.llm_client import LlmClient
+from app.llm.client import LlmClient
 from app.memory import MemoryStore
 from app.monitoring.visualization import (
     build_plan_progress_event,

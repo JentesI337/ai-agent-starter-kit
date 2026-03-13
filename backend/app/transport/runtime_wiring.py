@@ -25,10 +25,10 @@ from app.agent.resolution import (
     sync_custom_agents as _sync_custom_agents_impl,
 )
 from app.agent.store import UnifiedAgentStore
-from app.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
+from app.transport.app_state import ControlPlaneState, LazyMappingProxy, LazyObjectProxy, LazyRuntimeRegistry, RuntimeComponents
 from app.browser.pool import BrowserPool
 from app.config import settings, validate_environment_config
-from app.config_service import init_config_service
+from app.config.service import init_config_service
 from app.connectors.connector_store import get_connector_store, init_connector_store
 from app.connectors.credential_store import get_credential_store, init_credential_store
 from app.connectors.registry import ConnectorRegistry
@@ -41,11 +41,11 @@ from app.orchestration.subrun_lane import SubrunLane
 from app.policy.agent_isolation import AgentIsolationPolicy, resolve_agent_isolation_profile
 from app.policy.approval_service import PolicyApprovalService
 from app.policy.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry
-from app.runtime_manager import RuntimeManager
+from app.transport.runtime_manager import RuntimeManager
 from app.sandbox.repl_session_manager import ReplSessionManager
 from app.session.query_service import SessionQueryService
 from app.shared.idempotency.manager import IdempotencyManager
-from app.startup_tasks import run_shutdown_sequence, run_startup_sequence
+from app.transport.startup import run_shutdown_sequence, run_startup_sequence
 from app.state import SqliteStateStore, StateStore
 from app.tools.registry.config_store import init_tool_config_store
 from app.transport.routers import integrations as integration_handlers

@@ -14,7 +14,7 @@ from collections import OrderedDict
 from typing import Any
 from urllib.parse import urlparse
 
-from app.url_validator import UrlValidationError, enforce_safe_url
+from app.tools.url_validator import UrlValidationError, enforce_safe_url
 
 logger = logging.getLogger("app.browser.pool")
 

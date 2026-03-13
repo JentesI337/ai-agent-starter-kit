@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import logging
 
-from app.app_setup import build_fastapi_app, build_lifespan_context
+from app.transport.app_factory import build_fastapi_app, build_lifespan_context
 from app.config import settings, validate_environment_config
 from app.policy.log_secret_filter import install_secret_filter
-from app.startup_tasks import run_startup_sequence
+from app.transport.startup import run_startup_sequence
 from app.transport.handler_wiring import configure_all_handlers
 from app.transport.router_wiring import register_all_routers
 from app.transport.runtime_wiring import (

@@ -12,7 +12,7 @@ from app.connectors.connector_store import ConnectorStore
 from app.connectors.credential_store import CredentialStore
 from app.connectors.oauth2_flow import OAUTH2_PRESETS, OAuth2Config, refresh_oauth2_token
 from app.connectors.registry import ConnectorRegistry
-from app.content_security import wrap_external_content
+from app.tools.content_security import wrap_external_content
 from app.policy.rate_limiter import RateLimiter, RateLimiterConfig
 
 logger = logging.getLogger(__name__)

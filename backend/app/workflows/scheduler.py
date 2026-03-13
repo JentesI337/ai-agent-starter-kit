@@ -107,7 +107,7 @@ def _persist_triggers(deps, record) -> None:
 
 async def _execute_scheduled_workflow(record) -> None:
     """Execute a workflow that is due according to its schedule trigger."""
-    from app.control_models import ControlWorkflowsExecuteRequest
+    from app.shared.control_models import ControlWorkflowsExecuteRequest
     from app.workflows.handlers import api_control_workflows_execute
 
     execute_request = ControlWorkflowsExecuteRequest(

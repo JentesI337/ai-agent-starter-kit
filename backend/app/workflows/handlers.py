@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.control_models import (
+from app.shared.control_models import (
     ControlWorkflowsCreateRequest,
     ControlWorkflowsDeleteRequest,
     ControlWorkflowsExecuteRequest,
@@ -19,7 +19,7 @@ from app.control_models import (
     ControlWorkflowsListRequest,
     ControlWorkflowsUpdateRequest,
 )
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 from app.reasoning.request_normalization import normalize_idempotency_key
 from app.workflows.engine import RunAgentFn
 from app.workflows.models import (

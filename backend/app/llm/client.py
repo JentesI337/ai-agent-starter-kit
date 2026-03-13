@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 import httpx
 
 if TYPE_CHECKING:
-    from app.agent_runner_types import StreamResult
+    from app.agent.runner_types import StreamResult
 
 from app.config import settings
 from app.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
-from app.url_validator import UrlValidationError, validate_llm_base_url
+from app.tools.url_validator import UrlValidationError, validate_llm_base_url
 
 logger = logging.getLogger("app.llm.client")
 
@@ -531,7 +531,7 @@ class LlmClient:
         For providers that don't support streaming (native Ollama API) a
         non-streaming fallback is used automatically.
         """
-        from app.agent_runner_types import StreamResult, ToolCall
+        from app.agent.runner_types import StreamResult, ToolCall
 
         active_model = model or self.model
         normalized_temperature = self._normalize_temperature(temperature)
@@ -681,7 +681,7 @@ class LlmClient:
         on_text_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> StreamResult:
         """Non-streaming fallback for Ollama native API."""
-        from app.agent_runner_types import StreamResult
+        from app.agent.runner_types import StreamResult
 
         payload: dict = {
             "model": model,

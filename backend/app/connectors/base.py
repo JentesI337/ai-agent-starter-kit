@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from app.url_validator import UrlValidationError, enforce_safe_url
+from app.tools.url_validator import UrlValidationError, enforce_safe_url
 
 logger = logging.getLogger(__name__)
 

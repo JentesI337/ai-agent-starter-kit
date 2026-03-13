@@ -708,7 +708,7 @@ class WorkflowEngine:
     def _is_audit_enabled(self) -> bool:
         """Check if workflow auditing is enabled via settings."""
         try:
-            from app.config_service import get_config_service
+            from app.config.service import get_config_service
             svc = get_config_service()
             return bool(svc.get_value("core", "workflows_audit_enabled"))
         except Exception:

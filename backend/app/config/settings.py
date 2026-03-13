@@ -7,7 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from app.mcp_types import McpServerConfig
+from app.mcp.types import McpServerConfig
 
 load_dotenv()
 

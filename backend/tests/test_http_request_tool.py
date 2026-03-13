@@ -5,8 +5,8 @@ import socket
 
 import pytest
 
-import app.tooling as tools_module
-import app.url_validator as url_validator_module
+import app.tools.implementations.web as web_module
+import app.tools.url_validator as url_validator_module
 from app.shared.errors import ToolExecutionError
 from app.tools.implementations.base import AgentTooling
 
@@ -58,7 +58,7 @@ def _patch_client(monkeypatch, response: _FakeResponse, calls: list[dict]) -> No
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _ClientFactory)
+    monkeypatch.setattr(web_module.httpx, "AsyncClient", _ClientFactory)
 
 
 def _public_getaddrinfo(host: str, port: int, *args, **kwargs):

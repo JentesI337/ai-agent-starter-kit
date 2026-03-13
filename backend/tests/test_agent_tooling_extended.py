@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
-import app.tooling as tools_module
+import app.tools.implementations.base as tools_module
 import app.tools.implementations.code_execution as code_exec_module
 import app.tools.implementations.multimodal as multimodal_module
-import app.url_validator as url_validator_module
+import app.tools.implementations.shell as shell_module
+import app.tools.implementations.web as web_module
+import app.tools.url_validator as url_validator_module
 from app.shared.errors import ToolExecutionError
 from app.tools.implementations.base import AgentTooling
 
@@ -95,7 +97,7 @@ def test_get_changed_files_success_and_failure(tmp_path: Path, monkeypatch: pyte
             return subprocess.CompletedProcess(cmd, 0, stdout=" M app.py\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="app.py\n", stderr="")
 
-    monkeypatch.setattr(tools_module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(shell_module.subprocess, "run", _fake_run)
     output = tooling.get_changed_files()
 
     assert "status:" in output
@@ -105,7 +107,7 @@ def test_get_changed_files_success_and_failure(tmp_path: Path, monkeypatch: pyte
     def _fake_run_fail(cmd, capture_output, text, timeout):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="git failed")
 
-    monkeypatch.setattr(tools_module.subprocess, "run", _fake_run_fail)
+    monkeypatch.setattr(shell_module.subprocess, "run", _fake_run_fail)
     with pytest.raises(ToolExecutionError, match="git failed"):
         tooling.get_changed_files()
 
@@ -150,7 +152,7 @@ def test_web_fetch_formats_html_with_source_metadata(monkeypatch, tmp_path: Path
         ]
 
     monkeypatch.setattr(url_validator_module.socket, "getaddrinfo", _public_getaddrinfo)
-    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(web_module.httpx, "AsyncClient", _FakeClient)
 
     result = asyncio.run(tooling.web_fetch("https://example.com/models", max_chars=4000))
 
@@ -210,7 +212,7 @@ def test_web_fetch_error_contains_source_url(monkeypatch, tmp_path: Path) -> Non
         ]
 
     monkeypatch.setattr(url_validator_module.socket, "getaddrinfo", _public_getaddrinfo)
-    monkeypatch.setattr(tools_module.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(web_module.httpx, "AsyncClient", _FakeClient)
 
     try:
         asyncio.run(tooling.web_fetch("https://example.com/missing"))
@@ -247,7 +249,7 @@ def test_analyze_image_requires_feature_flag(monkeypatch: pytest.MonkeyPatch, tm
     image_file = tmp_path / "screen.png"
     image_file.write_bytes(b"not-an-image-but-bytes")
 
-    monkeypatch.setattr(tools_module.settings, "vision_enabled", False)
+    monkeypatch.setattr(multimodal_module.settings,"vision_enabled", False)
 
     with pytest.raises(ToolExecutionError, match="disabled"):
         asyncio.run(tooling.analyze_image("screen.png", prompt="Describe"))
@@ -276,12 +278,12 @@ def test_analyze_image_uses_vision_service(monkeypatch: pytest.MonkeyPatch, tmp_
             assert max_tokens > 0
             return "Detected a login form and a submit button."
 
-    monkeypatch.setattr(tools_module.settings, "vision_enabled", True)
-    monkeypatch.setattr(tools_module.settings, "vision_base_url", "http://localhost:11434")
-    monkeypatch.setattr(tools_module.settings, "vision_model", "llava:13b")
-    monkeypatch.setattr(tools_module.settings, "vision_api_key", "")
-    monkeypatch.setattr(tools_module.settings, "vision_provider", "ollama")
-    monkeypatch.setattr(tools_module.settings, "vision_max_tokens", 1000)
+    monkeypatch.setattr(multimodal_module.settings,"vision_enabled", True)
+    monkeypatch.setattr(multimodal_module.settings,"vision_base_url", "http://localhost:11434")
+    monkeypatch.setattr(multimodal_module.settings,"vision_model", "llava:13b")
+    monkeypatch.setattr(multimodal_module.settings,"vision_api_key", "")
+    monkeypatch.setattr(multimodal_module.settings,"vision_provider", "ollama")
+    monkeypatch.setattr(multimodal_module.settings,"vision_max_tokens", 1000)
     monkeypatch.setattr(multimodal_module, "VisionService", _FakeVisionService)
 
     result = asyncio.run(tooling.analyze_image("screen.png", prompt="Find text"))

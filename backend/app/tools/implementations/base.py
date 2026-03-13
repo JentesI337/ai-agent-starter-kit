@@ -15,7 +15,7 @@ from app.browser.pool import BrowserPool
 from app.config import settings
 from app.errors import ToolExecutionError
 from app.sandbox.repl_session_manager import ReplSessionManager
-from app.tool_catalog import TOOL_NAMES
+from app.tools.catalog import TOOL_NAMES
 from app.tools.implementations.api_connectors import ApiConnectorToolMixin
 from app.tools.implementations.browser import BrowserToolMixin
 from app.tools.implementations.code_execution import CodeExecToolMixin

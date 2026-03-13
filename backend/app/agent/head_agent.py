@@ -22,7 +22,7 @@ from app.contracts.hook_contract import resolve_hook_execution_contract
 from app.contracts.tool_protocol import ToolProvider
 from app.errors import GuardrailViolation, PolicyApprovalCancelledError, ToolExecutionError
 from app.llm.routing import ModelRegistry
-from app.llm_client import LlmClient
+from app.llm.client import LlmClient
 from app.mcp.bridge import McpBridge
 from app.memory import MemoryStore
 from app.memory.failure_retriever import FailureRetriever
@@ -39,9 +39,9 @@ from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
 from app.reasoning.reply_shaper import ReplyShaper
 from app.skills.models import SkillSnapshot
 from app.skills.service import SkillsRuntimeConfig, SkillsService
-from app.tool_catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
+from app.tools.catalog import TOOL_NAME_ALIASES, TOOL_NAME_SET
 from app.tool_policy import ToolPolicyDict
-from app.tooling import AgentTooling, find_command_safety_violation
+from app.tools.implementations.base import AgentTooling, find_command_safety_violation
 from app.tools.execution.arg_validator import ToolArgValidator
 from app.tools.execution.gatekeeper import (
     collect_policy_override_candidates,

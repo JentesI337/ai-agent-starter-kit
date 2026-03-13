@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket
 
-from app.ws_handler import WsHandlerDependencies, handle_ws_agent
+from app.transport.ws_handler import WsHandlerDependencies, handle_ws_agent
 
 
 def build_ws_agent_router(*, dependencies: WsHandlerDependencies) -> APIRouter:

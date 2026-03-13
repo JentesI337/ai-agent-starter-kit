@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
