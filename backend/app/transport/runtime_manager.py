@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import settings
-from app.errors import RuntimeSwitchError
+from app.shared.errors import RuntimeSwitchError
 
 SendEvent = Callable[[dict], Awaitable[None]]
 

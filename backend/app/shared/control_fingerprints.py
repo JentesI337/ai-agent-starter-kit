@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 
 def build_run_start_fingerprint(

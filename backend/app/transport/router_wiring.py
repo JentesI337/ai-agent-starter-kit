@@ -13,7 +13,7 @@ from app.agent.factory_defaults import CODER_AGENT_ID, PRIMARY_AGENT_ID, REVIEW_
 from app.agent.resolution import looks_like_coding_request
 from app.transport.app_state import LazyObjectProxy
 from app.config import resolved_prompt_settings, settings
-from app.control_models import AgentTestRequest, RunStartRequest
+from app.shared.control_models import AgentTestRequest, RunStartRequest
 from app.transport.routers import include_control_routers
 from app.policy.store import PolicyStore
 from app.reasoning.request_normalization import normalize_preset

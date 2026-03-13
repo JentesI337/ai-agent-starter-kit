@@ -10,11 +10,11 @@ from enum import Enum
 from typing import TYPE_CHECKING, Protocol
 
 from app.contracts.agent_contract import AgentContract, SendEvent
-from app.errors import ClientDisconnectedError, GuardrailViolation, LlmClientError, PolicyApprovalCancelledError
+from app.shared.errors import ClientDisconnectedError, GuardrailViolation, LlmClientError, PolicyApprovalCancelledError
 from app.llm.routing.router import ModelRouteDecision
 from app.orchestration.events import LifecycleStage, build_lifecycle_event
 from app.orchestration.recovery_strategy import RecoveryContext, RecoveryStrategyResolution
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 if TYPE_CHECKING:
     from app.llm.health_tracker import ModelHealthTracker

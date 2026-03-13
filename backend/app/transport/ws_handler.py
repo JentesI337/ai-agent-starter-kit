@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.contracts import RequestContext
-from app.errors import (
+from app.shared.errors import (
     ClientDisconnectedError,
     GuardrailViolation,
     LlmClientError,
@@ -30,7 +30,7 @@ from app.reasoning.directive_parser import (
 from app.reasoning.request_normalization import normalize_prompt_mode, normalize_queue_mode
 from app.session.inbox_service import SessionInboxService
 from app.session.security import validate_session_id_format
-from app.tool_policy import ToolPolicyDict, tool_policy_to_dict
+from app.tools.policy import ToolPolicyDict, tool_policy_to_dict
 
 EventPayload = dict[str, Any]
 AsyncSendEvent = Callable[[EventPayload], Awaitable[None]]
@@ -186,7 +186,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
     active_agent_name_cv: ContextVar[str] = ContextVar("active_agent_name", default=deps.agent.name)
     active_agent_name_cv.set(deps.agent.name)
 
-    # ClientDisconnectedError is imported from app.errors — no longer a local class.
+    # ClientDisconnectedError is imported from app.shared.errors — no longer a local class.
 
     _send_lock = asyncio.Lock()
 
@@ -426,7 +426,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
             return True
 
         # Execute the workflow
-        from app.control_models import ControlWorkflowsExecuteRequest
+        from app.shared.control_models import ControlWorkflowsExecuteRequest
         execute_request = ControlWorkflowsExecuteRequest(
             workflow_id=target.id,
             message=extra_message or f"Triggered via /run {command_name}",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 
 QUEUE_MODE_VALUES = ("wait", "follow_up", "steer")
 PROMPT_MODE_VALUES = ("full", "minimal", "subagent")

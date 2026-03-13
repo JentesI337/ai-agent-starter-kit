@@ -34,7 +34,7 @@ from app.connectors.credential_store import get_credential_store, init_credentia
 from app.connectors.registry import ConnectorRegistry
 from app.contracts import OrchestratorApi
 from app.contracts.agent_contract import AgentContract
-from app.errors import GuardrailViolation, PolicyApprovalCancelledError
+from app.shared.errors import GuardrailViolation, PolicyApprovalCancelledError
 from app.llm.health_tracker import ModelHealthTracker
 from app.orchestration.events import build_lifecycle_event
 from app.orchestration.subrun_lane import SubrunLane

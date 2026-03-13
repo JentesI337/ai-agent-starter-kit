@@ -11,7 +11,7 @@ import httpx
 
 from app.config import settings
 from app.tools.content_security import wrap_external_content
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.tools.implementations.web_search import WebSearchResponse, WebSearchResult, WebSearchService
 from app.tools.url_validator import (
     UrlValidationError,

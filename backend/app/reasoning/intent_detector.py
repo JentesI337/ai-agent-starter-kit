@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 
 @dataclass(frozen=True)

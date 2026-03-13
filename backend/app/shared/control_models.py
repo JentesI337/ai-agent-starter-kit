@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.tool_policy import ToolPolicyPayload
+from app.tools.policy import ToolPolicyPayload
 
 PRIMARY_AGENT_ID = "head-agent"
 

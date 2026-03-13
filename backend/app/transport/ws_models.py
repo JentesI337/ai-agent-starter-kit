@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from app.tool_policy import ToolPolicyPayload
+from app.tools.policy import ToolPolicyPayload
 
 
 class WsInboundEnvelope(BaseModel):

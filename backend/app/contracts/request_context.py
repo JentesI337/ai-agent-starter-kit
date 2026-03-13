@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 QueueMode = Literal["wait", "follow_up", "steer"]
 PromptMode = Literal["full", "minimal", "subagent"]

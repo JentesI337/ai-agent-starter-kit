@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from app.config import settings
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 from app.tools.catalog import TOOL_NAMES
 from app.tools.policy import ToolPolicyDict
 

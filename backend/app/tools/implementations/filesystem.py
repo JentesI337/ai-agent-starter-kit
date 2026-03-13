@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path, PurePosixPath
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 
 class FileSystemToolMixin:

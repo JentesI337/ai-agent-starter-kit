@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app.control_models import (
+from app.shared.control_models import (
     ControlPolicyApprovalsAllowRequest,
     ControlPolicyApprovalsDecideRequest,
     ControlPolicyApprovalsPendingRequest,

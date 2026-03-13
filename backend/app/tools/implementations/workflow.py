@@ -42,7 +42,7 @@ class WorkflowToolMixin:
         steps = [line for line in raw_lines if line]
 
         try:
-            from app.control_models import ControlWorkflowsCreateRequest
+            from app.shared.control_models import ControlWorkflowsCreateRequest
             from app.workflows import handlers as workflow_handlers
 
             request = ControlWorkflowsCreateRequest(

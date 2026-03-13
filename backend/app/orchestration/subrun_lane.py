@@ -15,9 +15,9 @@ from time import monotonic
 from app.contracts.agent_contract import SendEvent
 from app.contracts.orchestrator_api import OrchestratorApi
 from app.contracts.request_context import RequestContext
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 from app.state import StateStore
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 # Multi-agency integration (lazy import to avoid circular)
 _coordination_bridge_type = None

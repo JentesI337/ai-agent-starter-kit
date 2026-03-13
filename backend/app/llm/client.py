@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.agent.runner_types import StreamResult
 
 from app.config import settings
-from app.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
+from app.shared.errors import LlmClientError, LlmResourceExhaustedError, LlmTimeoutError
 from app.tools.url_validator import UrlValidationError, validate_llm_base_url
 
 logger = logging.getLogger("app.llm.client")

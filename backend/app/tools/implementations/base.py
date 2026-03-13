@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.browser.pool import BrowserPool
 from app.config import settings
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.sandbox.repl_session_manager import ReplSessionManager
 from app.tools.catalog import TOOL_NAMES
 from app.tools.implementations.api_connectors import ApiConnectorToolMixin

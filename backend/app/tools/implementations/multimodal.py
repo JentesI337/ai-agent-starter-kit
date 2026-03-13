@@ -7,7 +7,7 @@ import logging
 import mimetypes
 
 from app.config import settings
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.media.audio_service import AudioService
 from app.media.image_gen_service import ImageGenService
 from app.media.pdf_service import PdfService

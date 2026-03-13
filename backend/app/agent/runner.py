@@ -18,7 +18,7 @@ from typing import Any
 
 from app.agent.runner_types import LoopState, PlanStep, PlanTracker, ToolCall, ToolResult
 from app.config import settings
-from app.errors import PolicyApprovalCancelledError
+from app.shared.errors import PolicyApprovalCancelledError
 from app.llm.client import LlmClient
 from app.memory import MemoryStore
 from app.monitoring.visualization import (
@@ -28,7 +28,7 @@ from app.monitoring.visualization import (
     validate_mermaid_node_count,
 )
 from app.session.compaction import CompactionService
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 from app.tools.execution.manager import ToolExecutionManager
 from app.tools.registry.registry import ToolRegistry
 

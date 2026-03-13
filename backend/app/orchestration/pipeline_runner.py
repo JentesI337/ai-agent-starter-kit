@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.contracts.agent_contract import AgentContract, SendEvent
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 from app.llm.health_tracker import ModelHealthTracker
 from app.llm.routing import ModelRouter
 from app.llm.routing.context_window_guard import evaluate_context_window_guard
@@ -25,7 +25,7 @@ from app.orchestration.recovery_strategy import (
 from app.orchestration.step_types import PipelineStep
 from app.policy.circuit_breaker import CircuitBreakerRegistry
 from app.state import StateStore
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 RecoveryPriorityResolution = tuple[tuple[str, ...], bool, bool, str, bool, bool]
 

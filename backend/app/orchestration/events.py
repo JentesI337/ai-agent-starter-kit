@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from app.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
+from app.shared.errors import GuardrailViolation, LlmClientError, RuntimeSwitchError, ToolExecutionError
 
 
 class LifecycleStage(StrEnum):

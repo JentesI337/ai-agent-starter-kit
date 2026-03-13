@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from app.config import settings, validate_environment_config
-from app.control_models import (
+from app.shared.control_models import (
     ControlConfigHealthRequest,
     ControlContextDetailRequest,
     ControlContextListRequest,
@@ -23,7 +23,7 @@ from app.control_models import (
     ControlToolsPolicyPreviewRequest,
     ControlToolsProfileRequest,
 )
-from app.tool_policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
+from app.tools.policy import ToolPolicyDict, ToolPolicyPayload, tool_policy_to_dict
 from app.tools.provisioning.command_security import (
     BUILTIN_COMMAND_SAFETY_PATTERNS,
     add_pattern,

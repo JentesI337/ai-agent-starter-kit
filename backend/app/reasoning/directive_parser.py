@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.errors import GuardrailViolation
+from app.shared.errors import GuardrailViolation
 from app.reasoning.request_normalization import normalize_queue_mode
 
 REASONING_LEVEL_VALUES = ("low", "medium", "high", "ultrathink", "adaptive")

@@ -13,7 +13,7 @@ from app.agent.record import UnifiedAgentRecord
 from app.config import settings
 from app.contracts.agent_contract import AgentConstraints, AgentContract, SendEvent
 from app.contracts.schemas import AgentInput, CoderAgentOutput, HeadAgentOutput
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 # ---------------------------------------------------------------------------
 # Shared constants

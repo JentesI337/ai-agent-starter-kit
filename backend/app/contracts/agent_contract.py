@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 SendEvent = Callable[[dict], Awaitable[None]]
 

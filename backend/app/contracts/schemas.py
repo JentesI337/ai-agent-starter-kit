@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.tool_policy import ToolPolicyDict
+from app.tools.policy import ToolPolicyDict
 
 
 class AgentInput(BaseModel):

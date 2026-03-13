@@ -10,7 +10,7 @@ from time import monotonic
 from uuid import uuid4
 
 from app.config import Settings
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 from app.memory.learning_loop import LearningLoop
 from app.reasoning.prompt.kernel_builder import PromptKernelBuilder
 from app.reasoning.request_normalization import normalize_prompt_mode

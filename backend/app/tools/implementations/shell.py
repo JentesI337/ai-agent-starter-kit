@@ -8,7 +8,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from app.errors import ToolExecutionError
+from app.shared.errors import ToolExecutionError
 
 COMMAND_SAFETY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\brm\s+-r[f]?\s", "recursive rm is blocked"),
