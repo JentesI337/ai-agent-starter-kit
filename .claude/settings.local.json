@@ -23,7 +23,9 @@
       "Read(//tmp/**)",
       "Bash(python:*)",
       "Bash(npx ng:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(timeout 10 .venv/Scripts/python.exe:*)"
     ]
   }
 }

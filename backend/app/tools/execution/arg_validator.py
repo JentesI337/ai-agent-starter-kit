@@ -60,6 +60,10 @@ class ToolArgValidator:
             "parse_errors": self._validate_parse_errors_args,
             "secrets_scan": self._validate_secrets_scan_args,
             "security_check": self._validate_security_check_args,
+            # Recipe tools
+            "recipe_checkpoint": self._validate_noop_tool_args,
+            "create_recipe": self._validate_noop_tool_args,
+            "update_recipe": self._validate_noop_tool_args,
         }
 
     def has_validator(self, tool_name: str) -> bool:
