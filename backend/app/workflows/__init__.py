@@ -1,21 +1,14 @@
-"""workflows — Workflow Execution Domain.
+"""workflows — Workflow & Recipe Domain.
 
-Handles definition, execution, scheduling, and persistence of workflows.
-  - WorkflowEngine:           Executes workflow chains step-by-step
-  - SqliteWorkflowStore:      Persists workflow definitions
-  - SqliteWorkflowRunStore:   Persists workflow run state
-  - ChainResolver:            Resolves and validates workflow graphs
+DEPRECATED: The graph-based workflow engine has been removed in favour of
+recipes (see recipe_models.py / recipe_store.py / recipe_runner.py).
+Workflow models and store are retained for data access during the migration
+period.  New code should use recipes exclusively.
 
-Transport layer (HTTP routes) lives in app.transport.routers.workflows.
-
-Allowed imports FROM:
-  shared, contracts, config, state, orchestration, tools.registry, skills, memory
-
-NOT allowed:
-  transport, agent, services (deprecated)
+Transport layer (HTTP routes) lives in app.transport.routers.workflows
+(deprecated, read-only) and app.transport.routers.recipes.
 """
 
-from app.workflows.engine import WorkflowEngine
 from app.workflows.models import (
     StepResult,
     WorkflowExecutionState,
@@ -34,7 +27,6 @@ __all__ = [
     "SqliteWorkflowRunStore",
     "SqliteWorkflowStore",
     "StepResult",
-    "WorkflowEngine",
     "WorkflowExecutionState",
     "WorkflowGraphDef",
     "WorkflowRecord",

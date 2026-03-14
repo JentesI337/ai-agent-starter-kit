@@ -1,0 +1,460 @@
+<!-- ═══ LIST VIEW ═══════════════════════════════════════════════════════════ -->
+<div class="rcp-page" *ngIf="view === 'list'">
+  <header class="list-header">
+    <div class="header-left">
+      <h1 class="page-title">Recipes</h1>
+      <span class="count-badge">{{ recipes.length }}</span>
+    </div>
+    <div class="header-right">
+      <input class="search-input"
+             type="text"
+             placeholder="Search recipes…"
+             [(ngModel)]="searchQuery" />
+      <button class="btn-primary" (click)="openNew()">
+        <span class="btn-icon">+</span> New Recipe
+      </button>
+    </div>
+  </header>
+
+  <!-- Loading -->
+  <div class="list-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Loading recipes…</span>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty-state" *ngIf="!loading && recipes.length === 0">
+    <div class="empty-icon">&#9672;</div>
+    <h2>No Recipes Yet</h2>
+    <p>Create your first recipe — a goal-driven workflow powered by the agent</p>
+    <button class="btn-primary" (click)="openNew()">
+      <span class="btn-icon">+</span> Create Recipe
+    </button>
+  </div>
+
+  <!-- Recipe Cards -->
+  <div class="rcp-grid" *ngIf="!loading && recipes.length > 0">
+    <div class="rcp-card"
+         *ngFor="let r of filteredRecipes; let i = index; trackBy: trackById"
+         [style.animation-delay]="i * 40 + 'ms'"
+         (click)="openEdit(r)">
+      <div class="rcp-card-header">
+        <div class="rcp-card-icon" [class.mode-strict]="r.mode === 'strict'">
+          {{ r.mode === 'adaptive' ? '&#9673;' : '&#9654;' }}
+        </div>
+        <div class="rcp-card-info">
+          <h3>{{ r.name }}</h3>
+          <p *ngIf="r.description">{{ r.description }}</p>
+        </div>
+      </div>
+      <div class="rcp-card-goal" *ngIf="r.goal">
+        {{ r.goal.length > 80 ? (r.goal.substring(0, 80) + '…') : r.goal }}
+      </div>
+      <div class="rcp-card-meta">
+        <span class="meta-pill mode-pill" [class.strict]="r.mode === 'strict'">
+          {{ r.mode === 'adaptive' ? 'Adaptive' : 'Strict' }}
+        </span>
+        <span class="meta-pill" *ngIf="r.mode === 'adaptive'">
+          {{ r.checkpoint_count }} checkpoint{{ r.checkpoint_count !== 1 ? 's' : '' }}
+        </span>
+        <span class="meta-pill" *ngIf="r.mode === 'strict'">
+          {{ r.step_count }} step{{ r.step_count !== 1 ? 's' : '' }}
+        </span>
+        <span class="meta-pill" *ngIf="r.agent_id">
+          {{ r.agent_id }}
+        </span>
+      </div>
+      <div class="rcp-card-actions">
+        <button class="card-action" title="Edit" (click)="openEdit(r); $event.stopPropagation()">&#9998;</button>
+        <button class="card-action danger" title="Delete" (click)="deleteRecipe(r, $event)">&#10005;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ EDITOR VIEW ════════════════════════════════════════════════════════ -->
+<div class="editor" *ngIf="view === 'editor'">
+  <!-- Top bar -->
+  <header class="editor-topbar">
+    <button class="btn-ghost" (click)="backToList()">&#8592; Back</button>
+    <div class="topbar-center">
+      <span class="rcp-name-display">{{ recipeName || 'Untitled Recipe' }}</span>
+    </div>
+    <div class="topbar-right">
+      <div class="mode-toggle">
+        <button class="mode-btn" [class.active]="recipeMode === 'adaptive'" (click)="recipeMode = 'adaptive'">Adaptive</button>
+        <button class="mode-btn" [class.active]="recipeMode === 'strict'" (click)="recipeMode = 'strict'">Strict</button>
+      </div>
+      <button class="btn-primary btn-run" *ngIf="editId" (click)="executeRecipe()" [disabled]="executing">
+        &#9654; Run
+      </button>
+      <button class="btn-secondary" (click)="save()" [disabled]="saving">
+        {{ saving ? 'Saving…' : (editId ? 'Update' : 'Save') }}
+      </button>
+    </div>
+  </header>
+
+  <!-- Toast -->
+  <div class="toast" *ngIf="message"
+       [class.toast-ok]="messageType === 'ok'"
+       [class.toast-err]="messageType === 'err'">
+    {{ message }}
+    <button class="toast-close" (click)="message = ''">&#10005;</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="editor-tabs" *ngIf="editId">
+    <button class="tab-btn" [class.active]="editorTab === 'definition'" (click)="switchTab('definition')">Definition</button>
+    <button class="tab-btn" [class.active]="editorTab === 'runs'" (click)="switchTab('runs')">Runs</button>
+  </div>
+
+  <!-- Runs history panel -->
+  <div class="runs-panel" *ngIf="editorTab === 'runs'">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px;">
+      <span style="font-size: 13px; color: var(--c-text-dim);">Run History</span>
+      <button class="btn-ghost" (click)="loadRunHistory()" style="font-size: 12px; padding: 2px 8px;">&#8635; Refresh</button>
+    </div>
+    <div class="runs-loading" *ngIf="runsLoading">Loading runs…</div>
+    <div class="runs-empty" *ngIf="!runsLoading && runHistory.length === 0">No runs yet</div>
+    <div class="runs-list" *ngIf="!runsLoading && runHistory.length > 0">
+      <div class="run-card" *ngFor="let run of runHistory"
+           [class.run-success]="run.status === 'completed'"
+           [class.run-failed]="run.status === 'failed'"
+           [class.run-running]="run.status === 'running'"
+           [class.run-paused]="run.status === 'paused'">
+        <div class="run-head">
+          <span class="run-status-dot"
+                [class.s-ok]="run.status === 'completed'"
+                [class.s-fail]="run.status === 'failed'"
+                [class.s-run]="run.status === 'running'"
+                [class.s-pause]="run.status === 'paused'"></span>
+          <span class="run-id">{{ run.run_id.substring(0, 8) }}…</span>
+          <span class="run-status">{{ run.status }}</span>
+          <button class="resume-btn resume-btn-sm" *ngIf="run.status === 'paused'" (click)="resumeRunFromHistory(run)">&#9654; Resume</button>
+        </div>
+        <div class="run-meta">
+          <span>{{ run.mode }}</span>
+          <span>{{ run.started_at }}</span>
+          <span class="run-pause-reason" *ngIf="run.status === 'paused' && $any(run).pause_reason">paused: {{ $any(run).pause_reason }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main editor area -->
+  <div class="editor-body" *ngIf="editorTab === 'definition'">
+
+    <!-- Left: Form -->
+    <div class="form-panel">
+
+      <!-- Basic info -->
+      <section class="form-section">
+        <h3 class="section-heading">Recipe</h3>
+        <label class="field-label">
+          Name
+          <input class="field-input" type="text" placeholder="Recipe name" [(ngModel)]="recipeName" />
+        </label>
+        <label class="field-label">
+          Description
+          <textarea class="field-input" rows="2" placeholder="Optional description" [(ngModel)]="recipeDescription"></textarea>
+        </label>
+        <label class="field-label">
+          Goal
+          <textarea class="field-input goal-area" rows="3" placeholder="What should the agent accomplish? Describe the desired outcome in natural language." [(ngModel)]="recipeGoal"></textarea>
+        </label>
+        <label class="field-label">
+          Agent Override
+          <input class="field-input" type="text" placeholder="Leave blank for default (head-agent)" [(ngModel)]="recipeAgentId" />
+        </label>
+      </section>
+
+      <!-- Constraints -->
+      <section class="form-section">
+        <h3 class="section-heading">Constraints</h3>
+        <div class="constraints-grid">
+          <label class="field-label">
+            Max Duration (seconds)
+            <input class="field-input" type="number" min="1" placeholder="No limit" [(ngModel)]="maxDuration" />
+          </label>
+          <label class="field-label">
+            Max Tool Calls
+            <input class="field-input" type="number" min="1" placeholder="No limit" [(ngModel)]="maxToolCalls" />
+          </label>
+          <label class="field-label">
+            Max LLM Tokens
+            <input class="field-input" type="number" min="1" placeholder="No limit" [(ngModel)]="maxLlmTokens" />
+          </label>
+        </div>
+        <label class="field-label">
+          Tools Allowed (comma-separated, blank = all)
+          <input class="field-input" type="text" placeholder="e.g. web_search, read_file" [(ngModel)]="toolsAllowed" />
+        </label>
+        <label class="field-label">
+          Tools Denied (comma-separated)
+          <input class="field-input" type="text" placeholder="e.g. run_command" [(ngModel)]="toolsDenied" />
+        </label>
+        <label class="field-label">
+          Require Human Approval Before (comma-separated tool names)
+          <input class="field-input" type="text" placeholder="e.g. run_command, write_file" [(ngModel)]="humanApprovalTools" />
+        </label>
+      </section>
+
+      <!-- Triggers -->
+      <section class="form-section">
+        <h3 class="section-heading">Triggers</h3>
+        <div class="trigger-list">
+          <div class="trigger-item" *ngFor="let t of triggers; let i = index; trackBy: trackByIndex">
+            <div class="trigger-header">
+              <select class="field-input trigger-type-select" [(ngModel)]="t['type']">
+                <option value="manual">Manual</option>
+                <option value="schedule">Schedule (Cron)</option>
+                <option value="webhook">Webhook</option>
+                <option value="chat_command">Chat Command</option>
+              </select>
+              <button class="trigger-remove" *ngIf="triggers.length > 1" (click)="removeTrigger(i)">&#10005;</button>
+            </div>
+            <ng-container *ngIf="t['type'] === 'schedule'">
+              <label class="field-label">
+                Cron Expression
+                <input class="field-input" type="text" placeholder="0 9 * * 1-5" [(ngModel)]="t['cron_expression']" />
+              </label>
+              <div class="cron-preview" *ngIf="t['cron_expression']">
+                <span class="cron-desc">{{ describeCron(t['cron_expression']?.toString() || '') }}</span>
+              </div>
+              <div class="trigger-schedule-meta" *ngIf="t['last_run_at'] || t['next_run_at']">
+                <span *ngIf="t['last_run_at']" class="trigger-meta-item">Last run: {{ t['last_run_at'] }}</span>
+                <span *ngIf="t['next_run_at']" class="trigger-meta-item">Next: {{ getNextRun(t) }}</span>
+              </div>
+            </ng-container>
+            <ng-container *ngIf="t['type'] === 'chat_command'">
+              <label class="field-label">
+                Command Name
+                <input class="field-input" type="text" placeholder="e.g. deploy" [(ngModel)]="t['command_name']" />
+              </label>
+            </ng-container>
+          </div>
+        </div>
+        <button class="btn-ghost btn-add-trigger" (click)="addTrigger()">+ Add Trigger</button>
+      </section>
+    </div>
+
+    <!-- Right: Checkpoints or Steps -->
+    <div class="items-panel">
+
+      <!-- Adaptive: Checkpoints -->
+      <ng-container *ngIf="recipeMode === 'adaptive'">
+        <section class="form-section">
+          <div class="section-header">
+            <h3 class="section-heading">Checkpoints</h3>
+            <button class="btn-ghost btn-small" (click)="addCheckpoint()">+ Add</button>
+          </div>
+          <p class="hint" *ngIf="checkpoints.length === 0">
+            Checkpoints are milestones the agent must reach. Add at least one.
+          </p>
+          <div class="checkpoint-list">
+            <div class="checkpoint-item" *ngFor="let cp of checkpoints; let i = index; trackBy: trackByIndex">
+              <div class="item-header">
+                <span class="item-order">{{ i + 1 }}</span>
+                <div class="item-actions">
+                  <button class="item-btn" (click)="moveCheckpoint(i, -1)" [disabled]="i === 0" title="Move up">&#9650;</button>
+                  <button class="item-btn" (click)="moveCheckpoint(i, 1)" [disabled]="i === checkpoints.length - 1" title="Move down">&#9660;</button>
+                  <button class="item-btn danger" (click)="removeCheckpoint(i)" title="Remove">&#10005;</button>
+                </div>
+              </div>
+              <label class="field-label">
+                Label
+                <input class="field-input" type="text" placeholder="Milestone name" [(ngModel)]="cp.label" />
+              </label>
+              <label class="field-label">
+                Verification
+                <textarea class="field-input" rows="2" placeholder="Assertion expression or rubric for agent evaluation" [(ngModel)]="cp.verification"></textarea>
+              </label>
+              <div class="checkpoint-options">
+                <label class="field-label">
+                  Mode
+                  <select class="field-input" [(ngModel)]="cp.verification_mode">
+                    <option value="assert">Assert (expression)</option>
+                    <option value="agent">Agent (rubric)</option>
+                  </select>
+                </label>
+                <label class="field-toggle">
+                  <input type="checkbox" [(ngModel)]="cp.required" />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  Required
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+      </ng-container>
+
+      <!-- Strict: Steps -->
+      <ng-container *ngIf="recipeMode === 'strict'">
+        <section class="form-section">
+          <div class="section-header">
+            <h3 class="section-heading">Steps</h3>
+            <button class="btn-ghost btn-small" (click)="addStrictStep()">+ Add</button>
+          </div>
+          <p class="hint" *ngIf="strictSteps.length === 0">
+            Steps execute in order, deterministically. Add at least one.
+          </p>
+          <div class="step-list">
+            <div class="step-item" *ngFor="let step of strictSteps; let i = index; trackBy: trackByIndex">
+              <div class="item-header">
+                <span class="item-order">{{ i + 1 }}</span>
+                <div class="item-actions">
+                  <button class="item-btn" (click)="moveStrictStep(i, -1)" [disabled]="i === 0" title="Move up">&#9650;</button>
+                  <button class="item-btn" (click)="moveStrictStep(i, 1)" [disabled]="i === strictSteps.length - 1" title="Move down">&#9660;</button>
+                  <button class="item-btn danger" (click)="removeStrictStep(i)" title="Remove">&#10005;</button>
+                </div>
+              </div>
+              <label class="field-label">
+                Label
+                <input class="field-input" type="text" placeholder="Step name" [(ngModel)]="step.label" />
+              </label>
+              <label class="field-label">
+                Instruction
+                <textarea class="field-input" rows="2" placeholder="What to do in this step" [(ngModel)]="step.instruction"></textarea>
+              </label>
+              <label class="field-label">
+                Tool (optional)
+                <input class="field-input" type="text" placeholder="Specific tool name, or leave blank" [(ngModel)]="step.tool" />
+              </label>
+              <label class="field-label" *ngIf="step.tool">
+                Tool Parameters (JSON with template support)
+                <textarea class="field-input tool-params-area"
+                          rows="3"
+                          [attr.placeholder]="toolParamsPlaceholder"
+                          [ngModel]="stringifyToolParams(step)"
+                          (ngModelChange)="parseToolParams(step, $event)"></textarea>
+              </label>
+              <div class="step-options">
+                <label class="field-label">
+                  Timeout (s)
+                  <input class="field-input" type="number" min="1" [(ngModel)]="step.timeout_seconds" />
+                </label>
+                <label class="field-label">
+                  Retries
+                  <input class="field-input" type="number" min="0" max="5" [(ngModel)]="step.retry_count" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+      </ng-container>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ EXECUTION VIEW ═══════════════════════════════════════════════════ -->
+<div class="execution" *ngIf="view === 'execution'">
+  <header class="exec-topbar">
+    <button class="btn-ghost" (click)="backFromExecution()">&#8592; Back</button>
+    <div class="exec-topbar-center">
+      <span class="exec-recipe-name">{{ executionRecipeName }}</span>
+      <span class="exec-status-badge"
+            [class.s-running]="executionStatus === 'running'"
+            [class.s-completed]="executionStatus === 'completed'"
+            [class.s-failed]="executionStatus === 'failed'"
+            [class.s-paused]="executionStatus === 'paused'">
+        {{ executionStatus }}
+      </span>
+    </div>
+    <div class="exec-budget">
+      <span class="budget-item" title="Duration">{{ executionBudget.duration_seconds | number:'1.1-1' }}s</span>
+    </div>
+  </header>
+
+  <!-- Paused banner -->
+  <div class="exec-paused" *ngIf="executionStatus === 'paused'">
+    <div class="exec-paused-info">
+      <span class="exec-paused-icon">&#9208;</span>
+      <div>
+        <strong>Recipe Paused</strong>
+        <span class="exec-paused-reason">Reason: {{ executionPauseReason }}</span>
+      </div>
+    </div>
+    <div class="exec-paused-actions">
+      <span class="exec-webhook-url" *ngIf="executionPauseReason === 'webhook' && executionRunId">
+        Webhook: /api/control/recipes.runs.webhook/{{ executionRunId }}
+      </span>
+      <button class="resume-btn" (click)="resumeRun()">&#9654; Resume</button>
+    </div>
+  </div>
+
+  <div class="exec-body">
+    <!-- Left: Checkpoint / Step timeline -->
+    <div class="exec-checkpoints">
+
+      <!-- Adaptive: Checkpoint timeline -->
+      <ng-container *ngIf="executionMode === 'adaptive'">
+        <h3 class="section-heading">Checkpoints</h3>
+        <div class="checkpoint-timeline">
+          <div class="timeline-item" *ngFor="let cp of executionCheckpoints; let i = index"
+               [class.t-pending]="cp.status === 'pending'"
+               [class.t-passed]="cp.status === 'passed'"
+               [class.t-failed]="cp.status === 'failed'">
+            <div class="timeline-dot"></div>
+            <div class="timeline-line" *ngIf="i < executionCheckpoints.length - 1"></div>
+            <div class="timeline-content">
+              <span class="timeline-label">{{ cp.label || cp.id }}</span>
+              <span class="timeline-badge" *ngIf="cp.required">required</span>
+              <p class="timeline-explanation" *ngIf="cp.explanation">{{ cp.explanation }}</p>
+            </div>
+          </div>
+        </div>
+        <p class="hint" *ngIf="executionCheckpoints.length === 0">No checkpoints defined</p>
+      </ng-container>
+
+      <!-- Strict: Step timeline -->
+      <ng-container *ngIf="executionMode === 'strict'">
+        <h3 class="section-heading">Steps</h3>
+        <div class="checkpoint-timeline">
+          <div class="timeline-item" *ngFor="let step of executionSteps; let i = index"
+               [class.t-pending]="step.status === 'pending'"
+               [class.t-running]="step.status === 'running'"
+               [class.t-passed]="step.status === 'success'"
+               [class.t-failed]="step.status === 'failed'">
+            <div class="timeline-dot"></div>
+            <div class="timeline-line" *ngIf="i < executionSteps.length - 1"></div>
+            <div class="timeline-content">
+              <span class="timeline-label">{{ step.label || step.id }}</span>
+              <span class="tool-badge" *ngIf="step.tool">{{ step.tool }}</span>
+              <span class="timeline-duration" *ngIf="step.duration_ms">{{ step.duration_ms }}ms</span>
+              <p class="timeline-output" *ngIf="step.output_preview">{{ step.output_preview.length > 120 ? (step.output_preview.substring(0, 120) + '…') : step.output_preview }}</p>
+              <p class="timeline-error" *ngIf="step.error">{{ step.error }}</p>
+            </div>
+          </div>
+        </div>
+        <p class="hint" *ngIf="executionSteps.length === 0">No steps defined</p>
+      </ng-container>
+
+    </div>
+
+    <!-- Right: Live event log -->
+    <div class="exec-log">
+      <h3 class="section-heading">Event Log</h3>
+      <div class="event-list">
+        <div class="event-item" *ngFor="let ev of executionEvents"
+             [class.ev-start]="ev.type === 'recipe_started'"
+             [class.ev-pass]="ev.type === 'recipe_checkpoint_passed' || ev.type === 'recipe_step_completed'"
+             [class.ev-fail]="ev.type === 'recipe_checkpoint_failed' || ev.type === 'recipe_failed' || ev.type === 'recipe_step_failed'"
+             [class.ev-done]="ev.type === 'recipe_completed'"
+             [class.ev-step]="ev.type === 'recipe_step_started'">
+          <span class="event-type">{{ ev.type }}</span>
+          <span class="event-detail" *ngIf="ev.label">{{ ev.label }}</span>
+          <span class="event-detail" *ngIf="ev.explanation">{{ ev.explanation }}</span>
+          <span class="event-detail" *ngIf="ev.error">{{ ev.error }}</span>
+          <span class="event-detail" *ngIf="ev.agent_response_preview">{{ ev.agent_response_preview }}</span>
+          <span class="event-detail" *ngIf="ev.output_preview">{{ ev.output_preview }}</span>
+          <span class="event-detail" *ngIf="ev.step_id">step: {{ ev.step_id }}</span>
+          <span class="event-detail" *ngIf="ev.duration_ms">{{ ev.duration_ms }}ms</span>
+        </div>
+        <div class="event-empty" *ngIf="executionEvents.length === 0">
+          <div class="spinner" *ngIf="executionStatus === 'running'"></div>
+          <span>{{ executionStatus === 'running' ? 'Waiting for events…' : 'No events yet' }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

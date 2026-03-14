@@ -12,8 +12,12 @@ import {
   RuntimeFeatureFlags,
   PresetDescriptor,
 } from '../services/agents.service';
-import { WorkflowService, WorkflowDefinition, WorkflowCreatePayload, WorkflowUpdatePayload } from '../services/workflow.service';
 import { PolicyService, PolicyDefinition, PolicyCreatePayload } from '../services/policy.service';
+
+// Stub types — WorkflowService has been removed (workflows replaced by recipes)
+type WorkflowDefinition = { id: string; name: string; description?: string; base_agent_id?: string; steps?: string[]; tool_policy?: any };
+type WorkflowCreatePayload = { name: string; description?: string; base_agent_id?: string; steps?: string[]; tool_policy?: any };
+type WorkflowUpdatePayload = { id: string; name?: string; description?: string; base_agent_id?: string; steps?: string[] };
 import { ToolPolicyPayload } from '../services/agent-socket.service';
 
 type AdminTab = 'agents' | 'workflows' | 'policies' | 'tools' | 'skills' | 'settings';
@@ -98,14 +102,12 @@ export class AdminPageComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly agentsService: AgentsService,
-    private readonly workflowService: WorkflowService,
     private readonly policyService: PolicyService,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
     this.loadAgents();
-    this.loadWorkflows();
     this.loadPolicies();
     this.loadSettings();
     this.loadToolCatalog();
@@ -238,119 +240,17 @@ export class AdminPageComponent implements OnInit, OnDestroy {
     this.newVisionMode = 'inherit';
   }
 
-  // ─── Workflows ───────────────────────────────────────
-  private loadWorkflows(): void {
-    this.workflowService.list().subscribe({
-      next: res => { this.workflows = res.items ?? []; },
-    });
-  }
+  // ─── Workflows (deprecated — replaced by recipes) ────
+  // Stub methods kept for template compatibility
+  createWorkflow(): void {}
+  startWorkflowEdit(_wf: WorkflowDefinition): void {}
+  cancelWorkflowEdit(): void { this.editingWorkflowId = null; this.editWorkflow = {}; }
+  saveWorkflowEdit(): void {}
+  deleteWorkflow(_id: string): void {}
+  executeWorkflow(_id: string): void {}
 
-  createWorkflow(): void {
-    const name = this.newWfName.trim();
-    if (!name || this.workflowBusy) return;
-
-    const steps = this.newWfStepsText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-    const allow = this.parseCsv(this.newWfToolAllow);
-    const deny = this.parseCsv(this.newWfToolDeny);
-
-    const payload: WorkflowCreatePayload = {
-      name,
-      description: this.newWfDescription.trim(),
-      base_agent_id: this.newWfBaseAgent,
-      steps,
-    };
-    if (allow.length > 0 || deny.length > 0) {
-      payload.tool_policy = {
-        allow: allow.length > 0 ? allow : undefined,
-        deny: deny.length > 0 ? deny : undefined,
-      };
-    }
-
-    this.workflowBusy = true;
-    this.workflowService.create(payload).subscribe({
-      next: () => {
-        this.resetWorkflowForm();
-        this.loadWorkflows();
-        this.workflowBusy = false;
-      },
-      error: () => { this.workflowBusy = false; },
-    });
-  }
-
-  startWorkflowEdit(wf: WorkflowDefinition): void {
-    this.editingWorkflowId = wf.id;
-    this.editWorkflow = { ...wf, steps: [...(wf.steps ?? [])] };
-  }
-
-  cancelWorkflowEdit(): void {
-    this.editingWorkflowId = null;
-    this.editWorkflow = {};
-  }
-
-  saveWorkflowEdit(): void {
-    if (!this.editingWorkflowId || this.workflowBusy) return;
-    this.workflowBusy = true;
-    const payload: WorkflowUpdatePayload = {
-      id: this.editingWorkflowId,
-      name: this.editWorkflow.name,
-      description: this.editWorkflow.description,
-      base_agent_id: this.editWorkflow.base_agent_id,
-      steps: this.editWorkflow.steps,
-    };
-    this.workflowService.update(payload).subscribe({
-      next: () => {
-        this.cancelWorkflowEdit();
-        this.loadWorkflows();
-        this.workflowBusy = false;
-      },
-      error: () => { this.workflowBusy = false; },
-    });
-  }
-
-  deleteWorkflow(id: string): void {
-    if (!id || this.workflowBusy) return;
-    this.workflowBusy = true;
-    this.workflowService.delete(id).subscribe({
-      next: () => {
-        this.loadWorkflows();
-        this.workflowBusy = false;
-        if (this.editingWorkflowId === id) this.cancelWorkflowEdit();
-      },
-      error: () => { this.workflowBusy = false; },
-    });
-  }
-
-  executeWorkflow(id: string): void {
-    if (!id || this.workflowBusy) return;
-    this.workflowBusy = true;
-    this.workflowRunResult = null;
-    this.workflowService.execute(id).subscribe({
-      next: res => {
-        this.workflowRunResult = `Workflow started. Run: ${res.run_id ?? '(unknown)'}`;
-        this.workflowBusy = false;
-      },
-      error: (err) => {
-        this.workflowRunResult = `Execute failed: ${err?.error?.detail ?? err.message}`;
-        this.workflowBusy = false;
-      },
-    });
-  }
-
-  get editWfStepsText(): string {
-    return this.editWorkflow.steps?.join('\n') ?? '';
-  }
-  set editWfStepsText(value: string) {
-    this.editWorkflow.steps = value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-  }
-
-  private resetWorkflowForm(): void {
-    this.newWfName = '';
-    this.newWfDescription = '';
-    this.newWfBaseAgent = 'head-agent';
-    this.newWfStepsText = '';
-    this.newWfToolAllow = '';
-    this.newWfToolDeny = '';
-  }
+  get editWfStepsText(): string { return ''; }
+  set editWfStepsText(_value: string) {}
 
   // ─── Policies ────────────────────────────────────────
   private loadPolicies(): void {

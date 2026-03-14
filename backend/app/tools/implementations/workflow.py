@@ -1,7 +1,7 @@
-"""Workflow management tools — build_workflow and explore_connector.
+"""Workflow management tools — explore_connector (build_workflow deprecated).
 
-Mixin that gives agents the ability to create workflows from natural
-language descriptions and inspect connector capabilities.
+Mixin that gives agents the ability to inspect connector capabilities.
+The build_workflow tool has been deprecated in favour of recipes.
 """
 from __future__ import annotations
 
@@ -14,59 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowToolMixin:
-    """Tool mixin for workflow creation and connector exploration."""
+    """Tool mixin for connector exploration (workflow creation deprecated)."""
 
     async def build_workflow(
         self,
         *,
-        name: str,
+        name: str = "",
         description: str = "",
-        steps_description: str,
+        steps_description: str = "",
         execution_mode: str = "sequential",
         **_kwargs,
     ) -> str:
-        """Create a workflow from a natural language description.
-
-        The agent decomposes *steps_description* into concrete workflow steps
-        and creates the workflow via the internal API.
-        """
-        # Parse steps from the description — each line becomes a step
-        raw_lines = [
-            line.strip().lstrip("-•*0123456789.) ")
-            for line in steps_description.strip().splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-        if not raw_lines:
-            raise ToolExecutionError("steps_description must contain at least one step")
-
-        steps = [line for line in raw_lines if line]
-
-        try:
-            from app.shared.control_models import ControlWorkflowsCreateRequest
-            from app.workflows import handlers as workflow_handlers
-
-            request = ControlWorkflowsCreateRequest(
-                name=name,
-                description=description,
-                steps=steps,
-                execution_mode=execution_mode if execution_mode in ("parallel", "sequential") else "sequential",
-            )
-            result = workflow_handlers.api_control_workflows_create(
-                request_data=request.model_dump(),
-                idempotency_key_header=None,
-            )
-            workflow_id = result.get("workflow", {}).get("id", "unknown")
-            step_count = result.get("workflow", {}).get("step_count", len(steps))
-            return json.dumps({
-                "status": "created",
-                "workflow_id": workflow_id,
-                "name": name,
-                "step_count": step_count,
-                "steps": steps,
-                "message": f"Workflow '{name}' created with {step_count} steps. Open it in the Workflows page to configure and run.",
-            })
-        except Exception as exc:
-            raise ToolExecutionError(f"Failed to create workflow: {exc}") from exc
+        """DEPRECATED — use create_recipe instead."""
+        return json.dumps({
+            "status": "deprecated",
+            "message": "build_workflow is deprecated. Use create_recipe to create a recipe instead.",
+        })
 
     async def explore_connector(
         self,

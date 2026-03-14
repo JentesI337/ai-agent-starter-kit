@@ -855,6 +855,48 @@
   }
 }
 
+// ── Recipe Actions ──────────────────────────────────
+.recipe-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ra-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--c-surface-hover, var(--c-border));
+  }
+}
+
+.ra-open {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+
+  &:hover {
+    background: var(--c-accent);
+    color: #fff;
+  }
+}
+
+.ra-run {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+
+  &:hover {
+    filter: brightness(1.1);
+  }
+}
+
 // ── Responsive ─────────────────────────────────────
 @media (max-width: 768px) {
   .settings-flyout { width: 100%; }

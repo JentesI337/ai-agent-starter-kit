@@ -13,11 +13,13 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml, SafeUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
+import { Router } from '@angular/router';
 import { AgentSocketEvent, AgentSocketService, ToolPolicyPayload } from '../services/agent-socket.service';
 import { AgentStateService, ChatLine, PolicyApprovalItem } from '../services/agent-state.service';
 import { MermaidDiagramComponent } from '../components/mermaid-diagram/mermaid-diagram.component';
 import { PlanProgressComponent } from '../components/plan-progress/plan-progress.component';
 import { MonitoringService } from '../services/monitoring.service';
+import { RecipeService } from '../services/recipe.service';
 import { SecureStorageService } from '../services/secure-storage.service';
 import { UploadResult, UploadService } from '../services/upload.service';
 import {
@@ -91,6 +93,8 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     private readonly secureStorage: SecureStorageService,
     private readonly sanitizer: DomSanitizer,
     private readonly uploadService: UploadService,
+    private readonly router: Router,
+    private readonly recipeService: RecipeService,
   ) {}
 
   ngOnInit(): void {
@@ -559,6 +563,31 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
     });
   }
 
+  // ── Recipe Actions ─────────────────────────────
+
+  openRecipe(recipeId: string): void {
+    this.router.navigate(['/recipes'], { queryParams: { id: recipeId } });
+  }
+
+  runRecipe(recipeId: string): void {
+    this.recipeService.executeRecipe(recipeId).subscribe({
+      next: (result) => {
+        const runId = result?.run_id ?? '';
+        this.agentState.pushChatLine({
+          role: 'system',
+          text: `Recipe execution started (run: ${runId}). Navigating to execution view...`,
+        });
+        this.router.navigate(['/recipes'], { queryParams: { id: recipeId, run: runId } });
+      },
+      error: (err) => {
+        this.agentState.pushChatLine({
+          role: 'system',
+          text: `Failed to start recipe: ${err?.error?.detail ?? err.message}`,
+        });
+      },
+    });
+  }
+
   // ── Event Processing (preserved) ──────────────────
 
   private applyEvent(event: AgentSocketEvent): void {
@@ -723,7 +752,13 @@ export class ChatPageComponent implements OnInit, OnDestroy, AfterViewChecked {
       const vizType = event.viz_type as 'mermaid' | 'image' | 'svg';
       const data = event.data;
       if (vizType && data) {
-        this.agentState.pushChatLine({ role: 'agent', text: '', visualization: { vizType, data } });
+        const recipeId = (event as any).recipe_id as string | undefined;
+        this.agentState.pushChatLine({
+          role: 'agent',
+          text: '',
+          visualization: { vizType, data },
+          recipeId: recipeId || undefined,
+        });
       }
       return;
     }

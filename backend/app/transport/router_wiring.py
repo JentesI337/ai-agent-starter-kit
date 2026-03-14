@@ -106,6 +106,8 @@ from app.transport.runtime_wiring import (
     subrun_lane,
 )
 from app.workflows import handlers as workflow_handlers
+from app.workflows import recipe_handlers
+from app.transport.routers.recipes import build_control_recipes_router
 from app.transport.ws_handler import WsHandlerDependencies
 
 logger = logging.getLogger("app.main")
@@ -344,3 +346,18 @@ def register_all_routers(app: FastAPI) -> None:
     # --- Webhook Triggers ---
     from app.transport.routers.webhooks import build_webhooks_router
     app.include_router(build_webhooks_router())
+
+    # --- Recipe Router ---
+    app.include_router(
+        build_control_recipes_router(
+            recipes_list_handler=recipe_handlers.api_control_recipes_list,
+            recipes_get_handler=recipe_handlers.api_control_recipes_get,
+            recipes_create_handler=recipe_handlers.api_control_recipes_create,
+            recipes_update_handler=recipe_handlers.api_control_recipes_update,
+            recipes_delete_handler=recipe_handlers.api_control_recipes_delete,
+            recipes_validate_handler=recipe_handlers.api_control_recipes_validate,
+            recipes_execute_handler=recipe_handlers.api_control_recipes_execute,
+            recipes_resume_handler=recipe_handlers.api_control_recipes_resume,
+            recipes_migrate_handler=recipe_handlers.api_control_recipes_migrate,
+        )
+    )

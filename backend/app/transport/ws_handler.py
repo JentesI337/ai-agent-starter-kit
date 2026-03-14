@@ -378,10 +378,11 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         )
 
     async def _try_run_command(content: str, session_id: str, request_id: str) -> bool:
-        """Detect ``/run <name> [message]`` and execute the matching workflow.
+        """Detect ``/run <name> [message]`` and execute the matching recipe.
 
-        Returns *True* if a workflow was triggered (caller should skip normal
-        agent routing), *False* otherwise.
+        Searches recipes first (by chat_command trigger, id, or name),
+        then falls back to workflows for backward compatibility.
+        Returns *True* if a recipe/workflow was triggered, *False* otherwise.
         """
         import re as _re
 
@@ -392,17 +393,65 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
         command_name = m.group(1).strip()
         extra_message = (m.group(2) or "").strip()
 
+        def _normalize_id(raw: str) -> str:
+            return _re.sub(r"-+", "-", _re.sub(r"[^a-z0-9_-]+", "-", (raw or "").strip().lower())).strip("-")[:80]
+
+        # --- Try recipes first ---
+        try:
+            from app.workflows.recipe_store import get_recipe_store
+            recipe_store = get_recipe_store()
+            target_recipe = None
+            for recipe in recipe_store.list():
+                for t in recipe.triggers:
+                    if isinstance(t, dict) and t.get("type") == "chat_command":
+                        cmd = t.get("command_name", "")
+                        if cmd and cmd.lower() == command_name.lower():
+                            target_recipe = recipe
+                            break
+                if target_recipe:
+                    break
+                if _normalize_id(recipe.id) == _normalize_id(command_name):
+                    target_recipe = recipe
+                    break
+                if recipe.name.lower() == command_name.lower():
+                    target_recipe = recipe
+                    break
+
+            if target_recipe is not None:
+                await send_event({
+                    "type": "status",
+                    "message": f"Running recipe '{target_recipe.name or target_recipe.id}'...",
+                })
+                try:
+                    from app.workflows import recipe_handlers
+                    result = recipe_handlers.api_control_recipes_execute({
+                        "recipe_id": target_recipe.id,
+                        "message": extra_message or f"Triggered via /run {command_name}",
+                    })
+                    run_id = result.get("run_id") or ""
+                    await send_event({
+                        "type": "recipe_triggered",
+                        "recipe_id": target_recipe.id,
+                        "run_id": run_id,
+                        "message": f"Recipe '{target_recipe.name or target_recipe.id}' started (run {run_id}).",
+                    })
+                except Exception as exc:
+                    await send_event({
+                        "type": "error",
+                        "message": f"Recipe execution failed: {exc}",
+                    })
+                return True
+        except (RuntimeError, ImportError):
+            pass  # recipe system not ready, try workflows
+
+        # --- Fallback: search workflows (backward compat during transition) ---
         try:
             from app.workflows.store import get_workflow_store
             wf_store = get_workflow_store()
         except (RuntimeError, ImportError):
-            await send_event({"type": "status", "message": "Workflow system not ready."})
+            await send_event({"type": "status", "message": f"No recipe or workflow found matching '{command_name}'."})
             return True
 
-        def _normalize_id(raw: str) -> str:
-            return _re.sub(r"-+", "-", _re.sub(r"[^a-z0-9_-]+", "-", (raw or "").strip().lower())).strip("-")[:80]
-
-        # Match by command_name trigger, workflow id, or display name
         target = None
         for item in wf_store.list():
             triggers = item.triggers or []
@@ -422,39 +471,17 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                 break
 
         if target is None:
-            await send_event({"type": "status", "message": f"No workflow found matching '{command_name}'."})
+            await send_event({"type": "status", "message": f"No recipe or workflow found matching '{command_name}'."})
             return True
-
-        # Execute the workflow
-        from app.shared.control_models import ControlWorkflowsExecuteRequest
-        execute_request = ControlWorkflowsExecuteRequest(
-            workflow_id=target.id,
-            message=extra_message or f"Triggered via /run {command_name}",
-        )
 
         await send_event({
             "type": "status",
-            "message": f"Running workflow '{target.name or target.id}'...",
+            "message": f"Running workflow '{target.name or target.id}' (deprecated — migrate to recipes)...",
         })
-
-        try:
-            from app.workflows.handlers import api_control_workflows_execute
-            result = await api_control_workflows_execute(
-                request_data=execute_request.model_dump(),
-                idempotency_key_header=None,
-            )
-            run_id = result.get("runId") or result.get("run_id") or ""
-            await send_event({
-                "type": "workflow_triggered",
-                "workflow_id": target.id,
-                "run_id": run_id,
-                "message": f"Workflow '{target.name or target.id}' started (run {run_id}).",
-            })
-        except Exception as exc:
-            await send_event({
-                "type": "error",
-                "message": f"Workflow execution failed: {exc}",
-            })
+        await send_event({
+            "type": "status",
+            "message": "Workflows are deprecated. Use POST /api/control/recipes.migrate to migrate this workflow to a recipe.",
+        })
 
         return True
 

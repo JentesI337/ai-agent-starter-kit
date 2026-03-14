@@ -35,9 +35,6 @@ class ToolArgValidator:
             "browser_evaluate_js": self._validate_browser_evaluate_js_args,
             "emit_visualization": self._validate_emit_visualization_args,
             "spawn_subrun": self._validate_spawn_subrun_args,
-            "create_workflow": self._validate_create_workflow_args,
-            "delete_workflow": self._validate_delete_workflow_args,
-            "build_workflow": self._validate_build_workflow_args,
             "explore_connector": self._validate_explore_connector_args,
             # Agent management tools
             "create_agent": self._validate_create_agent_args,
@@ -517,73 +514,9 @@ class ToolArgValidator:
 
         return None
 
-    def _validate_create_workflow_args(self, normalized_args: dict[str, object]) -> str | None:
-        name, err = self._require_str_arg(normalized_args, "name", max_len=120)
-        if err:
-            return err
-        normalized_args["name"] = name
-
-        description, err = self._require_str_arg(normalized_args, "description", max_len=500)
-        if err:
-            return err
-        normalized_args["description"] = description
-
-        steps = normalized_args.get("steps")
-        if isinstance(steps, str):
-            parts = [s.strip() for s in steps.split(",") if s.strip()]
-            if not parts:
-                return "argument 'steps' must contain at least one step"
-            normalized_args["steps"] = parts
-        elif isinstance(steps, list):
-            if not steps:
-                return "argument 'steps' must contain at least one step"
-            if len(steps) > 20:
-                return "argument 'steps' has too many items"
-            for i, s in enumerate(steps):
-                if not isinstance(s, str) or not s.strip():
-                    return f"argument 'steps[{i}]' must be a non-empty string"
-        else:
-            return "argument 'steps' must be a list or comma-separated string"
-
-        if "base_agent_id" in normalized_args:
-            base_agent_id, err = self._require_str_arg(normalized_args, "base_agent_id", max_len=120)
-            if err:
-                return err
-            normalized_args["base_agent_id"] = base_agent_id
-
-        return None
-
-    def _validate_delete_workflow_args(self, normalized_args: dict[str, object]) -> str | None:
-        workflow_id, err = self._require_str_arg(normalized_args, "workflow_id", max_len=120)
-        if err:
-            return err
-        normalized_args["workflow_id"] = workflow_id
-        return None
-
     # ------------------------------------------------------------------
-    # Workflow tools (build_workflow, explore_connector)
+    # Connector tools
     # ------------------------------------------------------------------
-
-    def _validate_build_workflow_args(self, normalized_args: dict[str, object]) -> str | None:
-        name, err = self._require_str_arg(normalized_args, "name", max_len=120)
-        if err:
-            return err
-        normalized_args["name"] = name
-        steps_desc, err = self._require_str_arg(normalized_args, "steps_description", max_len=5000)
-        if err:
-            return err
-        normalized_args["steps_description"] = steps_desc
-        if "description" in normalized_args:
-            desc, err = self._require_str_arg(normalized_args, "description", max_len=500)
-            if err:
-                return err
-            normalized_args["description"] = desc
-        if "execution_mode" in normalized_args:
-            mode, err = self._require_str_arg(normalized_args, "execution_mode", max_len=20)
-            if err:
-                return err
-            normalized_args["execution_mode"] = mode
-        return None
 
     def _validate_explore_connector_args(self, normalized_args: dict[str, object]) -> str | None:
         cid, err = self._require_str_arg(normalized_args, "connector_id", max_len=120)

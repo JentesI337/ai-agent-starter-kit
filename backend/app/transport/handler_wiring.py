@@ -44,8 +44,30 @@ from app.transport.runtime_wiring import (
     state_store,
 )
 from app.workflows import handlers as workflow_handlers
+from app.workflows import recipe_handlers
 
 logger = logging.getLogger("app.main")
+
+
+def _get_recipe_store_lazy():
+    from app.workflows.recipe_store import _recipe_store, get_recipe_store, init_recipe_sqlite_stores
+    if _recipe_store is None:
+        _recipe_db_path = Path(settings.workspace_root) / "recipe_store.sqlite3"
+        init_recipe_sqlite_stores(db_path=_recipe_db_path)
+    return get_recipe_store()
+
+
+def _get_recipe_run_store_lazy():
+    from app.workflows.recipe_store import _recipe_run_store, get_recipe_run_store, init_recipe_sqlite_stores
+    if _recipe_run_store is None:
+        _recipe_db_path = Path(settings.workspace_root) / "recipe_store.sqlite3"
+        init_recipe_sqlite_stores(db_path=_recipe_db_path)
+    return get_recipe_run_store()
+
+
+def _get_llm_client_lazy():
+    from app.llm.client import LlmClient
+    return LlmClient(base_url=settings.llm_base_url, model=settings.llm_model)
 
 
 def _get_workflow_store_lazy():
@@ -77,6 +99,31 @@ async def _workflow_run_agent(agent_id: str, message: str, session_id: str) -> s
     )
     return await orch_api.run_user_message(
         user_message=message, send_event=lambda e: None, request_context=rc)
+
+
+async def _recipe_invoke_tool(tool_name: str, tool_args: dict) -> str:
+    """Invoke a tool by name for strict recipe execution."""
+    import asyncio as _asyncio
+    import inspect as _inspect
+
+    from app.tools.implementations.base import AgentTooling
+
+    tooling = AgentTooling(
+        workspace_root=str(settings.workspace_root),
+        command_timeout_seconds=120,
+    )
+    method = getattr(tooling, tool_name, None)
+    if method is None:
+        raise ValueError(f"Unknown tool: {tool_name}")
+
+    result = method(**tool_args) if tool_args else method()
+    if _inspect.isawaitable(result):
+        result = await result
+
+    if isinstance(result, (dict, list)):
+        import json as _json
+        return _json.dumps(result, default=str)
+    return str(result) if result is not None else ""
 
 
 def configure_all_handlers() -> None:
@@ -129,6 +176,16 @@ def configure_all_handlers() -> None:
             build_workflow_create_fingerprint=_build_workflow_create_fingerprint,
             build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
             build_workflow_delete_fingerprint=_build_workflow_delete_fingerprint,
+        )
+    )
+    recipe_handlers.configure(
+        recipe_handlers.RecipeDependencies(
+            settings=settings,
+            recipe_store=LazyObjectProxy(_get_recipe_store_lazy),
+            run_agent_fn=_workflow_run_agent,
+            recipe_run_store=LazyObjectProxy(_get_recipe_run_store_lazy),
+            llm_client=LazyObjectProxy(_get_llm_client_lazy),
+            invoke_tool_fn=_recipe_invoke_tool,
         )
     )
     policy_handlers.configure(policy_handlers.PolicyHandlerDependencies(policy_approval_service=policy_approval_service))

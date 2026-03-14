@@ -990,6 +990,30 @@ class AgentRunner:
 
             duration_ms = int((time.monotonic() - start) * 1000)
 
+            # Emit create_recipe / update_recipe visualization to frontend
+            if tool_name in ("create_recipe", "update_recipe") and not is_error:
+                try:
+                    recipe_payload = json.loads(result_text)
+                    if recipe_payload.get("type") == "visualization":
+                        viz_type = recipe_payload.get("viz_type", "mermaid")
+                        viz_data = recipe_payload.get("data", "")
+                        if viz_data:
+                            if viz_type == "mermaid":
+                                validate_mermaid_node_count(viz_data)
+                                viz_data = sanitize_mermaid_labels(viz_data)
+                            event_payload = build_visualization_event(
+                                viz_type,
+                                viz_data,
+                                request_id,
+                                session_id,
+                                self._agent_name,
+                            )
+                            # Attach recipe_id so frontend can show action buttons
+                            event_payload["recipe_id"] = recipe_payload.get("recipe_id")
+                            await send_event(event_payload)
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass
+
             # Emit emit_visualization result to frontend
             if tool_name == "emit_visualization" and not is_error:
                 try:

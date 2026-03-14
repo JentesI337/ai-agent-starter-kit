@@ -21,7 +21,8 @@
       "Bash(python3:*)",
       "Bash(/tmp/verify_shim_usage.txt:*)",
       "Read(//tmp/**)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npx ng:*)"
     ]
   }
 }

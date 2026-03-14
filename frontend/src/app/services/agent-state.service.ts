@@ -185,6 +185,7 @@ export interface ChatLine {
   text: string;
   visualization?: VisualizationData;
   planProgress?: PlanProgressData;
+  recipeId?: string;
   policyAction?: {
     approvalId: string;
     runId: string;

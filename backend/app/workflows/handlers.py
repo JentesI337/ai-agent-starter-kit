@@ -21,7 +21,6 @@ from app.shared.control_models import (
 )
 from app.shared.errors import GuardrailViolation
 from app.reasoning.request_normalization import normalize_idempotency_key
-from app.workflows.engine import RunAgentFn
 from app.workflows.models import (
     WorkflowGraphDef,
     WorkflowRecord,
@@ -41,7 +40,7 @@ class WorkflowDependencies:
     workflow_store: SqliteWorkflowStore
     audit_store: SqliteWorkflowAuditStore | None
     idempotency_mgr: Any
-    run_agent: RunAgentFn
+    run_agent: Any  # kept for signature compat
     build_workflow_create_fingerprint: Callable[..., str]
     build_workflow_execute_fingerprint: Callable[..., str]
     build_workflow_delete_fingerprint: Callable[..., str]
@@ -721,52 +720,51 @@ def api_control_workflows_get(request_data: dict) -> dict:
 
 
 def api_control_workflows_create(request_data: dict, idempotency_key_header: str | None) -> dict:
-    request = ControlWorkflowsCreateRequest.model_validate(request_data)
-    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
-    return _create_workflow_minimal(request=payload)
+    """DEPRECATED — workflows have been replaced by recipes. Returns 410 Gone."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow creation is deprecated. Use POST /api/control/recipes.create instead.",
+    )
 
 
 def api_control_workflows_update(request_data: dict, idempotency_key_header: str | None) -> dict:
-    request = ControlWorkflowsUpdateRequest.model_validate(request_data)
-    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
-    return _update_workflow_minimal(request=payload)
+    """DEPRECATED — workflows have been replaced by recipes. Returns 410 Gone."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow update is deprecated. Use POST /api/control/recipes.update instead.",
+    )
 
 
 async def api_control_workflows_execute(request_data: dict, idempotency_key_header: str | None) -> dict:
-    request = ControlWorkflowsExecuteRequest.model_validate(request_data)
-    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
-    return await _execute_workflow_minimal(request=payload)
+    """DEPRECATED — workflows have been replaced by recipes. Returns 410 Gone."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow execution is deprecated. Use POST /api/control/recipes.execute instead.",
+    )
 
 
 def api_control_workflows_delete(request_data: dict, idempotency_key_header: str | None) -> dict:
-    request = ControlWorkflowsDeleteRequest.model_validate(request_data)
-    payload = request.model_copy(update={"idempotency_key": request.idempotency_key or idempotency_key_header})
-    return _delete_workflow_minimal(request=payload)
+    """DEPRECATED — workflows have been replaced by recipes. Returns 410 Gone."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow deletion is deprecated. Use POST /api/control/recipes.delete instead.",
+    )
 
 
 def api_control_workflows_contracts() -> dict:
-    """Return NODE_CONTRACTS registry as JSON."""
-    from app.workflows.contracts import NODE_CONTRACTS
-    return {
-        "schema": "workflows.contracts.v1",
-        "contracts": {k: v.model_dump() for k, v in NODE_CONTRACTS.items()},
-    }
+    """DEPRECATED — workflow contracts are no longer available."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow contracts are deprecated. Use recipes instead.",
+    )
 
 
 def api_control_workflows_validate(*, request_data: dict) -> dict:
-    """Validate a workflow_graph, return resolved chain + warnings."""
-    from dataclasses import asdict
-
-    from app.workflows.chain_resolver import resolve_chain
-
-    raw_graph = request_data.get("workflow_graph", {})
-    graph = WorkflowGraphDef.model_validate(raw_graph)
-    resolved, warnings = resolve_chain(graph)
-    return {
-        "schema": "workflows.validate.v1",
-        "resolved_chain": [asdict(r) for r in resolved],
-        "warnings": [asdict(w) for w in warnings],
-    }
+    """DEPRECATED — workflow graph validation is no longer available."""
+    raise HTTPException(
+        status_code=410,
+        detail="Workflow validation is deprecated. Use POST /api/control/recipes.validate instead.",
+    )
 
 
 def api_control_workflows_run_audit(run_id: str) -> dict:

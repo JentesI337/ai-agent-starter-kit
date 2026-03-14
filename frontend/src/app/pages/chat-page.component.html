@@ -176,6 +176,12 @@
             <img [src]="sanitizeImageData(line.visualization.data)" alt="Visualization" loading="lazy">
           </div>
           <div class="viz-svg" *ngIf="line.visualization.vizType === 'svg'" [innerHTML]="sanitizeSvg(line.visualization.data)"></div>
+
+          <!-- Recipe action buttons -->
+          <div class="recipe-actions" *ngIf="line.recipeId">
+            <button class="ra-btn ra-open" (click)="openRecipe(line.recipeId!)">Open Recipe</button>
+            <button class="ra-btn ra-run" (click)="runRecipe(line.recipeId!)">Run Recipe</button>
+          </div>
         </ng-container>
 
         <!-- Plan Progress -->

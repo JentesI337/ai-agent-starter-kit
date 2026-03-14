@@ -781,35 +781,6 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             },
             capabilities=("agent_delegation", "orchestration", "parallelization"),
         ),
-        "create_workflow": ToolSpec(
-            name="create_workflow",
-            required_args=("name", "description", "steps"),
-            optional_args=("base_agent_id",),
-            timeout_seconds=10.0,
-            max_retries=0,
-            description="Create a new multi-step workflow (pipeline). Use this for repeatable processes with ordered steps — NOT for creating agents or specialists. For creating agents, use create_agent instead.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "minLength": 1, "description": "Human-readable workflow name."},
-                    "description": {"type": "string", "minLength": 1, "description": "What the workflow does."},
-                    "steps": {
-                        "type": "array",
-                        "items": {"type": "string", "minLength": 1},
-                        "minItems": 1,
-                        "description": "Ordered list of step instructions for the workflow.",
-                    },
-                    "base_agent_id": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "Optional agent ID to associate with the workflow. By default no agent is linked — use agent nodes within the workflow instead.",
-                    },
-                },
-                "required": ["name", "description", "steps"],
-                "additionalProperties": False,
-            },
-            capabilities=("workflow_management",),
-        ),
         # ------------------------------------------------------------------
         # Agent management tools
         # ------------------------------------------------------------------
@@ -886,35 +857,6 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
             capabilities=("agent_management",),
         ),
         # ------------------------------------------------------------------
-        # build_workflow (NL → workflow)
-        # ------------------------------------------------------------------
-        "build_workflow": ToolSpec(
-            name="build_workflow",
-            required_args=("name", "steps_description"),
-            optional_args=("description", "execution_mode"),
-            timeout_seconds=15.0,
-            max_retries=0,
-            description="Create a workflow from a natural language description. Each line in steps_description becomes a workflow step. Use this for repeatable multi-step processes — NOT for creating agents. For agents, use create_agent.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "minLength": 1, "description": "Workflow name."},
-                    "description": {"type": "string", "description": "Optional description of the workflow."},
-                    "steps_description": {
-                        "type": "string", "minLength": 1,
-                        "description": "Multi-line description of steps. Each line becomes a step.",
-                    },
-                    "execution_mode": {
-                        "type": "string", "enum": ["parallel", "sequential"],
-                        "description": "Execution mode. Defaults to sequential.",
-                    },
-                },
-                "required": ["name", "steps_description"],
-                "additionalProperties": False,
-            },
-            capabilities=("workflow_management",),
-        ),
-        # ------------------------------------------------------------------
         # explore_connector
         # ------------------------------------------------------------------
         "explore_connector": ToolSpec(
@@ -936,6 +878,133 @@ def _default_tool_specs(*, command_timeout_seconds: int) -> dict[str, ToolSpec]:
                 "additionalProperties": False,
             },
             capabilities=("api_integration",),
+        ),
+        # ------------------------------------------------------------------
+        # recipe_checkpoint
+        # ------------------------------------------------------------------
+        "recipe_checkpoint": ToolSpec(
+            name="recipe_checkpoint",
+            required_args=("checkpoint_id", "evidence"),
+            optional_args=(),
+            timeout_seconds=30.0,
+            max_retries=0,
+            description="Signal that a recipe checkpoint has been reached. Provide the checkpoint_id and evidence of completion.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "checkpoint_id": {
+                        "type": "string",
+                        "description": "The checkpoint ID to signal completion for.",
+                    },
+                    "evidence": {
+                        "type": "string",
+                        "description": "Evidence/explanation of how this checkpoint was reached.",
+                    },
+                },
+                "required": ["checkpoint_id", "evidence"],
+                "additionalProperties": False,
+            },
+            capabilities=("recipe_execution",),
+        ),
+        # ------------------------------------------------------------------
+        # create_recipe
+        # ------------------------------------------------------------------
+        "create_recipe": ToolSpec(
+            name="create_recipe",
+            required_args=("name",),
+            optional_args=("description", "goal", "mode", "checkpoints", "strict_steps", "constraints"),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Create a new recipe. For adaptive mode provide checkpoints (JSON array); for strict mode provide strict_steps (JSON array). Returns a mermaid diagram preview.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the recipe.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Short description of what the recipe does.",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "The goal the recipe achieves.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["adaptive", "strict"],
+                        "description": "Execution mode: 'adaptive' (checkpoint-based) or 'strict' (step-by-step).",
+                    },
+                    "checkpoints": {
+                        "type": "string",
+                        "description": "JSON array of checkpoint objects, each with id, label, order, verification, verification_mode.",
+                    },
+                    "strict_steps": {
+                        "type": "string",
+                        "description": "JSON array of step objects, each with id, label, instruction, tool, tool_params.",
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": "JSON object with optional constraints (max_iterations, max_tool_calls, timeout_seconds, allowed_tools, denied_tools).",
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+            capabilities=("recipe_management",),
+        ),
+        # ------------------------------------------------------------------
+        # update_recipe
+        # ------------------------------------------------------------------
+        "update_recipe": ToolSpec(
+            name="update_recipe",
+            required_args=("recipe_id",),
+            optional_args=("name", "description", "goal", "mode", "checkpoints", "strict_steps", "constraints"),
+            timeout_seconds=15.0,
+            max_retries=0,
+            description="Update an existing recipe. Only provided fields are changed. Returns a refreshed mermaid diagram preview.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "recipe_id": {
+                        "type": "string",
+                        "description": "ID of the recipe to update.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Updated name.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Updated description.",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "Updated goal.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["adaptive", "strict"],
+                        "description": "Updated execution mode.",
+                    },
+                    "checkpoints": {
+                        "type": "string",
+                        "description": "Updated JSON array of checkpoint objects.",
+                    },
+                    "strict_steps": {
+                        "type": "string",
+                        "description": "Updated JSON array of step objects.",
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": "Updated JSON object with constraints.",
+                    },
+                },
+                "required": ["recipe_id"],
+                "additionalProperties": False,
+            },
+            capabilities=("recipe_management",),
         ),
         # ------------------------------------------------------------------
         # code_reset

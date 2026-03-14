@@ -1,18 +1,21 @@
 """Cron-based workflow scheduler.
 
 Scans all workflows with ``schedule`` triggers and executes them when due.
+Also handles recipe scheduling and run lifecycle management.
 Runs as a background ``asyncio.Task`` started during application startup.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 _scheduler_task: asyncio.Task[None] | None = None
 _CHECK_INTERVAL_SECONDS = 30
+_last_retention_check: datetime | None = None
 
 
 def _next_cron_time(cron_expr: str, after: datetime) -> datetime | None:
@@ -48,81 +51,132 @@ async def _scheduler_loop() -> None:
 
 
 async def _tick() -> None:
-    """Single scheduler tick — scan workflows and fire any that are due."""
+    """Single scheduler tick — scan recipes and manage lifecycle.
+
+    The old workflow scheduling loop has been removed — workflows are
+    superseded by recipes.  Only recipe scheduling remains.
+    """
+    await _tick_recipes()
+    await _tick_lifecycle()
+
+
+async def _tick_recipes() -> None:
+    """Scan recipes with schedule triggers and fire any that are due."""
     try:
-        from app.workflows.handlers import _require_deps
-        deps = _require_deps()
+        from app.workflows.recipe_store import get_recipe_store
+        from app.workflows import recipe_handlers
+
+        store = get_recipe_store()
     except RuntimeError:
-        return  # system not ready yet
+        return  # recipe system not ready
 
     now = datetime.now(UTC)
 
-    for record in deps.workflow_store.list():
-        for t in record.triggers:
-            if t.type != "schedule":
+    for recipe in store.list():
+        for t in recipe.triggers:
+            if not isinstance(t, dict) or t.get("type") != "schedule":
                 continue
-            if not t.cron_expression:
+            cron_expr = t.get("cron_expression")
+            if not cron_expr:
                 continue
 
-            # Compute next_run_at if not yet set
-            if not t.next_run_at:
-                next_dt = _next_cron_time(t.cron_expression, now)
-                if next_dt is None:
-                    continue
-                t.next_run_at = next_dt.isoformat()
-                _persist_triggers(deps, record)
+            next_run_at = t.get("next_run_at")
+            if not next_run_at:
+                next_dt = _next_cron_time(cron_expr, now)
+                if next_dt:
+                    t["next_run_at"] = next_dt.isoformat()
+                    try:
+                        store.update(recipe.id, recipe)
+                    except Exception:
+                        logger.debug("recipe_trigger_persist_failed recipe_id=%s", recipe.id, exc_info=True)
                 continue
 
             try:
-                next_dt = datetime.fromisoformat(t.next_run_at)
+                next_dt = datetime.fromisoformat(next_run_at)
                 if next_dt.tzinfo is None:
                     next_dt = next_dt.replace(tzinfo=UTC)
             except (ValueError, TypeError):
                 continue
 
             if now < next_dt:
-                continue  # not due yet
+                continue
 
-            # --- Fire! ---
-            logger.info(
-                "schedule_trigger_firing workflow_id=%s cron=%s",
-                record.id, t.cron_expression,
-            )
-            await _execute_scheduled_workflow(record)
+            # Fire
+            logger.info("recipe_schedule_firing recipe_id=%s cron=%s", recipe.id, cron_expr)
+            try:
+                recipe_handlers.api_control_recipes_execute({
+                    "recipe_id": recipe.id,
+                    "message": f"Scheduled execution at {now.isoformat()}",
+                })
+            except Exception:
+                logger.exception("recipe_schedule_execute_failed recipe_id=%s", recipe.id)
 
-            # Update timestamps
-            new_next = _next_cron_time(t.cron_expression, next_dt)
-            t.last_run_at = now.isoformat()
-            t.next_run_at = new_next.isoformat() if new_next else None
-            _persist_triggers(deps, record)
+            new_next = _next_cron_time(cron_expr, next_dt)
+            t["last_run_at"] = now.isoformat()
+            t["next_run_at"] = new_next.isoformat() if new_next else None
+            try:
+                store.update(recipe.id, recipe)
+            except Exception:
+                logger.debug("recipe_trigger_persist_failed recipe_id=%s", recipe.id, exc_info=True)
 
 
-def _persist_triggers(deps, record) -> None:
-    """Save trigger timestamp changes back to the workflow store."""
+async def _tick_lifecycle() -> None:
+    """Manage run lifecycle: auto-cancel overdue runs, paused TTL, history retention."""
+    global _last_retention_check
+
     try:
-        deps.workflow_store.update(record.id, record)
-    except Exception:
-        logger.debug("trigger_persist_failed workflow_id=%s", record.id, exc_info=True)
+        from app.workflows.recipe_store import get_recipe_run_store
+        run_store = get_recipe_run_store()
+    except RuntimeError:
+        return
 
+    now = datetime.now(UTC)
+    paused_ttl_hours = int(os.environ.get("RECIPE_PAUSED_TTL_HOURS", "24"))
 
-async def _execute_scheduled_workflow(record) -> None:
-    """Execute a workflow that is due according to its schedule trigger."""
-    from app.shared.control_models import ControlWorkflowsExecuteRequest
-    from app.workflows.handlers import api_control_workflows_execute
-
-    execute_request = ControlWorkflowsExecuteRequest(
-        workflow_id=record.id,
-        message=f"Scheduled execution at {datetime.now(UTC).isoformat()}",
-    )
     try:
-        result = await api_control_workflows_execute(
-            request_data=execute_request.model_dump(),
-            idempotency_key_header=None,
-        )
-        run_id = result.get("runId") or result.get("run_id") or "?"
-        logger.info("schedule_trigger_executed workflow_id=%s run_id=%s", record.id, run_id)
+        active_runs = run_store.list_active_runs()
     except Exception:
-        logger.exception("schedule_trigger_execute_failed workflow_id=%s", record.id)
+        logger.debug("lifecycle_list_active_failed", exc_info=True)
+        return
+
+    for run in active_runs:
+        # Auto-cancel overdue runs
+        max_duration = run.context.get("_max_duration_seconds")
+        if max_duration and run.started_at:
+            try:
+                started_dt = datetime.fromisoformat(run.started_at)
+                if started_dt.tzinfo is None:
+                    started_dt = started_dt.replace(tzinfo=UTC)
+                elapsed = (now - started_dt).total_seconds()
+                if elapsed > max_duration * 2:
+                    logger.info("auto_cancel_overdue run_id=%s elapsed=%.0f max=%d", run.run_id, elapsed, max_duration)
+                    run_store.cancel_run(run.run_id)
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        # Paused run TTL
+        if run.status == "paused" and run.paused_at:
+            try:
+                paused_dt = datetime.fromisoformat(run.paused_at)
+                if paused_dt.tzinfo is None:
+                    paused_dt = paused_dt.replace(tzinfo=UTC)
+                if (now - paused_dt).total_seconds() > paused_ttl_hours * 3600:
+                    logger.info("auto_cancel_paused_ttl run_id=%s paused_at=%s", run.run_id, run.paused_at)
+                    run_store.cancel_run(run.run_id)
+            except (ValueError, TypeError):
+                pass
+
+    # History retention — throttled to once per hour
+    if _last_retention_check is None or (now - _last_retention_check).total_seconds() > 3600:
+        _last_retention_check = now
+        cutoff = (now - timedelta(days=30)).isoformat()
+        try:
+            deleted = run_store.cleanup_old_runs(cutoff)
+            if deleted:
+                logger.info("recipe_run_retention cleaned=%d", deleted)
+        except Exception:
+            logger.debug("recipe_retention_cleanup_failed", exc_info=True)
 
 
 def start_workflow_scheduler() -> None:

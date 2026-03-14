@@ -30,6 +30,7 @@ from app.tools.implementations.shell import (
 )
 from app.tools.implementations.web import WebToolMixin
 from app.tools.implementations.agent_management import AgentManagementToolMixin
+from app.tools.implementations.recipe_tools import RecipeToolMixin
 from app.tools.implementations.workflow import WorkflowToolMixin
 
 # Re-export for backward compat
@@ -52,6 +53,7 @@ class AgentTooling(
     DevOpsToolMixin,
     WorkflowToolMixin,
     AgentManagementToolMixin,
+    RecipeToolMixin,
 ):
     """Assembled tool implementation class.
 
@@ -145,45 +147,15 @@ class AgentTooling(
         steps: str | list,
         base_agent_id: str | None = None,
     ) -> str:
-        from app.workflows.store import get_workflow_store
-        store = get_workflow_store()
-        name = (name or "").strip()
-        if not name or len(name) > 120:
-            raise ToolExecutionError("Workflow name must be 1-120 characters.")
-        description = (description or "").strip()
-        if len(description) > 500:
-            raise ToolExecutionError("Description must not exceed 500 characters.")
-        if isinstance(steps, list):
-            workflow_steps = [str(s).strip() for s in steps if str(s).strip()]
-        else:
-            workflow_steps = [s.strip() for s in (steps or "").split(",") if s.strip()]
-        if not workflow_steps:
-            raise ToolExecutionError("At least one step is required (comma-separated).")
-        if len(workflow_steps) > 20:
-            raise ToolExecutionError("Maximum 20 workflow steps allowed.")
-
-        workflow_id = re.sub(r"-+", "-", re.sub(r"[^a-z0-9_-]+", "-", f"workflow-{name}-{str(uuid.uuid4())[:8]}".strip().lower())).strip("-")[:80]
-
-        from app.workflows.models import WorkflowRecord
-        graph = store._build_linear_graph(workflow_steps)
-        record = WorkflowRecord(
-            id=workflow_id,
-            name=name,
-            description=description,
-            base_agent_id=base_agent_id,
-            workflow_graph=graph,
-            execution_mode="sequential",
-        )
-        created = store.create(record)
-        return json.dumps({"status": "created", "id": created.id, "name": created.name}, ensure_ascii=False)
+        """DEPRECATED — use create_recipe instead."""
+        return json.dumps({
+            "status": "deprecated",
+            "message": "create_workflow is deprecated. Use create_recipe instead.",
+        }, ensure_ascii=False)
 
     def delete_workflow(self, workflow_id: str) -> str:
-        from app.workflows.store import get_workflow_store
-        store = get_workflow_store()
-        workflow_id = (workflow_id or "").strip()
-        if not workflow_id:
-            raise ToolExecutionError("workflow_id is required.")
-        deleted = store.delete(workflow_id)
-        if deleted:
-            return json.dumps({"status": "deleted", "id": workflow_id}, ensure_ascii=False)
-        return json.dumps({"status": "not_found", "id": workflow_id}, ensure_ascii=False)
+        """DEPRECATED — workflows are now managed as recipes."""
+        return json.dumps({
+            "status": "deprecated",
+            "message": "delete_workflow is deprecated. Workflows have been replaced by recipes.",
+        }, ensure_ascii=False)

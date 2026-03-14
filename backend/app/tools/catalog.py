@@ -29,7 +29,6 @@ TOOL_NAMES: tuple[str, ...] = (
     "browser_evaluate_js",
     "emit_visualization",
     "spawn_subrun",
-    "create_workflow",
     # Agent management tools
     "create_agent",
     "list_agents",
@@ -43,9 +42,12 @@ TOOL_NAMES: tuple[str, ...] = (
     "generate_image",
     "generate_audio",
     "export_pdf",
-    # Workflow tools
-    "build_workflow",
+    # Connector tools
     "explore_connector",
+    # Recipe tools
+    "recipe_checkpoint",
+    "create_recipe",
+    "update_recipe",
     # DevOps tools
     "git_log",
     "git_diff",
@@ -169,8 +171,6 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "mermaid": "emit_visualization",
     "visualize": "emit_visualization",
     "spawnsubrun": "spawn_subrun",
-    "createworkflow": "create_workflow",
-    "deleteworkflow": "delete_workflow",
     "browseropen": "browser_open",
     "open_browser": "browser_open",
     "browserclick": "browser_click",
@@ -226,6 +226,13 @@ TOOL_NAME_ALIASES: dict[str, str] = {
     "tts": "generate_audio",
     "exportpdf": "export_pdf",
     "markdown_to_pdf": "export_pdf",
+    # Recipe management aliases
+    "createrecipe": "create_recipe",
+    "new_recipe": "create_recipe",
+    "make_recipe": "create_recipe",
+    "updaterecipe": "update_recipe",
+    "edit_recipe": "update_recipe",
+    "modify_recipe": "update_recipe",
     # Agent management aliases
     "createagent": "create_agent",
     "new_agent": "create_agent",
