@@ -398,7 +398,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
 
         # --- Try recipes first ---
         try:
-            from app.workflows.recipe_store import get_recipe_store
+            from app.recipes.recipe_store import get_recipe_store
             recipe_store = get_recipe_store()
             target_recipe = None
             for recipe in recipe_store.list():
@@ -423,7 +423,7 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     "message": f"Running recipe '{target_recipe.name or target_recipe.id}'...",
                 })
                 try:
-                    from app.workflows import recipe_handlers
+                    from app.recipes import recipe_handlers
                     result = recipe_handlers.api_control_recipes_execute({
                         "recipe_id": target_recipe.id,
                         "message": extra_message or f"Triggered via /run {command_name}",
@@ -442,47 +442,9 @@ async def handle_ws_agent(websocket: WebSocket, deps: WsHandlerDependencies) -> 
                     })
                 return True
         except (RuntimeError, ImportError):
-            pass  # recipe system not ready, try workflows
+            pass
 
-        # --- Fallback: search workflows (backward compat during transition) ---
-        try:
-            from app.workflows.store import get_workflow_store
-            wf_store = get_workflow_store()
-        except (RuntimeError, ImportError):
-            await send_event({"type": "status", "message": f"No recipe or workflow found matching '{command_name}'."})
-            return True
-
-        target = None
-        for item in wf_store.list():
-            triggers = item.triggers or []
-            for t in triggers:
-                t_type = t.type if hasattr(t, "type") else (t.get("type") if isinstance(t, dict) else None)
-                cmd = t.command_name if hasattr(t, "command_name") else (t.get("command_name") if isinstance(t, dict) else None)
-                if t_type == "chat_command" and cmd and cmd.lower() == command_name.lower():
-                    target = item
-                    break
-            if target:
-                break
-            if _normalize_id(item.id) == _normalize_id(command_name):
-                target = item
-                break
-            if item.name.lower() == command_name.lower():
-                target = item
-                break
-
-        if target is None:
-            await send_event({"type": "status", "message": f"No recipe or workflow found matching '{command_name}'."})
-            return True
-
-        await send_event({
-            "type": "status",
-            "message": f"Running workflow '{target.name or target.id}' (deprecated — migrate to recipes)...",
-        })
-        await send_event({
-            "type": "status",
-            "message": "Workflows are deprecated. Use POST /api/control/recipes.migrate to migrate this workflow to a recipe.",
-        })
-
+        await send_event({"type": "status", "message": f"No recipe found matching '{command_name}'."})
         return True
 
     async def execute_user_message_job(job: dict[str, Any]) -> None:

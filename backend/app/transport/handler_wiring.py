@@ -15,9 +15,6 @@ from app.shared.control_fingerprints import (
     build_run_start_fingerprint as _build_run_start_fingerprint,
     build_session_patch_fingerprint as _build_session_patch_fingerprint,
     build_session_reset_fingerprint as _build_session_reset_fingerprint,
-    build_workflow_create_fingerprint as _build_workflow_create_fingerprint,
-    build_workflow_delete_fingerprint as _build_workflow_delete_fingerprint,
-    build_workflow_execute_fingerprint as _build_workflow_execute_fingerprint,
 )
 from app.transport.routers import (
     agents as agent_handlers,
@@ -43,14 +40,13 @@ from app.transport.runtime_wiring import (
     session_query_service,
     state_store,
 )
-from app.workflows import handlers as workflow_handlers
-from app.workflows import recipe_handlers
+from app.recipes import recipe_handlers
 
 logger = logging.getLogger("app.main")
 
 
 def _get_recipe_store_lazy():
-    from app.workflows.recipe_store import _recipe_store, get_recipe_store, init_recipe_sqlite_stores
+    from app.recipes.recipe_store import _recipe_store, get_recipe_store, init_recipe_sqlite_stores
     if _recipe_store is None:
         _recipe_db_path = Path(settings.workspace_root) / "recipe_store.sqlite3"
         init_recipe_sqlite_stores(db_path=_recipe_db_path)
@@ -58,7 +54,7 @@ def _get_recipe_store_lazy():
 
 
 def _get_recipe_run_store_lazy():
-    from app.workflows.recipe_store import _recipe_run_store, get_recipe_run_store, init_recipe_sqlite_stores
+    from app.recipes.recipe_store import _recipe_run_store, get_recipe_run_store, init_recipe_sqlite_stores
     if _recipe_run_store is None:
         _recipe_db_path = Path(settings.workspace_root) / "recipe_store.sqlite3"
         init_recipe_sqlite_stores(db_path=_recipe_db_path)
@@ -70,24 +66,8 @@ def _get_llm_client_lazy():
     return LlmClient(base_url=settings.llm_base_url, model=settings.llm_model)
 
 
-def _get_workflow_store_lazy():
-    from app.workflows.store import _wf_store as _wfs_instance, get_workflow_store, init_workflow_sqlite_stores
-    if _wfs_instance is None:
-        _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
-        init_workflow_sqlite_stores(db_path=_workflow_db_path)
-    return get_workflow_store()
-
-
-def _get_workflow_audit_store_lazy():
-    from app.workflows.store import _audit_store as _as_instance, get_workflow_audit_store, init_workflow_sqlite_stores
-    if _as_instance is None:
-        _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
-        init_workflow_sqlite_stores(db_path=_workflow_db_path)
-    return get_workflow_audit_store()
-
-
-async def _workflow_run_agent(agent_id: str, message: str, session_id: str) -> str:
-    """RunAgentFn callback — bridges workflow engine to agent domain."""
+async def _recipe_run_agent(agent_id: str, message: str, session_id: str) -> str:
+    """RunAgentFn callback — bridges recipe engine to agent domain."""
     import uuid as _uuid
     _, _, orch_api = _resolve_agent(agent_id)
     from app.contracts.request_context import RequestContext
@@ -166,23 +146,11 @@ def configure_all_handlers() -> None:
             start_run_background=run_handlers.start_run_background,
         )
     )
-    workflow_handlers.configure(
-        workflow_handlers.WorkflowDependencies(
-            settings=settings,
-            workflow_store=LazyObjectProxy(_get_workflow_store_lazy),
-            audit_store=LazyObjectProxy(_get_workflow_audit_store_lazy),
-            idempotency_mgr=idempotency_mgr,
-            run_agent=_workflow_run_agent,
-            build_workflow_create_fingerprint=_build_workflow_create_fingerprint,
-            build_workflow_execute_fingerprint=_build_workflow_execute_fingerprint,
-            build_workflow_delete_fingerprint=_build_workflow_delete_fingerprint,
-        )
-    )
     recipe_handlers.configure(
         recipe_handlers.RecipeDependencies(
             settings=settings,
             recipe_store=LazyObjectProxy(_get_recipe_store_lazy),
-            run_agent_fn=_workflow_run_agent,
+            run_agent_fn=_recipe_run_agent,
             recipe_run_store=LazyObjectProxy(_get_recipe_run_store_lazy),
             llm_client=LazyObjectProxy(_get_llm_client_lazy),
             invoke_tool_fn=_recipe_invoke_tool,

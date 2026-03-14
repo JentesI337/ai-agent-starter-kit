@@ -14,13 +14,13 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.workflows.recipe_models import (
+from app.recipes.recipe_models import (
     RecipeCheckpoint,
     RecipeConstraints,
     RecipeDef,
     StrictStep,
 )
-from app.workflows.recipe_store import SqliteRecipeRunStore, SqliteRecipeStore
+from app.recipes.recipe_store import SqliteRecipeRunStore, SqliteRecipeStore
 
 logger = logging.getLogger(__name__)
 
@@ -382,7 +382,7 @@ def api_control_recipes_execute(request_data: dict) -> dict:
     if deps.run_agent_fn is None or deps.recipe_run_store is None:
         raise HTTPException(status_code=500, detail="Recipe execution not configured")
 
-    from app.workflows.recipe_runner import RecipeRunner
+    from app.recipes.recipe_runner import RecipeRunner
 
     runner = RecipeRunner(
         run_agent_fn=deps.run_agent_fn,
@@ -448,7 +448,7 @@ def api_control_recipes_resume(request_data: dict) -> dict:
 
     resume_data = request_data.get("resume_data")
 
-    from app.workflows.recipe_runner import RecipeRunner
+    from app.recipes.recipe_runner import RecipeRunner
 
     runner = RecipeRunner(
         run_agent_fn=deps.run_agent_fn,
@@ -477,29 +477,4 @@ def api_control_recipes_resume(request_data: dict) -> dict:
         "schema": "recipes.resume.v1",
         "status": "resumed",
         "run_id": run_id,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Migration handler
-# ---------------------------------------------------------------------------
-
-def api_control_recipes_migrate(request_data: dict) -> dict:
-    """Migrate workflows to recipes.  dry_run=True (default) previews only."""
-    from app.workflows.migrate_to_recipes import migrate_workflows
-    from dataclasses import asdict
-
-    dry_run = request_data.get("dry_run", True)
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() not in ("false", "0", "no")
-
-    report = migrate_workflows(dry_run=dry_run)
-    return {
-        "schema": "recipes.migrate.v1",
-        "dry_run": dry_run,
-        "total": report.total,
-        "migrated": report.migrated,
-        "skipped": report.skipped,
-        "errors": report.errors,
-        "results": [asdict(r) for r in report.results],
     }

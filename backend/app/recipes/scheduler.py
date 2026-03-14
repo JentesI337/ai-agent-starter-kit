@@ -63,8 +63,8 @@ async def _tick() -> None:
 async def _tick_recipes() -> None:
     """Scan recipes with schedule triggers and fire any that are due."""
     try:
-        from app.workflows.recipe_store import get_recipe_store
-        from app.workflows import recipe_handlers
+        from app.recipes.recipe_store import get_recipe_store
+        from app.recipes import recipe_handlers
 
         store = get_recipe_store()
     except RuntimeError:
@@ -125,7 +125,7 @@ async def _tick_lifecycle() -> None:
     global _last_retention_check
 
     try:
-        from app.workflows.recipe_store import get_recipe_run_store
+        from app.recipes.recipe_store import get_recipe_run_store
         run_store = get_recipe_run_store()
     except RuntimeError:
         return

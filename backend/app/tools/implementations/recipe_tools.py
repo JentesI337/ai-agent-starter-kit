@@ -57,7 +57,7 @@ class RecipeToolMixin:
         **_kwargs,
     ) -> str:
         """Signal that a recipe checkpoint has been reached."""
-        from app.workflows.recipe_runner import _ACTIVE_RUNS
+        from app.recipes.recipe_runner import _ACTIVE_RUNS
 
         # Find the active run from the session_id pattern "recipe-{run_id}"
         # We need to search _ACTIVE_RUNS for a matching checkpoint
@@ -87,7 +87,7 @@ class RecipeToolMixin:
             raise ToolExecutionError(f"Unknown checkpoint_id: {checkpoint_id}")
 
         # Evaluate the checkpoint
-        from app.workflows import checkpoint_eval
+        from app.recipes import checkpoint_eval
 
         if checkpoint.verification_mode == "assert":
             context = {
@@ -107,7 +107,7 @@ class RecipeToolMixin:
             )
 
         # Record result
-        from app.workflows.recipe_models import CheckpointResult
+        from app.recipes.recipe_models import CheckpointResult
 
         result = CheckpointResult(
             checkpoint_id=checkpoint_id,
@@ -165,7 +165,7 @@ class RecipeToolMixin:
             constraints_parsed = {}
 
         try:
-            from app.workflows import recipe_handlers
+            from app.recipes import recipe_handlers
 
             request_data = {
                 "name": name,
@@ -243,7 +243,7 @@ class RecipeToolMixin:
                 request_data["constraints"] = {}
 
         try:
-            from app.workflows import recipe_handlers
+            from app.recipes import recipe_handlers
 
             result = recipe_handlers.api_control_recipes_update(request_data)
             recipe = result.get("recipe", {})

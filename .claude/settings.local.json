@@ -22,7 +22,8 @@
       "Bash(/tmp/verify_shim_usage.txt:*)",
       "Read(//tmp/**)",
       "Bash(python:*)",
-      "Bash(npx ng:*)"
+      "Bash(npx ng:*)",
+      "Bash(wc:*)"
     ]
   }
 }

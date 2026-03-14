@@ -105,8 +105,7 @@ from app.transport.runtime_wiring import (
     state_store,
     subrun_lane,
 )
-from app.workflows import handlers as workflow_handlers
-from app.workflows import recipe_handlers
+from app.recipes import recipe_handlers
 from app.transport.routers.recipes import build_control_recipes_router
 from app.transport.ws_handler import WsHandlerDependencies
 
@@ -206,12 +205,6 @@ def register_all_routers(app: FastAPI) -> None:
         sessions_get_handler=session_handlers.api_control_sessions_get,
         sessions_patch_handler=session_handlers.api_control_sessions_patch,
         sessions_reset_handler=session_handlers.api_control_sessions_reset,
-        workflows_list_handler=workflow_handlers.api_control_workflows_list,
-        workflows_get_handler=workflow_handlers.api_control_workflows_get,
-        workflows_create_handler=workflow_handlers.api_control_workflows_create,
-        workflows_update_handler=workflow_handlers.api_control_workflows_update,
-        workflows_execute_handler=workflow_handlers.api_control_workflows_execute,
-        workflows_delete_handler=workflow_handlers.api_control_workflows_delete,
         tools_catalog_handler=tools_handlers.api_control_tools_catalog,
         tools_profile_handler=tools_handlers.api_control_tools_profile,
         tools_policy_matrix_handler=tools_handlers.api_control_tools_policy_matrix,
@@ -343,10 +336,6 @@ def register_all_routers(app: FastAPI) -> None:
     # --- File Uploads ---
     app.include_router(build_uploads_router())
 
-    # --- Webhook Triggers ---
-    from app.transport.routers.webhooks import build_webhooks_router
-    app.include_router(build_webhooks_router())
-
     # --- Recipe Router ---
     app.include_router(
         build_control_recipes_router(
@@ -358,6 +347,6 @@ def register_all_routers(app: FastAPI) -> None:
             recipes_validate_handler=recipe_handlers.api_control_recipes_validate,
             recipes_execute_handler=recipe_handlers.api_control_recipes_execute,
             recipes_resume_handler=recipe_handlers.api_control_recipes_resume,
-            recipes_migrate_handler=recipe_handlers.api_control_recipes_migrate,
+            recipes_migrate_handler=None,
         )
     )

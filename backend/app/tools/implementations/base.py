@@ -4,7 +4,6 @@ This is the single entry point used by AgentRunner.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import threading
@@ -31,7 +30,6 @@ from app.tools.implementations.shell import (
 from app.tools.implementations.web import WebToolMixin
 from app.tools.implementations.agent_management import AgentManagementToolMixin
 from app.tools.implementations.recipe_tools import RecipeToolMixin
-from app.tools.implementations.workflow import WorkflowToolMixin
 
 # Re-export for backward compat
 __all__ = [
@@ -51,7 +49,6 @@ class AgentTooling(
     ApiConnectorToolMixin,
     MultimodalToolMixin,
     DevOpsToolMixin,
-    WorkflowToolMixin,
     AgentManagementToolMixin,
     RecipeToolMixin,
 ):
@@ -140,22 +137,3 @@ class AgentTooling(
         }
         return ok, details
 
-    def create_workflow(
-        self,
-        name: str,
-        description: str,
-        steps: str | list,
-        base_agent_id: str | None = None,
-    ) -> str:
-        """DEPRECATED — use create_recipe instead."""
-        return json.dumps({
-            "status": "deprecated",
-            "message": "create_workflow is deprecated. Use create_recipe instead.",
-        }, ensure_ascii=False)
-
-    def delete_workflow(self, workflow_id: str) -> str:
-        """DEPRECATED — workflows are now managed as recipes."""
-        return json.dumps({
-            "status": "deprecated",
-            "message": "delete_workflow is deprecated. Workflows have been replaced by recipes.",
-        }, ensure_ascii=False)

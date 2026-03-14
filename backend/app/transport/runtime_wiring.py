@@ -122,12 +122,6 @@ def _startup_sequence() -> None:
     init_tool_config_store(persist_path=_tool_cfg_path)
     logger.info("tool_config_store_initialized persist_path=%s", _tool_cfg_path)
 
-    # R3b+R3c: Initialize SQLite workflow stores (definitions + runs + audit)
-    from app.workflows.store import init_workflow_sqlite_stores
-    _workflow_db_path = Path(settings.workspace_root) / "workflow_store.sqlite3"
-    init_workflow_sqlite_stores(db_path=_workflow_db_path)
-    logger.info("workflow_sqlite_stores_initialized db_path=%s", _workflow_db_path)
-
     # R4: Initialize ConnectorStore and CredentialStore
     _connector_cfg_path = Path(settings.workspace_root) / "connectors.json"
     _connector_cred_path = Path(settings.workspace_root) / "connector_credentials.json"
@@ -159,8 +153,8 @@ def _startup_sequence() -> None:
         ensure_runtime_components_initialized=_ensure_runtime_components_initialized,
     )
 
-    # Start workflow scheduler for cron-based triggers
-    from app.workflows.scheduler import start_workflow_scheduler
+    # Start recipe scheduler for cron-based triggers
+    from app.recipes.scheduler import start_workflow_scheduler
     try:
         start_workflow_scheduler()
     except Exception:
@@ -169,7 +163,7 @@ def _startup_sequence() -> None:
 
 def _shutdown_sequence() -> None:
     # Stop workflow scheduler
-    from app.workflows.scheduler import stop_workflow_scheduler
+    from app.recipes.scheduler import stop_workflow_scheduler
     stop_workflow_scheduler()
 
     # Persist model health snapshots before shutdown

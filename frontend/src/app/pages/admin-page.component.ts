@@ -14,13 +14,9 @@ import {
 } from '../services/agents.service';
 import { PolicyService, PolicyDefinition, PolicyCreatePayload } from '../services/policy.service';
 
-// Stub types — WorkflowService has been removed (workflows replaced by recipes)
-type WorkflowDefinition = { id: string; name: string; description?: string; base_agent_id?: string; steps?: string[]; tool_policy?: any };
-type WorkflowCreatePayload = { name: string; description?: string; base_agent_id?: string; steps?: string[]; tool_policy?: any };
-type WorkflowUpdatePayload = { id: string; name?: string; description?: string; base_agent_id?: string; steps?: string[] };
 import { ToolPolicyPayload } from '../services/agent-socket.service';
 
-type AdminTab = 'agents' | 'workflows' | 'policies' | 'tools' | 'skills' | 'settings';
+type AdminTab = 'agents' | 'policies' | 'tools' | 'skills' | 'settings';
 type CustomVisionMode = 'inherit' | 'allow' | 'deny';
 
 @Component({
@@ -48,19 +44,6 @@ export class AdminPageComponent implements OnInit, OnDestroy {
   newToolDenyInput = '';
   newVisionMode: CustomVisionMode = 'inherit';
   agentBusy = false;
-
-  // --- Workflows ---
-  workflows: WorkflowDefinition[] = [];
-  editingWorkflowId: string | null = null;
-  editWorkflow: Partial<WorkflowDefinition> = {};
-  newWfName = '';
-  newWfDescription = '';
-  newWfBaseAgent = 'head-agent';
-  newWfStepsText = '';
-  newWfToolAllow = '';
-  newWfToolDeny = '';
-  workflowBusy = false;
-  workflowRunResult: string | null = null;
 
   // --- Policies ---
   policies: PolicyDefinition[] = [];
@@ -239,18 +222,6 @@ export class AdminPageComponent implements OnInit, OnDestroy {
     this.newToolDenyInput = '';
     this.newVisionMode = 'inherit';
   }
-
-  // ─── Workflows (deprecated — replaced by recipes) ────
-  // Stub methods kept for template compatibility
-  createWorkflow(): void {}
-  startWorkflowEdit(_wf: WorkflowDefinition): void {}
-  cancelWorkflowEdit(): void { this.editingWorkflowId = null; this.editWorkflow = {}; }
-  saveWorkflowEdit(): void {}
-  deleteWorkflow(_id: string): void {}
-  executeWorkflow(_id: string): void {}
-
-  get editWfStepsText(): string { return ''; }
-  set editWfStepsText(_value: string) {}
 
   // ─── Policies ────────────────────────────────────────
   private loadPolicies(): void {

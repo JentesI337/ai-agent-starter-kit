@@ -107,7 +107,7 @@ def build_control_recipes_router(
             body = b""
 
         try:
-            from app.workflows.recipe_store import get_recipe_run_store
+            from app.recipes.recipe_store import get_recipe_run_store
             store = get_recipe_run_store()
         except RuntimeError:
             raise HTTPException(status_code=503, detail="Recipe system not ready") from None
@@ -151,7 +151,7 @@ def build_control_recipes_router(
     @router.post("/api/control/recipes.runs.list")
     async def control_recipes_runs_list(request: JsonDict = Body(...)):
         try:
-            from app.workflows.recipe_store import get_recipe_run_store
+            from app.recipes.recipe_store import get_recipe_run_store
             store = get_recipe_run_store()
         except RuntimeError:
             return {"schema": "recipes.runs.list.v1", "items": [], "count": 0}
@@ -164,7 +164,7 @@ def build_control_recipes_router(
     @router.post("/api/control/recipes.runs.get")
     async def control_recipes_runs_get(request: JsonDict = Body(...)):
         try:
-            from app.workflows.recipe_store import get_recipe_run_store
+            from app.recipes.recipe_store import get_recipe_run_store
             store = get_recipe_run_store()
         except RuntimeError:
             return {"error": "Recipe run store not initialized"}
@@ -185,7 +185,7 @@ def build_control_recipes_router(
     ):
         """SSE endpoint for real-time recipe execution progress."""
         try:
-            from app.workflows.recipe_store import get_recipe_run_store
+            from app.recipes.recipe_store import get_recipe_run_store
             store = get_recipe_run_store()
         except RuntimeError:
             async def _error():

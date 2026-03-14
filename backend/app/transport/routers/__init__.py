@@ -26,11 +26,6 @@ from app.transport.routers.tools import (
     build_control_tool_config_router,
     build_control_tools_router,
 )
-from app.transport.routers.workflows import (
-    build_control_workflows_router,
-)
-
-
 def include_all_routers(
     app: FastAPI,
     *,
@@ -54,12 +49,6 @@ def include_all_routers(
     sessions_get_handler,
     sessions_patch_handler,
     sessions_reset_handler,
-    workflows_list_handler,
-    workflows_get_handler,
-    workflows_create_handler,
-    workflows_update_handler,
-    workflows_execute_handler,
-    workflows_delete_handler,
     tools_catalog_handler,
     tools_profile_handler,
     tools_policy_matrix_handler,
@@ -146,17 +135,6 @@ def include_all_routers(
             sessions_get_handler=sessions_get_handler,
             sessions_patch_handler=sessions_patch_handler,
             sessions_reset_handler=sessions_reset_handler,
-        )
-    )
-
-    app.include_router(
-        build_control_workflows_router(
-            workflows_list_handler=workflows_list_handler,
-            workflows_get_handler=workflows_get_handler,
-            workflows_create_handler=workflows_create_handler,
-            workflows_update_handler=workflows_update_handler,
-            workflows_execute_handler=workflows_execute_handler,
-            workflows_delete_handler=workflows_delete_handler,
         )
     )
 

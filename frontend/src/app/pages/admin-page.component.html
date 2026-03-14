@@ -3,7 +3,6 @@
     <h1>Administration</h1>
     <nav class="tab-bar">
       <button [class.active]="activeTab === 'agents'" (click)="switchTab('agents')">Agents</button>
-      <button [class.active]="activeTab === 'workflows'" (click)="switchTab('workflows')">Workflows</button>
       <button [class.active]="activeTab === 'policies'" (click)="switchTab('policies')">Policies</button>
       <button [class.active]="activeTab === 'tools'" (click)="switchTab('tools')">Tools</button>
       <button [class.active]="activeTab === 'skills'" (click)="switchTab('skills')">Skills</button>
@@ -95,71 +94,6 @@
       </label>
       <button (click)="createAgent()" [disabled]="agentBusy || !newAgentName.trim()">
         {{ agentBusy ? 'Creating...' : 'Create Agent' }}
-      </button>
-    </div>
-  </div>
-
-  <!-- ═══════ WORKFLOWS ═══════ -->
-  <div class="tab-content" *ngIf="activeTab === 'workflows'">
-    <h2>Workflows</h2>
-    <p class="hint" *ngIf="workflowRunResult">{{ workflowRunResult }}</p>
-
-    <div class="card-grid">
-      <div class="card" *ngFor="let wf of workflows">
-        <ng-container *ngIf="editingWorkflowId !== wf.id; else wfEditTpl">
-          <div class="card-header">
-            <strong>{{ wf.name || wf.id }}</strong>
-            <span class="badge">{{ wf.base_agent_id || 'head-agent' }}</span>
-          </div>
-          <div class="card-body">
-            <p class="description" *ngIf="wf.description">{{ wf.description }}</p>
-            <div class="meta">Steps: {{ wf.steps?.length ?? 0 }}</div>
-          </div>
-          <div class="card-actions">
-            <button class="small" (click)="startWorkflowEdit(wf)" [disabled]="workflowBusy">Edit</button>
-            <button class="small accent" (click)="executeWorkflow(wf.id)" [disabled]="workflowBusy">Run</button>
-            <button class="small danger" (click)="deleteWorkflow(wf.id)" [disabled]="workflowBusy">Delete</button>
-          </div>
-        </ng-container>
-        <ng-template #wfEditTpl>
-          <div class="card-body edit-form">
-            <label>Name <input [(ngModel)]="editWorkflow.name" /></label>
-            <label>Description <input [(ngModel)]="editWorkflow.description" /></label>
-            <label>Base Agent
-              <select [(ngModel)]="editWorkflow.base_agent_id">
-                <option value="head-agent">head-agent</option>
-                <option value="coder-agent">coder-agent</option>
-              </select>
-            </label>
-            <label>Steps
-              <textarea rows="4" [(ngModel)]="editWfStepsText"></textarea>
-            </label>
-          </div>
-          <div class="card-actions">
-            <button class="small accent" (click)="saveWorkflowEdit()" [disabled]="workflowBusy">Save</button>
-            <button class="small" (click)="cancelWorkflowEdit()">Cancel</button>
-          </div>
-        </ng-template>
-      </div>
-    </div>
-
-    <h3>Create Workflow</h3>
-    <div class="create-form">
-      <label>Name <input [(ngModel)]="newWfName" placeholder="My Workflow" [disabled]="workflowBusy" /></label>
-      <label>Description <input [(ngModel)]="newWfDescription" placeholder="Purpose" [disabled]="workflowBusy" /></label>
-      <label>Base Agent
-        <select [(ngModel)]="newWfBaseAgent" [disabled]="workflowBusy">
-          <option value="head-agent">head-agent</option>
-          <option value="coder-agent">coder-agent</option>
-        </select>
-      </label>
-      <label>Tool Allow (CSV) <input [(ngModel)]="newWfToolAllow" placeholder="read_file" [disabled]="workflowBusy" /></label>
-      <label>Tool Deny (CSV) <input [(ngModel)]="newWfToolDeny" placeholder="run_command" [disabled]="workflowBusy" /></label>
-      <label>Steps
-        <textarea rows="4" [(ngModel)]="newWfStepsText" placeholder="Step 1&#10;Step 2" [disabled]="workflowBusy"></textarea>
-      </label>
-      <button (click)="createWorkflow()" [disabled]="workflowBusy || !newWfName.trim()">
-        {{ workflowBusy ? 'Creating...' : 'Create Workflow' }}
       </button>
     </div>
   </div>

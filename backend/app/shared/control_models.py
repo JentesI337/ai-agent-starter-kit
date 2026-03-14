@@ -168,60 +168,6 @@ class ControlSkillDeleteRequest(BaseModel):
     skills_dir: str | None = None
 
 
-class ControlWorkflowsListRequest(BaseModel):
-    limit: int = 100
-    base_agent_id: str | None = None
-
-
-class ControlWorkflowsGetRequest(BaseModel):
-    workflow_id: str
-
-
-class ControlWorkflowsCreateRequest(BaseModel):
-    id: str | None = None
-    name: str
-    description: str = ""
-    base_agent_id: str | None = None
-    steps: list[str] = Field(default_factory=list)
-    execution_mode: str | None = None
-    workflow_graph: dict | None = None
-    tool_policy: ToolPolicyPayload | None = None
-    allow_subrun_delegation: bool = False
-    triggers: list[dict] | None = None
-    idempotency_key: str | None = None
-
-
-class ControlWorkflowsUpdateRequest(BaseModel):
-    id: str
-    name: str | None = None
-    description: str | None = None
-    base_agent_id: str | None = None
-    steps: list[str] | None = None
-    execution_mode: str | None = None
-    workflow_graph: dict | None = None
-    tool_policy: ToolPolicyPayload | None = None
-    allow_subrun_delegation: bool | None = None
-    triggers: list[dict] | None = None
-    idempotency_key: str | None = None
-
-
-class ControlWorkflowsExecuteRequest(BaseModel):
-    workflow_id: str
-    message: str
-    session_id: str | None = None
-    model: str | None = None
-    preset: str | None = None
-    queue_mode: str | None = None
-    prompt_mode: str | None = None
-    tool_policy: ToolPolicyPayload | None = None
-    idempotency_key: str | None = None
-
-
-class ControlWorkflowsDeleteRequest(BaseModel):
-    workflow_id: str
-    idempotency_key: str | None = None
-
-
 class ControlRunsGetRequest(BaseModel):
     run_id: str
 

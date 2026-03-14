@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.workflows.recipe_models import (
+from app.recipes.recipe_models import (
     BudgetSnapshot,
     CheckpointResult,
     RecipeCheckpoint,

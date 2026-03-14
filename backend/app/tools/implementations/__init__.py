@@ -10,7 +10,6 @@ __all__ = [
     "MultimodalToolMixin",
     "ShellToolMixin",
     "WebToolMixin",
-    "WorkflowToolMixin",
     "find_command_safety_violation",
     "find_semantic_command_safety_violation",
 ]
@@ -60,7 +59,4 @@ def __getattr__(name):
     if name == "DevOpsToolMixin":
         from app.tools.implementations.devops import DevOpsToolMixin
         return DevOpsToolMixin
-    if name == "WorkflowToolMixin":
-        from app.tools.implementations.workflow import WorkflowToolMixin
-        return WorkflowToolMixin
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

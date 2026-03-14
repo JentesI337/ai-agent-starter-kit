@@ -17,7 +17,7 @@ def evaluate_assert(expression: str, context: dict[str, Any]) -> tuple[bool, str
 
     Returns (passed, explanation).
     """
-    from app.workflows.transforms import evaluate_condition
+    from app.recipes.transforms import evaluate_condition
 
     try:
         result = evaluate_condition(expression, context)

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from app.workflows.recipe_models import (
+from app.recipes.recipe_models import (
     BudgetSnapshot,
     CheckpointResult,
     RecipeDef,
@@ -27,8 +27,8 @@ from app.workflows.recipe_models import (
     RecipeRunState,
     StrictStepResult,
 )
-from app.workflows.recipe_store import SqliteRecipeRunStore, SqliteRecipeStore
-from app.workflows.transforms import resolve_params, resolve_templates
+from app.recipes.recipe_store import SqliteRecipeRunStore, SqliteRecipeStore
+from app.recipes.transforms import resolve_params, resolve_templates
 
 logger = logging.getLogger(__name__)
 
